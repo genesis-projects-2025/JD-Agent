@@ -1,7 +1,5 @@
-"use client";
-
-import { QueryClientProvider } from "@tanstack/react-query";
-import { queryClient } from "@/lib/query-client";
+import "./globals.css";
+import Sidebar from "@/components/layout/sidebar";
 
 export default function RootLayout({
   children,
@@ -9,11 +7,10 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html>
-      <body>
-        <QueryClientProvider client={queryClient}>
-          {children}
-        </QueryClientProvider>
+    <html lang="en">
+      <body className="flex">
+        <Sidebar />
+        <main className="flex-1 p-6">{children}</main>
       </body>
     </html>
   );

@@ -1,20 +1,5 @@
-"use client";
+import { redirect } from "next/navigation";
 
-import { useEffect, useState } from "react";
-import { api } from "@/lib/api";
-
-export default function Home() {
-  const [status, setStatus] = useState("");
-
-  useEffect(() => {
-    api.get("/").then((res) => {
-      setStatus(res.data.status);
-    });
-  }, []);
-
-  return (
-    <div className="p-10">
-      <h1 className="text-xl font-bold">Backend Status: {status}</h1>
-    </div>
-  );
+export default function HomePage() {
+  redirect("/dashboard");
 }

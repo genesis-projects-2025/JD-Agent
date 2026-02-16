@@ -1,0 +1,9 @@
+fastapi
+uvicorn
+python-dotenv
+SQLAlchemy
+psycopg2-binary
+alembic
+httpx
+groq
+pinecone-client

@@ -7,16 +7,14 @@ export default function Home() {
   const [status, setStatus] = useState("");
 
   useEffect(() => {
-    api.get("/health").then((res) => {
+    api.get("/").then((res) => {
       setStatus(res.data.status);
     });
   }, []);
 
   return (
     <div className="p-10">
-      <h1 className="text-xl font-bold">
-        Backend Status: {status}
-      </h1>
+      <h1 className="text-xl font-bold">Backend Status: {status}</h1>
     </div>
   );
 }

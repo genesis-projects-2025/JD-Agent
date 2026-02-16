@@ -7,8 +7,10 @@ from app.prompts.jd_prompts import SYSTEM_PROMPT, JD_GENERATION_PROMPT, VALIDATI
 # Initialize LangChain Groq
 llm = ChatGroq(
     groq_api_key=GROQ_API_KEY,
-    model_name="llama-3.3-70b-versatile",
-    temperature=0.7
+    model_name="qwen/qwen3-32b",
+    temperature=0.2,
+    # stop=["<think>", "</think>"],
+
 )
 
 def handle_conversation(history, user_message):
@@ -26,7 +28,8 @@ def handle_conversation(history, user_message):
     
     # Get reply from LLM
     response = llm.invoke(msgs)
-    reply = response.content
+    from app.utils.text_utils import strip_reasoning_tags
+    reply = strip_reasoning_tags(response.content)
     
     # Update history
     history.append({"role": "user", "content": user_message})

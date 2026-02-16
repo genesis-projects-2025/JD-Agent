@@ -5,9 +5,13 @@ import { Message } from "../../types/message";
 export default function ChatWindow({
   messages,
   onSkillSelect,
+  onGenerateJD,
+  onContinue,
 }: {
   messages: Message[];
   onSkillSelect?: (selectedSkills: string[]) => void;
+  onGenerateJD?: () => void;
+  onContinue?: () => void;
 }) {
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -27,6 +31,8 @@ export default function ChatWindow({
           key={index}
           message={msg}
           onSkillSelect={onSkillSelect}
+          onGenerateJD={onGenerateJD}
+          onContinue={onContinue}
         />
       ))}
     </div>

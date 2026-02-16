@@ -3,4 +3,5 @@ export type Message = {
   text: string;
   skills?: string[];
   isSkillSelection?: boolean;
+  isReadySelection?: boolean;
 };

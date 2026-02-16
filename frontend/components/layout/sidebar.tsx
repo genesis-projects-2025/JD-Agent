@@ -9,7 +9,7 @@ export default function Sidebar() {
   const links = [
     { name: "Dashboard", href: "/dashboard" },
     { name: "JD Interview", href: "/questionnaire" },
-    { name: "Approvals", href: "/aprovals" },
+    { name: "Approvals", href: "/approvals" },
   ];
 
   return (

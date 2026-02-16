@@ -5,11 +5,18 @@ import MessageInput from "@/components/chat/message-input";
 import { useChat } from "@/hooks/useChat";
 
 export default function InterviewPage() {
-  const { messages, sendMessage, jd, isGenerating } = useChat();
+  const { messages, sendMessage, jd, isGenerating, handleGenerateJD } =
+    useChat();
 
   const handleSkillSelection = (selectedSkills: string[]) => {
     const formattedMessage = `I have selected the following skills: ${selectedSkills.join(", ")}`;
     sendMessage(formattedMessage);
+  };
+
+  const handleContinueInterview = () => {
+    sendMessage(
+      "I have more information to add to the Job Description. Let's continue.",
+    );
   };
 
   return (
@@ -45,6 +52,8 @@ export default function InterviewPage() {
             <ChatWindow
               messages={messages}
               onSkillSelect={handleSkillSelection}
+              onGenerateJD={handleGenerateJD}
+              onContinue={handleContinueInterview}
             />
             <div className="mt-4">
               <MessageInput onSend={sendMessage} />

@@ -1,22 +1,22 @@
 from pydantic import BaseModel, Field
-from typing import List, Dict, Optional, Literal
+from typing import List, Dict, Optional, Literal, Union
 
 class EmployeeRoleInsights(BaseModel):
     identity_context: Dict = Field(default_factory=dict)
     daily_activities: List[str] = Field(default_factory=list)
-    work_execution_methods: List[str] = Field(default_factory=list)
-    tools_and_systems: List[str] = Field(default_factory=list)
-    collaboration_patterns: Dict = Field(default_factory=dict)
+    execution_processes: List[str] = Field(default_factory=list)
+    tools_and_platforms: List[str] = Field(default_factory=list)
+    team_collaboration: Dict = Field(default_factory=dict)
     stakeholder_interactions: Dict = Field(default_factory=dict)
     decision_authority: Dict = Field(default_factory=dict)
-    performance_measurements: List[str] = Field(default_factory=list)
+    performance_metrics: List[str] = Field(default_factory=list)
     work_environment: Dict = Field(default_factory=dict)
     special_contributions: List[str] = Field(default_factory=list)
 
 class JDStructuredData(BaseModel):
     # Keeping this flexible as it's the final derived output
     employee_information: Dict = Field(default_factory=dict)
-    role_summary: Dict = Field(default_factory=dict)
+    role_summary: Union[str, Dict] = Field(default_factory=dict)
     key_responsibilities: List[str] = Field(default_factory=list)
     required_skills: List[str] = Field(default_factory=list)
     tools_and_technologies: List[str] = Field(default_factory=list)

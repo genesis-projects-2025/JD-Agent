@@ -23,7 +23,7 @@ def chat(request: ChatRequest):
     # but the requirement says "The agent must ensure jd_structured_data is... Machine readable".
     # The existing frontend expects { "reply": string, "history": [] }.
     # We stick to that contract for the *wrapper*, but the `reply` content itself is now a JSON string.
-    
+    print(reply,updated_history)
     return {
         "reply": reply,
         "history": updated_history

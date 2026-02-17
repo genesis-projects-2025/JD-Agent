@@ -14,12 +14,12 @@ export interface JDStructuredData {
 export interface EmployeeRoleInsights {
   identity_context: Record<string, any>;
   daily_activities: string[];
-  work_execution_methods: string[];
-  tools_and_systems: string[];
-  collaboration_patterns: Record<string, any>;
+  execution_processes: string[];
+  tools_and_platforms: string[];
+  team_collaboration: Record<string, any>;
   stakeholder_interactions: Record<string, any>;
   decision_authority: Record<string, any>;
-  performance_measurements: string[];
+  performance_metrics: string[];
   work_environment: Record<string, any>;
   special_contributions: string[];
 }

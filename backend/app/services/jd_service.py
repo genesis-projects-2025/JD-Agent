@@ -8,6 +8,8 @@ from app.prompts.jd_prompts import SYSTEM_PROMPT
 from app.schemas.jd_schema import ChatResponse
 from app.utils.text_utils import strip_reasoning_tags
 import groq
+from app.services.context_builder import build_context
+from app.memory.session_memory import SessionMemory
 
 # Initialize LangChain Groq
 llm = ChatGroq(
@@ -15,72 +17,97 @@ llm = ChatGroq(
     model_name="qwen/qwen3-32b",
     temperature=0.2,
 )
+session_memory = SessionMemory()
+def update_summary(memory):
+
+    if len(memory.recent_messages) >= 4:
+        memory.summary = "Conversation collected employee role responsibilities, tools, and workflow insights."
+
 
 def handle_conversation(history, user_message):
-    """Handles the chat flow using logic to enforce strict JSON output."""
+    print("\n" + "="*50)
+    print("🚀 STARTING NEW TURN")
+    print("="*50)
     
     # Simulation for Testing Rate Limit UI
     if user_message == "TEST_RATE_LIMIT":
+        print("⚠️ Simulating Rate Limit 429")
         raise HTTPException(status_code=429, detail="Rate limit exceeded (Simulation)")
 
-    # Construct messages for LangChain
-    # We prepend the System Prompt which helps enforce JSON output
-    msgs = [SystemMessage(content=SYSTEM_PROMPT)]
-    for m in history:
-        if m["role"] == "user":
-            msgs.append(HumanMessage(content=m["content"]))
-        else:
-            # We need to make sure previous assistant messages are also treated correctly.
-            # If they were JSON strings, we pass them as is.
-            msgs.append(AIMessage(content=m["content"]))
+    # 1. Build Context
+    print("\n🔍 BUILDING CONTEXT...")
+    msgs = build_context(session_memory, user_message)
     
-    msgs.append(HumanMessage(content=user_message))
-    
+    # Debug Log: Configured Context
+    print(f"   -> System Prompt Included: Yes")
+    print(f"   -> Insights Count: {len(session_memory.insights)}")
+    print(f"   -> Recent Messages: {len(session_memory.recent_messages)}")
+    print(f"   -> Current User Message: {user_message}")
+
     try:
-        # Get reply from LLM
+        # 2. Invoke LLM
+        print("\n🤖 INVOKING LLM...")
         response = llm.invoke(msgs)
         content = strip_reasoning_tags(response.content)
+        print("   -> LLM Response Received (Raw Length):", len(content))
+
     except Exception as e:
-        # Check if it's a rate limit error from Groq
         error_str = str(e).lower()
+        print(f"❌ LLM INVOCATION ERROR: {e}")
+
         if "rate limit" in error_str or "429" in error_str or isinstance(e, groq.RateLimitError):
             raise HTTPException(status_code=429, detail="Rate limit exceeded")
-        
-        print(f"Error invoking LLM: {e}")
-        # For other LLM errors, we might want to return the fallback or raise 500.
-        # Let's use the fallback logic below by setting content to None or raising to be caught by the outer/next try?
-        # Actually, let's just return a generic error if it fails badly, 
-        # BUT we must respect the 429 if it was a rate limit.
+
         raise HTTPException(status_code=500, detail="Internal LLM Error")
 
-    # Attempt to parse JSON to validation against Schema
+    # 3. Process Response
     try:
-        # cleanup markdown code blocks if present (despite prompt instructions)
+        print("\n🧩 PARSING & UPDATING MEMORY...")
         cleaned_content = content.strip()
+
         if cleaned_content.startswith("```json"):
             cleaned_content = cleaned_content[7:]
+
         if cleaned_content.endswith("```"):
             cleaned_content = cleaned_content[:-3]
+
         cleaned_content = cleaned_content.strip()
+        
+        # Debug: Print first 100 chars of cleaned content
+        print(f"   -> Cleaned Content Preview: {cleaned_content[:100]}...")
 
         parsed_json = json.loads(cleaned_content)
-        # Validate with Pydantic
         validated_response = ChatResponse(**parsed_json)
-        
-        # We store the *raw JSON string* in history to keep context for the LLM
-        # The LLM is good at reading its own JSON output in history.
+
+        # Update Memory
+        session_memory.insights.update(
+            parsed_json.get("employee_role_insights", {})
+        )
+        print(f"   -> Updated Insights: {list(parsed_json.get('employee_role_insights', {}).keys())}")
+
+        session_memory.progress = parsed_json.get(
+            "progress",
+            session_memory.progress
+        )
+        print(f"   -> Updated Progress: {session_memory.progress.get('completion_percentage', 0)}%")
+
+        session_memory.update_recent("user", user_message)
+        session_memory.update_recent("assistant", cleaned_content)
+
+        update_summary(session_memory)
+        print("   -> Memory Updated Successfully")
+
         reply_content = cleaned_content
-        
-    except (json.JSONDecodeError, Exception) as e:
-        print(f"Error parsing JSON from LLM: {e}")
-        # Fallback or Error handling. 
-        # For now, we will try to construct a valid error response or just pass the raw text if it failed totally.
-        # But per requirements we MUST return strict JSON.
-        # Let's construct a fallback object.
+
+    except Exception as e:
+        print(f"⚠️ JSON PARSING ERROR: {e}")
+        print("   -> Triggering Fallback Response")
+        print(f"   -> FAILED CONTENT DUMP: {content}")
+
         fallback = ChatResponse(
-            conversation_response="I encountered an error processing your request. Could you please repeat that?",
-            progress={"completion_percentage": 0, "missing_insight_areas": [], "status": "collecting"},
-            employee_role_insights={},
+            conversation_response="I encountered an error generating the response. Retrying...",
+            progress=session_memory.progress,
+            employee_role_insights=session_memory.insights,
             jd_structured_data={},
             jd_text_format="",
             analytics={"questions_asked": 0, "questions_answered": 0, "insights_collected": 0, "estimated_completion_time_minutes": 0},
@@ -88,9 +115,12 @@ def handle_conversation(history, user_message):
         )
         reply_content = fallback.model_dump_json()
 
-    # Update history
+    # Update history (For UI consistency)
     history.append({"role": "user", "content": user_message})
     history.append({"role": "assistant", "content": reply_content})
+    
+    print("\n✅ TURN COMPLETED")
+    print("="*50 + "\n")
     
     return reply_content, history
 

@@ -10,3 +10,4 @@ pinecone-client
 langchain
 langchain-groq
 langchain-core
+pydantic

@@ -22,7 +22,7 @@ export default function ChatWindow({
     if (scrollRef.current) {
       scrollRef.current.scrollTo({
         top: scrollRef.current.scrollHeight,
-        behavior: 'smooth'
+        behavior: "smooth",
       });
     }
   }, [messages]);
@@ -37,11 +37,15 @@ export default function ChatWindow({
               <Sparkles className="w-5 h-5 text-white" />
             </div>
             <div>
-              <h3 className="font-semibold text-neutral-900">AI Interview Assistant</h3>
-              <p className="text-sm text-neutral-600">Powered by Claude Sonnet</p>
+              <h3 className="font-semibold text-neutral-900">
+                AI Interview Assistant
+              </h3>
+              <p className="text-sm text-neutral-600">
+                Powered by Claude Sonnet
+              </p>
             </div>
           </div>
-          
+
           {/* Message Counter */}
           <div className="flex items-center gap-2 px-3 py-1.5 bg-white rounded-lg border border-primary-200 shadow-sm">
             <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
@@ -55,12 +59,16 @@ export default function ChatWindow({
         <div className="mt-3">
           <div className="flex items-center justify-between text-xs text-neutral-600 mb-1.5">
             <span>Interview Progress</span>
-            <span>{Math.min(Math.round((messages.length / 20) * 100), 100)}%</span>
+            <span>
+              {Math.min(Math.round((messages.length / 20) * 100), 100)}%
+            </span>
           </div>
           <div className="h-1.5 bg-neutral-200 rounded-full overflow-hidden">
-            <div 
+            <div
               className="h-full bg-gradient-to-r from-primary-500 to-primary-600 rounded-full transition-all duration-500"
-              style={{ width: `${Math.min((messages.length / 20) * 100, 100)}%` }}
+              style={{
+                width: `${Math.min((messages.length / 20) * 100, 100)}%`,
+              }}
             />
           </div>
         </div>
@@ -75,13 +83,14 @@ export default function ChatWindow({
           <div className="flex items-center justify-center h-full">
             <div className="text-center max-w-md">
               <div className="w-16 h-16 bg-gradient-to-br from-primary-100 to-primary-200 rounded-2xl flex items-center justify-center mx-auto mb-4">
-                <MessageSquare className="w-8 h-8 text-primary-600" />
+                <MessageSquare className="w-8 h-8 text-black" />
               </div>
               <h3 className="text-lg font-semibold text-neutral-900 mb-2">
                 Ready to start?
               </h3>
               <p className="text-sm text-neutral-600">
-                I'll ask you questions about your role to create the perfect job description.
+                I'll ask you questions about your role to create the perfect job
+                description.
               </p>
             </div>
           </div>

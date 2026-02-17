@@ -17,10 +17,10 @@ export default function MessageBubble({
 }) {
   const isAgent = message.sender === "agent";
   const [availableSkills, setAvailableSkills] = useState<string[]>(
-    message.skills || []
+    message.skills || [],
   );
   const [selectedSkills, setSelectedSkills] = useState<string[]>(
-    message.skills || []
+    message.skills || [],
   );
   const [newSkill, setNewSkill] = useState("");
   const [isConfirmed, setIsConfirmed] = useState(false);
@@ -29,9 +29,7 @@ export default function MessageBubble({
   const toggleSkill = (skill: string) => {
     if (isConfirmed) return;
     setSelectedSkills((prev) =>
-      prev.includes(skill) 
-        ? prev.filter((s) => s !== skill) 
-        : [...prev, skill]
+      prev.includes(skill) ? prev.filter((s) => s !== skill) : [...prev, skill],
     );
   };
 
@@ -66,16 +64,16 @@ export default function MessageBubble({
       )}
 
       {/* Message Content */}
-      <div className={`max-w-[75%] ${!isAgent && 'flex flex-col items-end'}`}>
+      <div className={`max-w-[75%] ${!isAgent && "flex flex-col items-end"}`}>
         {/* Message Bubble */}
         <div
           className={`px-5 py-4 rounded-2xl shadow-lg ${
             isAgent
-              ? "bg-white text-neutral-800 rounded-tl-none border border-neutral-200"
-              : "bg-gradient-to-br from-primary-600 to-primary-700 text-white rounded-tr-none shadow-primary-900/20"
+              ? "bg-white text-black rounded-tl-none border border-neutral-200"
+              : "bg-gradient-to-br from-primary-600 to-primary-700 text-black rounded-tr-none shadow-primary-900/20"
           }`}
         >
-          <p className="text-[15px] leading-relaxed whitespace-pre-wrap">
+          <p className="text-[15px] leading-relaxed whitespace-pre-wrap text-pink-400">
             {message.text}
           </p>
 
@@ -94,9 +92,10 @@ export default function MessageBubble({
                       className={`
                         group relative px-4 py-2.5 rounded-xl text-sm font-medium
                         transition-all duration-200 
-                        ${isSelected
-                          ? "bg-gradient-to-r from-primary-600 to-primary-700 text-white shadow-lg shadow-primary-900/20 scale-105"
-                          : "bg-neutral-100 text-neutral-700 hover:bg-neutral-200 border border-neutral-200"
+                        ${
+                          isSelected
+                            ? "bg-gradient-to-r from-primary-600 to-primary-700 text-blue-700 shadow-lg shadow-primary-900/20 scale-105"
+                            : "bg-neutral-100 text-black hover:bg-neutral-200 border border-neutral-200"
                         }
                         ${isConfirmed ? "opacity-70 cursor-not-allowed" : "active:scale-95"}
                       `}
@@ -137,7 +136,7 @@ export default function MessageBubble({
                   <button
                     onClick={handleConfirm}
                     disabled={selectedSkills.length === 0}
-                    className="w-full py-3.5 bg-gradient-to-r from-primary-600 to-primary-700 text-white rounded-xl text-sm font-semibold hover:from-primary-700 hover:to-primary-800 transition-all shadow-lg shadow-primary-900/20 active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                    className="w-full py-3.5 bg-gradient-to-r from-primary-600 to-primary-700 text-black rounded-xl text-sm font-semibold hover:from-primary-700 hover:to-primary-800 transition-all shadow-lg shadow-primary-900/20 active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                   >
                     <Check className="w-4 h-4" />
                     Confirm Skills ({selectedSkills.length})
@@ -165,7 +164,7 @@ export default function MessageBubble({
                       setIsReadyActionTaken(true);
                       onGenerateJD?.();
                     }}
-                    className="w-full py-4 bg-gradient-to-r from-primary-600 to-primary-700 text-white rounded-xl text-sm font-semibold hover:from-primary-700 hover:to-primary-800 transition-all shadow-lg shadow-primary-900/20 active:scale-[0.98] flex items-center justify-center gap-2"
+                    className="w-full py-4 bg-gradient-to-r from-primary-600 to-primary-700 text-black rounded-xl text-sm font-semibold hover:from-primary-700 hover:to-primary-800 transition-all shadow-lg shadow-primary-900/20 active:scale-[0.98] flex items-center justify-center gap-2"
                   >
                     <Sparkles className="w-4 h-4" />
                     Generate Job Description
@@ -192,7 +191,9 @@ export default function MessageBubble({
         </div>
 
         {/* Timestamp */}
-        <div className={`mt-1.5 px-1 text-xs text-neutral-400 ${!isAgent && 'text-right'}`}>
+        <div
+          className={`mt-1.5 px-1 text-xs text-neutral-400 ${!isAgent && "text-right"}`}
+        >
           Just now
         </div>
       </div>

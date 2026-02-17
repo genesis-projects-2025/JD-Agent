@@ -60,7 +60,7 @@ export default function MessageBubble({
       {isAgent && (
         <div className="flex-shrink-0">
           <div className="w-10 h-10 bg-gradient-to-br from-primary-500 to-primary-600 rounded-xl flex items-center justify-center shadow-lg ring-2 ring-primary-100">
-            <Bot className="w-5 h-5 text-white" />
+            <Bot className="w-5 h-5 text-black" />
           </div>
         </div>
       )}
@@ -72,7 +72,7 @@ export default function MessageBubble({
           className={`px-5 py-4 rounded-2xl shadow-lg ${
             isAgent
               ? "bg-white text-neutral-800 rounded-tl-none border border-neutral-200"
-              : "bg-gradient-to-br from-primary-600 to-primary-700 text-white rounded-tr-none shadow-primary-900/20"
+              : "bg-gradient-to-br from-primary-600 to-primary-700 text-black rounded-tr-none shadow-primary-900/20"
           }`}
         >
           <p className="text-[15px] leading-relaxed whitespace-pre-wrap">
@@ -192,9 +192,9 @@ export default function MessageBubble({
         </div>
 
         {/* Timestamp */}
-        <div className={`mt-1.5 px-1 text-xs text-neutral-400 ${!isAgent && 'text-right'}`}>
-          Just now
-        </div>
+        {/* <div className={`mt-1.5 px-1 text-xs text-neutral-400 ${!isAgent && 'text-right'}`}>
+          Just now */}
+        {/* </div> */}
       </div>
 
       {/* Avatar (User only) */}

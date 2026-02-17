@@ -46,4 +46,5 @@ def generate_jd(history):
     formatted_prompt = JD_GENERATION_PROMPT.format(conversation_history=conversation_text)
     
     response = llm.invoke([HumanMessage(content=formatted_prompt)])
-    return response.content
+    from app.utils.text_utils import strip_reasoning_tags
+    return strip_reasoning_tags(response.content)

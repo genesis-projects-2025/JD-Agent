@@ -335,6 +335,8 @@ CONVERSATION HISTORY
 --------------------------------------------------
 OUTPUT RULE
 --------------------------------------------------
-Return ONLY the final JD document.
-Do NOT include explanations or additional commentary.
+1. Return ONLY the final JD document.
+2. Do NOT include explanations, reasoning, or additional commentary.
+3. NEVER reveal internal reasoning inside <think> tags.
+4. Output MUST be plain text or markdown JD only.
 """

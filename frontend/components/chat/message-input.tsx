@@ -19,18 +19,18 @@ export default function MessageInput({
   // Auto-resize textarea
   useEffect(() => {
     if (inputRef.current) {
-      inputRef.current.style.height = 'auto';
-      inputRef.current.style.height = inputRef.current.scrollHeight + 'px';
+      inputRef.current.style.height = "auto";
+      inputRef.current.style.height = inputRef.current.scrollHeight + "px";
     }
   }, [value]);
 
   const handleSend = async () => {
     if (!value.trim() || isSending || disabled) return;
-    
+
     setIsSending(true);
     const message = value;
     setValue("");
-    
+
     try {
       await onSend(message);
     } finally {
@@ -59,10 +59,19 @@ export default function MessageInput({
               onKeyDown={handleKeyDown}
               disabled={disabled || isSending}
               rows={1}
+<<<<<<< HEAD
               className="w-full resize-none px-5 py-3.5 pr-12 bg-neutral-50 border-2 border-neutral-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent transition-all text-[15px] text-black placeholder:text-neutral-400 disabled:opacity-50 disabled:cursor-not-allowed max-h-32"
               placeholder={disabled ? "Waiting for response..." : "Type your answer... (Shift + Enter for new line)"}
+=======
+              className="w-full text-black resize-none px-5 py-3.5 pr-12 bg-neutral-50 border-2 border-neutral-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent transition-all text-[15px] placeholder:text-neutral-400 disabled:opacity-50 disabled:cursor-not-allowed max-h-32"
+              placeholder={
+                disabled
+                  ? "Waiting for response..."
+                  : "Type your answer... (Shift + Enter for new line)"
+              }
+>>>>>>> databaseInclude
             />
-            
+
             {/* Character Counter */}
             {value.length > 0 && (
               <div className="absolute bottom-2 right-3 text-xs text-neutral-400">

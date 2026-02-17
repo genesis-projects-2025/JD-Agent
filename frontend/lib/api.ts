@@ -11,5 +11,6 @@ export async function sendMessage(message: string, history: any[]) {
 
 export async function generateJD(history: any[]) {
   const response = await api.post("/jd/generate-jd", { history });
+  console.log(response.data);
   return response.data;
 }

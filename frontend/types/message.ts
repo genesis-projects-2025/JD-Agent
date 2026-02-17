@@ -4,4 +4,5 @@ export type Message = {
   skills?: string[];
   isSkillSelection?: boolean;
   isReadySelection?: boolean;
+  isRateLimitError?: boolean;
 };

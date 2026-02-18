@@ -3,7 +3,7 @@ import { Message } from "../types/message";
 import { sendMessage as apiSendMessage, saveJD as apiSaveJD } from "../lib/api";
 import { JDAgentResponse } from "../types/jd-agent";
 
-export function useChat() {
+export function useChat(onSaveSuccess?: () => void) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [history, setHistory] = useState<any[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);

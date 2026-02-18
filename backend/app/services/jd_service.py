@@ -1,6 +1,7 @@
 # app/services/jd_service.py
 from fastapi import HTTPException
 import json
+import re
 from langchain_groq import ChatGroq
 from langchain_core.messages import HumanMessage, SystemMessage
 from app.core.config import settings
@@ -26,15 +27,16 @@ jd_llm = ChatGroq(
 
 # ── Utilities ──────────────────────────────────────────────────────────────────
 
-def clean_json_string(raw: str) -> str:
-    """Strip <think> blocks, markdown fences, and whitespace."""
-    import re
-    # Remove <think>...</think> blocks (multiline)
-    cleaned = re.sub(r"<think>.*?</think>", "", raw, flags=re.DOTALL)
-    # Remove unclosed <think> tags
+def remove_think_tags(text: str) -> str:
+    """Remove <think>...</think> blocks including unclosed ones."""
+    cleaned = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL)
     cleaned = re.sub(r"<think>.*", "", cleaned, flags=re.DOTALL)
-    cleaned = cleaned.strip()
-    # Strip markdown fences
+    return cleaned.strip()
+
+
+def clean_json_string(raw: str) -> str:
+    """Remove think tags, markdown fences, whitespace."""
+    cleaned = remove_think_tags(raw)
     if cleaned.startswith("```json"):
         cleaned = cleaned[7:]
     elif cleaned.startswith("```"):
@@ -44,12 +46,8 @@ def clean_json_string(raw: str) -> str:
     return cleaned.strip()
 
 
-def extract_json_from_text(text: str) -> str:
-    """
-    Last-resort extraction: find the first { and last } in the text
-    and return everything between them. Handles cases where LLM outputs
-    text before or after the JSON block.
-    """
+def extract_json_block(text: str) -> str:
+    """Find first { and last } and extract the JSON block."""
     start = text.find("{")
     end = text.rfind("}")
     if start != -1 and end != -1 and end > start:
@@ -76,12 +74,12 @@ def deep_merge(base: dict, incoming: dict) -> dict:
         elif isinstance(new_val, dict) and isinstance(existing_val, dict):
             result[key] = deep_merge(existing_val, new_val)
         elif isinstance(new_val, list) and isinstance(existing_val, list):
-            merged_list = list(existing_val)
+            merged = list(existing_val)
             for item in new_val:
-                if item not in merged_list:
-                    merged_list.append(item)
-            result[key] = merged_list
-        elif new_val is not None and new_val != {} and new_val != [] and new_val != "":
+                if item not in merged:
+                    merged.append(item)
+            result[key] = merged
+        elif new_val not in (None, {}, [], ""):
             result[key] = new_val
     return result
 
@@ -96,7 +94,7 @@ def build_fallback_response(session_memory: SessionMemory) -> str:
     insights_dict = safe_to_dict(session_memory.insights)
     try:
         fallback = ChatResponse(
-            conversation_response="I encountered an issue processing that. Could you please repeat your last message?",
+            conversation_response="I encountered an issue. Could you please repeat your last message?",
             progress=Progress(**progress_dict) if progress_dict else Progress(),
             employee_role_insights=EmployeeRoleInsights(**insights_dict) if insights_dict else EmployeeRoleInsights(),
             jd_structured_data=None,
@@ -117,14 +115,71 @@ def build_fallback_response(session_memory: SessionMemory) -> str:
         })
 
 
-def parse_llm_response(raw_content: str) -> dict:
+def wrap_plain_text_into_json(
+    plain_text: str,
+    session_memory: SessionMemory
+) -> tuple[dict, str]:
     """
-    Robust JSON parser — tries multiple strategies in order:
-    1. Clean and parse directly
-    2. Extract JSON block from surrounding text
-    3. Raise exception if all fail
+    When LLM returns plain text instead of JSON, wrap it into a valid
+    ChatResponse JSON using the current session memory state.
+    This preserves all accumulated insights and progress.
     """
-    # Strategy 1: clean and parse directly
+    print("   -> 🔧 Wrapping plain text into JSON format...")
+
+    insights_dict = safe_to_dict(session_memory.insights)
+    progress_dict = safe_to_dict(session_memory.progress)
+
+    # Build a valid response using existing memory + the plain text as the question
+    wrapped = {
+        "conversation_response": plain_text.strip(),
+        "progress": progress_dict if progress_dict else {
+            "completion_percentage": 0,
+            "missing_insight_areas": [],
+            "status": "collecting"
+        },
+        "employee_role_insights": insights_dict if insights_dict else {
+            "identity_context": {},
+            "daily_activities": [],
+            "execution_processes": [],
+            "tools_and_platforms": [],
+            "team_collaboration": {},
+            "stakeholder_interactions": {},
+            "decision_authority": {},
+            "performance_metrics": [],
+            "work_environment": {},
+            "special_contributions": []
+        },
+        "jd_structured_data": {},
+        "jd_text_format": "",
+        "analytics": {
+            "questions_asked": 0,
+            "questions_answered": 0,
+            "insights_collected": len([v for v in insights_dict.values() if v]),
+            "estimated_completion_time_minutes": 10
+        },
+        "approval": {
+            "approval_required": False,
+            "approval_status": "pending"
+        }
+    }
+
+    wrapped_str = json.dumps(wrapped, indent=2)
+    print(f"   -> ✅ Wrapped successfully. Question: {plain_text[:80]}...")
+    return wrapped, wrapped_str
+
+
+def parse_llm_response(
+    raw_content: str,
+    session_memory: SessionMemory = None
+) -> tuple[dict, str]:
+    """
+    Robust 4-strategy JSON parser:
+    1. Clean think tags + fences → parse directly
+    2. Extract JSON block from text
+    3. Extract from raw content
+    4. Wrap plain text into valid JSON (preserves memory)
+    """
+    # Strategy 1: clean and parse
     cleaned = clean_json_string(raw_content)
     if cleaned:
         try:
@@ -132,26 +187,30 @@ def parse_llm_response(raw_content: str) -> dict:
         except json.JSONDecodeError:
             pass
 
-    # Strategy 2: extract JSON block from text (handles plain-text responses)
-    extracted = extract_json_from_text(cleaned or raw_content)
+    # Strategy 2: extract JSON block from cleaned text
+    extracted = extract_json_block(cleaned)
     if extracted:
         try:
             return json.loads(extracted), extracted
         except json.JSONDecodeError:
             pass
 
-    # Strategy 3: try raw content directly after stripping think tags
-    import re
-    no_think = re.sub(r"<think>.*?</think>", "", raw_content, flags=re.DOTALL)
-    no_think = re.sub(r"<think>.*", "", no_think, flags=re.DOTALL).strip()
-    extracted2 = extract_json_from_text(no_think)
+    # Strategy 3: extract from raw content after think removal
+    no_think = remove_think_tags(raw_content)
+    extracted2 = extract_json_block(no_think)
     if extracted2:
         try:
             return json.loads(extracted2), extracted2
         except json.JSONDecodeError:
             pass
 
-    raise ValueError(f"Could not extract valid JSON from LLM response. Raw: {raw_content[:200]}")
+    # Strategy 4: LLM returned plain text — wrap it into valid JSON
+    # This handles the case where the model outputs a question as plain text
+    plain_text = remove_think_tags(raw_content).strip()
+    if plain_text and session_memory is not None:
+        return wrap_plain_text_into_json(plain_text, session_memory)
+
+    raise ValueError(f"All JSON extraction strategies failed. Raw: {raw_content[:200]}")
 
 
 # ── JD Generator ───────────────────────────────────────────────────────────────
@@ -172,11 +231,11 @@ def generate_jd(session_memory: SessionMemory) -> dict:
     try:
         response = jd_llm.invoke(messages)
         raw = strip_reasoning_tags(response.content)
-        parsed, _ = parse_llm_response(raw)
-        print(f"   -> JD Generation Successful ✅ | Length: {len(parsed.get('jd_text_format', ''))}")
+        parsed, _ = parse_llm_response(raw, session_memory)
+        print(f"   -> ✅ JD Generation Successful | Length: {len(parsed.get('jd_text_format', ''))}")
         return parsed
     except Exception as e:
-        print(f"   -> JD Generation Failed: {e}")
+        print(f"   -> ❌ JD Generation Failed: {e}")
         return {
             "jd_structured_data": {},
             "jd_text_format": "JD generation failed. Please try again."
@@ -195,9 +254,7 @@ def handle_conversation(history: list, user_message: str, session_memory: Sessio
 
     # 1. Build context
     print("\n📋 BUILDING CONTEXT...")
-    current_insights = safe_to_dict(session_memory.insights)
-    print(f"   -> Current insights keys: {list(current_insights.keys())}")
-    print(f"   -> Current insights data: {json.dumps(current_insights, indent=2)[:300]}")
+    print(f"   -> Insights keys: {list(safe_to_dict(session_memory.insights).keys())}")
     msgs = build_context(session_memory, user_message)
 
     # 2. Invoke LLM
@@ -205,8 +262,7 @@ def handle_conversation(history: list, user_message: str, session_memory: Sessio
         print("\n🤖 INVOKING INTERVIEW LLM...")
         response = interview_llm.invoke(msgs)
         raw_content = strip_reasoning_tags(response.content)
-        print(f"   -> Raw Response Length: {len(raw_content)}")
-        print(f"   -> Raw Preview: {raw_content[:150]}")
+        print(f"   -> Raw Length: {len(raw_content)} | Preview: {raw_content[:100]}")
     except Exception as e:
         error_str = str(e).lower()
         print(f"❌ LLM ERROR: {e}")
@@ -214,13 +270,13 @@ def handle_conversation(history: list, user_message: str, session_memory: Sessio
             raise HTTPException(status_code=429, detail="Rate limit exceeded")
         raise HTTPException(status_code=500, detail="Internal LLM Error")
 
-    # 3. Parse response
+    # 3. Parse response — pass session_memory for Strategy 4 fallback
     print("\n🧩 PARSING & UPDATING MEMORY...")
     reply_content: str
 
     try:
-        parsed_json, cleaned_content = parse_llm_response(raw_content)
-        print(f"   -> Cleaned Preview: {cleaned_content[:120]}...")
+        parsed_json, cleaned_content = parse_llm_response(raw_content, session_memory)
+        print(f"   -> Parsed successfully ✅")
 
         validated = ChatResponse(**parsed_json)
 
@@ -235,8 +291,13 @@ def handle_conversation(history: list, user_message: str, session_memory: Sessio
         current_status = validated.progress.status
         print(f"   -> Progress: {validated.progress.completion_percentage}% | Status: {current_status}")
 
+        # CRITICAL FIX: Store only the plain conversation text, NOT the full JSON blob.
+        # Storing the full JSON causes the LLM to learn to nest JSON inside
+        # conversation_response on subsequent turns, creating double-encoded responses.
+        assistant_text = validated.conversation_response
+        assistant_history_entry = json.dumps({"conversation_response": assistant_text})
         session_memory.update_recent("user", user_message)
-        session_memory.update_recent("assistant", cleaned_content)
+        session_memory.update_recent("assistant", assistant_history_entry)
         update_summary(session_memory)
 
         # JD generation trigger
@@ -256,7 +317,7 @@ def handle_conversation(history: list, user_message: str, session_memory: Sessio
             parsed_json["approval"]["approval_required"] = True
             parsed_json["approval"]["approval_status"] = "pending"
             parsed_json["conversation_response"] = (
-                "Your Job Description has been generated based on our in-depth conversation. "
+                "Your Job Description has been generated. "
                 "Please review it and let me know if you approve or would like any changes."
             )
             parsed_json["employee_role_insights"] = merged_insights
@@ -265,13 +326,12 @@ def handle_conversation(history: list, user_message: str, session_memory: Sessio
             parsed_json["employee_role_insights"] = merged_insights
 
         reply_content = json.dumps(parsed_json, indent=2)
-        print("   -> Turn completed successfully ✅")
+        print("   -> Turn completed ✅")
 
     except Exception as e:
         print(f"⚠️ PROCESSING ERROR: {e}")
         import traceback
         traceback.print_exc()
-        print(f"   -> RAW CONTENT:\n{raw_content[:500]}")
         reply_content = build_fallback_response(session_memory)
 
     history.append({"role": "user", "content": user_message})

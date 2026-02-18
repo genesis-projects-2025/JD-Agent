@@ -11,6 +11,6 @@ class SessionMemory:
         self.summary = ""
         self.recent_messages = []
 
-    def update_recent(self, role: str, content: str, limit: int = 6):
+    def update_recent(self, role: str, content: str, limit: int = 4):
         self.recent_messages.append({"role": role, "content": content})
         self.recent_messages = self.recent_messages[-limit:]

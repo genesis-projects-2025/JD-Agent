@@ -14,8 +14,10 @@ import {
   Save,
 } from "lucide-react";
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 
 export default function InterviewPage() {
+  const router = useRouter();
   const {
     messages,
     sendMessage,
@@ -30,7 +32,7 @@ export default function InterviewPage() {
     isRateLimited,
     retryTimer,
     handleRetry,
-  } = useChat();
+  } = useChat(() => router.push("/dashboard"));
   const [copied, setCopied] = useState(false);
 
   const handleCopy = () => {

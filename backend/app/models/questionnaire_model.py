@@ -1,5 +1,6 @@
 # app/models/questionnaire_model.py
-from sqlalchemy import Column, String, Text, DateTime, JSON
+from sqlalchemy import Column, String, Text, DateTime
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.sql import func
 import uuid
 from app.core.database import Base
@@ -12,16 +13,16 @@ def generate_uuid():
 class Questionnaire(Base):
     __tablename__ = "questionnaires"
 
-    # MySQL doesn't have native UUID — use String(36)
     id = Column(String(36), primary_key=True, default=generate_uuid)
     employee_id = Column(String(255), nullable=False)
+    employee_name = Column(String(255), nullable=True)
     status = Column(String(50), default="in_progress")
 
-    # MySQL uses JSON instead of PostgreSQL JSONB
-    conversation_state = Column(JSON, nullable=True)   # progress, analytics, approval
-    responses = Column(JSON, nullable=True)            # employee_role_insights (all 10 domains)
-    generated_jd = Column(Text, nullable=True)         # jd_text_format (markdown)
-    jd_structured = Column(JSON, nullable=True)        # jd_structured_data
+    # PostgreSQL JSONB — faster and indexable vs plain JSON
+    conversation_state = Column(JSONB, nullable=True)   # progress, analytics, approval
+    responses = Column(JSONB, nullable=True)             # employee_role_insights
+    generated_jd = Column(Text, nullable=True)           # jd_text_format (markdown)
+    jd_structured = Column(JSONB, nullable=True)         # jd_structured_data
 
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, onupdate=func.now())

@@ -9,14 +9,13 @@ class Settings(BaseSettings):
     DATABASE_USER_NAME: str
     DATABASE_PASS: str
     DATABASE_HOST: str = "localhost"
-    DATABASE_PORT: int = 3306
+    DATABASE_PORT: int = 5432
 
     @property
     def DATABASE_URL(self) -> str:
-        # ✅ quote_plus encodes special characters like @ # % in password
         encoded_pass = quote_plus(self.DATABASE_PASS)
         return (
-            f"mysql+aiomysql://{self.DATABASE_USER_NAME}:"
+            f"postgresql+asyncpg://{self.DATABASE_USER_NAME}:"
             f"{encoded_pass}@{self.DATABASE_HOST}:"
             f"{self.DATABASE_PORT}/{self.DATABASE_NAME}"
         )

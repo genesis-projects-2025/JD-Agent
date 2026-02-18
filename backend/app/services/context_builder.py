@@ -1,46 +1,49 @@
+# app/services/context_builder.py
 from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
 from app.prompts.jd_prompts import SYSTEM_PROMPT
 import json
 
 
-def build_context(history, user_message):
-
+def build_context(session_memory, user_message: str) -> list:
     messages = []
 
-    # 🔹 Base System Prompt
+    # 1. System prompt
     messages.append(SystemMessage(content=SYSTEM_PROMPT))
 
-    # 🔹 Structured Role Insights
-    if history.insights:
-        messages.append(
-            SystemMessage(
-                content=f"EMPLOYEE ROLE INSIGHTS:\n{json.dumps(history.insights, indent=2)}"
-            )
-        )
+    # 2. Accumulated insights — compact, no extra whitespace to save tokens
+    insights = session_memory.insights if isinstance(session_memory.insights, dict) else {}
+    progress = session_memory.progress if isinstance(session_memory.progress, dict) else {}
 
-    # 🔹 Progress Memory
-    messages.append(
-        SystemMessage(
-            content=f"PROGRESS MEMORY:\n{json.dumps(history.progress, indent=2)}"
-        )
-    )
+    # Compact JSON (no indent) to reduce token usage and avoid truncation
+    messages.append(SystemMessage(content=(
+        "=== ACCUMULATED DATA (carry ALL forward in your response) ===\n"
+        + json.dumps(insights, separators=(",", ":"))
+        + "\n=== PROGRESS ===\n"
+        + json.dumps(progress, separators=(",", ":"))
+        + "\n=== TASK ===\n"
+        "Look at ACCUMULATED DATA. Find the first empty domain. Ask ONE question about it. "
+        "Never ask about domains that already have data. "
+        "Your response employee_role_insights MUST contain ALL fields from ACCUMULATED DATA above."
+    )))
 
-    # 🔹 Conversation Summary
-    if history.summary:
-        messages.append(
-            SystemMessage(
-                content=f"CONVERSATION SUMMARY:\n{history.summary}"
-            )
-        )
+    # 3. Summary if exists
+    if session_memory.summary:
+        messages.append(SystemMessage(content=f"SUMMARY: {session_memory.summary}"))
 
-    # 🔹 Only Recent Messages
-    for msg in history.recent_messages:
+    # 4. Recent messages — ONLY the human-readable text, never the JSON blobs
+    # This is critical: passing full JSON history wastes tokens and confuses the LLM
+    for msg in session_memory.recent_messages:
         if msg["role"] == "user":
             messages.append(HumanMessage(content=msg["content"]))
         else:
-            messages.append(AIMessage(content=msg["content"]))
+            try:
+                parsed = json.loads(msg["content"])
+                text = parsed.get("conversation_response", "")
+            except Exception:
+                text = msg["content"]
+            messages.append(AIMessage(content=text))
 
-    # 🔹 Current User Message
+    # 5. Current message
     messages.append(HumanMessage(content=user_message))
 
     return messages

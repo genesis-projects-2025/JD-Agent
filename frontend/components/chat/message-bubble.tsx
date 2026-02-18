@@ -69,15 +69,11 @@ export default function MessageBubble({
         <div
           className={`px-5 py-4 rounded-2xl shadow-lg ${
             isAgent
-<<<<<<< HEAD
-              ? "bg-white text-neutral-800 rounded-tl-none border border-neutral-200"
-=======
               ? "bg-white text-black rounded-tl-none border border-neutral-200"
->>>>>>> databaseInclude
               : "bg-gradient-to-br from-primary-600 to-primary-700 text-black rounded-tr-none shadow-primary-900/20"
           }`}
         >
-          <p className="text-[15px] leading-relaxed whitespace-pre-wrap text-pink-400">
+          <p className="text-[15px] leading-relaxed whitespace-pre-wrap text-black">
             {message.text}
           </p>
 
@@ -195,17 +191,11 @@ export default function MessageBubble({
         </div>
 
         {/* Timestamp */}
-<<<<<<< HEAD
-        {/* <div className={`mt-1.5 px-1 text-xs text-neutral-400 ${!isAgent && 'text-right'}`}>
-          Just now */}
-        {/* </div> */}
-=======
         <div
           className={`mt-1.5 px-1 text-xs text-neutral-400 ${!isAgent && "text-right"}`}
         >
           Just now
         </div>
->>>>>>> databaseInclude
       </div>
 
       {/* Avatar (User only) */}

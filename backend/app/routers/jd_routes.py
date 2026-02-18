@@ -1,40 +1,68 @@
+# app/routers/jd_routes.py
 from fastapi import APIRouter
-from app.schemas.jd_schema import ChatRequest, JDRequest
+from app.schemas.jd_schema import ChatRequest, JDRequest, InitJDRequest, InitJDResponse, SaveJDRequest
 from app.services.jd_service import handle_conversation
-import json
+from app.memory.session_memory import SessionMemory
+import uuid
 
 router = APIRouter()
 
+# ✅ In-memory session store — persists memory across requests for the same session
+# Key: session_id (str), Value: SessionMemory instance
+_session_store: dict[str, SessionMemory] = {}
+
+
+def get_or_create_session(session_id: str) -> SessionMemory:
+    """Get existing session memory or create a new one."""
+    if session_id not in _session_store:
+        print(f"🆕 Creating new session: {session_id}")
+        _session_store[session_id] = SessionMemory()
+    else:
+        print(f"♻️  Reusing existing session: {session_id}")
+    return _session_store[session_id]
+
 
 @router.post("/chat")
-def chat(request: ChatRequest):
+async def chat(request: ChatRequest):
+    # ✅ Use session ID from request to persist memory across turns
+    # Falls back to a default key if no ID provided (single-user dev mode)
+    session_id = request.id or "default"
+
+    session_memory = get_or_create_session(session_id)
+
+    print(f"\n📦 Session {session_id} — insights before: {list(session_memory.insights.keys())}")
 
     reply, updated_history = handle_conversation(
         request.history,
-        request.message
+        request.message,
+        session_memory
     )
-    
-    # Parse the reply to return a structured object if possible, 
-    # but the frontend expects "reply" string + history. 
-    # The "reply" string IS the JSON string now.
-    
-    # However, to be nice to the frontend, we could try to parse it here 
-    # and return it as a dict under a "structured_reply" key, 
-    # but the requirement says "The agent must ensure jd_structured_data is... Machine readable".
-    # The existing frontend expects { "reply": string, "history": [] }.
-    # We stick to that contract for the *wrapper*, but the `reply` content itself is now a JSON string.
-    print(reply,updated_history)
+
+    print(f"📦 Session {session_id} — insights after: {session_memory.insights}")
+
     return {
         "reply": reply,
         "history": updated_history
     }
 
 
+@router.post("/init", response_model=InitJDResponse)
+async def init_jd(request: InitJDRequest):
+    """Create a new JD session and return its ID."""
+    new_id = str(uuid.uuid4())
+    # Pre-create the session memory so it's ready
+    _session_store[new_id] = SessionMemory()
+    print(f"🆕 Initialized new JD session: {new_id}")
+    return {"id": new_id, "status": "collecting"}
+
+
+@router.post("/save")
+async def save_jd(request: SaveJDRequest):
+    return {"status": "saved", "id": request.id}
+
+
 @router.post("/generate-jd")
 def create_jd(request: JDRequest):
-    # This endpoint is strictly speaking deprecated as generation happens in chat now.
-    # However, if the user manually clicks "Generate" (if we keep that button), 
-    # we might want to trigger the "generation" state.
-    # For now, let's return a message saying to continue the chat.
-    return {"jd": "JD Generation is now handled automatically within the chat. Please continue the conversation."}
-
+    return {
+        "jd": "JD Generation is handled automatically within the chat. Please continue the conversation."
+    }

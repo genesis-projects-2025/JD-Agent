@@ -1,27 +1,52 @@
 "use client";
 
 import { useRouter } from "next/navigation";
+import { initQuestionnaire } from "@/lib/api";
+import { useState } from "react";
 
 export default function QuestionnaireStart() {
   const router = useRouter();
+  const [loading, setLoading] = useState(false);
 
-  const startInterview = () => {
-    router.push("/questionnaire/1");
+  const startInterview = async () => {
+    setLoading(true);
+    try {
+      const data = await initQuestionnaire({
+        employee_id: "EMP_" + Math.floor(Math.random() * 10000),
+        employee_name: "John Doe",
+      });
+      router.push(`/questionnaire/${data.id}`);
+    } catch (error) {
+      console.error("Failed to initialize interview:", error);
+      alert("Failed to start interview. Please try again.");
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
-    <div>
-      <h2 className="text-xl font-semibold">JD Interview</h2>
-      <p className="mt-2">
-        Answer a few questions to generate your Job Description.
-      </p>
+    <div className="flex flex-col items-center justify-center min-h-[60vh]">
+      <div className="max-w-md w-full p-8 bg-white rounded-2xl shadow-xl border border-neutral-100">
+        <h2 className="text-2xl font-bold text-neutral-900 mb-4 text-center">
+          Ready to Start?
+        </h2>
+        <p className="text-neutral-600 text-center mb-8">
+          We'll guide you through a brief interview to understand your role and
+          generate a professional Job Description.
+        </p>
 
-      <button
-        onClick={startInterview}
-        className="mt-4 px-4 py-2 bg-blue-600 text-white rounded"
-      >
-        Begin Interview
-      </button>
+        <button
+          onClick={startInterview}
+          disabled={loading}
+          className="w-full py-4 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 transition-all shadow-lg flex items-center justify-center gap-2 disabled:opacity-50"
+        >
+          {loading ? (
+            <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+          ) : (
+            "Begin My Interview"
+          )}
+        </button>
+      </div>
     </div>
   );
 }

@@ -1,9 +1,10 @@
-from pydantic import BaseSettings
+from pydantic_settings import BaseSettings
 
 class Settings(BaseSettings):
-    DATABASE_URL: str
     GROQ_API_KEY: str
-    PINECONE_API_KEY: str
+    DATABASE_NAME: str
+    DATABASE_USER_NAME: str
+    DATABASE_PASS: str
 
     class Config:
         env_file = ".env"

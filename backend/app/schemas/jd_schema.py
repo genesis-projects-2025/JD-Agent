@@ -1,6 +1,7 @@
 from pydantic import BaseModel, Field
 from typing import List, Dict, Optional, Literal, Union
 
+
 class EmployeeRoleInsights(BaseModel):
     identity_context: Dict = Field(default_factory=dict)
     daily_activities: List[str] = Field(default_factory=list)
@@ -13,10 +14,10 @@ class EmployeeRoleInsights(BaseModel):
     work_environment: Dict = Field(default_factory=dict)
     special_contributions: List[str] = Field(default_factory=list)
 
+
 class JDStructuredData(BaseModel):
-    # Keeping this flexible as it's the final derived output
     employee_information: Dict = Field(default_factory=dict)
-    role_summary: Union[str, Dict] = Field(default_factory=dict)
+    role_summary: Union[str, Dict] = Field(default="")
     key_responsibilities: List[str] = Field(default_factory=list)
     required_skills: List[str] = Field(default_factory=list)
     tools_and_technologies: List[str] = Field(default_factory=list)
@@ -26,38 +27,77 @@ class JDStructuredData(BaseModel):
     work_environment: Dict = Field(default_factory=dict)
     additional_details: Dict = Field(default_factory=dict)
 
+
 class Progress(BaseModel):
-    completion_percentage: float
-    missing_insight_areas: List[str]
-    status: Literal["collecting", "ready_for_generation", "jd_generated", "approval_pending", "approved"]
+    completion_percentage: float = 0.0
+    missing_insight_areas: List[str] = Field(default_factory=list)
+    status: Literal[
+        "collecting",
+        "ready_for_generation",
+        "jd_generated",
+        "approval_pending",
+        "approved",
+    ] = "collecting"
+
 
 class Analytics(BaseModel):
-    questions_asked: int
-    questions_answered: int
-    insights_collected: int
-    estimated_completion_time_minutes: int
+    questions_asked: int = 0
+    questions_answered: int = 0
+    insights_collected: int = 0
+    estimated_completion_time_minutes: int = 0
+
 
 class Approval(BaseModel):
-    approval_required: bool
-    approval_status: Literal["pending", "approved", "rejected"]
+    approval_required: bool = False
+    approval_status: Literal["pending", "approved", "rejected"] = "pending"
+
 
 class ChatResponse(BaseModel):
     conversation_response: str
-    progress: Progress
-    employee_role_insights: EmployeeRoleInsights
-    jd_structured_data: JDStructuredData
-    jd_text_format: str
-    analytics: Analytics
-    approval: Approval
+
+    progress: Progress = Field(default_factory=Progress)
+
+    # LLM always returns this, but default makes it resilient
+    employee_role_insights: EmployeeRoleInsights = Field(
+        default_factory=EmployeeRoleInsights
+    )
+
+    # ✅ Optional — LLM only sends these during jd_generated / approved phases
+    jd_structured_data: Optional[JDStructuredData] = Field(
+        default_factory=JDStructuredData
+    )
+    jd_text_format: Optional[str] = ""
+    approval: Optional[Approval] = Field(default_factory=Approval)
+
+    # Optional — nice-to-have metadata
+    analytics: Optional[Analytics] = Field(default_factory=Analytics)
+
+
+# ── Request / Response Models ──────────────────────────────────────────────────
 
 class ChatRequest(BaseModel):
+    id: Optional[str] = None
     message: str
     history: List[Dict]
-    # We might need to pass the current structured data back to the backend/LLM 
-    # if we are being stateless, or we assume the backend handles it.
-    # For now, let's keep it simple and maybe add it if needed by the prompt engineering strategy.
-    current_jd_data: Optional[Dict] = None 
+    current_jd_data: Optional[Dict] = None
+
+
+class InitJDRequest(BaseModel):
+    employee_id: str
+    employee_name: Optional[str] = None
+
+
+class InitJDResponse(BaseModel):
+    id: str
+    status: str
+
 
 class JDRequest(BaseModel):
     history: List[Dict]
 
+
+class SaveJDRequest(BaseModel):
+    id: str
+    jd_text: str
+    jd_structured: Dict
+    employee_id: Optional[str] = None

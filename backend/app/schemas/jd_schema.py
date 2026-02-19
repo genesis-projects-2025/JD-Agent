@@ -101,3 +101,14 @@ class SaveJDRequest(BaseModel):
     jd_text: str
     jd_structured: Dict
     employee_id: Optional[str] = None
+
+
+class UpdateJDRequest(BaseModel):
+    jd_text: str
+    jd_structured: Dict
+    employee_id: str
+
+
+class UpdateStatusRequest(BaseModel):
+    status: str
+    employee_id: str

@@ -1,5 +1,5 @@
 # app/models/questionnaire_model.py
-from sqlalchemy import Column, String, Text, DateTime
+from sqlalchemy import Column, String, Text, DateTime, Integer
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.sql import func
 import uuid
@@ -16,7 +16,9 @@ class Questionnaire(Base):
     id = Column(String(36), primary_key=True, default=generate_uuid)
     employee_id = Column(String(255), nullable=False)
     employee_name = Column(String(255), nullable=True)
-    status = Column(String(50), default="in_progress")
+    title = Column(String(500), nullable=True)
+    status = Column(String(50), default="draft")
+    version = Column(Integer, default=1, nullable=False)
 
     # PostgreSQL JSONB — faster and indexable vs plain JSON
     conversation_state = Column(JSONB, nullable=True)   # progress, analytics, approval
@@ -25,7 +27,7 @@ class Questionnaire(Base):
     jd_structured = Column(JSONB, nullable=True)         # jd_structured_data
 
     created_at = Column(DateTime, server_default=func.now())
-    updated_at = Column(DateTime, onupdate=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
 
     def __repr__(self):
-        return f"<Questionnaire id={self.id} employee={self.employee_id} status={self.status}>"
+        return f"<Questionnaire id={self.id} employee={self.employee_id} status={self.status} v={self.version}>"

@@ -3,37 +3,21 @@
 import ChatWindow from "@/components/chat/chat-window";
 import MessageInput from "@/components/chat/message-input";
 import { useChat } from "@/hooks/useChat";
+import { exportJDToPDF } from "@/lib/pdf-export";
 import {
-  FileText,
-  Download,
-  Copy,
-  Check,
-  Send,
-  Clock,
-  RefreshCcw,
-  Save,
+  FileText, Download, Copy, Check, Clock, RefreshCcw, Save,
 } from "lucide-react";
 import { useState } from "react";
-import { useRouter } from "next/navigation";
 
 export default function InterviewPage() {
-  const router = useRouter();
   const {
-    messages,
-    sendMessage,
-    jd,
-    isGenerating,
-    isSaving,
-    handleSaveJD,
-    progress,
-    status,
-    structuredData,
-    handleApproveJD,
-    isRateLimited,
-    retryTimer,
-    handleRetry,
-  } = useChat(() => router.push("/dashboard"));
+    messages, sendMessage, jd, isGenerating, isSaving,
+    handleSaveJD, progress, status, structuredData,
+    handleApproveJD, isRateLimited, retryTimer, handleRetry,
+  } = useChat();
+
   const [copied, setCopied] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
 
   const handleCopy = () => {
     if (jd) {
@@ -43,10 +27,20 @@ export default function InterviewPage() {
     }
   };
 
+  const handleExportPDF = () => {
+    if (!jd) return;
+    setIsExporting(true);
+    // Derive role title from structured data if available
+    const roleTitle =
+      structuredData?.role_summary?.title ||
+      structuredData?.employee_information?.role_title ||
+      "Job Description";
+    exportJDToPDF(jd, roleTitle);
+    setTimeout(() => setIsExporting(false), 1500);
+  };
+
   const handleContinueInterview = () => {
-    sendMessage(
-      "I have more information to add to the Job Description. Let's continue.",
-    );
+    sendMessage("I have more information to add to the Job Description. Let's continue.");
   };
 
   const handleRegenerate = () => {
@@ -54,14 +48,12 @@ export default function InterviewPage() {
   };
 
   return (
-    // KEY FIX: h-screen or h-[calc(100vh-3rem)] must be on the root,
-    // then every flex child in the column needs min-h-0 to allow shrinking.
     <div className="h-[calc(100vh-3rem)] flex flex-col overflow-hidden">
-      {/* Main Container — KEY FIX: min-h-0 so it can shrink inside the parent flex */}
       <div className="flex-1 min-h-0 max-w-6xl mx-auto w-full flex flex-col p-4">
         {jd ? (
-          /* JD Generated View */
+          /* ── JD Generated View ── */
           <div className="flex-1 min-h-0 flex flex-col bg-white rounded-2xl shadow-2xl border border-neutral-200 overflow-hidden">
+
             {/* Header */}
             <div className="flex-shrink-0 px-8 py-6 bg-gradient-to-r from-neutral-900 to-neutral-800 text-white border-b border-neutral-700">
               <div className="flex items-center justify-between">
@@ -70,12 +62,8 @@ export default function InterviewPage() {
                     <FileText className="w-7 h-7 text-white" />
                   </div>
                   <div>
-                    <h2 className="text-2xl font-bold tracking-tight">
-                      Job Description
-                    </h2>
-                    <p className="text-neutral-400 text-sm mt-1">
-                      Review and save your JD
-                    </p>
+                    <h2 className="text-2xl font-bold tracking-tight">Job Description</h2>
+                    <p className="text-neutral-400 text-sm mt-1">Review and save your JD</p>
                   </div>
                 </div>
 
@@ -85,26 +73,29 @@ export default function InterviewPage() {
                     className="px-5 py-2.5 bg-white/10 hover:bg-white/20 backdrop-blur-sm rounded-xl text-sm font-medium transition-all flex items-center gap-2 border border-white/10"
                   >
                     {copied ? (
-                      <>
-                        <Check className="w-4 h-4" />
-                        Copied!
-                      </>
+                      <><Check className="w-4 h-4" /> Copied!</>
                     ) : (
-                      <>
-                        <Copy className="w-4 h-4" />
-                        Copy
-                      </>
+                      <><Copy className="w-4 h-4" /> Copy</>
                     )}
                   </button>
-                  <button className="px-5 py-2.5 bg-white text-neutral-900 hover:bg-neutral-50 rounded-xl text-sm font-bold transition-all flex items-center gap-2 shadow-lg">
-                    <Download className="w-4 h-4" />
-                    Download PDF
+
+                  {/* ✅ Wired-up PDF export */}
+                  <button
+                    onClick={handleExportPDF}
+                    disabled={isExporting}
+                    className="px-5 py-2.5 bg-white text-neutral-900 hover:bg-neutral-50 rounded-xl text-sm font-bold transition-all flex items-center gap-2 shadow-lg disabled:opacity-70"
+                  >
+                    {isExporting ? (
+                      <><RefreshCcw className="w-4 h-4 animate-spin" /> Preparing...</>
+                    ) : (
+                      <><Download className="w-4 h-4" /> Download PDF</>
+                    )}
                   </button>
                 </div>
               </div>
             </div>
 
-            {/* Content Area — scrollable */}
+            {/* Content Area */}
             <div className="flex-1 min-h-0 overflow-y-auto p-8 bg-white">
               <div className="max-w-3xl mx-auto">
                 <div className="bg-neutral-50 rounded-3xl p-10 border border-neutral-200 shadow-inner">
@@ -147,10 +138,9 @@ export default function InterviewPage() {
             </div>
           </div>
         ) : (
-          /* Chat View */
-          // KEY FIX: min-h-0 here is critical — without it, this flex child won't
-          // respect the parent's height constraint and will overflow instead of scroll.
+          /* ── Chat View ── */
           <div className="flex-1 min-h-0 flex flex-col bg-white rounded-2xl shadow-2xl border border-neutral-200 overflow-hidden relative">
+
             {/* Progress Bar */}
             <div className="absolute top-0 left-0 right-0 h-1 bg-neutral-100 z-10">
               <div
@@ -166,9 +156,7 @@ export default function InterviewPage() {
                   <div className="flex items-center gap-3">
                     <Clock className="w-5 h-5 text-amber-600 animate-pulse" />
                     <div>
-                      <p className="text-sm font-semibold text-amber-800">
-                        Rate Limit Reached
-                      </p>
+                      <p className="text-sm font-semibold text-amber-800">Rate Limit Reached</p>
                       <p className="text-xs text-amber-600">
                         {retryTimer > 0
                           ? `Please wait ${retryTimer} seconds...`
@@ -196,26 +184,18 @@ export default function InterviewPage() {
                   <div className="w-16 h-16 bg-gradient-to-br from-blue-500 to-blue-600 rounded-2xl flex items-center justify-center mx-auto mb-4 animate-pulse">
                     <FileText className="w-8 h-8 text-white" />
                   </div>
-                  <h3 className="text-xl font-semibold text-neutral-900 mb-2">
-                    Generating Your JD...
-                  </h3>
+                  <h3 className="text-xl font-semibold text-neutral-900 mb-2">Generating Your JD...</h3>
                   <p className="text-sm text-neutral-600">
-                    Analyzing your responses and creating the perfect job
-                    description
+                    Analysing your responses and crafting the perfect job description
                   </p>
                   <div className="mt-6 flex items-center justify-center gap-2">
-                    <div
-                      className="w-2 h-2 bg-blue-600 rounded-full animate-bounce"
-                      style={{ animationDelay: "0ms" }}
-                    />
-                    <div
-                      className="w-2 h-2 bg-blue-600 rounded-full animate-bounce"
-                      style={{ animationDelay: "150ms" }}
-                    />
-                    <div
-                      className="w-2 h-2 bg-blue-600 rounded-full animate-bounce"
-                      style={{ animationDelay: "300ms" }}
-                    />
+                    {[0, 150, 300].map((delay) => (
+                      <div
+                        key={delay}
+                        className="w-2 h-2 bg-blue-600 rounded-full animate-bounce"
+                        style={{ animationDelay: `${delay}ms` }}
+                      />
+                    ))}
                   </div>
                 </div>
               </div>
@@ -224,14 +204,11 @@ export default function InterviewPage() {
             <ChatWindow
               messages={messages}
               onSkillSelect={(skills) =>
-                sendMessage(
-                  `I have selected these skills: ${skills.join(", ")}`,
-                )
+                sendMessage(`I have selected these skills: ${skills.join(", ")}`)
               }
               onGenerateJD={handleRegenerate}
               onContinue={handleContinueInterview}
             />
-            {/* flex-shrink-0 ensures MessageInput never gets squished */}
             <div className="flex-shrink-0">
               <MessageInput
                 onSend={sendMessage}

@@ -1,10 +1,92 @@
 # app/crud/jd_crud.py
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
-from sqlalchemy.sql import func
 from app.models.questionnaire_model import Questionnaire
-from typing import Optional
+from typing import Optional, List
+import datetime
+import json
 
+
+# ── JSONB Safety Helpers ──────────────────────────────────────────────────────
+
+def _safe_jsonb(value) -> dict:
+    """
+    Force any value into a plain JSON-safe dict for PostgreSQL JSONB columns.
+    Handles: Pydantic models, nested objects, non-serializable types (datetime, enum).
+    Always returns a dict — never None or a raw object.
+    """
+    if value is None:
+        return {}
+    if hasattr(value, "model_dump"):
+        value = value.model_dump()
+    if not isinstance(value, dict):
+        try:
+            value = dict(value)
+        except Exception:
+            return {}
+    try:
+        return json.loads(json.dumps(value, default=str))
+    except Exception:
+        return {}
+
+
+def _safe_jsonb_list(value) -> list:
+    """
+    Force any value into a plain JSON-safe list for PostgreSQL JSONB list columns.
+    Used for conversation_history which is a list of dicts.
+    """
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        try:
+            value = list(value)
+        except Exception:
+            return []
+    try:
+        return json.loads(json.dumps(value, default=str))
+    except Exception:
+        return []
+
+
+# ── Helpers ───────────────────────────────────────────────────────────────────
+
+def _extract_title(jd_structured: dict) -> Optional[str]:
+    """
+    Extract a clean job title from structured JD data.
+    Never falls back to raw jd_text to avoid storing markdown as the title.
+    """
+    if not isinstance(jd_structured, dict):
+        return None
+
+    # Strategy 1: employee_information block (primary)
+    emp_info = jd_structured.get("employee_information", {})
+    if isinstance(emp_info, dict):
+        title = (
+            emp_info.get("job_title")
+            or emp_info.get("title")
+            or emp_info.get("role_title")
+        )
+        if title and isinstance(title, str) and len(title) < 200:
+            return title.strip()
+
+    # Strategy 2: top-level fields
+    title = (
+        jd_structured.get("job_title")
+        or jd_structured.get("title")
+        or jd_structured.get("role_title")
+        or jd_structured.get("position")
+    )
+    if title and isinstance(title, str) and len(title) < 200:
+        return title.strip()
+
+    return None
+
+
+def _now() -> datetime.datetime:
+    return datetime.datetime.utcnow()
+
+
+# ── Core Save / Upsert ───────────────────────────────────────────────────────
 
 async def save_questionnaire_jd(
     db: AsyncSession,
@@ -13,59 +95,185 @@ async def save_questionnaire_jd(
     jd_structured: dict,
     employee_insights: dict,
     progress: dict,
+    employee_id: Optional[str] = None,
+    conversation_history: Optional[list] = None,
+    status: Optional[str] = None,
 ) -> Questionnaire:
     """
-    Save or update the JD for a questionnaire session.
-    Uses session_id as the record ID.
+    Upsert a JD record by session_id.
+    - session_id == Questionnaire.id  (one UUID per JD session)
+    - Multiple sessions can share the same employee_id -> multiple JDs per employee
     """
     result = await db.execute(
         select(Questionnaire).where(Questionnaire.id == session_id)
     )
     record = result.scalar_one_or_none()
 
-    # Extract employee_id and title from insights/structured data
-    identity = employee_insights.get("identity_context", {})
-    employee_id = identity.get("employee_name", session_id)
+    # Resolve employee_id
+    if not employee_id:
+        identity = (employee_insights or {}).get("identity_context", {})
+        employee_id = (
+            identity.get("employee_name")
+            or identity.get("employee_id")
+            or session_id
+        )
 
-    # Extract title from structured data
-    title = None
-    if isinstance(jd_structured, dict):
-        emp_info = jd_structured.get("employee_information", {})
-        if isinstance(emp_info, dict):
-            title = emp_info.get("job_title") or emp_info.get("title") or emp_info.get("role_title")
-        if not title:
-            role_summary = jd_structured.get("role_summary", "")
-            if isinstance(role_summary, dict):
-                title = role_summary.get("title") or role_summary.get("job_title")
+    # FIX #2: Sanitize ALL JSONB inputs before touching the DB
+    safe_structured = _safe_jsonb(jd_structured)
+    safe_insights = _safe_jsonb(employee_insights)
+    safe_progress = _safe_jsonb(progress)
+    safe_history = _safe_jsonb_list(conversation_history)
+
+    # FIX #1: Extract title ONLY from structured data — never from raw jd_text
+    title = _extract_title(safe_structured)
 
     if record:
-        # Update existing record
-        record.generated_jd = jd_text
-        record.jd_structured = jd_structured
-        record.responses = employee_insights
-        record.conversation_state = progress
-        record.status = "draft"
+        if jd_text:
+            record.generated_jd = jd_text
+        if safe_structured:
+            record.jd_structured = safe_structured
+
+        record.responses = safe_insights
+        record.conversation_state = safe_progress
+
+        if status:
+            record.status = status
+        elif not record.status:
+            record.status = "draft"
+
         if title:
             record.title = title
+        # FIX #1: Removed the jd_text fallback that was storing markdown as title
+
+        if conversation_history is not None:
+            record.conversation_history = safe_history
+
+        # FIX #3: Explicitly set updated_at — JSONB-only changes aren't always detected
+        record.updated_at = _now()
+
     else:
-        # Create new record
         record = Questionnaire(
             id=session_id,
             employee_id=employee_id,
-            status="draft",
-            title=title,
-            conversation_state=progress,
-            responses=employee_insights,
+            status=status or "draft",
+            title=title or "New Strategic Role",
+            conversation_state=safe_progress,
+            responses=safe_insights,
             generated_jd=jd_text,
-            jd_structured=jd_structured,
+            jd_structured=safe_structured,
+            conversation_history=safe_history,
         )
         db.add(record)
 
     await db.commit()
     await db.refresh(record)
-    print(f"✅ JD saved to DB — id={record.id}, employee={record.employee_id}, title={record.title}")
+    print(
+        f"✅ JD saved — id={record.id}, employee={record.employee_id}, "
+        f"title={record.title}, history_len={len(record.conversation_history or [])}"
+    )
     return record
 
+
+# ── Conversation History ──────────────────────────────────────────────────────
+
+async def append_conversation_turn(
+    db: AsyncSession,
+    session_id: str,
+    role: str,
+    content: str,
+) -> Optional[Questionnaire]:
+    """Append a single turn to the stored conversation history."""
+    result = await db.execute(
+        select(Questionnaire).where(Questionnaire.id == session_id)
+    )
+    record = result.scalar_one_or_none()
+    if not record:
+        return None
+
+    history: list = list(record.conversation_history or [])
+    history.append({
+        "role": role,
+        "content": content,
+        "timestamp": _now().isoformat(),
+    })
+    # FIX #2: _safe_jsonb_list prevents ROLLBACK from non-serializable content
+    record.conversation_history = _safe_jsonb_list(history)
+    record.updated_at = _now()
+
+    await db.commit()
+    await db.refresh(record)
+    return record
+
+
+async def sync_session_to_db(
+    db: AsyncSession,
+    session_id: str,
+    insights: dict,
+    progress: dict,
+    conversation_history: list,
+    employee_id: Optional[str] = None,
+    generated_jd: Optional[str] = None,
+    jd_structured: Optional[dict] = None,
+    status: Optional[str] = None,
+) -> Optional[Questionnaire]:
+    """
+    Lightweight sync after every chat turn.
+    Creates a skeleton record if one doesn't exist yet.
+    """
+    result = await db.execute(
+        select(Questionnaire).where(Questionnaire.id == session_id)
+    )
+    record = result.scalar_one_or_none()
+
+    # FIX #2: Sanitize all JSONB inputs upfront
+    safe_insights = _safe_jsonb(insights)
+    safe_progress = _safe_jsonb(progress)
+    safe_history = _safe_jsonb_list(conversation_history)
+    safe_structured = _safe_jsonb(jd_structured) if jd_structured else None
+
+    if record:
+        record.responses = safe_insights
+        record.conversation_state = safe_progress
+        record.conversation_history = safe_history
+
+        if employee_id and record.employee_id == session_id:
+            record.employee_id = employee_id
+
+        if generated_jd:
+            record.generated_jd = generated_jd
+        # FIX #2 + #5: Guard — only overwrite jd_structured with real non-empty data
+        if safe_structured:
+            record.jd_structured = safe_structured
+        if status:
+            record.status = status
+
+        # FIX #1: Only extract title from structured data, never raw text
+        if not record.title and safe_structured:
+            record.title = _extract_title(safe_structured)
+
+        # FIX #3: Explicit timestamp so JSONB-only changes always update updated_at
+        record.updated_at = _now()
+
+    else:
+        record = Questionnaire(
+            id=session_id,
+            employee_id=employee_id or session_id,
+            status=status or "collecting",
+            responses=safe_insights,
+            conversation_state=safe_progress,
+            conversation_history=safe_history,
+            generated_jd=generated_jd,
+            jd_structured=safe_structured,
+            title=_extract_title(safe_structured) if safe_structured else None,
+        )
+        db.add(record)
+
+    await db.commit()
+    await db.refresh(record)
+    return record
+
+
+# ── Update JD Content ─────────────────────────────────────────────────────────
 
 async def update_questionnaire_jd(
     db: AsyncSession,
@@ -74,35 +282,26 @@ async def update_questionnaire_jd(
     jd_structured: dict,
     employee_id: str,
 ) -> Optional[Questionnaire]:
-    """
-    Update an existing JD's content. Increments version.
-    Validates employee ownership.
-    """
+    """Update JD content and increment version. Validates ownership."""
     result = await db.execute(
         select(Questionnaire).where(Questionnaire.id == jd_id)
     )
     record = result.scalar_one_or_none()
-
     if not record:
         return None
-
-    # Validate ownership
     if record.employee_id != employee_id:
         raise PermissionError("You can only edit your own JDs")
 
-    # Update content
-    record.generated_jd = jd_text
-    record.jd_structured = jd_structured
-    record.version = (record.version or 1) + 1
-    # updated_at is handled by SQLAlchemy onupdate=func.now()
+    safe_structured = _safe_jsonb(jd_structured)  # FIX #2
 
-    # Extract title from structured data
-    if isinstance(jd_structured, dict):
-        emp_info = jd_structured.get("employee_information", {})
-        if isinstance(emp_info, dict):
-            title = emp_info.get("job_title") or emp_info.get("title") or emp_info.get("role_title")
-            if title:
-                record.title = title
+    record.generated_jd = jd_text
+    record.jd_structured = safe_structured
+    record.version = (record.version or 1) + 1
+    record.updated_at = _now()  # FIX #3
+
+    title = _extract_title(safe_structured)
+    if title:
+        record.title = title
 
     await db.commit()
     await db.refresh(record)
@@ -110,34 +309,33 @@ async def update_questionnaire_jd(
     return record
 
 
+# ── Update Status ─────────────────────────────────────────────────────────────
+
 async def update_questionnaire_status(
     db: AsyncSession,
     jd_id: str,
     new_status: str,
     employee_id: str,
 ) -> Optional[Questionnaire]:
-    """
-    Update a JD's status. Validates employee ownership.
-    """
+    """Update status. Validates ownership."""
     result = await db.execute(
         select(Questionnaire).where(Questionnaire.id == jd_id)
     )
     record = result.scalar_one_or_none()
-
     if not record:
         return None
-
     if record.employee_id != employee_id:
         raise PermissionError("You can only update status of your own JDs")
 
     record.status = new_status
-    # updated_at is handled by SQLAlchemy onupdate=func.now()
-
+    record.updated_at = _now()  # FIX #3
     await db.commit()
     await db.refresh(record)
     print(f"✅ JD status updated — id={record.id}, status={record.status}")
     return record
 
+
+# ── Read Queries ──────────────────────────────────────────────────────────────
 
 async def get_questionnaire(
     db: AsyncSession,
@@ -158,9 +356,9 @@ async def list_questionnaires(db: AsyncSession) -> list[Questionnaire]:
 
 async def list_questionnaires_by_employee(
     db: AsyncSession,
-    employee_id: str
+    employee_id: str,
 ) -> list[Questionnaire]:
-    """List all JDs for a specific employee, ordered by most recently updated."""
+    """All JDs for one employee — most recently updated first."""
     result = await db.execute(
         select(Questionnaire)
         .where(Questionnaire.employee_id == employee_id)

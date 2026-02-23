@@ -12,6 +12,9 @@ import {
   Plus,
 } from "lucide-react";
 
+import { fetchEmployeeJDs } from "@/lib/api";
+import { getOrCreateEmployeeId } from "@/lib/auth";
+
 type JDListItem = {
   id: string;
   title: string | null;
@@ -54,12 +57,9 @@ export default function DashboardPage() {
   useEffect(() => {
     async function load() {
       try {
-        const { default: axios } = await import("axios");
-        const api = axios.create({
-          baseURL: process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000",
-        });
-        const res = await api.get("/jd/list");
-        setJds(res.data || []);
+        const id = getOrCreateEmployeeId();
+        const data = await fetchEmployeeJDs(id);
+        setJds(data || []);
       } catch (err) {
         console.error("Failed to load JDs:", err);
       } finally {

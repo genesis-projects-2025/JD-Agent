@@ -6,6 +6,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { fetchEmployeeJDs } from "@/lib/api";
+import { getOrCreateEmployeeId } from "@/lib/auth";
 import {
   LayoutDashboard,
   MessageSquare,
@@ -17,9 +18,6 @@ import {
   ChevronRight,
   Loader2,
 } from "lucide-react";
-
-// Using a stable demo employee_id for now (no auth system)
-const CURRENT_EMPLOYEE_ID = "demo_employee";
 
 type JDListItem = {
   id: string;
@@ -52,25 +50,46 @@ export default function Sidebar() {
   const pathname = usePathname();
   const [jds, setJds] = useState<JDListItem[]>([]);
   const [loadingJds, setLoadingJds] = useState(false);
+  const [employeeId, setEmployeeId] = useState<string | null>(null);
+
+  // Initialize or Sync employee ID
+  useEffect(() => {
+    // 1. Try to get it from the URL first (e.g., /dashboard/[id])
+    if (pathname.includes("/dashboard/")) {
+      const parts = pathname.split("/");
+      const idFromUrl = parts[parts.indexOf("dashboard") + 1];
+      if (
+        (idFromUrl && idFromUrl.startsWith("emp_")) ||
+        idFromUrl?.length > 10
+      ) {
+        setEmployeeId(idFromUrl);
+        return;
+      }
+    }
+
+    // 2. Fallback to localStorage
+    const storedId = getOrCreateEmployeeId();
+    setEmployeeId(storedId);
+  }, [pathname]);
 
   const links = [
     {
       name: "Dashboard",
-      href: "/dashboard",
+      href: employeeId ? `/dashboard/${employeeId}` : "/",
       icon: LayoutDashboard,
       description: "Overview & stats",
     },
     {
-      name: "JD Interview",
+      name: "Create My JD",
       href: "/questionnaire",
       icon: MessageSquare,
-      description: "Create new JD",
+      description: "Start new interview",
     },
     {
-      name: "Approvals",
+      name: "Manager Response",
       href: "/approvals",
       icon: CheckCircle2,
-      description: "Review & approve",
+      description: "Feedback & status",
     },
   ];
 
@@ -79,34 +98,23 @@ export default function Sidebar() {
 
   // Load saved JDs
   useEffect(() => {
+    if (!employeeId) return;
+
     async function loadJDs() {
       setLoadingJds(true);
       try {
-        // First try employee-specific, fallback to list all
-        let data;
-        try {
-          data = await fetchEmployeeJDs(CURRENT_EMPLOYEE_ID);
-        } catch {
-          // ignore, will fallback below
-        }
-        // If no employee-specific JDs found, fetch all JDs as fallback
-        if (!data || data.length === 0) {
-          const { default: axios } = await import("axios");
-          const api = axios.create({
-            baseURL: process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000",
-          });
-          const res = await api.get("/jd/list");
-          data = res.data;
-        }
+        // Fetch ALWAYS and ONLY for the current employee to ensure privacy
+        const data = await fetchEmployeeJDs(employeeId as string);
         setJds(data || []);
       } catch (err) {
         console.error("Failed to load JDs for sidebar:", err);
+        setJds([]); // Clear JDs on error to avoid showing stale/other data
       } finally {
         setLoadingJds(false);
       }
     }
     loadJDs();
-  }, [pathname]); // Reload when navigating, to pick up new saves
+  }, [pathname, employeeId]); // Reload when navigating or ID changes
 
   return (
     <aside className="w-72 h-screen bg-gradient-to-b from-neutral-900 via-neutral-900 to-neutral-800 text-white flex flex-col border-r border-neutral-800 shadow-2xl">
@@ -180,7 +188,7 @@ export default function Sidebar() {
       <div className="flex-1 overflow-hidden flex flex-col border-t border-neutral-800/50 mt-2">
         <div className="px-5 py-3 flex items-center justify-between">
           <h2 className="text-xs font-semibold text-neutral-500 uppercase tracking-wider">
-            My Job Descriptions
+            My JD Creations
           </h2>
           {loadingJds && (
             <Loader2 className="w-3.5 h-3.5 text-neutral-500 animate-spin" />

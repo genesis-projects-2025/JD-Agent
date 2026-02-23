@@ -122,6 +122,7 @@ export default function QuestionnairePage() {
         >
           <ChatWindow
             messages={messages}
+            isGenerating={isGenerating}
             onSkillSelect={handleSkillSelect}
             onGenerateJD={() => {
               setShowPanel(true);

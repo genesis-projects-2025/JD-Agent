@@ -172,7 +172,9 @@ async def generate_jd_endpoint(
         status="jd_generated",
     )
 
-    print(f"✅ /generate complete — jd_text_len={len(result['jd_text'])} | structured_keys={list(result['jd_structured'].keys())}\n")
+    #-----------------------JD RESPONSE GENRATED----------------------------------
+
+    print("jd generation completed with this response in the frontend ",result)
 
     return {
         "id": session_id,
@@ -187,8 +189,6 @@ async def generate_jd_endpoint(
 async def save_jd(request: SaveJDRequest, db: AsyncSession = Depends(get_db)):
     session_id = request.id
     print(f"\n[backend/app/routers/jd_routes.py] 💾 /save called for session: {session_id}")
-    print(f"[backend/app/routers/jd_routes.py] jd_text length: {len(request.jd_text or '')}")
-    print(f"[backend/app/routers/jd_routes.py] jd_structured keys: {list((request.jd_structured or {}).keys())}")
 
     session_memory = _session_store.get(session_id)
     if not session_memory:
@@ -217,7 +217,6 @@ async def save_jd(request: SaveJDRequest, db: AsyncSession = Depends(get_db)):
             status=session_memory.progress.get("status") if isinstance(session_memory.progress, dict) else None,
         )
         print(f"[backend/app/routers/jd_routes.py] ✅ /save success — id={record.id} | title={record.title}")
-        print(f"[backend/app/routers/jd_routes.py] Both jd_text and jd_structured have been passed to save_questionnaire_jd.")
         return {
             "status": "success",
             "id": record.id,

@@ -3,15 +3,17 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import MessageBubble from "./message-bubble";
 import { Message } from "../../types/message";
-import { Sparkles, Activity } from "lucide-react";
+import { Sparkles, Activity, Bot, Loader2 } from "lucide-react";
 
 export default function ChatWindow({
   messages,
+  isGenerating,
   onSkillSelect,
   onGenerateJD,
   onContinue,
 }: {
   messages: Message[];
+  isGenerating?: boolean;
   onSkillSelect?: (selectedSkills: string[]) => void;
   onGenerateJD?: () => void;
   onContinue?: () => void;
@@ -118,6 +120,25 @@ export default function ChatWindow({
                 onContinue={onContinue}
               />
             ))}
+            {isGenerating && (
+              <div className="flex gap-4 justify-start mb-6 animate-in fade-in slide-in-from-bottom-3 duration-500 w-full">
+                <div className="flex-shrink-0 mt-1">
+                  <div className="w-11 h-11 bg-primary-600 rounded-2xl flex items-center justify-center shadow-premium ring-4 ring-primary-50">
+                    <Bot className="w-6 h-6 text-white" />
+                  </div>
+                </div>
+                <div className="max-w-[80%]">
+                  <div className="relative px-6 py-4 rounded-3xl shadow-sm bg-white text-surface-900 rounded-tl-none border border-surface-200">
+                    <div className="flex items-center gap-3">
+                      <Loader2 className="w-4 h-4 text-primary-500 animate-spin" />
+                      <span className="text-[12px] font-bold text-surface-400 uppercase tracking-widest">
+                        Saniya is analyzing...
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
             <div className="h-8" />
           </>
         )}
@@ -125,5 +146,3 @@ export default function ChatWindow({
     </div>
   );
 }
-
-import { Bot } from "lucide-react";

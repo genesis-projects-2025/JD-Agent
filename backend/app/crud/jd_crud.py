@@ -1,6 +1,6 @@
 # app/crud/jd_crud.py
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, func
 from app.models.questionnaire_model import Questionnaire
 from typing import Optional, List
 import datetime
@@ -349,7 +349,43 @@ async def get_questionnaire(
 
 async def list_questionnaires(db: AsyncSession) -> list[Questionnaire]:
     result = await db.execute(
-        select(Questionnaire).order_by(Questionnaire.created_at.desc())
+        select(Questionnaire).order_by(Questionnaire.updated_at.desc())
+    )
+    return result.scalars().all()
+
+
+async def approve_questionnaire(
+    db: AsyncSession,
+    jd_id: str,
+    reviewed_by: str = "HR Manager",
+) -> Optional[Questionnaire]:
+    """Mark a JD as approved."""
+    result = await db.execute(
+        select(Questionnaire).where(Questionnaire.id == jd_id)
+    )
+    record = result.scalar_one_or_none()
+    if not record:
+        return None
+
+    record.status = "approved"
+    record.reviewed_by = reviewed_by
+    record.reviewed_at = datetime.now(timezone.utc).replace(tzinfo=None)
+    record.reviewer_comment = None
+
+    await db.commit()
+    await db.refresh(record)
+    return record
+
+
+async def reject_questionnaire(
+    db: AsyncSession,
+    jd_id: str,
+    comment: str,
+    reviewed_by: str = "HR Manager",
+) -> Optional[Questionnaire]:
+    """Return a JD for revision with a comment."""
+    result = await db.execute(
+        select(Questionnaire).where(Questionnaire.id == jd_id)
     )
     return result.scalars().all()
 

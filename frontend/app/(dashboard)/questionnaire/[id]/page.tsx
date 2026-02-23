@@ -9,6 +9,7 @@ import ChatWindow from "@/components/chat/chat-window";
 import MessageInput from "@/components/chat/message-input";
 import JDPreviewPanel from "@/components/jd/jd-preview-panel";
 import { useChat } from "@/hooks/useChat";
+import { exportJDToPDF } from "@/lib/pdf-export";
 import {
   Loader2,
   ArrowLeft,

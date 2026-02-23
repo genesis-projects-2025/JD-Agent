@@ -258,3 +258,30 @@ export async function updateJDStatus(
     return normaliseError(err);
   }
 }
+
+/* ── Dashboard ──────────────────────────────────────────────────── */
+
+export async function getDashboardStats(): Promise<DashboardStats> {
+  const response = await api.get("/jd/stats");
+  return response.data;
+}
+
+export async function getRecentActivity(): Promise<ActivityEvent[]> {
+  const response = await api.get("/jd/activity");
+  return response.data;
+}
+
+/* ── JD List & Approvals ────────────────────────────────────────── */
+
+export async function getJDs(): Promise<JDRecord[]> {
+  const response = await api.get("/jd/list");
+  return response.data;
+}
+
+export async function approveJD(id: string): Promise<void> {
+  await api.post(`/jd/${id}/approve`);
+}
+
+export async function rejectJD(id: string, comment: string): Promise<void> {
+  await api.post(`/jd/${id}/reject`, { comment });
+}

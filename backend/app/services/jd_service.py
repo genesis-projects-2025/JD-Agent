@@ -261,13 +261,13 @@ def parse_llm_response(raw_content: str, session_memory: SessionMemory = None) -
 
 
 # ── JD Generation ──────────────────────────────────────────────────────────────
-
+# getting the structed data of the employee whole conversation
 def _build_markdown_from_structured(s: dict, insights: dict) -> str:
     """Safety net — reconstruct markdown when jd_text_format is missing."""
     emp = s.get("employee_information", {})
     title = (
         emp.get("job_title") or emp.get("title") or emp.get("role_title")
-        or insights.get("identity_context", {}).get("job_title", "Role")
+        or insights.get("identity_context", {}).get("title", "Role")
     )
     lines = [f"# Job Description: {title}\n"]
     dept = emp.get("department", "")
@@ -317,7 +317,7 @@ def _build_markdown_from_structured(s: dict, insights: dict) -> str:
     lines.append("*Generated from structured employee role intelligence interview.*")
     return "\n".join(lines)
 
-
+# This is where the jd is generated to save in the database
 async def handle_jd_generation(session_memory: SessionMemory) -> dict:
     """
     Dedicated JD generation — called ONLY from POST /jd/generate endpoint.

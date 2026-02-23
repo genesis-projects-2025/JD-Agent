@@ -25,7 +25,7 @@ export default function RootLayout({
     <html lang="en" className={`${inter.variable} ${outfit.variable} h-full`}>
       <body className="flex h-full overflow-hidden bg-white selection:bg-primary-100 selection:text-primary-900">
         <Sidebar />
-        <main className="flex-1 h-full overflow-hidden p-6">{children}</main>
+        <main className="flex-1 h-full overflow-y-auto p-6">{children}</main>
       </body>
     </html>
   );

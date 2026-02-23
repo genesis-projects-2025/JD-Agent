@@ -57,23 +57,26 @@ class ChatResponse(BaseModel):
 
     progress: Progress = Field(default_factory=Progress)
 
-    # LLM always returns this, but default makes it resilient
     employee_role_insights: EmployeeRoleInsights = Field(
         default_factory=EmployeeRoleInsights
     )
 
-    # ✅ Optional — LLM only sends these during jd_generated / approved phases
     jd_structured_data: Optional[JDStructuredData] = Field(
         default_factory=JDStructuredData
     )
     jd_text_format: Optional[str] = ""
     approval: Optional[Approval] = Field(default_factory=Approval)
-
-    # Optional — nice-to-have metadata
     analytics: Optional[Analytics] = Field(default_factory=Analytics)
 
 
-# ── Request / Response Models ──────────────────────────────────────────────────
+# ── Conversation History Turn ─────────────────────────────────────────────────
+class ConversationTurn(BaseModel):
+    role: str                         # "user" | "assistant"
+    content: str
+    timestamp: Optional[str] = None  # ISO string
+
+
+# ── Request / Response Models ─────────────────────────────────────────────────
 
 class ChatRequest(BaseModel):
     id: Optional[str] = None
@@ -90,6 +93,8 @@ class InitJDRequest(BaseModel):
 class InitJDResponse(BaseModel):
     id: str
     status: str
+    # Returned so frontend can immediately associate this session with the employee
+    employee_id: Optional[str] = None
 
 
 class JDRequest(BaseModel):
@@ -101,3 +106,17 @@ class SaveJDRequest(BaseModel):
     jd_text: str
     jd_structured: Dict
     employee_id: Optional[str] = None
+
+
+class UpdateJDRequest(BaseModel):
+    jd_text: str
+    jd_structured: Dict
+    employee_id: str
+
+
+class UpdateStatusRequest(BaseModel):
+    status: str
+    employee_id: str
+
+class GenerateJDRequest(BaseModel):
+    id: str  # session_id

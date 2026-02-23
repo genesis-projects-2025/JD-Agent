@@ -1,9 +1,9 @@
-// components/chat/message-input.tsx - IMPROVED VERSION
+// components/chat/message-input.tsx - ENTERPRISE REDESIGN
 
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import { Send, Loader2 } from "lucide-react";
+import { Send, Loader2, Paperclip, Mic } from "lucide-react";
 
 export default function MessageInput({
   onSend,
@@ -16,7 +16,6 @@ export default function MessageInput({
   const [isSending, setIsSending] = useState(false);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
-  // Auto-resize textarea
   useEffect(() => {
     if (inputRef.current) {
       inputRef.current.style.height = "auto";
@@ -47,11 +46,17 @@ export default function MessageInput({
   };
 
   return (
-    <div className="p-4 bg-white border-t border-neutral-200">
+    <div className="p-6 bg-white border-t border-surface-200">
       <div className="max-w-4xl mx-auto">
-        <div className="flex gap-3 items-end">
-          {/* Input Container */}
-          <div className="flex-1 relative">
+        <div className="flex gap-4 items-end bg-surface-50 p-2 rounded-[24px] border border-surface-200 shadow-sm focus-within:shadow-premium transition-all duration-300">
+          {/* Action Icons (Visual only for now) */}
+          <div className="flex gap-2 pb-2 pl-2">
+            <button className="p-2 text-surface-400 hover:text-primary-600 transition-colors">
+              <Paperclip className="w-5 h-5" />
+            </button>
+          </div>
+
+          <div className="flex-1 relative pb-1">
             <textarea
               ref={inputRef}
               value={value}
@@ -59,42 +64,40 @@ export default function MessageInput({
               onKeyDown={handleKeyDown}
               disabled={disabled || isSending}
               rows={1}
-              className="w-full text-black resize-none px-5 py-3.5 pr-12 bg-neutral-50 border-2 border-neutral-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent transition-all text-[15px] placeholder:text-neutral-400 disabled:opacity-50 disabled:cursor-not-allowed max-h-32"
+              className="w-full text-surface-900 resize-none px-2 py-3 bg-transparent border-none focus:outline-none text-[16px] font-medium placeholder:text-surface-400 disabled:opacity-50 disabled:cursor-not-allowed max-h-32"
               placeholder={
                 disabled
-                  ? "Waiting for response..."
-                  : "Type your answer... (Shift + Enter for new line)"
+                  ? "Saniya is processing..."
+                  : "Type your detailed response here..."
               }
             />
-
-            {/* Character Counter */}
-            {value.length > 0 && (
-              <div className="absolute bottom-2 right-3 text-xs text-neutral-400">
-                {value.length}
-              </div>
-            )}
           </div>
 
-          {/* Send Button */}
-          <button
-            onClick={handleSend}
-            disabled={!value.trim() || isSending || disabled}
-            className="flex-shrink-0 w-12 h-12 bg-gradient-to-r from-primary-600 to-primary-700 text-white rounded-2xl hover:from-primary-700 hover:to-primary-800 transition-all shadow-lg shadow-primary-900/20 disabled:opacity-50 disabled:cursor-not-allowed active:scale-95 flex items-center justify-center"
-          >
-            {isSending ? (
-              <Loader2 className="w-5 h-5 animate-spin" />
-            ) : (
-              <Send className="w-5 h-5" />
-            )}
-          </button>
+          <div className="flex items-center gap-2 pr-2 pb-2">
+            <button className="p-2 text-surface-400 hover:text-primary-600 transition-colors">
+              <Mic className="w-5 h-5" />
+            </button>
+            <button
+              onClick={handleSend}
+              disabled={!value.trim() || isSending || disabled}
+              className="w-12 h-12 bg-primary-600 text-white rounded-2xl hover:bg-primary-700 transition-all shadow-lg shadow-primary-500/20 disabled:opacity-30 disabled:shadow-none active:scale-95 flex items-center justify-center group"
+            >
+              {isSending ? (
+                <Loader2 className="w-5 h-5 animate-spin" />
+              ) : (
+                <Send className="w-5 h-5 group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-transform" />
+              )}
+            </button>
+          </div>
         </div>
 
-        {/* Helper Text */}
-        <div className="mt-2 px-1 text-xs text-neutral-500 flex items-center justify-between">
-          <span>Press Enter to send, Shift + Enter for new line</span>
-          {value.trim() && (
-            <span className="text-primary-600 font-medium">Ready to send</span>
-          )}
+        {/* Status indicator */}
+        <div className="mt-3 px-4 text-[10px] font-bold uppercase tracking-widest text-surface-400 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <div className="w-1 h-1 bg-primary-400 rounded-full" />
+            <span>Shift + Enter for multiline</span>
+          </div>
+          {value.length > 0 && <span>{value.length} characters recorded</span>}
         </div>
       </div>
     </div>

@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { initQuestionnaire } from "@/lib/api";
+import { getOrCreateEmployeeId } from "@/lib/auth";
 import { useState } from "react";
 
 export default function QuestionnaireStart() {
@@ -11,9 +12,10 @@ export default function QuestionnaireStart() {
   const startInterview = async () => {
     setLoading(true);
     try {
+      const eid = getOrCreateEmployeeId();
       const data = await initQuestionnaire({
-        employee_id: "EMP_" + Math.floor(Math.random() * 10000),
-        employee_name: "John Doe",
+        employee_id: eid,
+        employee_name: "Employee " + eid.substring(4, 8).toUpperCase(), // Semi-dynamic name
       });
       router.push(`/questionnaire/${data.id}`);
     } catch (error) {

@@ -1,43 +1,120 @@
-// components/layout/sidebar.tsx - IMPROVED VERSION
+// components/layout/sidebar.tsx
 
 "use client";
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { 
-  LayoutDashboard, 
-  MessageSquare, 
-  CheckCircle2, 
+import { useEffect, useState } from "react";
+import { fetchEmployeeJDs } from "@/lib/api";
+import { getOrCreateEmployeeId } from "@/lib/auth";
+import {
+  LayoutDashboard,
+  MessageSquare,
+  CheckCircle2,
   FileText,
   Settings,
-  HelpCircle
+  HelpCircle,
+  Clock,
+  ChevronRight,
+  Loader2,
 } from "lucide-react";
+
+type JDListItem = {
+  id: string;
+  title: string | null;
+  status: string;
+  version: number;
+  updated_at: string | null;
+};
+
+const STATUS_CONFIG: Record<string, { label: string; dotColor: string }> = {
+  draft: { label: "Draft", dotColor: "bg-amber-400" },
+  jd_generated: { label: "Draft", dotColor: "bg-amber-400" },
+  sent_to_manager: { label: "Sent", dotColor: "bg-blue-400" },
+  approved: { label: "Approved", dotColor: "bg-emerald-400" },
+  rejected: { label: "Rejected", dotColor: "bg-red-400" },
+};
+
+function formatDate(dateStr: string | null): string {
+  if (!dateStr) return "—";
+  const d = new Date(dateStr);
+  return d.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
 
 export default function Sidebar() {
   const pathname = usePathname();
+  const [jds, setJds] = useState<JDListItem[]>([]);
+  const [loadingJds, setLoadingJds] = useState(false);
+  const [employeeId, setEmployeeId] = useState<string | null>(null);
+
+  // Initialize or Sync employee ID
+  useEffect(() => {
+    // 1. Try to get it from the URL first (e.g., /dashboard/[id])
+    if (pathname.includes("/dashboard/")) {
+      const parts = pathname.split("/");
+      const idFromUrl = parts[parts.indexOf("dashboard") + 1];
+      if (
+        (idFromUrl && idFromUrl.startsWith("emp_")) ||
+        idFromUrl?.length > 10
+      ) {
+        setEmployeeId(idFromUrl);
+        return;
+      }
+    }
+
+    // 2. Fallback to localStorage
+    const storedId = getOrCreateEmployeeId();
+    setEmployeeId(storedId);
+  }, [pathname]);
 
   const links = [
-    { 
-      name: "Dashboard", 
-      href: "/dashboard", 
+    {
+      name: "Dashboard",
+      href: employeeId ? `/dashboard/${employeeId}` : "/",
       icon: LayoutDashboard,
-      description: "Overview & stats"
+      description: "Overview & stats",
     },
-    { 
-      name: "JD Interview", 
-      href: "/questionnaire", 
+    {
+      name: "Create My JD",
+      href: "/questionnaire",
       icon: MessageSquare,
-      description: "Create new JD"
+      description: "Start new interview",
     },
-    { 
-      name: "Approvals", 
-      href: "/approvals", 
+    {
+      name: "Manager Response",
+      href: "/approvals",
       icon: CheckCircle2,
-      description: "Review & approve"
+      description: "Feedback & status",
     },
   ];
 
-  const isActive = (href: string) => pathname === href || pathname.startsWith(href);
+  const isActive = (href: string) =>
+    pathname === href || pathname.startsWith(href);
+
+  // Load saved JDs
+  useEffect(() => {
+    if (!employeeId) return;
+
+    async function loadJDs() {
+      setLoadingJds(true);
+      try {
+        // Fetch ALWAYS and ONLY for the current employee to ensure privacy
+        const data = await fetchEmployeeJDs(employeeId as string);
+        setJds(data || []);
+      } catch (err) {
+        console.error("Failed to load JDs for sidebar:", err);
+        setJds([]); // Clear JDs on error to avoid showing stale/other data
+      } finally {
+        setLoadingJds(false);
+      }
+    }
+    loadJDs();
+  }, [pathname, employeeId]); // Reload when navigating or ID changes
 
   return (
     <aside className="w-72 h-screen bg-gradient-to-b from-neutral-900 via-neutral-900 to-neutral-800 text-white flex flex-col border-r border-neutral-800 shadow-2xl">
@@ -48,18 +125,20 @@ export default function Sidebar() {
             <FileText className="w-5 h-5 text-white" />
           </div>
           <div>
-            <h1 className="text-lg font-bold tracking-tight">JD Intelligence</h1>
+            <h1 className="text-lg font-bold tracking-tight">
+              JD Intelligence
+            </h1>
             <p className="text-xs text-neutral-400">Pulse Pharma</p>
           </div>
         </div>
       </div>
 
       {/* Navigation */}
-      <nav className="flex-1 p-4 space-y-1.5 overflow-y-auto">
+      <nav className="p-4 space-y-1.5">
         {links.map((link) => {
           const Icon = link.icon;
           const active = isActive(link.href);
-          
+
           return (
             <Link
               key={link.href}
@@ -67,9 +146,10 @@ export default function Sidebar() {
               className={`
                 group relative flex items-center gap-3 px-4 py-3.5 rounded-xl 
                 transition-all duration-200 ease-out
-                ${active 
-                  ? 'bg-primary-600 text-white shadow-lg shadow-primary-900/30' 
-                  : 'text-neutral-400 hover:text-white hover:bg-neutral-800/50'
+                ${
+                  active
+                    ? "bg-primary-600 text-white shadow-lg shadow-primary-900/30"
+                    : "text-neutral-400 hover:text-white hover:bg-neutral-800/50"
                 }
               `}
             >
@@ -77,13 +157,17 @@ export default function Sidebar() {
               {active && (
                 <div className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-8 bg-white rounded-r-full" />
               )}
-              
+
               {/* Icon */}
-              <Icon className={`w-5 h-5 transition-transform ${active ? 'scale-110' : 'group-hover:scale-105'}`} />
-              
+              <Icon
+                className={`w-5 h-5 transition-transform ${active ? "scale-110" : "group-hover:scale-105"}`}
+              />
+
               {/* Text */}
               <div className="flex-1">
-                <div className={`font-medium text-sm ${active ? 'text-white' : ''}`}>
+                <div
+                  className={`font-medium text-sm ${active ? "text-white" : ""}`}
+                >
                   {link.name}
                 </div>
                 <div className="text-xs opacity-60 mt-0.5">
@@ -99,6 +183,72 @@ export default function Sidebar() {
           );
         })}
       </nav>
+
+      {/* Saved JDs Section */}
+      <div className="flex-1 overflow-hidden flex flex-col border-t border-neutral-800/50 mt-2">
+        <div className="px-5 py-3 flex items-center justify-between">
+          <h2 className="text-xs font-semibold text-neutral-500 uppercase tracking-wider">
+            My JD Creations
+          </h2>
+          {loadingJds && (
+            <Loader2 className="w-3.5 h-3.5 text-neutral-500 animate-spin" />
+          )}
+        </div>
+
+        <div className="flex-1 min-h-0 overflow-y-auto px-3 pb-3 space-y-1">
+          {!loadingJds && jds.length === 0 && (
+            <div className="px-3 py-6 text-center">
+              <FileText className="w-8 h-8 text-neutral-700 mx-auto mb-2" />
+              <p className="text-xs text-neutral-500">No JDs saved yet</p>
+              <p className="text-xs text-neutral-600 mt-1">
+                Complete an interview to create one
+              </p>
+            </div>
+          )}
+
+          {jds.map((jdItem) => {
+            const config = STATUS_CONFIG[jdItem.status] || STATUS_CONFIG.draft;
+            const isJDActive = pathname === `/jd/${jdItem.id}`;
+
+            return (
+              <Link
+                key={jdItem.id}
+                href={`/jd/${jdItem.id}`}
+                className={`
+                  group flex flex-col gap-1.5 px-3 py-3 rounded-lg transition-all duration-150
+                  ${
+                    isJDActive
+                      ? "bg-neutral-700/50 border border-neutral-600"
+                      : "hover:bg-neutral-800/60 border border-transparent"
+                  }
+                `}
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-sm font-medium text-neutral-200 truncate">
+                    {jdItem.title || "Untitled JD"}
+                  </span>
+                  <ChevronRight className="w-3.5 h-3.5 text-neutral-600 group-hover:text-neutral-400 flex-shrink-0 transition-colors" />
+                </div>
+
+                <div className="flex items-center gap-3">
+                  <span className="flex items-center gap-1.5">
+                    <span
+                      className={`w-1.5 h-1.5 rounded-full ${config.dotColor}`}
+                    />
+                    <span className="text-xs text-neutral-500">
+                      {config.label}
+                    </span>
+                  </span>
+                  <span className="flex items-center gap-1 text-xs text-neutral-600">
+                    <Clock className="w-3 h-3" />
+                    {formatDate(jdItem.updated_at)}
+                  </span>
+                </div>
+              </Link>
+            );
+          })}
+        </div>
+      </div>
 
       {/* Footer Section */}
       <div className="p-4 border-t border-neutral-800/50 space-y-2">

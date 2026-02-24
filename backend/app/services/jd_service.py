@@ -83,7 +83,8 @@ def deep_merge(base: dict, incoming: dict) -> dict:
 
 
 def update_summary(memory: SessionMemory):
-    if len(memory.recent_messages) >= 4:
+    # Use full_history length — recent_messages is always capped so this was always True
+    if len(memory.full_history) >= 4:
         memory.summary = "Conversation collected employee role responsibilities, tools, and workflow insights."
 
 

@@ -47,19 +47,21 @@ async def hydrate_session_from_db(session_id: str, db: AsyncSession) -> SessionM
     if record:
         memory.id = record.id
         memory.employee_id = record.employee_id
+        memory.employee_name = record.employee_name  # ← restore
         memory.insights = record.responses or {}
         memory.progress = record.conversation_state or {}
         memory.generated_jd = record.generated_jd
         memory.jd_structured = record.jd_structured
 
+        # ── FIXED: restore full_history from DB, recent_messages as LLM window ──
         history = record.conversation_history or []
-        for turn in history[-10:]:
-            memory.update_recent(turn.get("role", "user"), turn.get("content", ""))
+        memory.load_history_from_db(history, llm_limit=6)
 
         print(
             f"   -> DB record found | "
             f"insights_keys={list(memory.insights.keys())} | "
-            f"history_turns={len(history)} | "
+            f"full_history_turns={len(memory.full_history)} | "
+            f"recent_messages_turns={len(memory.recent_messages)} | "
             f"has_jd={bool(memory.generated_jd)} | "
             f"has_structured={bool(memory.jd_structured)}"
         )
@@ -77,6 +79,7 @@ async def init_jd(request: InitJDRequest, db: AsyncSession = Depends(get_db)):
     memory = SessionMemory()
     memory.id = new_id
     memory.employee_id = request.employee_id
+    memory.employee_name = request.employee_name  # ← store name
     _session_store[new_id] = memory
 
     await sync_session_to_db(
@@ -86,6 +89,7 @@ async def init_jd(request: InitJDRequest, db: AsyncSession = Depends(get_db)):
         progress={"completion_percentage": 0, "status": "collecting", "missing_insight_areas": []},
         conversation_history=[],
         employee_id=request.employee_id,
+        employee_name=request.employee_name,  # ← pass to DB
     )
 
     print(f"🆕 Initialized session: {new_id} | employee: {request.employee_id}")
@@ -114,8 +118,10 @@ async def chat(request: ChatRequest, db: AsyncSession = Depends(get_db)):
         session_id=session_id,
         insights=session_memory.insights,
         progress=session_memory.progress,
-        conversation_history=db_history,
+        # ── FIXED: full_history has every turn, not just recent 4 ──
+        conversation_history=session_memory.full_history,
         employee_id=session_memory.employee_id,
+        employee_name=session_memory.employee_name,  # ← added
         generated_jd=session_memory.generated_jd,
         jd_structured=session_memory.jd_structured,
         status=session_memory.progress.get("status"),
@@ -167,8 +173,10 @@ async def generate_jd_endpoint(
         session_id=session_id,
         insights=session_memory.insights,
         progress=session_memory.progress,
-        conversation_history=list(session_memory.recent_messages),
+        # ── FIXED: full_history has every turn ──
+        conversation_history=session_memory.full_history,
         employee_id=session_memory.employee_id,
+        employee_name=session_memory.employee_name,  # ← added
         status="jd_generated",
     )
 
@@ -199,9 +207,10 @@ async def save_jd(request: SaveJDRequest, db: AsyncSession = Depends(get_db)):
                 detail="Session not found. Please complete the interview first."
             )
 
+    # ── FIXED: use full_history for DB — not the 4-turn recent_messages window ──
     db_history = [
         {"role": m["role"], "content": m["content"]}
-        for m in (session_memory.recent_messages or [])
+        for m in (session_memory.full_history or [])
     ]
 
     try:

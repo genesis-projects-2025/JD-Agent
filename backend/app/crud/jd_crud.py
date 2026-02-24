@@ -96,6 +96,7 @@ async def save_questionnaire_jd(
     employee_insights: dict,
     progress: dict,
     employee_id: Optional[str] = None,
+    employee_name: Optional[str] = None,
     conversation_history: Optional[list] = None,
     status: Optional[str] = None,
 ) -> Questionnaire:
@@ -118,14 +119,19 @@ async def save_questionnaire_jd(
             or session_id
         )
 
-    # FIX #2: Sanitize ALL JSONB inputs before touching the DB
     safe_structured = _safe_jsonb(jd_structured)
     safe_insights = _safe_jsonb(employee_insights)
     safe_progress = _safe_jsonb(progress)
     safe_history = _safe_jsonb_list(conversation_history)
 
-    # FIX #1: Extract title ONLY from structured data — never from raw jd_text
     title = _extract_title(safe_structured)
+
+    # Resolve name: passed param → insights identity_context → keep existing
+    resolved_name = (
+        employee_name
+        or safe_insights.get("identity_context", {}).get("employee_name")
+        or safe_insights.get("identity_context", {}).get("name")
+    )
 
     if record:
         if jd_text:
@@ -143,18 +149,20 @@ async def save_questionnaire_jd(
 
         if title:
             record.title = title
-        # FIX #1: Removed the jd_text fallback that was storing markdown as title
+
+        if resolved_name:
+            record.employee_name = resolved_name
 
         if conversation_history is not None:
             record.conversation_history = safe_history
 
-        # FIX #3: Explicitly set updated_at — JSONB-only changes aren't always detected
         record.updated_at = _now()
 
     else:
         record = Questionnaire(
             id=session_id,
             employee_id=employee_id,
+            employee_name=resolved_name,
             status=status or "draft",
             title=title or "New Strategic Role",
             conversation_state=safe_progress,
@@ -212,6 +220,7 @@ async def sync_session_to_db(
     progress: dict,
     conversation_history: list,
     employee_id: Optional[str] = None,
+    employee_name: Optional[str] = None,
     generated_jd: Optional[str] = None,
     jd_structured: Optional[dict] = None,
     status: Optional[str] = None,
@@ -225,11 +234,17 @@ async def sync_session_to_db(
     )
     record = result.scalar_one_or_none()
 
-    # FIX #2: Sanitize all JSONB inputs upfront
     safe_insights = _safe_jsonb(insights)
     safe_progress = _safe_jsonb(progress)
     safe_history = _safe_jsonb_list(conversation_history)
     safe_structured = _safe_jsonb(jd_structured) if jd_structured else None
+
+    # Resolve name: passed param → insights identity_context
+    resolved_name = (
+        employee_name
+        or safe_insights.get("identity_context", {}).get("employee_name")
+        or safe_insights.get("identity_context", {}).get("name")
+    )
 
     if record:
         record.responses = safe_insights
@@ -239,25 +254,26 @@ async def sync_session_to_db(
         if employee_id and record.employee_id == session_id:
             record.employee_id = employee_id
 
+        if resolved_name:
+            record.employee_name = resolved_name
+
         if generated_jd:
             record.generated_jd = generated_jd
-        # FIX #2 + #5: Guard — only overwrite jd_structured with real non-empty data
         if safe_structured:
             record.jd_structured = safe_structured
         if status:
             record.status = status
 
-        # FIX #1: Only extract title from structured data, never raw text
         if not record.title and safe_structured:
             record.title = _extract_title(safe_structured)
 
-        # FIX #3: Explicit timestamp so JSONB-only changes always update updated_at
         record.updated_at = _now()
 
     else:
         record = Questionnaire(
             id=session_id,
             employee_id=employee_id or session_id,
+            employee_name=resolved_name,
             status=status or "collecting",
             responses=safe_insights,
             conversation_state=safe_progress,

@@ -1,14 +1,28 @@
 fastapi
-uvicorn
+uvicorn[standard]
 python-dotenv
+
+# Database
 SQLAlchemy
 psycopg2-binary
 alembic
+asyncpg
+
+# HTTP
 httpx
+
+# AI / LLM
+google-genai
 groq
-pinecone-client
+
+# Vector DB
+pinecone
+
+# LangChain (only if you're actually using it)
 langchain
-langchain-groq
 langchain-core
+langchain-groq
+
+# Pydantic
 pydantic
-google-generativeai
+pydantic-settings

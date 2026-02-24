@@ -2,6 +2,7 @@
 import axios, { AxiosError } from "axios";
 import { DashboardStats } from "@/types/jd";
 import { ActivityEvent } from "@/types/jd";
+
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 export interface JDStructuredData {
@@ -132,7 +133,6 @@ function normaliseError(err: unknown): never {
   }
   throw err;
 }
-
 // ── Interview Endpoints ───────────────────────────────────────────────────────
 
 export async function initQuestionnaire(data: {

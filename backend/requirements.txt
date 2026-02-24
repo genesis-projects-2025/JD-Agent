@@ -3,7 +3,7 @@ uvicorn[standard]
 python-dotenv
 
 # Database
-SQLAlchemy
+SQLAlchemy[asyncio]
 psycopg2-binary
 alembic
 asyncpg
@@ -11,15 +11,17 @@ greenlet
 
 # HTTP
 httpx
+aiohttp
+aiohttp-retry
 
 # AI / LLM
 google-genai
 groq
 
 # Vector DB
-pinecone
+pinecone[asyncio]==8.1.0
 
-# LangChain (only if you're actually using it)
+# LangChain
 langchain
 langchain-core
 langchain-groq

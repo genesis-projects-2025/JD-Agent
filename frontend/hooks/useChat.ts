@@ -23,6 +23,8 @@ export function useChat(onSaveSuccess?: () => void, autoInit: boolean = true) {
   const [isRateLimited, setIsRateLimited] = useState(false);
   const [retryTimer, setRetryTimer] = useState(0);
   const [lastMessageText, setLastMessageText] = useState<string | null>(null);
+  // ✅ NEW: true once DB hydration is complete — page uses this to show skeleton
+  const [hydrated, setHydrated] = useState(false);
 
   const initialized = useRef(false);
 
@@ -165,6 +167,9 @@ export function useChat(onSaveSuccess?: () => void, autoInit: boolean = true) {
             }
             setJd(initialJd);
             setStructuredData(existingData.jd_structured ?? null);
+
+            // ✅ Mark hydration done — page can now render chat
+            setHydrated(true);
           } else {
             // ── New session — send greeting to trigger first question ─────────
             console.log("🚀 Starting new JD session:", id);
@@ -174,9 +179,13 @@ export function useChat(onSaveSuccess?: () => void, autoInit: boolean = true) {
               id,
             );
             processResponse(data.reply, data.history);
+
+            // ✅ Mark hydration done for new sessions too
+            setHydrated(true);
           }
         } catch (error) {
           console.error("Failed to initialize chat:", error);
+          setHydrated(true); // ✅ unblock UI even on error
         }
       };
 
@@ -355,5 +364,6 @@ export function useChat(onSaveSuccess?: () => void, autoInit: boolean = true) {
     insights,
     isRateLimited,
     retryTimer,
+    hydrated, // ✅ NEW — use this in the chat page to show a loading skeleton
   };
 }

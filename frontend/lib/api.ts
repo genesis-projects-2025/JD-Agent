@@ -2,6 +2,7 @@
 import axios, { AxiosError } from "axios";
 import { DashboardStats } from "@/types/jd";
 import { ActivityEvent } from "@/types/jd";
+
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 export interface JDStructuredData {
@@ -132,7 +133,6 @@ function normaliseError(err: unknown): never {
   }
   throw err;
 }
-
 // ── Interview Endpoints ───────────────────────────────────────────────────────
 
 export async function initQuestionnaire(data: {
@@ -221,6 +221,18 @@ export async function fetchEmployeeJDs(
 export async function fetchJD(jdId: string): Promise<JDRecord> {
   try {
     const res = await api.get<JDRecord>(`/jd/${jdId}`);
+    return res.data;
+  } catch (err) {
+    return normaliseError(err);
+  }
+}
+
+export async function deleteJD(
+  jdId: string,
+  employeeId: string,
+): Promise<{ status: string; message: string }> {
+  try {
+    const res = await api.delete(`/jd/${jdId}?employee_id=${employeeId}`);
     return res.data;
   } catch (err) {
     return normaliseError(err);

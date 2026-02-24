@@ -17,6 +17,7 @@ from app.crud.jd_crud import (
     update_questionnaire_jd,
     update_questionnaire_status,
     list_questionnaires_by_employee,
+    delete_questionnaire,
 )
 import uuid
 
@@ -361,6 +362,25 @@ async def update_jd_status(jd_id: str, request: UpdateStatusRequest, db: AsyncSe
         raise HTTPException(status_code=403, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to update status: {str(e)}")
+
+
+# ── Delete JD ─────────────────────────────────────────────────────────────────
+@router.delete("/{jd_id}")
+async def delete_jd(jd_id: str, employee_id: str, db: AsyncSession = Depends(get_db)):
+    try:
+        success = await delete_questionnaire(db=db, jd_id=jd_id, employee_id=employee_id)
+        if not success:
+            raise HTTPException(status_code=404, detail="JD not found")
+        
+        # Cleanup memory session if loaded
+        if jd_id in _session_store:
+            del _session_store[jd_id]
+            
+        return {"status": "success", "message": "JD deleted successfully."}
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to delete JD: {str(e)}")
 
 
 # ── Serializer ────────────────────────────────────────────────────────────────

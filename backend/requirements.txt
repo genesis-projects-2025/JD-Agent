@@ -16,7 +16,6 @@ aiohttp-retry
 
 # AI / LLM
 google-genai
-groq
 
 # Vector DB
 pinecone[asyncio]==8.1.0
@@ -24,7 +23,7 @@ pinecone[asyncio]==8.1.0
 # LangChain
 langchain
 langchain-core
-langchain-groq
+langchain-google-genai
 
 # Pydantic
 pydantic

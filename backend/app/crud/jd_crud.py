@@ -417,3 +417,24 @@ async def list_questionnaires_by_employee(
         .order_by(Questionnaire.updated_at.desc())
     )
     return result.scalars().all()
+
+
+async def delete_questionnaire(
+    db: AsyncSession,
+    jd_id: str,
+    employee_id: str,
+) -> bool:
+    """Delete a JD completely. Validates ownership."""
+    result = await db.execute(
+        select(Questionnaire).where(Questionnaire.id == jd_id)
+    )
+    record = result.scalar_one_or_none()
+    if not record:
+        return False
+    if record.employee_id != employee_id:
+        raise PermissionError("You can only delete your own JDs")
+
+    await db.delete(record)
+    await db.commit()
+    print(f"🗑️ JD deleted — id={record.id}")
+    return True

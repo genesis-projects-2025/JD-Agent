@@ -227,6 +227,18 @@ export async function fetchJD(jdId: string): Promise<JDRecord> {
   }
 }
 
+export async function deleteJD(
+  jdId: string,
+  employeeId: string,
+): Promise<{ status: string; message: string }> {
+  try {
+    const res = await api.delete(`/jd/${jdId}?employee_id=${employeeId}`);
+    return res.data;
+  } catch (err) {
+    return normaliseError(err);
+  }
+}
+
 export async function updateJD(
   jdId: string,
   data: {

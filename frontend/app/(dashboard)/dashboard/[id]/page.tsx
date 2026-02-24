@@ -210,9 +210,11 @@ export default function DynamicDashboardPage() {
                 <Link
                   key={jd.id}
                   href={
-                    jd.status === "draft" || jd.status === "jd_generated"
-                      ? `/questionnaire/${jd.id}`
-                      : `/jd/${jd.id}`
+                    ["jd_generated", "sent_to_manager", "approved"].includes(
+                      jd.status,
+                    )
+                      ? `/jd/${jd.id}`
+                      : `/questionnaire/${jd.id}`
                   }
                   className="group bg-white rounded-3xl p-6 border border-surface-100 shadow-premium hover:shadow-2xl hover:border-primary-200 transition-all duration-500 flex flex-col justify-between"
                 >

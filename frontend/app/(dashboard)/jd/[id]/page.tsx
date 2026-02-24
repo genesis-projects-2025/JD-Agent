@@ -1,10 +1,10 @@
-// app/(dashboard)/jd/[id]/page.tsx - ENTERPRISE REDESIGN
+// app/(dashboard)/jd/[id]/page.tsx
 
 "use client";
 
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { fetchJD, updateJDStatus } from "@/lib/api";
+import { fetchJD, updateJDStatus, deleteJD } from "@/lib/api";
 import {
   FileText,
   Edit3,
@@ -12,21 +12,23 @@ import {
   ArrowLeft,
   Clock,
   Hash,
-  Briefcase,
   Target,
-  Wrench,
   Users,
-  BarChart3,
   Building2,
-  Star,
   CheckCircle2,
   Loader2,
   ShieldCheck,
   Download,
   Share2,
+  AlertTriangle,
+  RefreshCw,
+  MessageSquare,
+  Trash2,
 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+
+// ── Types ─────────────────────────────────────────────────────────────────────
 
 type JDData = {
   id: string;
@@ -36,9 +38,13 @@ type JDData = {
   version: number;
   generated_jd: string | null;
   jd_structured: Record<string, any> | null;
+  responses: Record<string, any> | null;
+  conversation_history: any[];
   created_at: string;
   updated_at: string;
 };
+
+// ── Status badge ──────────────────────────────────────────────────────────────
 
 const STATUS_CONFIG: Record<
   string,
@@ -88,75 +94,198 @@ function StatusBadge({ status }: { status: string }) {
   );
 }
 
-function Section({
-  icon: Icon,
-  title,
-  children,
+// ── Recovery panel ─────────────────────────────────────────────────────────────
+// Shown when generated_jd is null — displays conversation history + regenerate
+
+function RecoveryPanel({
+  sessionId,
+  conversationHistory,
+  hasInsights,
+  onRegenerated,
 }: {
-  icon: any;
-  title: string;
-  children: React.ReactNode;
+  sessionId: string;
+  conversationHistory: any[];
+  hasInsights: boolean;
+  onRegenerated: (jdText: string, jdStructured: any) => void;
 }) {
+  const router = useRouter();
+  const [regenerating, setRegenerating] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // Parse a turn into readable text
+  const parseMessage = (
+    turn: any,
+  ): { role: "user" | "assistant"; text: string } | null => {
+    let text = "";
+    if (turn.role === "user") {
+      text = turn.content;
+    } else {
+      try {
+        const parsed = JSON.parse(turn.content);
+        text = parsed.conversation_response || turn.content;
+      } catch {
+        text = turn.content;
+      }
+    }
+    if (!text?.trim()) return null;
+    return { role: turn.role === "user" ? "user" : "assistant", text };
+  };
+
+  const messages = (conversationHistory || [])
+    .map(parseMessage)
+    .filter(Boolean) as { role: "user" | "assistant"; text: string }[];
+
+  const handleRegenerate = async () => {
+    setRegenerating(true);
+    setError(null);
+    try {
+      // Generate JD from saved insights
+      const genRes = await fetch(
+        `${process.env.NEXT_PUBLIC_API_URL}/jd/generate`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id: sessionId }),
+        },
+      );
+      if (!genRes.ok) {
+        const err = await genRes.json();
+        throw new Error(err.detail || "Generation failed");
+      }
+      const data = await genRes.json();
+
+      // Auto-save immediately so it's never lost again
+      await fetch(`${process.env.NEXT_PUBLIC_API_URL}/jd/save`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: sessionId,
+          jd_text: data.jd_text,
+          jd_structured: data.jd_structured,
+        }),
+      });
+
+      onRegenerated(data.jd_text, data.jd_structured);
+    } catch (err: any) {
+      setError(err.message || "Something went wrong. Please try again.");
+    } finally {
+      setRegenerating(false);
+    }
+  };
+
   return (
-    <section className="group pb-10 last:pb-0 border-b border-surface-50 last:border-0">
-      <div className="flex items-center gap-3 mb-6">
-        <div className="w-10 h-10 bg-surface-50 rounded-xl flex items-center justify-center border border-surface-100 group-hover:bg-primary-50 group-hover:border-primary-100 transition-colors">
-          <Icon className="w-5 h-5 text-surface-400 group-hover:text-primary-600 transition-colors" />
+    <div className="min-h-[500px] flex flex-col gap-8">
+      {/* Warning banner + actions */}
+      <div className="flex items-start gap-4 p-6 bg-amber-50 border border-amber-200 rounded-2xl">
+        <div className="w-10 h-10 bg-amber-100 rounded-xl flex items-center justify-center flex-shrink-0 mt-0.5">
+          <AlertTriangle className="w-5 h-5 text-amber-600" />
         </div>
-        <h3 className="text-sm font-black text-surface-400 uppercase tracking-[0.2em]">
-          {title}
-        </h3>
+        <div className="flex-1">
+          <h3 className="text-sm font-black text-amber-900 mb-1">
+            JD Was Not Saved
+          </h3>
+          <p className="text-[13px] text-amber-700 leading-relaxed mb-4">
+            {hasInsights
+              ? "Your interview is complete and your answers are preserved. The JD was generated but you left before saving it. Re-generate it below — it will be saved automatically this time."
+              : "Your interview conversation is below but the JD was never generated. Go back to complete the interview and generate your JD."}
+          </p>
+
+          {error && (
+            <p className="text-[12px] text-red-600 font-semibold mb-3">
+              {error}
+            </p>
+          )}
+
+          <div className="flex flex-wrap gap-3">
+            {hasInsights && (
+              <button
+                onClick={handleRegenerate}
+                disabled={regenerating}
+                className="flex items-center gap-2 px-5 py-2.5 bg-primary-600 text-white text-[13px] font-bold rounded-xl hover:bg-primary-700 transition-all shadow-lg shadow-primary-500/20 active:scale-[0.98] disabled:opacity-60"
+              >
+                {regenerating ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <RefreshCw className="w-4 h-4" />
+                )}
+                {regenerating ? "Re-generating JD..." : "Re-generate My JD"}
+              </button>
+            )}
+            <button
+              onClick={() => router.push(`/questionnaire/${sessionId}`)}
+              className="flex items-center gap-2 px-5 py-2.5 bg-white text-surface-700 border border-surface-200 text-[13px] font-bold rounded-xl hover:bg-surface-50 transition-all"
+            >
+              <MessageSquare className="w-4 h-4" />
+              {hasInsights ? "Back to Chat" : "Continue Interview"}
+            </button>
+          </div>
+        </div>
       </div>
-      <div className="pl-0 md:pl-13">{children}</div>
-    </section>
-  );
-}
 
-function ListItems({ items }: { items: string[] }) {
-  if (!items || items.length === 0) return null;
-  return (
-    <ul className="space-y-4">
-      {items.map((item, i) => (
-        <li
-          key={i}
-          className="flex items-start gap-4 text-[15px] text-surface-700 group/item"
-        >
-          <div className="mt-2 w-1.5 h-1.5 rounded-full bg-primary-300 group-hover/item:bg-primary-600 transition-colors flex-shrink-0" />
-          <span className="leading-relaxed font-medium">{item}</span>
-        </li>
-      ))}
-    </ul>
-  );
-}
+      {/* Conversation history */}
+      {messages.length > 0 && (
+        <div>
+          <div className="flex items-center gap-3 mb-5">
+            <div className="w-1 h-5 bg-primary-400 rounded-full" />
+            <h4 className="text-[11px] font-black text-surface-400 uppercase tracking-widest">
+              Your Interview Conversation
+            </h4>
+            <span className="text-[10px] font-bold px-2 py-0.5 bg-surface-100 text-surface-500 rounded-full">
+              {messages.length} messages
+            </span>
+          </div>
 
-function DictDisplay({ data }: { data: Record<string, any> | string }) {
-  if (!data || (typeof data === "object" && Object.keys(data).length === 0)) {
-    return null;
-  }
-  if (typeof data === "string") {
-    return (
-      <p className="text-[15px] text-surface-700 leading-relaxed font-medium italic">
-        {data}
-      </p>
-    );
-  }
-  return (
-    <div className="grid grid-cols-1 md:grid-cols-2 gap-x-12 gap-y-6">
-      {Object.entries(data).map(([key, value]) => (
-        <div key={key}>
-          <dt className="text-[10px] font-black text-surface-400 uppercase tracking-widest mb-2">
-            {key.replace(/_/g, " ")}
-          </dt>
-          <dd className="text-[15px] text-surface-900 leading-relaxed font-bold">
-            {typeof value === "object"
-              ? JSON.stringify(value, null, 2)
-              : String(value)}
-          </dd>
+          <div className="space-y-4">
+            {messages.map((msg, i) => (
+              <div
+                key={i}
+                className={`flex gap-3 ${msg.role === "user" ? "flex-row-reverse" : "flex-row"}`}
+              >
+                {/* Avatar */}
+                <div
+                  className={`w-7 h-7 rounded-full flex-shrink-0 flex items-center justify-center text-[10px] font-black mt-1
+                  ${
+                    msg.role === "user"
+                      ? "bg-primary-100 text-primary-700"
+                      : "bg-surface-100 text-surface-500"
+                  }`}
+                >
+                  {msg.role === "user" ? "You" : "AI"}
+                </div>
+
+                {/* Bubble */}
+                <div
+                  className={`max-w-[80%] px-4 py-3 rounded-2xl text-[13px] leading-relaxed font-medium
+                  ${
+                    msg.role === "user"
+                      ? "bg-primary-600 text-white rounded-tr-sm"
+                      : "bg-surface-50 text-surface-800 border border-surface-100 rounded-tl-sm"
+                  }`}
+                >
+                  {msg.text}
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
-      ))}
+      )}
+
+      {/* No history at all */}
+      {messages.length === 0 && (
+        <div className="flex flex-col items-center justify-center py-16 text-center">
+          <div className="w-14 h-14 bg-surface-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
+            <MessageSquare className="w-7 h-7 text-surface-300" />
+          </div>
+          <p className="text-surface-400 text-sm font-medium">
+            No conversation history found.
+          </p>
+        </div>
+      )}
     </div>
   );
 }
+
+// ── Page ──────────────────────────────────────────────────────────────────────
 
 export default function JDViewPage() {
   const params = useParams();
@@ -166,7 +295,8 @@ export default function JDViewPage() {
   const [jd, setJd] = useState<JDData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [sendingToManager, setSendingToManager] = useState(false);
+  const [sendingToManager, setSending] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   useEffect(() => {
     async function load() {
@@ -183,9 +313,23 @@ export default function JDViewPage() {
     if (jdId) load();
   }, [jdId]);
 
+  // After successful re-generation, update state in-place
+  const handleRegenerated = (jdText: string, jdStructured: any) => {
+    setJd((prev) =>
+      prev
+        ? {
+            ...prev,
+            generated_jd: jdText,
+            jd_structured: jdStructured,
+            status: "jd_generated",
+          }
+        : prev,
+    );
+  };
+
   const handleSendToManager = async () => {
     if (!jd) return;
-    setSendingToManager(true);
+    setSending(true);
     try {
       await updateJDStatus(jdId, {
         status: "sent_to_manager",
@@ -195,10 +339,28 @@ export default function JDViewPage() {
     } catch (err: any) {
       alert(err?.response?.data?.detail || "Status sync failure");
     } finally {
-      setSendingToManager(false);
+      setSending(false);
     }
   };
 
+  const handleDelete = async () => {
+    if (!jd) return;
+    const confirmDelete = window.confirm(
+      "Are you sure you want to completely delete this JD and its conversation history? This action cannot be undone.",
+    );
+    if (!confirmDelete) return;
+
+    setIsDeleting(true);
+    try {
+      await deleteJD(jdId, jd.employee_id);
+      router.push(`/dashboard/${jd.employee_id}`);
+    } catch (err: any) {
+      alert(err?.message || "Failed to delete JD");
+      setIsDeleting(false);
+    }
+  };
+
+  // ── Loading ───────────────────────────────────────────────────────────────
   if (loading) {
     return (
       <div className="h-[calc(100vh-8rem)] flex items-center justify-center">
@@ -215,6 +377,7 @@ export default function JDViewPage() {
     );
   }
 
+  // ── Error ─────────────────────────────────────────────────────────────────
   if (error || !jd) {
     return (
       <div className="h-[calc(100vh-8rem)] flex items-center justify-center">
@@ -249,10 +412,12 @@ export default function JDViewPage() {
     s?.employee_information?.job_title ||
     s?.employee_information?.title ||
     "Strategic Role Specification";
+  const hasJD = !!jd.generated_jd;
+  const hasInsights = !!(jd.responses && Object.keys(jd.responses).length > 0);
 
   return (
     <div className="h-full flex flex-col bg-surface-50 overflow-hidden">
-      {/* Precision Header Control */}
+      {/* Header */}
       <div className="flex-shrink-0 bg-white border-b border-surface-200 relative z-30">
         <div className="max-w-5xl mx-auto px-8 py-5">
           <div className="flex items-center justify-between">
@@ -265,8 +430,19 @@ export default function JDViewPage() {
               </div>
               Return to Insights
             </button>
-
             <div className="flex items-center gap-4">
+              <button
+                onClick={handleDelete}
+                disabled={isDeleting}
+                title="Delete JD"
+                className="p-2 text-surface-400 hover:text-red-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {isDeleting ? (
+                  <Loader2 className="w-5 h-5 animate-spin" />
+                ) : (
+                  <Trash2 className="w-5 h-5" />
+                )}
+              </button>
               <button className="p-2 text-surface-400 hover:text-primary-600 transition-colors">
                 <Download className="w-5 h-5" />
               </button>
@@ -278,10 +454,10 @@ export default function JDViewPage() {
         </div>
       </div>
 
-      {/* Main Document Interface */}
+      {/* Main */}
       <div className="flex-1 overflow-y-auto pt-10 pb-20 px-4 md:px-8">
         <div className="max-w-4xl mx-auto">
-          {/* Action Bar Floating (Optional logic) */}
+          {/* Title + Actions */}
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 mb-10">
             <div>
               <h2 className="text-[10px] font-black text-primary-600 uppercase tracking-[0.3em] mb-3 flex items-center gap-2">
@@ -307,77 +483,89 @@ export default function JDViewPage() {
               </div>
             </div>
 
-            <div className="flex gap-3 flex-shrink-0">
-              <button
-                onClick={() => router.push(`/jd/${jdId}/edit`)}
-                className="px-6 py-3.5 bg-white text-surface-700 border border-surface-200 rounded-2xl text-[14px] font-bold hover:bg-surface-50 transition-all shadow-sm active:scale-[0.98] flex items-center gap-2"
-              >
-                <Edit3 className="w-4 h-4" />
-                Refine Section
-              </button>
-              <button
-                onClick={handleSendToManager}
-                disabled={
-                  sendingToManager ||
-                  jd.status === "sent_to_manager" ||
-                  jd.status === "approved"
-                }
-                className={`
-                    px-8 py-3.5 rounded-2xl text-[14px] font-bold transition-all flex items-center gap-3 shadow-xl active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed
+            {/* Only show submit/refine buttons when JD exists */}
+            {hasJD && (
+              <div className="flex gap-3 flex-shrink-0">
+                <button
+                  onClick={() => router.push(`/jd/${jdId}/edit`)}
+                  className="px-6 py-3.5 bg-white text-surface-700 border border-surface-200 rounded-2xl text-[14px] font-bold hover:bg-surface-50 transition-all shadow-sm active:scale-[0.98] flex items-center gap-2"
+                >
+                  <Edit3 className="w-4 h-4" />
+                  Refine Section
+                </button>
+                <button
+                  onClick={handleSendToManager}
+                  disabled={
+                    sendingToManager ||
+                    jd.status === "sent_to_manager" ||
+                    jd.status === "approved"
+                  }
+                  className={`px-8 py-3.5 rounded-2xl text-[14px] font-bold transition-all flex items-center gap-3 shadow-xl active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed
                     ${
                       jd.status === "sent_to_manager" ||
                       jd.status === "approved"
                         ? "bg-accent-50 text-accent-700 border border-accent-100 shadow-none"
                         : "bg-primary-600 text-white hover:bg-primary-700 shadow-primary-500/20"
-                    }
-                  `}
-              >
-                {sendingToManager ? (
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                ) : jd.status === "sent_to_manager" ? (
-                  <CheckCircle2 className="w-4 h-4" />
-                ) : (
-                  <Send className="w-4 h-4 transition-transform group-hover:translate-x-1" />
-                )}
-                {jd.status === "sent_to_manager"
-                  ? "Asset Released"
-                  : jd.status === "approved"
-                    ? "Finalized"
-                    : "Submit for Approval"}
-              </button>
-            </div>
+                    }`}
+                >
+                  {sendingToManager ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : jd.status === "sent_to_manager" ? (
+                    <CheckCircle2 className="w-4 h-4" />
+                  ) : (
+                    <Send className="w-4 h-4" />
+                  )}
+                  {jd.status === "sent_to_manager"
+                    ? "Asset Released"
+                    : jd.status === "approved"
+                      ? "Finalized"
+                      : "Submit for Approval"}
+                </button>
+              </div>
+            )}
           </div>
 
-          {/* THE DOCUMENT CORE */}
+          {/* Document card */}
           <div className="bg-white rounded-[40px] p-8 md:p-16 border border-surface-200 shadow-premium relative overflow-hidden">
-            {/* Subtle Background Mark */}
             <div className="absolute top-0 right-0 p-12 opacity-[0.03] pointer-events-none">
               <Building2 className="w-64 h-64" />
             </div>
 
             <div className="relative z-10">
-              <div className="prose prose-neutral max-w-none prose-headings:font-bold prose-headings:text-neutral-900 prose-p:text-neutral-800 prose-li:text-neutral-800 prose-strong:text-blue-700 min-h-[500px]">
-                <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                  {jd.generated_jd ||
-                    "Document content is being synchronized..."}
-                </ReactMarkdown>
-              </div>
+              {hasJD ? (
+                // ── Normal render ─────────────────────────────────────────
+                <div className="prose prose-neutral max-w-none prose-headings:font-bold prose-headings:text-neutral-900 prose-p:text-neutral-800 prose-li:text-neutral-800 prose-strong:text-blue-700 min-h-[500px]">
+                  <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                    {jd.generated_jd!}
+                  </ReactMarkdown>
+                </div>
+              ) : (
+                // ── Recovery: show conversation + regenerate ──────────────
+                <RecoveryPanel
+                  sessionId={jd.id}
+                  conversationHistory={jd.conversation_history ?? []}
+                  hasInsights={hasInsights}
+                  onRegenerated={handleRegenerated}
+                />
+              )}
             </div>
 
-            {/* Footer Mark */}
-            <div className="mt-24 pt-10 border-t border-surface-100 flex items-center justify-between opacity-40">
-              <div className="flex items-center gap-3">
-                <div className="w-8 h-8 bg-surface-900 rounded-lg flex items-center justify-center">
-                  <ShieldCheck className="w-4 h-4 text-white" />
+            {/* Footer — only shown when JD content exists */}
+            {hasJD && (
+              <div className="mt-24 pt-10 border-t border-surface-100 flex items-center justify-between opacity-40">
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 bg-surface-900 rounded-lg flex items-center justify-center">
+                    <ShieldCheck className="w-4 h-4 text-white" />
+                  </div>
+                  <span className="text-[9px] font-black uppercase tracking-[0.2em]">
+                    Pulse Pharma Intelligence
+                  </span>
                 </div>
-                <span className="text-[9px] font-black uppercase tracking-[0.2em]">
-                  Pulse Pharma Intelligence
+                <span className="text-[9px] font-bold uppercase tracking-widest">
+                  Confidential • Generated Internal Record
                 </span>
               </div>
-              <span className="text-[9px] font-bold uppercase tracking-widest">
-                Confidential • Generated Internal Record
-              </span>
-            </div>
+            )}
           </div>
         </div>
       </div>

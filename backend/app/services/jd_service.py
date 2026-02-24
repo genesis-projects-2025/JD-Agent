@@ -3,26 +3,25 @@ from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 import json
 import re
-from langchain_groq import ChatGroq
+from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.messages import HumanMessage, SystemMessage
 from app.core.config import settings
 from app.prompts.jd_prompts import SYSTEM_PROMPT, JD_GENERATION_PROMPT
 from app.schemas.jd_schema import ChatResponse, Progress, Approval, Analytics, EmployeeRoleInsights
 from app.utils.text_utils import strip_reasoning_tags
-import groq
 from app.services.context_builder import build_context
 from app.memory.session_memory import SessionMemory
 
 # ── LLM Instances ──────────────────────────────────────────────────────────────
-interview_llm = ChatGroq(
-    groq_api_key=settings.GROQ_API_KEY,
-    model_name="qwen/qwen3-32b",
+interview_llm = ChatGoogleGenerativeAI(
+    google_api_key=settings.GEMINI_API_KEY,
+    model="gemini-2.5-pro",
     temperature=0.2,
 )
 
-jd_llm = ChatGroq(
-    groq_api_key=settings.GROQ_API_KEY,
-    model_name="qwen/qwen3-32b",
+jd_llm = ChatGoogleGenerativeAI(
+    google_api_key=settings.GEMINI_API_KEY,
+    model="gemini-2.5-pro",
     temperature=0.1,
 )
 
@@ -484,7 +483,7 @@ async def handle_conversation(
     except Exception as e:
         error_str = str(e).lower()
         print(f"❌ LLM ERROR: {e}")
-        if "rate limit" in error_str or "429" in error_str or isinstance(e, groq.RateLimitError):
+        if "rate limit" in error_str or "429" in error_str or "exhausted" in error_str:
             raise HTTPException(status_code=429, detail="Rate limit exceeded")
         raise HTTPException(status_code=500, detail="Internal LLM Error")
 

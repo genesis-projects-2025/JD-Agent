@@ -4,7 +4,6 @@ from urllib.parse import quote_plus
 
 
 class Settings(BaseSettings):
-    GROQ_API_KEY: str
     DATABASE_NAME: str
     DATABASE_USER_NAME: str
     DATABASE_PASS: str

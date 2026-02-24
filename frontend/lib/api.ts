@@ -1,6 +1,7 @@
 // lib/api.ts
 import axios, { AxiosError } from "axios";
-
+import { DashboardStats } from "@/types/jd";
+import { ActivityEvent } from "@/types/jd";
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 export interface JDStructuredData {

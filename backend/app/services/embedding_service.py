@@ -1,14 +1,10 @@
 # app/services/embedding_service.py
 """
-Vector DB layer — Google text-embedding-004 + Pinecone.
+Vector DB layer — Google gemini-embedding-001 + Pinecone v8 (AsyncIO).
 
 One Pinecone index  : "jd-agent"
 One namespace       : "employees"
-4 vectors per session:
-  jd_text       → full generated JD markdown
-  jd_structured → responsibilities + metrics as searchable prose
-  insights      → daily activities, tools, execution processes
-  conversation  → employee's OWN words (user turns only)
+4 vectors per session: jd_text, jd_structured, insights, conversation
 
 Vector IDs are deterministic MD5 hashes of (session_id + doc_type)
 so re-saves always OVERWRITE — never create duplicates.
@@ -18,89 +14,115 @@ import asyncio
 import hashlib
 import json
 from typing import Optional
+
 from google import genai
-from pinecone import Pinecone, ServerlessSpec
-from google.genai import types
+from pinecone import Pinecone, ServerlessSpec, PineconeAsyncio
+
 from app.core.config import settings
 
-# ── Constants ─────────────────────────────────────────────────────────────────
+# ── Constants ──────────────────────────────────────────────────────────────────
 INDEX_NAME  = "jd-agent"
 NAMESPACE   = "employees"
-EMBED_MODEL = "models/gemini-embedding-001"   # Google's best, 768 dims
-EMBED_DIM   = 3072
+EMBED_MODEL = "gemini-embedding-001"   # ✅ correct model name (no "models/" prefix)
+EMBED_DIM   = 3072                      # ✅ correct dims for gemini-embedding-001
 
-# ── Lazy singleton index ──────────────────────────────────────────────────────
-_pinecone_index = None
+# ── Google Gemini client ───────────────────────────────────────────────────────
+gemini_client = genai.Client(api_key=settings.GEMINI_API_KEY)
+
+# ── Pinecone sync client — ONLY for index creation/management ─────────────────
+# (index creation is a one-time control-plane operation, sync is fine here)
+_pc_sync = Pinecone(api_key=settings.PINECONE_API_KEY)
+
+# Cache the index host URL so AsyncIO client can connect fast
+_index_host: Optional[str] = None
 
 
-client = genai.Client(api_key=settings.GEMINI_API_KEY)
-def _get_index():
-    global _pinecone_index
-    if _pinecone_index is not None:
-        return _pinecone_index
+def _ensure_index_exists() -> str:
+    """
+    Creates index if not exists. Returns the host URL.
+    Called once at startup — sync is fine for control-plane ops.
+    """
+    global _index_host
+    if _index_host:
+        return _index_host
 
-    pc = Pinecone(api_key=settings.PINECONE_API_KEY)
+    # ✅ v8 way to check existing indexes
+    existing_names = _pc_sync.list_indexes().names()
 
-    existing_names = [i.name for i in pc.list_indexes()]
     if INDEX_NAME not in existing_names:
-        pc.create_index(
+        print(f"[Pinecone] Creating index '{INDEX_NAME}'...")
+        _pc_sync.create_index(
             name=INDEX_NAME,
             dimension=EMBED_DIM,
             metric="cosine",
-            spec=ServerlessSpec(cloud="aws", region="us-east-1"),
+            spec=ServerlessSpec(
+                cloud="aws",
+                region="us-east-1"          # match your Pinecone project region
+            ),
         )
-        print(f"✅ Pinecone index '{INDEX_NAME}' created (dim={EMBED_DIM})")
+        # Wait until index is ready
+        import time
+        while not _pc_sync.describe_index(INDEX_NAME).status["ready"]:
+            print("[Pinecone] Waiting for index to be ready...")
+            time.sleep(2)
+        print(f"[Pinecone] ✅ Index '{INDEX_NAME}' is ready")
 
-    _pinecone_index = pc.Index(INDEX_NAME)
-    return _pinecone_index
+    # Cache the host for async connections
+    _index_host = _pc_sync.describe_index(INDEX_NAME).host
+    print(f"[Pinecone] Index host: {_index_host}")
+    return _index_host
 
 
-# ── Embedding helpers ─────────────────────────────────────────────────────────
+# ── Embedding helpers ──────────────────────────────────────────────────────────
 
 def _vid(session_id: str, doc_type: str) -> str:
     """Deterministic vector ID — same session+type always overwrites same slot."""
     return hashlib.md5(f"{session_id}:{doc_type}".encode()).hexdigest()
 
 
-async def _embed_document(text: str) -> list[float]:
-    text = (text or "").strip()[:8000]
+async def _embed_text(text: str, char_limit: int = 8000) -> list[float]:
+    """Embed any text using Gemini. Returns zero vector if text is empty."""
+    text = (text or "").strip()[:char_limit]
     if not text:
         return [0.0] * EMBED_DIM
 
     loop = asyncio.get_event_loop()
-
     result = await loop.run_in_executor(
         None,
-        lambda: client.models.embed_content(
-            model="gemini-embedding-001",
+        lambda: gemini_client.models.embed_content(
+            model=EMBED_MODEL,
             contents=text,
         ),
     )
 
     embedding = result.embeddings[0].values
-    print("ACTUAL DIM:", len(embedding))  # optional debug
+
+    # ✅ Safety check — crash early if dim is wrong
+    if len(embedding) != EMBED_DIM:
+        raise ValueError(
+            f"Embedding dim mismatch! Expected {EMBED_DIM}, got {len(embedding)}. "
+            f"Check EMBED_MODEL and EMBED_DIM constants."
+        )
 
     return embedding
 
 
 async def embed_query(text: str) -> list[float]:
-    text = (text or "").strip()[:2000]
-    if not text:
-        return [0.0] * EMBED_DIM
+    """Embed a search query (shorter char limit)."""
+    return await _embed_text(text, char_limit=2000)
 
-    loop = asyncio.get_event_loop()
 
-    result = await loop.run_in_executor(
-        None,
-        lambda: client.models.embed_content(
-            model="gemini-embedding-001",
-            contents=text,
-        ),
-    )
+# ── Metadata safety helper ─────────────────────────────────────────────────────
 
-    return result.embeddings[0].values
+def _safe_meta_str(value: str, limit: int = 10_000) -> str:
+    """
+    Pinecone metadata values must be < 40KB total per vector.
+    Truncate large strings to stay safe.
+    """
+    return (value or "")[:limit]
 
-# ── Main store function ───────────────────────────────────────────────────────
+
+# ── Main store function ────────────────────────────────────────────────────────
 
 async def store_employee_jd_session(
     session_id: str,
@@ -113,76 +135,88 @@ async def store_employee_jd_session(
     insights: dict,
     conversation_history: list,
 ) -> int:
-
-    index = _get_index()
-    vectors = []
+    """
+    Upsert 4 vectors for a session into Pinecone.
+    Uses AsyncIO client — safe to call from FastAPI route handlers.
+    Returns number of vectors stored.
+    """
+    host = _ensure_index_exists()
 
     base_meta = {
-        "session_id": session_id,
-        "employee_id": employee_id or "",
+        "session_id":    session_id,
+        "employee_id":   employee_id or "",
         "employee_name": employee_name or "",
-        "job_title": job_title or "",
-        "department": department or "",
+        "job_title":     job_title or "",
+        "department":    department or "",
     }
 
-    # 1️⃣ JD TEXT (as-is)
+    vectors = []
+
+    # ── 1. JD TEXT ──────────────────────────────────────────────────────────
     if jd_text:
         vectors.append({
-            "id": _vid(session_id, "jd_text"),
-            "values": await _embed_document(jd_text),
+            "id":     _vid(session_id, "jd_text"),
+            "values": await _embed_text(jd_text),
             "metadata": {
                 **base_meta,
                 "doc_type": "jd_text",
-                "raw_text": jd_text
+                "raw_text": _safe_meta_str(jd_text),
             },
         })
 
-    # 2️⃣ JD STRUCTURED (full JSON as string)
+    # ── 2. JD STRUCTURED ───────────────────────────────────────────────────
     if jd_structured:
         structured_raw = json.dumps(jd_structured, ensure_ascii=False)
         vectors.append({
-            "id": _vid(session_id, "jd_structured"),
-            "values": await _embed_document(structured_raw),
+            "id":     _vid(session_id, "jd_structured"),
+            "values": await _embed_text(structured_raw),
             "metadata": {
                 **base_meta,
                 "doc_type": "jd_structured",
-                "raw_json": structured_raw
+                "raw_json": _safe_meta_str(structured_raw),
             },
         })
 
-    # 3️⃣ INSIGHTS / RESPONSES (full dict as string)
+    # ── 3. INSIGHTS ─────────────────────────────────────────────────────────
     if insights:
         insights_raw = json.dumps(insights, ensure_ascii=False)
         vectors.append({
-            "id": _vid(session_id, "insights"),
-            "values": await _embed_document(insights_raw),
+            "id":     _vid(session_id, "insights"),
+            "values": await _embed_text(insights_raw),
             "metadata": {
                 **base_meta,
                 "doc_type": "insights",
-                "raw_json": insights_raw
+                "raw_json": _safe_meta_str(insights_raw),
             },
         })
 
-    # 4️⃣ FULL CONVERSATION HISTORY (no filtering)
+    # ── 4. CONVERSATION HISTORY ─────────────────────────────────────────────
     if conversation_history:
         convo_raw = json.dumps(conversation_history, ensure_ascii=False)
         vectors.append({
-            "id": _vid(session_id, "conversation"),
-            "values": await _embed_document(convo_raw),
+            "id":     _vid(session_id, "conversation"),
+            "values": await _embed_text(convo_raw),
             "metadata": {
                 **base_meta,
                 "doc_type": "conversation",
-                "raw_json": convo_raw
+                "raw_json": _safe_meta_str(convo_raw),
             },
         })
 
     if not vectors:
+        print(f"[Pinecone] ⚠️  No vectors to store for session {session_id}")
         return 0
 
-    index.upsert(vectors=vectors, namespace=NAMESPACE)
-    print(f"✅ Stored {len(vectors)} raw vectors for session {session_id}")
+    # ✅ Use AsyncIO index client — proper async upsert for FastAPI
+
+    async with _pc_sync.IndexAsyncio(host=host) as idx:
+        await idx.upsert(vectors=vectors, namespace=NAMESPACE)
+
+    print(f"[Pinecone] ✅ Stored {len(vectors)} vectors for session {session_id}")
     return len(vectors)
-# ── Search ────────────────────────────────────────────────────────────────────
+
+
+# ── Search ─────────────────────────────────────────────────────────────────────
 
 async def search_employees(
     query: str,
@@ -192,38 +226,40 @@ async def search_employees(
 ) -> list[dict]:
     """
     Semantic search over all employee vectors.
-    Returns list of result dicts sorted by relevance score.
+    Returns list of result dicts sorted by score (highest first).
     """
-    index = _get_index()
+    host = _ensure_index_exists()
     query_vec = await embed_query(query)
 
-    pf = {}
+    # Build metadata filter
+    filters = {}
     if doc_type:
-        pf["doc_type"] = {"$eq": doc_type}
+        filters["doc_type"] = {"$eq": doc_type}
     if department:
-        pf["department"] = {"$eq": department}
+        filters["department"] = {"$eq": department}
 
-    results = index.query(
-        vector=query_vec,
-        top_k=top_k,
-        namespace=NAMESPACE,
-        include_metadata=True,
-        filter=pf if pf else None,
-    )
+    async with _pc_sync.IndexAsyncio(host=host) as idx:
+        results = await idx.query(
+            vector=query_vec,
+            top_k=top_k,
+            namespace=NAMESPACE,
+            include_metadata=True,
+            filter=filters if filters else None,
+        )
 
     return [
         {
-            "score":                round(m.score, 4),
-            "session_id":           (m.metadata or {}).get("session_id", ""),
-            "employee_id":          (m.metadata or {}).get("employee_id", ""),
-            "employee_name":        (m.metadata or {}).get("employee_name", ""),
-            "job_title":            (m.metadata or {}).get("job_title", ""),
-            "department":           (m.metadata or {}).get("department", ""),
-            "doc_type":             (m.metadata or {}).get("doc_type", ""),
-            "automation_potential": (m.metadata or {}).get("automation_potential", False),
-            "required_skills":      (m.metadata or {}).get("required_skills", []),
-            "tools_used":           (m.metadata or {}).get("tools_used", []),
-            "text":                 (m.metadata or {}).get("text", ""),
+            "score":         round(m.score, 4),
+            "session_id":    (m.metadata or {}).get("session_id", ""),
+            "employee_id":   (m.metadata or {}).get("employee_id", ""),
+            "employee_name": (m.metadata or {}).get("employee_name", ""),
+            "job_title":     (m.metadata or {}).get("job_title", ""),
+            "department":    (m.metadata or {}).get("department", ""),
+            "doc_type":      (m.metadata or {}).get("doc_type", ""),
+            "text": (
+                (m.metadata or {}).get("raw_text")
+                or (m.metadata or {}).get("raw_json", "")
+            ),
         }
         for m in results.matches
     ]

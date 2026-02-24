@@ -10,7 +10,8 @@ class Settings(BaseSettings):
     DATABASE_PASS: str
     DATABASE_HOST: str = "localhost"
     DATABASE_PORT: int = 5432
-
+    GEMINI_API_KEY: str=""
+    PINECONE_API_KEY: str=""
     @property
     def DATABASE_URL(self) -> str:
         encoded_pass = quote_plus(self.DATABASE_PASS)

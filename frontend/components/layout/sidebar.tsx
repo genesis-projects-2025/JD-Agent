@@ -6,7 +6,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { fetchEmployeeJDs } from "@/lib/api";
-import { getOrCreateEmployeeId } from "@/lib/auth";
+import { useAuth } from "@/components/providers/auth-provider";
 import {
   LayoutDashboard,
   MessageSquare,
@@ -17,6 +17,7 @@ import {
   Clock,
   ChevronRight,
   Loader2,
+  LogOut,
 } from "lucide-react";
 
 type JDListItem = {
@@ -48,29 +49,10 @@ function formatDate(dateStr: string | null): string {
 
 export default function Sidebar() {
   const pathname = usePathname();
+  const { employeeId, isAuthenticated, logout } = useAuth();
+
   const [jds, setJds] = useState<JDListItem[]>([]);
   const [loadingJds, setLoadingJds] = useState(false);
-  const [employeeId, setEmployeeId] = useState<string | null>(null);
-
-  // Initialize or Sync employee ID
-  useEffect(() => {
-    // 1. Try to get it from the URL first (e.g., /dashboard/[id])
-    if (pathname.includes("/dashboard/")) {
-      const parts = pathname.split("/");
-      const idFromUrl = parts[parts.indexOf("dashboard") + 1];
-      if (
-        (idFromUrl && idFromUrl.startsWith("emp_")) ||
-        idFromUrl?.length > 10
-      ) {
-        setEmployeeId(idFromUrl);
-        return;
-      }
-    }
-
-    // 2. Fallback to localStorage
-    const storedId = getOrCreateEmployeeId();
-    setEmployeeId(storedId);
-  }, [pathname]);
 
   const links = [
     {
@@ -98,23 +80,25 @@ export default function Sidebar() {
 
   // Load saved JDs
   useEffect(() => {
-    if (!employeeId) return;
+    if (!isAuthenticated || !employeeId) return;
 
     async function loadJDs() {
       setLoadingJds(true);
       try {
-        // Fetch ALWAYS and ONLY for the current employee to ensure privacy
         const data = await fetchEmployeeJDs(employeeId as string);
         setJds(data || []);
       } catch (err) {
         console.error("Failed to load JDs for sidebar:", err);
-        setJds([]); // Clear JDs on error to avoid showing stale/other data
+        setJds([]);
       } finally {
         setLoadingJds(false);
       }
     }
     loadJDs();
-  }, [pathname, employeeId]); // Reload when navigating or ID changes
+  }, [pathname, employeeId, isAuthenticated]); // Reload when navigating or ID changes
+
+  // Hide sidebar if they are not logged in!
+  if (!isAuthenticated) return null;
 
   return (
     <aside className="w-72 h-screen bg-gradient-to-b from-neutral-900 via-neutral-900 to-neutral-800 text-white flex flex-col border-r border-neutral-800 shadow-2xl">
@@ -251,7 +235,7 @@ export default function Sidebar() {
       </div>
 
       {/* Footer Section */}
-      <div className="p-4 border-t border-neutral-800/50 space-y-2">
+      <div className="p-4 border-t border-neutral-800/50 space-y-2 flex flex-col">
         <button className="w-full flex items-center gap-3 px-4 py-2.5 rounded-lg text-neutral-400 hover:text-white hover:bg-neutral-800/50 transition-all text-sm">
           <Settings className="w-4 h-4" />
           <span>Settings</span>
@@ -259,6 +243,16 @@ export default function Sidebar() {
         <button className="w-full flex items-center gap-3 px-4 py-2.5 rounded-lg text-neutral-400 hover:text-white hover:bg-neutral-800/50 transition-all text-sm">
           <HelpCircle className="w-4 h-4" />
           <span>Help & Support</span>
+        </button>
+
+        <div className="h-px bg-neutral-800/50 my-2" />
+
+        <button
+          onClick={logout}
+          className="w-full flex items-center gap-3 px-4 py-2.5 rounded-lg text-rose-400 hover:text-white hover:bg-rose-500/20 transition-all text-sm"
+        >
+          <LogOut className="w-4 h-4" />
+          <span>Sign Out</span>
         </button>
       </div>
     </aside>

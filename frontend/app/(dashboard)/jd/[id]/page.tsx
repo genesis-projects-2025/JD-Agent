@@ -27,6 +27,7 @@ import {
 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { DeleteModal } from "@/components/ui/delete-modal";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -297,6 +298,7 @@ export default function JDViewPage() {
   const [error, setError] = useState<string | null>(null);
   const [sendingToManager, setSending] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
 
   useEffect(() => {
     async function load() {
@@ -343,13 +345,8 @@ export default function JDViewPage() {
     }
   };
 
-  const handleDelete = async () => {
+  const handleConfirmDelete = async () => {
     if (!jd) return;
-    const confirmDelete = window.confirm(
-      "Are you sure you want to completely delete this JD and its conversation history? This action cannot be undone.",
-    );
-    if (!confirmDelete) return;
-
     setIsDeleting(true);
     try {
       await deleteJD(jdId, jd.employee_id);
@@ -357,6 +354,7 @@ export default function JDViewPage() {
     } catch (err: any) {
       alert(err?.message || "Failed to delete JD");
       setIsDeleting(false);
+      setShowDeleteModal(false);
     }
   };
 
@@ -432,7 +430,7 @@ export default function JDViewPage() {
             </button>
             <div className="flex items-center gap-4">
               <button
-                onClick={handleDelete}
+                onClick={() => setShowDeleteModal(true)}
                 disabled={isDeleting}
                 title="Delete JD"
                 className="p-2 text-surface-400 hover:text-red-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
@@ -569,6 +567,13 @@ export default function JDViewPage() {
           </div>
         </div>
       </div>
+
+      <DeleteModal
+        isOpen={showDeleteModal}
+        onClose={() => setShowDeleteModal(false)}
+        onConfirm={handleConfirmDelete}
+        isDeleting={isDeleting}
+      />
     </div>
   );
 }

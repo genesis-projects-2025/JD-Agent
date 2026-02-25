@@ -80,13 +80,35 @@ async def init_jd(request: InitJDRequest, db: AsyncSession = Depends(get_db)):
     memory.id = new_id
     memory.employee_id = request.employee_id
     memory.employee_name = request.employee_name
+    
+    # --- Context Injection: Pre-fill Organogram Data ---
+    starting_insights = {}
+    if emp:
+        identity_context = {}
+        if emp.name and emp.name != "Unknown Employee":
+            identity_context["employee_name"] = emp.name
+        if emp.role:
+            identity_context["title"] = emp.role
+        if emp.department:
+            identity_context["department"] = emp.department
+        if emp.reporting_manager:
+            identity_context["reports_to"] = f"{emp.reporting_manager} ({emp.reporting_manager_code})"
+        if emp.email:
+            identity_context["email"] = emp.email
+        if emp.phone_mobile:
+            identity_context["phone"] = emp.phone_mobile
+            
+        if identity_context:
+            starting_insights["identity_context"] = identity_context
+
+    memory.insights = starting_insights
     _session_store[new_id] = memory
 
     await sync_session_to_db(
         db=db,
         session_id=new_id,
-        insights={},
-        progress={"completion_percentage": 0, "status": "collecting", "missing_insight_areas": []},
+        insights=starting_insights,
+        progress={"completion_percentage": 5, "status": "collecting", "missing_insight_areas": []},
         conversation_history=[],
         employee_id=request.employee_id,
         employee_name=request.employee_name,
@@ -252,7 +274,6 @@ async def get_jd(jd_id: str, db: AsyncSession = Depends(get_db)):
         "created_at": record.created_at,
         "updated_at": record.updated_at,
     }
-
 
 # ── Conversation history only ─────────────────────────────────────────────────
 @router.get("/{jd_id}/conversation")

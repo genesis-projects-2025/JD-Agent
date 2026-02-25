@@ -9,9 +9,12 @@ export type UserRole = "employee" | "manager" | "hr" | "admin";
 export type AuthUser = {
   employee_id: string;
   name: string;
-  email: string;
-  role: UserRole;
-  department?: string;
+  email: string | null;
+  role: string;
+  department?: string | null;
+  reporting_manager?: string | null;
+  reporting_manager_code?: string | null;
+  phone_mobile?: string | null;
 };
 
 // ── Core identity ─────────────────────────────────────────────────────────────
@@ -158,6 +161,30 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 export async function fetchEmployeeJDs(employeeId: string) {
   const res = await fetch(`${API_URL}/jd/employee/${employeeId}`);
   if (!res.ok) throw new Error("Failed to fetch employee JDs");
+  return res.json();
+}
+
+// ── Organogram Login ──────────────────────────────────────────────────────────
+
+export async function fetchOrganogramEmployees() {
+  const res = await fetch(`${API_URL}/auth/organogram/employees`);
+  if (!res.ok) throw new Error("Failed to fetch organogram employees");
+  return res.json(); // { employees: [...] }
+}
+
+export async function loginWithOrganogram(empCode: string) {
+  const res = await fetch(`${API_URL}/auth/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ emp_code: empCode }),
+  });
+  if (!res.ok) throw new Error("Failed to login with organogram");
+  return res.json(); // { status: "success", employee: AuthUser }
+}
+
+export async function fetchEmployeeProfile(empCode: string): Promise<AuthUser> {
+  const res = await fetch(`${API_URL}/auth/me/${empCode}`);
+  if (!res.ok) throw new Error("Failed to fetch employee profile");
   return res.json();
 }
 

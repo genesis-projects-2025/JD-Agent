@@ -2,6 +2,8 @@
 
 import "./globals.css";
 import Sidebar from "@/components/layout/sidebar";
+import { AuthProvider } from "@/components/providers/auth-provider";
+import { Suspense } from "react";
 import { Inter, Outfit } from "next/font/google";
 
 const inter = Inter({
@@ -24,8 +26,14 @@ export default function RootLayout({
   return (
     <html lang="en" className={`${inter.variable} ${outfit.variable} h-full`}>
       <body className="flex h-full overflow-hidden bg-white selection:bg-primary-100 selection:text-primary-900">
-        <Sidebar />
-        <main className="flex-1 h-full overflow-y-auto p-6">{children}</main>
+        <Suspense fallback={null}>
+          <AuthProvider>
+            <Sidebar />
+            <main className="flex-1 h-full overflow-y-auto p-6">
+              {children}
+            </main>
+          </AuthProvider>
+        </Suspense>
       </body>
     </html>
   );

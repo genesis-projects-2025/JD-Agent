@@ -28,6 +28,7 @@ import {
   getOrCreateEmployeeId,
   isHR,
   isManager,
+  fetchEmployeeProfile,
 } from "@/lib/api";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -216,32 +217,55 @@ function EmployeeView({
   return (
     <div className="max-w-7xl mx-auto space-y-10 animate-in fade-in slide-in-from-bottom-4 duration-700">
       {/* Header */}
-      <header className="flex flex-col md:flex-row md:items-end justify-between gap-6 pb-2">
-        <div>
-          <div className="flex items-center gap-2 mb-3">
-            <span className="px-2.5 py-1 bg-primary-50 text-primary-600 text-[10px] font-black uppercase tracking-[0.2em] rounded-md border border-primary-100">
-              Employee Insight Engine
-            </span>
-            <span className="text-[10px] text-surface-400 font-bold tracking-tight">
-              ID: {employeeId}
-            </span>
+      <header className="flex flex-col md:flex-row justify-between gap-6 pb-2">
+        <div className="flex-1 max-w-2xl bg-white p-6 rounded-3xl border border-surface-200 shadow-sm flex items-start gap-6">
+          <div className="w-16 h-16 bg-blue-100 text-blue-700 rounded-2xl flex items-center justify-center flex-shrink-0 font-extrabold text-2xl">
+            {user?.name ? user.name.charAt(0).toUpperCase() : "U"}
           </div>
-          <h1 className="text-4xl font-black text-surface-900 tracking-tight">
-            {user?.name
-              ? `Welcome, ${user.name.split(" ")[0]}`
-              : "JD Intelligence Agent"}
-          </h1>
-          <p className="text-surface-500 mt-2 font-medium">
-            Strategic Role Architecture & Document Lifecycle Management
-          </p>
+          <div className="flex-1">
+            <div className="flex items-center gap-2 mb-1">
+              <span className="px-2.5 py-0.5 bg-surface-100 text-surface-600 text-[10px] font-black uppercase tracking-[0.1em] rounded-md">
+                {employeeId}
+              </span>
+              {user?.department && (
+                <span className="px-2.5 py-0.5 bg-blue-50 text-blue-700 text-[10px] font-black uppercase tracking-[0.1em] rounded-md">
+                  {user.department}
+                </span>
+              )}
+            </div>
+            <h1 className="text-2xl font-black text-surface-900 tracking-tight mb-1">
+              {user?.name || "Unknown Name"}
+            </h1>
+            <p className="text-sm font-bold text-blue-600 mb-3">
+              {user?.role || "Employee"}
+            </p>
+            <div className="grid grid-cols-2 gap-y-2 text-xs font-medium text-surface-500">
+              {user?.email && <p>📧 {user.email}</p>}
+              {user?.phone_mobile && <p>📱 {user.phone_mobile}</p>}
+              {user?.reporting_manager && (
+                <p className="col-span-2 mt-1 pt-1 border-t border-surface-100">
+                  <span className="font-bold text-surface-400 uppercase tracking-wider text-[10px] block mb-0.5">
+                    Reporting To:
+                  </span>
+                  <span className="text-surface-700 font-bold">
+                    {user.reporting_manager}
+                  </span>{" "}
+                  ({user.reporting_manager_code})
+                </p>
+              )}
+            </div>
+          </div>
         </div>
-        <Link
-          href="/questionnaire"
-          className="group flex items-center gap-3 px-8 py-4 bg-primary-600 text-white rounded-2xl font-bold hover:bg-primary-700 hover:shadow-2xl hover:shadow-primary-500/20 transition-all duration-300 active:scale-[0.98]"
-        >
-          <Plus className="w-5 h-5 group-hover:rotate-90 transition-transform" />
-          Initialize New JD
-        </Link>
+
+        <div className="flex flex-col justify-end">
+          <Link
+            href="/questionnaire"
+            className="group flex items-center gap-3 px-8 py-4 bg-primary-600 text-white rounded-2xl font-bold hover:bg-primary-700 hover:shadow-2xl hover:shadow-primary-500/20 transition-all duration-300 active:scale-[0.98]"
+          >
+            <Plus className="w-5 h-5 group-hover:rotate-90 transition-transform" />
+            Initialize New JD
+          </Link>
+        </div>
       </header>
 
       {/* Stats */}
@@ -596,31 +620,42 @@ export default function DynamicDashboardPage() {
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
-    const currentUser = getCurrentUser();
-
-    // No SSO user → fall back to anonymous employee mode (your original behaviour)
-    if (!currentUser) {
-      const id = getOrCreateEmployeeId();
-      setEmpId(id);
-      setReady(true);
+    // 1. Get raw session from localStorage
+    const sessionStr = localStorage.getItem("auth_user");
+    if (!sessionStr) {
+      router.replace("/login");
       return;
     }
 
-    // Security: non-HR trying to view someone else's dashboard → redirect
-    if (urlId && urlId !== currentUser.employee_id && !isHR(currentUser)) {
-      router.replace(`/dashboard/${currentUser.employee_id}`);
+    let sessionUser: AuthUser;
+    try {
+      sessionUser = JSON.parse(sessionStr);
+    } catch {
+      router.replace("/login");
       return;
     }
 
-    setUser(currentUser);
-    setEmpId(currentUser.employee_id);
-    setReady(true);
+    const currentEmpId = urlId || sessionUser.employee_id;
+    setEmpId(currentEmpId);
+
+    fetchEmployeeProfile(currentEmpId)
+      .then((freshUser) => {
+        setUser(freshUser);
+        setReady(true);
+      })
+      .catch((err) => {
+        console.error("Failed to load live profile", err);
+        setUser(sessionUser); // Fallback to cached session
+        setReady(true);
+      });
   }, [urlId, router]);
 
   if (!ready) return <LoadingScreen />;
 
   // Render correct dashboard based on role
+  // (Assuming HR/Manager logic depends on specific roles later, for now EmployeeView manages all Organogram users)
   if (user && isHR(user)) return <HRView user={user} />;
   if (user && isManager(user)) return <ManagerView user={user} />;
+
   return <EmployeeView employeeId={empId} user={user} />;
 }

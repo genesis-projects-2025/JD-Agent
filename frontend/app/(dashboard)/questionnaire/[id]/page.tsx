@@ -10,12 +10,15 @@ import MessageInput from "@/components/chat/message-input";
 import JDPreviewPanel from "@/components/jd/jd-preview-panel";
 import { useChat } from "@/hooks/useChat";
 import { exportJDToPDF } from "@/lib/pdf-export";
+import { deleteJD } from "@/lib/api";
+import { DeleteModal } from "@/components/ui/delete-modal";
 import {
   Loader2,
   ArrowLeft,
   FileText,
   Sparkles,
   ChevronRight,
+  Trash2,
 } from "lucide-react";
 
 export default function QuestionnairePage() {
@@ -24,6 +27,8 @@ export default function QuestionnairePage() {
   const sessionId = params.id as string;
 
   const [showPanel, setShowPanel] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
 
   const {
     messages,
@@ -66,6 +71,20 @@ export default function QuestionnairePage() {
     sendMessage("Please continue the interview with more questions.");
   };
 
+  const handleConfirmDelete = async () => {
+    setIsDeleting(true);
+    try {
+      const employeeId = localStorage.getItem("employee_id");
+      if (!employeeId) throw new Error("Missing employee identification.");
+      await deleteJD(sessionId, employeeId);
+      router.push(`/dashboard/${employeeId}`);
+    } catch (err: any) {
+      alert(err?.message || "Failed to delete JD");
+      setIsDeleting(false);
+      setShowDeleteModal(false);
+    }
+  };
+
   return (
     <div className="h-screen flex flex-col overflow-hidden bg-surface-50">
       {/* Top nav bar */}
@@ -90,18 +109,33 @@ export default function QuestionnairePage() {
         <div className="flex-1" />
 
         {/* JD Ready indicator */}
-        {jd && status === "jd_generated" && (
+        <div className="flex items-center gap-3">
+          {jd && status === "jd_generated" && (
+            <button
+              onClick={() => setShowPanel((p) => !p)}
+              className="flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-xl text-[11px] font-black uppercase tracking-widest hover:bg-primary-700 transition-all shadow-lg shadow-primary-500/20 active:scale-95"
+            >
+              <Sparkles className="w-3.5 h-3.5" />
+              {showPanel ? "Hide JD" : "View Generated JD"}
+              <ChevronRight
+                className={`w-3.5 h-3.5 transition-transform ${showPanel ? "rotate-180" : ""}`}
+              />
+            </button>
+          )}
+
           <button
-            onClick={() => setShowPanel((p) => !p)}
-            className="flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-xl text-[11px] font-black uppercase tracking-widest hover:bg-primary-700 transition-all shadow-lg shadow-primary-500/20 active:scale-95"
+            onClick={() => setShowDeleteModal(true)}
+            disabled={isDeleting}
+            title="Delete Interview Draft"
+            className="p-2 text-surface-400 hover:text-red-500 bg-surface-50 hover:bg-red-50 rounded-lg transition-colors disabled:opacity-50"
           >
-            <Sparkles className="w-3.5 h-3.5" />
-            {showPanel ? "Hide JD" : "View Generated JD"}
-            <ChevronRight
-              className={`w-3.5 h-3.5 transition-transform ${showPanel ? "rotate-180" : ""}`}
-            />
+            {isDeleting ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
+            ) : (
+              <Trash2 className="w-4 h-4" />
+            )}
           </button>
-        )}
+        </div>
 
         {/* Generating indicator */}
         {isGeneratingJD && (
@@ -177,6 +211,15 @@ export default function QuestionnairePage() {
           </div>
         )}
       </div>
+
+      <DeleteModal
+        isOpen={showDeleteModal}
+        onClose={() => setShowDeleteModal(false)}
+        onConfirm={handleConfirmDelete}
+        isDeleting={isDeleting}
+        title="Delete Interview"
+        description="Are you sure you want to delete this interview progress? This cannot be undone."
+      />
     </div>
   );
 }

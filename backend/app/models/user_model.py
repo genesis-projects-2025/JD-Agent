@@ -10,6 +10,10 @@ class Employee(Base):
     name = Column(Text, nullable=False)
     email = Column(Text, nullable=True)
     department = Column(Text, nullable=True)
+    reporting_manager = Column(Text, nullable=True)
+    reporting_manager_code = Column(Text, nullable=True)
+    role = Column(Text, nullable=True)
+    phone_mobile = Column(String(50), nullable=True)
 
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 

@@ -2,17 +2,19 @@ from pydantic import BaseModel, Field
 from typing import List, Dict, Optional, Literal, Union
 
 
+from typing import Any
+
 class EmployeeRoleInsights(BaseModel):
     identity_context: Dict = Field(default_factory=dict)
-    daily_activities: List[str] = Field(default_factory=list)
-    execution_processes: List[str] = Field(default_factory=list)
-    tools_and_platforms: List[str] = Field(default_factory=list)
+    daily_activities: Union[List[Any], Dict, str] = Field(default_factory=list)
+    execution_processes: Union[List[Any], Dict, str] = Field(default_factory=list)
+    tools_and_platforms: Union[List[Any], Dict, str] = Field(default_factory=list)
     team_collaboration: Dict = Field(default_factory=dict)
     stakeholder_interactions: Dict = Field(default_factory=dict)
     decision_authority: Dict = Field(default_factory=dict)
-    performance_metrics: List[str] = Field(default_factory=list)
+    performance_metrics: Union[List[Any], Dict, str] = Field(default_factory=list)
     work_environment: Dict = Field(default_factory=dict)
-    special_contributions: List[str] = Field(default_factory=list)
+    special_contributions: Union[List[Any], Dict, str] = Field(default_factory=list)
 
 
 class JDStructuredData(BaseModel):

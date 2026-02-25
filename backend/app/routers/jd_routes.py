@@ -47,16 +47,16 @@ async def hydrate_session_from_db(session_id: str, db: AsyncSession) -> SessionM
     memory = SessionMemory()
 
     if record:
-        memory.id = record.id
+        memory.id = str(record.id)
         memory.employee_id = record.employee_id
-        memory.employee_name = record.employee_name  # restore name
-        memory.insights = record.responses or {}
+        # Employee name ideally resolved from insight dict
+        memory.employee_name = record.insights.get("identity_context", {}).get("employee_name") if record.insights else None
+        memory.insights = record.insights or {}
         memory.progress = record.conversation_state or {}
-        memory.generated_jd = record.generated_jd
+        memory.generated_jd = record.jd_text
         memory.jd_structured = record.jd_structured
 
-        # ── FIXED: restore full_history from DB, recent_messages as LLM window ──
-        history = record.conversation_history or []
+        history = [{"role": t.role, "content": t.content} for t in (record.conversation_turns or [])]
         memory.load_history_from_db(history, llm_limit=6)
 
         print(
@@ -77,11 +77,21 @@ async def hydrate_session_from_db(session_id: str, db: AsyncSession) -> SessionM
 # ── Init ──────────────────────────────────────────────────────────────────────
 @router.post("/init", response_model=InitJDResponse)
 async def init_jd(request: InitJDRequest, db: AsyncSession = Depends(get_db)):
+    # Local Dev fix: Auto-create employee if doesn't exist to prevent Foreign Key Error
+    from sqlalchemy.future import select
+    from app.models.user_model import Employee
+    emp_result = await db.execute(select(Employee).filter(Employee.id == request.employee_id))
+    emp = emp_result.scalars().first()
+    if not emp:
+        emp = Employee(id=request.employee_id, name=request.employee_name or "Unknown Employee")
+        db.add(emp)
+        await db.commit()
+
     new_id = str(uuid.uuid4())
     memory = SessionMemory()
     memory.id = new_id
     memory.employee_id = request.employee_id
-    memory.employee_name = request.employee_name  # store name from the start
+    memory.employee_name = request.employee_name
     _session_store[new_id] = memory
 
     await sync_session_to_db(
@@ -113,14 +123,11 @@ async def chat(request: ChatRequest, db: AsyncSession = Depends(get_db)):
         session_memory=session_memory
     )
 
-    db_history = [{"role": t["role"], "content": t["content"]} for t in updated_history]
-
     await sync_session_to_db(
         db=db,
         session_id=session_id,
         insights=session_memory.insights,
         progress=session_memory.progress,
-        # ── FIXED: full_history has every turn, not just recent 4 ──
         conversation_history=session_memory.full_history,
         employee_id=session_memory.employee_id,
         employee_name=session_memory.employee_name,
@@ -132,17 +139,12 @@ async def chat(request: ChatRequest, db: AsyncSession = Depends(get_db)):
     return {"reply": reply, "history": updated_history}
 
 
-# ── Generate JD — explicit button trigger ────────────────────────────────────
+# ── Generate JD ───────────────────────────────────────────────────────────────
 @router.post("/generate")
 async def generate_jd_endpoint(
     request: GenerateJDRequest,
     db: AsyncSession = Depends(get_db)
 ):
-    """
-    Called when user clicks 'Generate JD' button.
-    Runs the JD LLM on collected insights and returns jd_text + jd_structured.
-    Also syncs both to DB immediately so they're never lost.
-    """
     session_id = request.id
     if not session_id:
         raise HTTPException(status_code=400, detail="Missing session id")
@@ -150,9 +152,6 @@ async def generate_jd_endpoint(
     print(f"\n[backend/app/routers/jd_routes.py] 🎯 /generate called for session: {session_id}")
 
     session_memory = await hydrate_session_from_db(session_id, db)
-
-    print(f"   insights keys: {list(session_memory.insights.keys()) if session_memory.insights else 'EMPTY'}")
-    print(f"   progress: {session_memory.progress}")
 
     if not session_memory.insights:
         raise HTTPException(
@@ -169,22 +168,17 @@ async def generate_jd_endpoint(
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"JD generation failed: {str(e)}")
 
-    print(f"\n[backend/app/routers/jd_routes.py] 💾 NOT SAVING JD TO DB YET (Waiting for manual save)...")
+    print(f"\n[backend/app/routers/jd_routes.py] 💾 SAVING JD TO DB STATUS: generated...")
     await sync_session_to_db(
         db=db,
         session_id=session_id,
         insights=session_memory.insights,
         progress=session_memory.progress,
-        # ── FIXED: full_history has every turn ──
         conversation_history=session_memory.full_history,
         employee_id=session_memory.employee_id,
         employee_name=session_memory.employee_name,
         status="jd_generated",
     )
-
-    #-----------------------JD RESPONSE GENRATED----------------------------------
-
-    print("jd generation completed with this response in the frontend ",result)
 
     return {
         "id": session_id,
@@ -209,7 +203,6 @@ async def save_jd(request: SaveJDRequest, db: AsyncSession = Depends(get_db)):
                 detail="Session not found. Please complete the interview first."
             )
 
-    # ── FIXED: use full_history for DB — not the 4-turn recent_messages window ──
     db_history = [
         {"role": m["role"], "content": m["content"]}
         for m in (session_memory.full_history or [])
@@ -223,13 +216,12 @@ async def save_jd(request: SaveJDRequest, db: AsyncSession = Depends(get_db)):
             jd_structured=request.jd_structured,
             employee_insights=session_memory.insights,
             progress=session_memory.progress,
-            employee_id=request.employee_id,
+            employee_id=request.employee_id or session_memory.employee_id,
             conversation_history=db_history,
             status=session_memory.progress.get("status") if isinstance(session_memory.progress, dict) else None,
         )
         print(f"[backend/app/routers/jd_routes.py] ✅ /save success — id={record.id} | title={record.title}")
 
-        # ── Embed into Pinecone (non-fatal — never blocks the response) ───────
         try:
             emp_info    = (request.jd_structured or {}).get("employee_information", {})
             job_title   = emp_info.get("job_title", "") or record.title or ""
@@ -237,12 +229,11 @@ async def save_jd(request: SaveJDRequest, db: AsyncSession = Depends(get_db)):
             emp_name    = (
                 session_memory.employee_name
                 or session_memory.insights.get("identity_context", {}).get("employee_name", "")
-                or record.employee_name
                 or ""
             )
 
             vectors_stored = await store_employee_jd_session(
-                session_id=session_id,
+                session_id=str(record.id),
                 employee_id=record.employee_id,
                 employee_name=emp_name,
                 job_title=job_title,
@@ -258,7 +249,7 @@ async def save_jd(request: SaveJDRequest, db: AsyncSession = Depends(get_db)):
 
         return {
             "status": "success",
-            "id": record.id,
+            "id": str(record.id),
             "employee_id": record.employee_id,
             "title": record.title,
             "message": "JD saved successfully to database."
@@ -289,16 +280,17 @@ async def get_jd(jd_id: str, db: AsyncSession = Depends(get_db)):
     record = await get_questionnaire(db, jd_id)
     if not record:
         raise HTTPException(status_code=404, detail="JD not found")
+    history = [{"role": t.role, "content": t.content} for t in (record.conversation_turns or [])]
     return {
-        "id": record.id,
+        "id": str(record.id),
         "employee_id": record.employee_id,
         "title": record.title,
         "status": record.status,
         "version": record.version,
-        "generated_jd": record.generated_jd,
+        "generated_jd": record.jd_text,
         "jd_structured": record.jd_structured,
-        "responses": record.responses,
-        "conversation_history": record.conversation_history or [],
+        "responses": record.insights,
+        "conversation_history": history,
         "conversation_state": record.conversation_state,
         "created_at": record.created_at,
         "updated_at": record.updated_at,
@@ -311,11 +303,12 @@ async def get_jd_conversation(jd_id: str, db: AsyncSession = Depends(get_db)):
     record = await get_questionnaire(db, jd_id)
     if not record:
         raise HTTPException(status_code=404, detail="JD not found")
+    history = [{"role": t.role, "content": t.content} for t in (record.conversation_turns or [])]
     return {
-        "id": record.id,
+        "id": str(record.id),
         "title": record.title,
         "status": record.status,
-        "conversation_history": record.conversation_history or [],
+        "conversation_history": history,
         "conversation_state": record.conversation_state,
     }
 
@@ -324,8 +317,6 @@ async def get_jd_conversation(jd_id: str, db: AsyncSession = Depends(get_db)):
 @router.put("/{jd_id}")
 async def update_jd(jd_id: str, request: UpdateJDRequest, db: AsyncSession = Depends(get_db)):
     try:
-        print(f"[backend/app/routers/jd_routes.py] 🔄 /update called for session: {jd_id}")
-        print(f"[backend/app/routers/jd_routes.py] Updating with jd_text length: {len(request.jd_text or '')} and structured keys: {list((request.jd_structured or {}).keys())}")
         record = await update_questionnaire_jd(
             db=db, jd_id=jd_id,
             jd_text=request.jd_text,
@@ -334,7 +325,7 @@ async def update_jd(jd_id: str, request: UpdateJDRequest, db: AsyncSession = Dep
         )
         if not record:
             raise HTTPException(status_code=404, detail="JD not found")
-        return {"status": "success", "id": record.id, "version": record.version,
+        return {"status": "success", "id": str(record.id), "version": record.version,
                 "updated_at": record.updated_at, "message": "JD updated successfully."}
     except PermissionError as e:
         raise HTTPException(status_code=403, detail=str(e))
@@ -356,7 +347,7 @@ async def update_jd_status(jd_id: str, request: UpdateStatusRequest, db: AsyncSe
         )
         if not record:
             raise HTTPException(status_code=404, detail="JD not found")
-        return {"status": "success", "id": record.id, "new_status": record.status,
+        return {"status": "success", "id": str(record.id), "new_status": record.status,
                 "message": f"Status updated to '{record.status}'"}
     except PermissionError as e:
         raise HTTPException(status_code=403, detail=str(e))
@@ -372,7 +363,6 @@ async def delete_jd(jd_id: str, employee_id: str, db: AsyncSession = Depends(get
         if not success:
             raise HTTPException(status_code=404, detail="JD not found")
         
-        # Cleanup memory session if loaded
         if jd_id in _session_store:
             del _session_store[jd_id]
             
@@ -386,7 +376,7 @@ async def delete_jd(jd_id: str, employee_id: str, db: AsyncSession = Depends(get
 # ── Serializer ────────────────────────────────────────────────────────────────
 def _serialize_list_item(r) -> dict:
     return {
-        "id": r.id,
+        "id": str(r.id),
         "employee_id": r.employee_id,
         "title": r.title,
         "status": r.status,

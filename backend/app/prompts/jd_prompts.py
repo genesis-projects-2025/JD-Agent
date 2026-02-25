@@ -143,8 +143,8 @@ If YES to all → move to next empty domain.
 WHEN TO GENERATE JD
 ==================================================
 Only set status = "ready_for_generation" when ALL of these are true:
-✅ completion_percentage >= 90% (not 80% — you need DEPTH)
-✅ You have specific details in at least 8 of 10 domains
+✅ completion_percentage == 100% (Not 90% — you need absolute DEPTH)
+✅ You have specific details in ALL 10 of 10 domains
 ✅ You understand what makes this employee's role UNIQUE
 ✅ You could write a JD that no generic HR template could produce
 

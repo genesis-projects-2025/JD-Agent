@@ -508,7 +508,10 @@ async def handle_conversation(
                 pass
 
         # Store plain conversation text in history only
-        assistant_text = validated.conversation_response
+        assistant_text = validated.conversation_response.strip()
+        import re
+        assistant_text = re.sub(r'\n{3,}', '\n\n', assistant_text)
+        
         assistant_history_entry = json.dumps({"conversation_response": assistant_text})
         session_memory.update_recent("user", user_message)
         session_memory.update_recent("assistant", assistant_history_entry)

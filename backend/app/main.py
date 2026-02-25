@@ -6,7 +6,6 @@ from app.core.database import init_db
 from app.models.jd_session_model import JDSession, ConversationTurn, JDVersion
 from app.models.user_model import Employee
 from app.routers.jd_routes import router as jd_router
-from app.routers.auth_routes import router as auth_router
 from app.routers.organogram_routes import router as organogram_router
 
 @asynccontextmanager
@@ -38,5 +37,4 @@ app.add_middleware(
 )
 
 app.include_router(jd_router, prefix="/jd")
-app.include_router(auth_router, prefix="/auth")
 app.include_router(organogram_router, prefix="/auth")

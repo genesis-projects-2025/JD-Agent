@@ -324,16 +324,14 @@ async def handle_jd_generation(session_memory: SessionMemory) -> dict:
     Never triggered from chat turns.
     Returns: { jd_text, jd_structured, status }
     """
-    print("\n" + "=" * 60)
-    print("🎯 HANDLE_JD_GENERATION STARTED")
-    print("=" * 60)
+    print("\n[JD Generation] 🎯 STARTED")
 
     insights_dict = safe_to_dict(session_memory.insights)
 
-    print(f"📊 INSIGHTS AVAILABLE:")
-    print(f"   Keys: {list(insights_dict.keys())}")
-    for k, v in insights_dict.items():
-        print(f"   {k}: {str(v)[:80]}")
+    # print(f"📊 INSIGHTS AVAILABLE:")
+    # print(f"   Keys: {list(insights_dict.keys())}")
+    # for k, v in insights_dict.items():
+    #     print(f"   {k}: {str(v)[:80]}")
 
     if not insights_dict:
         raise ValueError("No insights collected yet. Complete the interview first.")
@@ -361,10 +359,10 @@ async def handle_jd_generation(session_memory: SessionMemory) -> dict:
     response = jd_llm.invoke(messages)
     raw = strip_reasoning_tags(response.content)
 
-    print("\n🔍 RAW JD LLM OUTPUT:")
-    print("-" * 60)
-    print(raw[:1500])
-    print("-" * 60)
+    # print("\n🔍 RAW JD LLM OUTPUT:")
+    # print("-" * 60)
+    # print(raw[:1500])
+    # print("-" * 60)
 
     # ── Parse response ─────────────────────────────────────────────────────────
     structured = {}
@@ -374,17 +372,15 @@ async def handle_jd_generation(session_memory: SessionMemory) -> dict:
     cleaned = clean_json_string(raw)
     block = extract_json_block(cleaned) or extract_json_block(remove_think_tags(raw))
 
-    print(f"\n🔧 PARSING STRATEGY 1 — JSON block extraction:")
-    print(f"   block found: {bool(block)} | block length: {len(block)}")
+    print(f"[JD Generation] Strategy 1 — JSON block extraction (found: {bool(block)})")
 
     if block:
         try:
             parsed = json.loads(block, strict=False)
-            print(f"   ✅ JSON parsed | top-level keys: {list(parsed.keys())}")
-
+            # print(f"   ✅ JSON parsed | top-level keys: {list(parsed.keys())}")
             # Extract jd_structured_data
             structured = parsed.get("jd_structured_data") or {}
-            print(f"   jd_structured_data type: {type(structured)} | empty: {not structured}")
+            # print(f"   jd_structured_data type: {type(structured)} | empty: {not structured}")
 
             # If LLM returned structured fields at top level (no nesting)
             if not structured:
@@ -400,7 +396,7 @@ async def handle_jd_generation(session_memory: SessionMemory) -> dict:
 
             # Extract jd_text_format
             jd_text = parsed.get("jd_text_format", "")
-            print(f"   jd_text_format length: {len(jd_text)}")
+            # print(f"   jd_text_format length: {len(jd_text)}")
 
             # Try fallback keys
             if not jd_text:
@@ -417,8 +413,8 @@ async def handle_jd_generation(session_memory: SessionMemory) -> dict:
                 jd_text = ""
 
         except json.JSONDecodeError as e:
-            print(f"   ❌ JSON parse failed: {e}")
-            print(f"   First 200 chars of block: {block[:200]}")
+            print(f"[JD Generation] ❌ JSON parse failed: {e}")
+            # print(f"   First 200 chars of block: {block[:200]}")
 
     # Strategy 2: raw output is pure markdown or unstructured text
     if not jd_text and not structured:
@@ -432,10 +428,8 @@ async def handle_jd_generation(session_memory: SessionMemory) -> dict:
         print("\n🔧 PARSING STRATEGY 3 — Reconstructing markdown from structured data")
         jd_text = _build_markdown_from_structured(structured, insights_dict)
 
-    print(f"\n📋 FINAL RESULT:")
-    print(f"   structured keys: {list(structured.keys())}")
-    print(f"   jd_text length: {len(jd_text)}")
-    print(f"   jd_text preview: {jd_text[:200]}")
+    print(f"[JD Generation] 📋 FINAL RESULT | structured keys: {len(list(structured.keys()))} | text length: {len(jd_text)}")
+    # print(f"   jd_text preview: {jd_text[:200]}")
 
     if not jd_text and not structured:
         raise ValueError("JD generation produced no output. Check LLM response in logs above.")
@@ -443,14 +437,11 @@ async def handle_jd_generation(session_memory: SessionMemory) -> dict:
     # ── Store in session memory ────────────────────────────────────────────────
     if jd_text:
         session_memory.generated_jd = jd_text
-        print(f"\n✅ session_memory.generated_jd set — length: {len(jd_text)}")
     if structured:
         session_memory.jd_structured = structured
-        print(f"✅ session_memory.jd_structured set — keys: {list(structured.keys())}")
 
     session_memory.progress["status"] = "jd_generated"
-    print(f"✅ session_memory.progress status set to: jd_generated")
-    print("=" * 60 + "\n")
+    print("[JD Generation] ✅ Completed")
 
     return {
         "jd_text": jd_text,
@@ -466,18 +457,16 @@ async def handle_conversation(
     user_message: str,
     session_memory: SessionMemory
 ):
-    print("\n" + "=" * 50)
-    print(f"🚀 INTERVIEW TURN")
-    print("=" * 50)
+    print("\n[Interview] 🚀 TURN STARTED")
 
     if user_message == "TEST_RATE_LIMIT":
         raise HTTPException(status_code=429, detail="Rate limit exceeded (Simulation)")
 
-    print("\n📋 BUILDING CONTEXT...")
+    # print("\n📋 BUILDING CONTEXT...")
     msgs = build_context(session_memory, user_message)
 
     try:
-        print("\n🤖 INVOKING INTERVIEW LLM...")
+        # print("\n🤖 INVOKING INTERVIEW LLM...")
         response = interview_llm.invoke(msgs)
         raw_content = strip_reasoning_tags(response.content)
     except Exception as e:
@@ -487,7 +476,7 @@ async def handle_conversation(
             raise HTTPException(status_code=429, detail="Rate limit exceeded")
         raise HTTPException(status_code=500, detail="Internal LLM Error")
 
-    print("\n🧩 PARSING & UPDATING MEMORY...")
+    # print("\n🧩 PARSING & UPDATING MEMORY...")
     reply_content: str
 
     try:
@@ -504,7 +493,7 @@ async def handle_conversation(
         session_memory.progress = validated.progress.model_dump()
         current_status = validated.progress.status
 
-        print(f"   status={current_status} | completion={validated.progress.completion_percentage}%")
+        # print(f"   status={current_status} | completion={validated.progress.completion_percentage}%")
 
         # ── SAFETY GUARD: Ensure conversation_response is clean human-readable text
         # If it somehow contains JSON structure, extract the inner text
@@ -514,7 +503,7 @@ async def handle_conversation(
                 inner = json.loads(conv_resp)
                 if "conversation_response" in inner:
                     parsed_json["conversation_response"] = inner["conversation_response"]
-                    print(f"   ⚠️ SAFETY GUARD: stripped nested JSON from conversation_response")
+                    # print(f"   ⚠️ SAFETY GUARD: stripped nested JSON from conversation_response")
             except (json.JSONDecodeError, TypeError):
                 pass
 
@@ -543,7 +532,6 @@ async def handle_conversation(
         history.append({"role": "user", "content": user_message})
         history.append({"role": "assistant", "content": reply_content})
 
-    print("\n✅ INTERVIEW TURN COMPLETED")
-    print("=" * 50 + "\n")
+    print("[Interview] ✅ TURN COMPLETED\n")
 
     return reply_content, history

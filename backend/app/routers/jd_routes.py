@@ -6,7 +6,6 @@ from app.schemas.jd_schema import (
     SaveJDRequest, UpdateJDRequest, UpdateStatusRequest, GenerateJDRequest,
 )
 from app.services.jd_service import handle_conversation, handle_jd_generation
-from app.services.embedding_service import store_employee_jd_session
 from app.memory.session_memory import SessionMemory
 from app.core.database import get_db
 from app.crud.jd_crud import (
@@ -59,17 +58,6 @@ async def hydrate_session_from_db(session_id: str, db: AsyncSession) -> SessionM
         history = [{"role": t.role, "content": t.content} for t in (record.conversation_turns or [])]
         memory.load_history_from_db(history, llm_limit=6)
 
-        print(
-            f"   -> DB record found | "
-            f"insights_keys={list(memory.insights.keys())} | "
-            f"full_history_turns={len(memory.full_history)} | "
-            f"recent_messages_turns={len(memory.recent_messages)} | "
-            f"has_jd={bool(memory.generated_jd)} | "
-            f"has_structured={bool(memory.jd_structured)}"
-        )
-    else:
-        print(f"   -> No DB record found for {session_id} — starting blank session")
-
     _session_store[session_id] = memory
     return memory
 
@@ -104,7 +92,6 @@ async def init_jd(request: InitJDRequest, db: AsyncSession = Depends(get_db)):
         employee_name=request.employee_name,
     )
 
-    print(f"🆕 Initialized session: {new_id} | employee: {request.employee_id}")
     return {"id": new_id, "status": "collecting", "employee_id": request.employee_id}
 
 
@@ -149,8 +136,6 @@ async def generate_jd_endpoint(
     if not session_id:
         raise HTTPException(status_code=400, detail="Missing session id")
 
-    print(f"\n[backend/app/routers/jd_routes.py] 🎯 /generate called for session: {session_id}")
-
     session_memory = await hydrate_session_from_db(session_id, db)
 
     if not session_memory.insights:
@@ -168,7 +153,6 @@ async def generate_jd_endpoint(
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"JD generation failed: {str(e)}")
 
-    print(f"\n[backend/app/routers/jd_routes.py] 💾 SAVING JD TO DB STATUS: generated...")
     await sync_session_to_db(
         db=db,
         session_id=session_id,
@@ -192,7 +176,6 @@ async def generate_jd_endpoint(
 @router.post("/save")
 async def save_jd(request: SaveJDRequest, db: AsyncSession = Depends(get_db)):
     session_id = request.id
-    print(f"\n[backend/app/routers/jd_routes.py] 💾 /save called for session: {session_id}")
 
     session_memory = _session_store.get(session_id)
     if not session_memory:
@@ -220,32 +203,6 @@ async def save_jd(request: SaveJDRequest, db: AsyncSession = Depends(get_db)):
             conversation_history=db_history,
             status=session_memory.progress.get("status") if isinstance(session_memory.progress, dict) else None,
         )
-        print(f"[backend/app/routers/jd_routes.py] ✅ /save success — id={record.id} | title={record.title}")
-
-        try:
-            emp_info    = (request.jd_structured or {}).get("employee_information", {})
-            job_title   = emp_info.get("job_title", "") or record.title or ""
-            department  = emp_info.get("department", "")
-            emp_name    = (
-                session_memory.employee_name
-                or session_memory.insights.get("identity_context", {}).get("employee_name", "")
-                or ""
-            )
-
-            vectors_stored = await store_employee_jd_session(
-                session_id=str(record.id),
-                employee_id=record.employee_id,
-                employee_name=emp_name,
-                job_title=job_title,
-                department=department,
-                jd_text=request.jd_text,
-                jd_structured=request.jd_structured or {},
-                insights=session_memory.insights or {},
-                conversation_history=db_history,
-            )
-            print(f"[backend/app/routers/jd_routes.py] 🧠 Pinecone — {vectors_stored} vectors stored")
-        except Exception as embed_err:
-            print(f"[backend/app/routers/jd_routes.py] ⚠️  Pinecone failed (non-fatal): {embed_err}")
 
         return {
             "status": "success",

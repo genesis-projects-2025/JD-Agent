@@ -8,12 +8,14 @@ import { Sparkles, Activity, Bot, Loader2 } from "lucide-react";
 export default function ChatWindow({
   messages,
   isGenerating,
+  progress = 0,
   onSkillSelect,
   onGenerateJD,
   onContinue,
 }: {
   messages: Message[];
   isGenerating?: boolean;
+  progress?: number;
   onSkillSelect?: (selectedSkills: string[]) => void;
   onGenerateJD?: () => void;
   onContinue?: () => void;
@@ -35,10 +37,7 @@ export default function ChatWindow({
     el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
   }, [messages]);
 
-  const progressPercent = Math.min(
-    Math.round((messages.length / 15) * 100),
-    100,
-  );
+  const progressPercent = Math.min(Math.round(progress), 100);
 
   return (
     <div className="flex-1 flex flex-col min-h-0 bg-white">

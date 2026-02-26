@@ -29,6 +29,7 @@ export default function QuestionnairePage() {
   const [showPanel, setShowPanel] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [saveSuccess, setSaveSuccess] = useState(false);
 
   const {
     messages,
@@ -157,6 +158,7 @@ export default function QuestionnairePage() {
           <ChatWindow
             messages={messages}
             isGenerating={isGenerating}
+            progress={progress}
             onSkillSelect={handleSkillSelect}
             onGenerateJD={() => {
               setShowPanel(true);
@@ -193,10 +195,14 @@ export default function QuestionnairePage() {
               structuredData={structuredData}
               isGenerating={isGeneratingJD}
               isSaving={isSaving}
+              saveSuccess={saveSuccess}
               onSave={async () => {
                 const success = await handleSaveJD();
                 if (success) {
-                  router.push(`/jd/${sessionId}`);
+                  setSaveSuccess(true);
+                  setTimeout(() => {
+                    router.push(`/jd/${sessionId}`);
+                  }, 800);
                 }
               }}
               onEdit={async () => {

@@ -3,6 +3,7 @@
 import { useEffect, useState, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Loader2 } from "lucide-react";
+import { API_URL } from "@/lib/api";
 
 function SSOSync() {
   const searchParams = useSearchParams();
@@ -19,26 +20,14 @@ function SSOSync() {
         return;
       }
 
-      const role = searchParams.get("role") || "employee";
-      const name = searchParams.get("name") || "Mock User";
-      const email = searchParams.get("email") || `${employee_id}@company.com`;
-      const department = searchParams.get("department") || "Engineering";
-
       try {
-        const res = await fetch(
-          `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}/auth/sso-sync`,
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              employee_id,
-              role,
-              name,
-              email,
-              department,
-            }),
-          },
-        );
+        const res = await fetch(`${API_URL}/auth/sso-sync`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            emp_code: employee_id,
+          }),
+        });
 
         if (!res.ok) {
           throw new Error("Failed to sync SSO user with backend");
@@ -47,11 +36,11 @@ function SSOSync() {
         const data = await res.json();
 
         // Save to localStorage matching auth.ts and api.ts AuthUser type expectations
-        localStorage.setItem("auth_user", JSON.stringify(data.user));
-        localStorage.setItem("employee_id", data.user.employee_id);
+        localStorage.setItem("auth_user", JSON.stringify(data.employee));
+        localStorage.setItem("employee_id", data.employee.employee_id);
 
         // Redirect to their dashboard
-        router.push(`/dashboard/${data.user.employee_id}`);
+        router.push(`/dashboard/${data.employee.employee_id}`);
       } catch (err: any) {
         console.error("SSO Error:", err);
         setError(err.message || "SSO Sync Failed");

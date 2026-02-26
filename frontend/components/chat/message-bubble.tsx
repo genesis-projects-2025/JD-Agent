@@ -90,7 +90,7 @@ export default function MessageBubble({
           )}
 
           <p className="text-[16px] leading-[1.6] whitespace-pre-wrap">
-            {message.text}
+            {message.text.trim().replace(/\n{3,}/g, "\n\n")}
           </p>
 
           {/* Skill Selection UI */}

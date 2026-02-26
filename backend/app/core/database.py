@@ -6,7 +6,7 @@ from typing import AsyncGenerator
 
 engine = create_async_engine(
     settings.DATABASE_URL,
-    echo=True,
+    echo=False,
     pool_pre_ping=True,
 )
 
@@ -30,8 +30,36 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
             await session.close()
 
 
+from sqlalchemy import text
+
 async def init_db():
-    """Create all tables on startup if they don't exist."""
+    """Create all tables on startup if they don't exist, and setup triggers."""
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
-    print("✅ Database tables ready")
+        
+        # Add trigger function for updated_at
+        await conn.execute(text("""
+            CREATE OR REPLACE FUNCTION touch_updated_at()
+            RETURNS TRIGGER AS $$
+            BEGIN NEW.updated_at = now(); RETURN NEW; END;
+            $$ LANGUAGE plpgsql;
+        """))
+        
+        # Add trigger specifically to jd_sessions
+        # Using DO block to avoid error if trigger already exists
+        await conn.execute(text("""
+            DO $$
+            BEGIN
+                IF NOT EXISTS (
+                    SELECT 1 FROM pg_trigger 
+                    WHERE tgname = 'trg_jd_sessions_updated'
+                ) THEN
+                    CREATE TRIGGER trg_jd_sessions_updated
+                    BEFORE UPDATE ON jd_sessions
+                    FOR EACH ROW EXECUTE FUNCTION touch_updated_at();
+                END IF;
+            END
+            $$;
+        """))
+        
+    print("✅ Database tables and triggers ready")

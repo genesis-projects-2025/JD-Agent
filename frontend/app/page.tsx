@@ -2,35 +2,32 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { getOrCreateEmployeeId } from "@/lib/auth";
+import { useAuth } from "@/components/providers/auth-provider";
 import {
   FileText,
   ArrowRight,
   Shield,
   Zap,
-  Star,
   CheckCircle2,
   Building2,
   Users,
+  ShieldAlert,
 } from "lucide-react";
 
 export default function HomePage() {
   const router = useRouter();
-  const [employeeId, setEmployeeId] = useState<string | null>(null);
-
-  useEffect(() => {
-    // Ensure employee ID is created on first landing
-    setEmployeeId(getOrCreateEmployeeId());
-  }, []);
+  const { isAuthenticated, employeeId } = useAuth();
 
   const handleGoToDashboard = () => {
-    if (employeeId) {
+    if (isAuthenticated && employeeId) {
       router.push(`/dashboard/${employeeId}`);
     }
   };
 
   const handleStartInterview = () => {
-    router.push("/questionnaire");
+    if (isAuthenticated && employeeId) {
+      router.push("/questionnaire");
+    }
   };
 
   return (
@@ -47,18 +44,28 @@ export default function HomePage() {
             </span>
           </div>
           <div className="flex items-center gap-4">
-            <button
-              onClick={handleGoToDashboard}
-              className="text-sm font-semibold text-neutral-600 hover:text-blue-600 transition-colors"
-            >
-              Sign In
-            </button>
-            <button
-              onClick={handleStartInterview}
-              className="px-6 py-2.5 bg-neutral-900 text-white rounded-full text-sm font-bold shadow-xl shadow-neutral-900/20 hover:scale-[1.02] active:scale-[0.98] transition-all"
-            >
-              Get Started
-            </button>
+            {!isAuthenticated && (
+              <div className="flex items-center gap-2 text-red-600 font-bold text-sm bg-red-50 px-4 py-2 rounded-full border border-red-100">
+                <ShieldAlert className="w-4 h-4" />
+                Access Restricted
+              </div>
+            )}
+            {isAuthenticated && (
+              <>
+                <button
+                  onClick={handleGoToDashboard}
+                  className="text-sm font-semibold text-neutral-600 hover:text-blue-600 transition-colors"
+                >
+                  Dashboard
+                </button>
+                <button
+                  onClick={handleStartInterview}
+                  className="px-6 py-2.5 bg-neutral-900 text-white rounded-full text-sm font-bold shadow-xl shadow-neutral-900/20 hover:scale-[1.02] active:scale-[0.98] transition-all"
+                >
+                  New Document
+                </button>
+              </>
+            )}
           </div>
         </div>
       </nav>
@@ -69,36 +76,59 @@ export default function HomePage() {
         <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full h-full -z-10 bg-[radial-gradient(circle_at_50%_0%,#eff6ff_0%,transparent_50%)]" />
 
         <div className="max-w-7xl mx-auto text-center">
-          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-blue-50 border border-blue-100 text-blue-700 text-xs font-bold mb-8 animate-in fade-in slide-in-from-bottom-4 duration-700">
-            <Star className="w-3 h-3 fill-current" />
-            <span>AI-POWERED JD INTELLIGENCE</span>
-          </div>
+          {!isAuthenticated ? (
+            <div className="flex flex-col items-center animate-in fade-in slide-in-from-bottom-8 duration-700 max-w-2xl mx-auto bg-white p-12 rounded-[40px] shadow-2xl border border-neutral-100 mt-10">
+              <div className="w-20 h-20 bg-red-50 rounded-full flex items-center justify-center text-red-600 mb-8 border-4 border-white shadow-xl">
+                <ShieldAlert className="w-10 h-10" />
+              </div>
+              <h1 className="text-4xl md:text-5xl font-extrabold tracking-tight text-neutral-900 mb-6 leading-tight">
+                Authentication <br /> Required
+              </h1>
+              <p className="text-lg text-neutral-500 mb-8 leading-relaxed font-medium">
+                You must possess a valid, encrypted employee link to access the
+                Intelligence portal. Please check your corporate correspondence
+                for your personalized access URL.
+              </p>
+              <div className="flex items-center gap-3 text-sm font-bold text-neutral-400 uppercase tracking-widest bg-neutral-50 px-6 py-3 rounded-xl">
+                <Shield className="w-4 h-4" />
+                Zero Trust Network
+              </div>
+            </div>
+          ) : (
+            <>
+              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-blue-50 border border-blue-100 text-blue-700 text-xs font-bold mb-8 animate-in fade-in slide-in-from-bottom-4 duration-700">
+                <FileText className="w-3 h-3 fill-current" />
+                <span>AI-POWERED JD INTELLIGENCE</span>
+              </div>
 
-          <h1 className="text-6xl md:text-7xl font-extrabold tracking-tight text-neutral-900 mb-8 max-w-4xl mx-auto leading-[1.1] animate-in fade-in slide-in-from-bottom-8 duration-1000">
-            Precision Hiring Starts with{" "}
-            <span className="text-blue-600">Perfect Descriptions</span>
-          </h1>
+              <h1 className="text-6xl md:text-7xl font-extrabold tracking-tight text-neutral-900 mb-8 max-w-4xl mx-auto leading-[1.1] animate-in fade-in slide-in-from-bottom-8 duration-1000">
+                Precision Hiring Starts with{" "}
+                <span className="text-blue-600">Perfect Descriptions</span>
+              </h1>
 
-          <p className="text-xl text-neutral-500 mb-12 max-w-2xl mx-auto leading-relaxed animate-in fade-in slide-in-from-bottom-12 duration-1200">
-            Automate your job description workflow with Pulse Pharma's
-            intelligent agent. From interview to approval in minutes, not days.
-          </p>
+              <p className="text-xl text-neutral-500 mb-12 max-w-2xl mx-auto leading-relaxed animate-in fade-in slide-in-from-bottom-12 duration-1200">
+                Automate your job description workflow with Pulse Pharma's
+                intelligent agent. From interview to approval in minutes, not
+                days.
+              </p>
 
-          <div className="flex flex-col sm:flex-row items-center justify-center gap-4 animate-in fade-in slide-in-from-bottom-16 duration-1500">
-            <button
-              onClick={handleStartInterview}
-              className="group px-8 py-4 bg-blue-600 text-white rounded-2xl font-bold shadow-2xl shadow-blue-600/30 hover:bg-blue-700 hover:scale-[1.02] active:scale-[0.98] transition-all flex items-center gap-2"
-            >
-              Start JD Interview
-              <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
-            </button>
-            <button
-              onClick={handleGoToDashboard}
-              className="px-8 py-4 bg-white text-neutral-900 border border-neutral-200 rounded-2xl font-bold hover:bg-neutral-50 hover:border-neutral-300 transition-all flex items-center gap-2"
-            >
-              View Dashboard
-            </button>
-          </div>
+              <div className="flex flex-col sm:flex-row items-center justify-center gap-4 animate-in fade-in slide-in-from-bottom-16 duration-1500">
+                <button
+                  onClick={handleStartInterview}
+                  className="group px-8 py-4 bg-blue-600 text-white rounded-2xl font-bold shadow-2xl shadow-blue-600/30 hover:bg-blue-700 hover:scale-[1.02] active:scale-[0.98] transition-all flex items-center gap-2"
+                >
+                  Start JD Interview
+                  <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
+                </button>
+                <button
+                  onClick={handleGoToDashboard}
+                  className="px-8 py-4 bg-white text-neutral-900 border border-neutral-200 rounded-2xl font-bold hover:bg-neutral-50 hover:border-neutral-300 transition-all flex items-center gap-2"
+                >
+                  View Dashboard
+                </button>
+              </div>
+            </>
+          )}
 
           <div className="mt-16 pt-16 border-t border-neutral-100 grid grid-cols-2 md:grid-cols-4 gap-8 opacity-60">
             <div className="flex flex-col items-center gap-2">

@@ -1,300 +1,313 @@
-// lib/api.ts
-import axios, { AxiosError } from "axios";
-import { DashboardStats } from "@/types/jd";
-import { ActivityEvent } from "@/types/jd";
-
-// ── Types ─────────────────────────────────────────────────────────────────────
-
-export interface JDStructuredData {
-  employee_information: {
-    name?: string;
-    title?: string;
-    department?: string;
-    location?: string;
-    reports_to?: string;
-    work_type?: string;
-  };
-  role_summary: string;
-  key_responsibilities: string[];
-  required_skills: string[];
-  tools_and_technologies: string[];
-  team_structure: {
-    team_size?: string;
-    direct_reports?: string;
-    collaborates_with?: string[];
-    mentoring?: string;
-  };
-  stakeholder_interactions: {
-    internal?: string[];
-    external?: string[];
-    frequency?: string;
-  };
-  performance_metrics: string[];
-  work_environment: {
-    type?: string;
-    culture?: string;
-    work_pace?: string;
-    work_style?: string;
-  };
-  additional_details: {
-    special_projects?: string[];
-    unique_contributions?: string;
-    growth_opportunities?: string;
-  };
-}
-
-export interface JDRecord {
-  id: string;
-  employee_id: string;
-  title: string | null;
-  status: string;
-  version: number;
-  generated_jd: string | null;
-  jd_structured: JDStructuredData | null;
-  responses: Record<string, any> | null;
-  conversation_history: ConversationTurn[];
-  conversation_state: Record<string, any> | null;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface JDListItem {
-  id: string;
-  employee_id: string;
-  title: string | null;
-  status: string;
-  version: number;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface ConversationTurn {
-  role: "user" | "assistant";
-  content: string;
-  timestamp?: string;
-}
-
-export interface ChatResponse {
-  reply: string;
-  history: ConversationTurn[];
-}
-
-export interface InitResponse {
-  id: string;
-  status: string;
-  employee_id: string;
-}
-
-export interface GenerateJDResponse {
-  id: string;
-  jd_text: string;
-  jd_structured: JDStructuredData;
-  status: string;
-}
-
-export interface SaveJDResponse {
-  status: string;
-  id: string;
-  employee_id: string;
-  title: string;
-  message: string;
-}
-
-export interface UpdateJDResponse {
-  status: string;
-  id: string;
-  version: number;
-  updated_at: string;
-  message: string;
-}
-
-// ── Client ────────────────────────────────────────────────────────────────────
-
-const api = axios.create({
-  baseURL: process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000",
-  headers: { "Content-Type": "application/json" },
-  timeout: 60000, // 60s — LLM calls can be slow
-});
-
-// ── Error Normaliser ──────────────────────────────────────────────────────────
-// Converts Axios errors into plain Errors with .status and .detail attached
-// so callers can do: catch (e) { if (e.status === 429) ... }
-
-function normaliseError(err: unknown): never {
-  if (axios.isAxiosError(err)) {
-    const axiosErr = err as AxiosError<{ detail?: string }>;
-    const status = axiosErr.response?.status ?? 0;
-    const detail =
-      axiosErr.response?.data?.detail ||
-      axiosErr.message ||
-      "An unexpected error occurred";
-    const error = Object.assign(new Error(detail), { status, detail });
-    throw error;
-  }
-  throw err;
-}
-// ── Interview Endpoints ───────────────────────────────────────────────────────
-
-export async function initQuestionnaire(data: {
-  employee_id: string;
-  employee_name?: string;
-}): Promise<InitResponse> {
-  try {
-    const res = await api.post<InitResponse>("/jd/init", data);
-    return res.data;
-  } catch (err) {
-    return normaliseError(err);
-  }
-}
-
-export async function sendMessage(
-  message: string,
-  history: ConversationTurn[],
-  id?: string,
-): Promise<ChatResponse> {
-  try {
-    const res = await api.post<ChatResponse>("/jd/chat", {
-      message,
-      history,
-      id,
-    });
-    return res.data;
-  } catch (err) {
-    return normaliseError(err);
-  }
-}
-
-// ── JD Generation & Save ──────────────────────────────────────────────────────
-
 /**
- * Triggers JD generation from the collected insights.
- * Called when the user clicks "Generate JD" — NOT inside a chat turn.
- * Returns jd_text (markdown) and jd_structured (JSON) for frontend display.
+ * Authentication helper.
+ * Dev mode: stores identity in localStorage.
+ * Prod SSO: swap getCurrentUser() to parse your JWT/session token.
  */
-export async function generateJD(payload: {
-  id: string;
-}): Promise<GenerateJDResponse> {
+
+export type UserRole = "employee" | "manager" | "hr" | "admin";
+
+export type AuthUser = {
+  employee_id: string;
+  name: string;
+  email: string | null;
+  role: string;
+  department?: string | null;
+  reporting_manager?: string | null;
+  reporting_manager_code?: string | null;
+  phone_mobile?: string | null;
+};
+
+// ── Core identity ─────────────────────────────────────────────────────────────
+
+export function getOrCreateEmployeeId(): string {
+  if (typeof window === "undefined") return "server_id";
+
+  // If SSO user is logged in, use their real ID
+  const user = getCurrentUser();
+  if (user?.employee_id) return user.employee_id;
+
+  // Fallback: anonymous dev ID (your original logic — unchanged)
+  let id = localStorage.getItem("employee_id");
+  if (!id) {
+    id =
+      "emp_" +
+      Math.random().toString(36).substring(2, 11) +
+      Date.now().toString(36);
+    localStorage.setItem("employee_id", id);
+    console.log("🆕 Created New Employee ID:", id);
+  } else {
+    console.log("💾 Using Existing Employee ID:", id);
+  }
+  return id;
+}
+
+export function getEmployeeId(): string | null {
+  if (typeof window === "undefined") return null;
+  const id = localStorage.getItem("employee_id");
+  if (id) console.log("🆔 Accessed Employee ID:", id);
+  return id;
+}
+
+// ── Current logged-in user ────────────────────────────────────────────────────
+// DEV:  reads from localStorage (set by devLogin below)
+// PROD: replace body with → parse JWT from cookie or call /api/me
+
+export function getCurrentUser(): AuthUser | null {
+  if (typeof window === "undefined") return null;
+  const raw = localStorage.getItem("auth_user");
+  if (!raw) return null;
   try {
-    const res = await api.post<GenerateJDResponse>("/jd/generate", payload);
-    return res.data;
-  } catch (err) {
-    return normaliseError(err);
+    return JSON.parse(raw) as AuthUser;
+  } catch {
+    return null;
   }
 }
 
-/**
- * Saves the displayed JD to the database.
- * Called when the user clicks "Save JD" after reviewing the generated output.
- */
-export async function saveJD(data: {
-  id: string;
-  jd_text: string;
-  jd_structured: JDStructuredData | Record<string, any>;
-  employee_id?: string;
-}): Promise<SaveJDResponse> {
-  try {
-    // Guard: always send a valid object, never null
-    const payload = {
-      ...data,
-      jd_structured: data.jd_structured ?? {},
-    };
-    const res = await api.post<SaveJDResponse>("/jd/save", payload);
-    return res.data;
-  } catch (err) {
-    return normaliseError(err);
-  }
+// ── Role helpers ──────────────────────────────────────────────────────────────
+
+export const isEmployee = (u: AuthUser | null) => !u || u.role === "employee";
+export const isManager = (u: AuthUser | null) => u?.role === "manager";
+export const isHR = (u: AuthUser | null) =>
+  u?.role === "hr" || u?.role === "admin";
+export const canApprove = (u: AuthUser | null) => isManager(u) || isHR(u);
+
+// ── DEV: simulate login ───────────────────────────────────────────────────────
+// Run in browser console: devLogin("manager")  or  devLogin("hr")
+
+export function devLogin(role: UserRole): AuthUser {
+  const empId =
+    localStorage.getItem("employee_id") ||
+    "emp_" +
+      Math.random().toString(36).substring(2, 11) +
+      Date.now().toString(36);
+
+  const users: Record<UserRole, AuthUser> = {
+    employee: {
+      employee_id: empId,
+      name: "Test Employee",
+      email: "employee@company.com",
+      role: "employee",
+      department: "Engineering",
+    },
+    manager: {
+      employee_id: "mgr_test",
+      name: "Test Manager",
+      email: "manager@company.com",
+      role: "manager",
+      department: "Engineering",
+    },
+    hr: {
+      employee_id: "hr_test",
+      name: "Test HR",
+      email: "hr@company.com",
+      role: "hr",
+    },
+    admin: {
+      employee_id: "admin_001",
+      name: "Admin",
+      email: "admin@company.com",
+      role: "admin",
+    },
+  };
+
+  const user = users[role];
+  localStorage.setItem("auth_user", JSON.stringify(user));
+  localStorage.setItem("employee_id", user.employee_id);
+  console.log(`✅ Dev login as ${role}:`, user.employee_id);
+  return user;
 }
 
-// ── JD Management ─────────────────────────────────────────────────────────────
-
-export async function fetchEmployeeJDs(
-  employeeId: string,
-): Promise<JDListItem[]> {
-  try {
-    const res = await api.get<JDListItem[]>(`/jd/employee/${employeeId}`);
-    return res.data;
-  } catch (err) {
-    return normaliseError(err);
-  }
+export default function devLogout() {
+  localStorage.removeItem("auth_user");
+  console.log("🚪 Logged out — role cleared, employee_id kept");
 }
 
-export async function fetchJD(jdId: string): Promise<JDRecord> {
-  try {
-    const res = await api.get<JDRecord>(`/jd/${jdId}`);
-    return res.data;
-  } catch (err) {
-    return normaliseError(err);
-  }
+/*
+── PROD SSO INTEGRATION ───────────────────────────────────────────────────────
+
+When you're ready to connect Darwinbox / Azure AD:
+
+STEP 1 — User clicks "Sign in with SSO" button
+  → redirect to: /api/auth/sso  (your FastAPI endpoint)
+
+STEP 2 — Backend validates the token from the IdP
+  POST /api/auth/sso-callback { token }
+  → validates with Microsoft/Darwinbox
+  → gets or creates employee in DB
+  → returns { employee_id, name, email, role, department }
+
+STEP 3 — Frontend stores the user
+  const user = await res.json()
+  localStorage.setItem("auth_user", JSON.stringify(user))
+  router.push(`/dashboard/${user.employee_id}`)
+
+STEP 4 — getCurrentUser() above picks it up automatically.
+  Zero other changes needed anywhere in the app.
+
+Azure AD token payload example:
+{
+  "oid": "abc123",             → employee_id
+  "name": "John Doe",          → name
+  "email": "john@company.com", → email
+  "extension_role": "manager", → role  (set as custom attr in Azure AD)
+  "department": "Engineering"  → department
+}
+*/
+
+// ── API Fetching Functions ────────────────────────────────────────────────────
+
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+
+export async function fetchEmployeeJDs(employeeId: string) {
+  const res = await fetch(`${API_URL}/jd/employee/${employeeId}`);
+  if (!res.ok) throw new Error("Failed to fetch employee JDs");
+  return res.json();
 }
 
-export async function deleteJD(
-  jdId: string,
-  employeeId: string,
-): Promise<{ status: string; message: string }> {
-  try {
-    const res = await api.delete(`/jd/${jdId}?employee_id=${employeeId}`);
-    return res.data;
-  } catch (err) {
-    return normaliseError(err);
-  }
+// ── Organogram Login ──────────────────────────────────────────────────────────
+
+export async function fetchOrganogramEmployees() {
+  const res = await fetch(`${API_URL}/auth/organogram/employees`);
+  if (!res.ok) throw new Error("Failed to fetch organogram employees");
+  return res.json(); // { employees: [...] }
 }
 
-export async function updateJD(
-  jdId: string,
-  data: {
-    jd_text: string;
-    jd_structured: JDStructuredData | Record<string, any>;
-    employee_id: string;
-  },
-): Promise<UpdateJDResponse> {
-  try {
-    const res = await api.put<UpdateJDResponse>(`/jd/${jdId}`, data);
-    return res.data;
-  } catch (err) {
-    return normaliseError(err);
-  }
+export async function loginWithOrganogram(empCode: string) {
+  const res = await fetch(`${API_URL}/auth/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ emp_code: empCode }),
+  });
+  if (!res.ok) throw new Error("Failed to login with organogram");
+  return res.json(); // { status: "success", employee: AuthUser }
+}
+
+export async function fetchEmployeeProfile(empCode: string): Promise<AuthUser> {
+  const res = await fetch(`${API_URL}/auth/me/${empCode}`);
+  if (!res.ok) throw new Error("Failed to fetch employee profile");
+  return res.json();
+}
+
+export async function initQuestionnaire({
+  employee_id,
+  employee_name,
+}: {
+  employee_id: string;
+  employee_name: string;
+}) {
+  const res = await fetch(`${API_URL}/jd/init`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ employee_id, employee_name }),
+  });
+  if (!res.ok) throw new Error("Failed to init questionnaire");
+  return res.json();
+}
+
+export async function fetchJD(jdId: string) {
+  const res = await fetch(`${API_URL}/jd/${jdId}`);
+  if (!res.ok) throw new Error("Failed to fetch JD");
+  return res.json();
 }
 
 export async function updateJDStatus(
   jdId: string,
   data: { status: string; employee_id: string },
-): Promise<{
-  status: string;
-  id: string;
-  new_status: string;
-  message: string;
-}> {
-  try {
-    const res = await api.patch(`/jd/${jdId}/status`, data);
-    return res.data;
-  } catch (err) {
-    return normaliseError(err);
+) {
+  const res = await fetch(`${API_URL}/jd/${jdId}/status`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      status: data.status,
+      employee_id: data.employee_id,
+    }),
+  });
+  if (!res.ok) throw new Error("Failed to update status");
+  return res.json();
+}
+
+export async function deleteJD(jdId: string, employeeId: string) {
+  const res = await fetch(`${API_URL}/jd/${jdId}?employee_id=${employeeId}`, {
+    method: "DELETE",
+  });
+  if (!res.ok) throw new Error("Failed to delete JD");
+  return res.json();
+}
+
+export async function getJDs(params?: { status?: string }) {
+  const res = await fetch(`${API_URL}/jd/list`);
+  if (!res.ok) throw new Error("Failed to fetch all JDs");
+  return res.json();
+}
+
+export async function approveJD(jdId: string, employeeId: string = "admin") {
+  return updateJDStatus(jdId, { status: "approved", employee_id: employeeId });
+}
+
+export async function rejectJD(
+  jdId: string,
+  comment: string,
+  employeeId: string = "admin",
+) {
+  // In a real app we might patch the comment via a separate endpoint.
+  // Assuming the `updateJDStatus` suffices here per backend schema.
+  return updateJDStatus(jdId, { status: "rejected", employee_id: employeeId });
+}
+
+export async function updateJD(
+  jdId: string,
+  data: { jd_text: string; jd_structured: any; employee_id: string },
+) {
+  const res = await fetch(`${API_URL}/jd/${jdId}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) throw new Error("Failed to update JD");
+  return res.json();
+}
+
+export async function sendMessage(
+  message: string,
+  history: any[],
+  sessionId?: string,
+) {
+  const res = await fetch(`${API_URL}/jd/chat`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ message, history, id: sessionId }),
+  });
+  if (!res.ok) throw new Error("Failed to send message");
+  return res.json();
+}
+
+export async function generateJD(data: { id: string }) {
+  const res = await fetch(`${API_URL}/jd/generate`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) {
+    const errorText = await res.text();
+    throw new Error(errorText || "Failed to generate JD");
   }
+  return res.json();
 }
 
-/* ── Dashboard ──────────────────────────────────────────────────── */
-
-export async function getDashboardStats(): Promise<DashboardStats> {
-  const response = await api.get("/jd/stats");
-  return response.data;
-}
-
-export async function getRecentActivity(): Promise<ActivityEvent[]> {
-  const response = await api.get("/jd/activity");
-  return response.data;
-}
-
-/* ── JD List & Approvals ────────────────────────────────────────── */
-
-export async function getJDs(): Promise<JDRecord[]> {
-  const response = await api.get("/jd/list");
-  return response.data;
-}
-
-export async function approveJD(id: string): Promise<void> {
-  await api.post(`/jd/${id}/approve`);
-}
-
-export async function rejectJD(id: string, comment: string): Promise<void> {
-  await api.post(`/jd/${id}/reject`, { comment });
+export async function saveJD(data: {
+  id: string;
+  jd_text: string;
+  jd_structured: any;
+  employee_id: string;
+}) {
+  const res = await fetch(`${API_URL}/jd/save`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) {
+    const errorText = await res.text();
+    throw new Error(errorText || "Failed to save JD");
+  }
+  return res.json();
 }

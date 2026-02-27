@@ -7,6 +7,10 @@ from typing import Optional, List
 import datetime
 import json
 import uuid
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy import text
+from app.models.taxonomy_model import Skill, JDSessionSkill, EmployeeSkill
 
 
 # ── JSONB Safety Helpers ──────────────────────────────────────────────────────
@@ -75,6 +79,62 @@ def _safe_uuid(val: str) -> uuid.UUID:
         return val
     return uuid.UUID(val)
 
+
+async def _harvest_organic_skills(db: AsyncSession, jd_structured: dict, session_id: str, employee_id: str):
+    """
+    Harvests verified skills & tools from the structured JD and saves them
+    into the fully relational Skill, JDSessionSkill, and EmployeeSkill tables.
+    """
+    if not jd_structured or not session_id or not employee_id:
+        return
+
+    req_skills = jd_structured.get("required_skills", [])
+    tools = jd_structured.get("tools_and_technologies", [])
+    
+    # Combine and normalize
+    all_skills = set()
+    for s in (req_skills + tools):
+        if isinstance(s, str) and s.strip():
+            all_skills.add(s.strip())
+            
+    if not all_skills:
+        return
+
+    session_uuid = _safe_uuid(session_id)
+
+    for skill_name in all_skills:
+        # 1. Upsert into Master Skill Table
+        skill_stmt = insert(Skill).values(name=skill_name)
+        skill_stmt = skill_stmt.on_conflict_do_update(
+            index_elements=['name'],
+            set_=dict(name=skill_name) # Dummy update to return the ID
+        ).returning(Skill.id)
+        
+        result = await db.execute(skill_stmt)
+        skill_id = result.scalar()
+        
+        # Fallback if returning didn't work (e.g. some dialects on conflict do nothing)
+        if not skill_id:
+            res = await db.execute(select(Skill.id).where(Skill.name == skill_name))
+            skill_id = res.scalar()
+            
+        if not skill_id:
+            continue
+            
+        # 2. Upsert into JDSessionSkill
+        sess_stmt = insert(JDSessionSkill).values(
+            session_id=session_uuid,
+            skill_id=skill_id
+        ).on_conflict_do_nothing()
+        await db.execute(sess_stmt)
+        
+        # 3. Upsert into EmployeeSkill
+        emp_stmt = insert(EmployeeSkill).values(
+            employee_id=employee_id,
+            skill_id=skill_id,
+            source="jd_interview"
+        ).on_conflict_do_nothing()
+        await db.execute(emp_stmt)
 
 # ── Core Upsert ───────────────────────────────────────────────────────────────
 
@@ -173,6 +233,17 @@ async def save_questionnaire_jd(
 
     await db.commit()
     await db.refresh(record, ['conversation_turns', 'employee'])
+    
+    # Organically harvest the confirmed skills
+    try:
+        if safe_structured:
+            await _harvest_organic_skills(db, safe_structured, session_id, employee_id)
+            await db.commit()
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        print(f"Failed to harvest skills: {e}")
+        
     print(f"✅ JD saved — id={record.id}, employee={record.employee_id}, title={record.title}")
     return record
 
@@ -286,6 +357,17 @@ async def sync_session_to_db(
 
     await db.commit()
     await db.refresh(record, ['conversation_turns'])
+
+    # Organically harvest the confirmed skills
+    try:
+        if safe_structured:
+            await _harvest_organic_skills(db, safe_structured, session_id, employee_id)
+            await db.commit()
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        print(f"Failed to harvest skills: {e}")
+
     return record
 
 

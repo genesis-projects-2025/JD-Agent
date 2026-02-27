@@ -135,16 +135,7 @@ function JDGrid({
     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
       {jds.map((jd) => {
         const config = STATUS_CONFIG[jd.status] || STATUS_CONFIG.draft;
-        const href = [
-          "jd_generated",
-          "sent_to_manager",
-          "manager_rejected",
-          "sent_to_hr",
-          "hr_rejected",
-          "approved",
-        ].includes(jd.status)
-          ? `/jd/${jd.id}`
-          : `/questionnaire/${jd.id}`;
+        const href = `/questionnaire/${jd.id}`;
 
         return (
           <Link

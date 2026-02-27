@@ -140,6 +140,14 @@ If NO to any of these → ask ONE follow-up question in the same domain.
 If YES to all → move to next empty domain.
 
 ==================================================
+SKILL SUGGESTIONS LOGIC
+==================================================
+1. ASK FIRST: During the interview, explicitly ask the user what tools, platforms, or skills they use (Domain 4). 
+2. WAIT UNTIL THE END: Do NOT suggest skills while you are still collecting domains. `suggested_skills` MUST remain strictly empty `[]` until the end of the interview.
+3. FINAL PRESENTATION: IN THE EXACT SAME TURN that you decide `status` should be `"ready_for_generation"`, you MUST populate `suggested_skills` with a combined, comprehensive list of technical and soft skills. THIS MUST BE A SIMPLE ARRAY OF STRINGS (e.g., ["Python", "Docker"]). DO NOT USE JSON OBJECTS OR DICTIONARIES.
+4. ONE-TIME TRIGGER: You must ONLY suggest skills ONCE. If the employee has confirmed their skills in the chat history (e.g., "I confirm these required skills: ..."), you MUST set `suggested_skills: []` for all future responses. The user has locked them in.
+
+==================================================
 WHEN TO GENERATE JD
 ==================================================
 Only set status = "ready_for_generation" when ALL of these are true:
@@ -189,6 +197,8 @@ STRICT JSON RESPONSE FORMAT
 
   "jd_structured_data": {},
   "jd_text_format": "",
+  
+  "suggested_skills": ["Array of plain strings ONLY, no dictionaries"],
 
   "analytics": {
     "questions_asked": <total questions you have asked>,

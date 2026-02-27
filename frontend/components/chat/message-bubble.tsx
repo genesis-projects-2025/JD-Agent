@@ -178,41 +178,42 @@ export default function MessageBubble({
           )}
 
           {/* Ready to Generate JD UI */}
-          {message.isReadySelection && (
-            <div className="mt-6 space-y-3 pt-6 border-t border-surface-100">
-              {!isReadyActionTaken ? (
-                <>
-                  <button
-                    onClick={() => {
-                      setIsReadyActionTaken(true);
-                      onGenerateJD?.();
-                    }}
-                    className="w-full py-4.5 bg-gradient-to-br from-primary-600 to-primary-800 text-white rounded-2xl text-[15px] font-bold hover:shadow-2xl transition-all shadow-xl active:scale-[0.98] flex items-center justify-center gap-2.5 group"
-                  >
-                    <Sparkles className="w-5 h-5 group-hover:rotate-12 transition-transform" />
-                    Generate Enterprise JD
-                  </button>
-                  <button
-                    onClick={() => {
-                      setIsReadyActionTaken(true);
-                      onContinue?.();
-                    }}
-                    className="w-full py-4 bg-white text-surface-700 border-2 border-surface-200 rounded-2xl text-[14px] font-bold hover:bg-surface-50 hover:border-surface-300 transition-all active:scale-[0.98] flex items-center justify-center gap-2"
-                  >
-                    <ArrowRight className="w-4 h-4" />
-                    Continue Interview
-                  </button>
-                </>
-              ) : (
-                <div className="flex items-center justify-center gap-3 p-4 bg-surface-50 rounded-2xl border border-surface-100">
-                  <div className="w-2.5 h-2.5 bg-primary-500 rounded-full animate-pulse" />
-                  <span className="text-sm font-bold text-surface-500 uppercase tracking-widest">
-                    Architecting Document...
-                  </span>
-                </div>
-              )}
-            </div>
-          )}
+          {message.isReadySelection &&
+            (!message.isSkillSelection || isConfirmed) && (
+              <div className="mt-6 space-y-3 pt-6 border-t border-surface-100">
+                {!isReadyActionTaken ? (
+                  <>
+                    <button
+                      onClick={() => {
+                        setIsReadyActionTaken(true);
+                        onGenerateJD?.();
+                      }}
+                      className="w-full py-4.5 bg-gradient-to-br from-primary-600 to-primary-800 text-white rounded-2xl text-[15px] font-bold hover:shadow-2xl transition-all shadow-xl active:scale-[0.98] flex items-center justify-center gap-2.5 group"
+                    >
+                      <Sparkles className="w-5 h-5 group-hover:rotate-12 transition-transform" />
+                      Generate Enterprise JD
+                    </button>
+                    <button
+                      onClick={() => {
+                        setIsReadyActionTaken(true);
+                        onContinue?.();
+                      }}
+                      className="w-full py-4 bg-white text-surface-700 border-2 border-surface-200 rounded-2xl text-[14px] font-bold hover:bg-surface-50 hover:border-surface-300 transition-all active:scale-[0.98] flex items-center justify-center gap-2"
+                    >
+                      <ArrowRight className="w-4 h-4" />
+                      Continue Interview
+                    </button>
+                  </>
+                ) : (
+                  <div className="flex items-center justify-center gap-3 p-4 bg-surface-50 rounded-2xl border border-surface-100">
+                    <div className="w-2.5 h-2.5 bg-primary-500 rounded-full animate-pulse" />
+                    <span className="text-sm font-bold text-surface-500 uppercase tracking-widest">
+                      Architecting Document...
+                    </span>
+                  </div>
+                )}
+              </div>
+            )}
         </div>
 
         {/* Timestamp / Sender Detail */}

@@ -46,8 +46,7 @@ export default function QuestionnairePage() {
     isRateLimited,
     retryTimer,
   } = useChat(() => {
-    // On save success — navigate to the full view page
-    router.push(`/jd/${sessionId}`);
+    // Component stays on page; the JDPreviewPanel handles UI view
   }, true);
 
   // Auto-open panel when JD is generated
@@ -200,16 +199,11 @@ export default function QuestionnairePage() {
                 const success = await handleSaveJD();
                 if (success) {
                   setSaveSuccess(true);
-                  setTimeout(() => {
-                    router.push(`/jd/${sessionId}`);
-                  }, 800);
+                  // Stays on page with success feedback showing
                 }
               }}
               onEdit={async () => {
-                const success = await handleSaveJD();
-                if (success) {
-                  router.push(`/jd/${sessionId}/edit`);
-                }
+                // Future edit module logic; currently handled by interview
               }}
               onClose={() => setShowPanel(false)}
               sessionId={sessionId}

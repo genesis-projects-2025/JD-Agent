@@ -12,7 +12,12 @@ import {
   Plus,
 } from "lucide-react";
 
-import { fetchEmployeeJDs } from "@/lib/api";
+import {
+  fetchEmployeeJDs,
+  fetchManagerPendingJDs,
+  fetchHRPendingJDs,
+  getCurrentUser,
+} from "@/lib/api";
 import { getOrCreateEmployeeId } from "@/lib/auth";
 
 type JDListItem = {
@@ -39,9 +44,24 @@ const STATUS_CONFIG: Record<
     bg: "bg-amber-50 border-amber-200",
   },
   sent_to_manager: {
-    label: "Sent to Manager",
+    label: "Manager Review",
     color: "text-blue-700",
     bg: "bg-blue-50 border-blue-200",
+  },
+  manager_rejected: {
+    label: "Needs Revision",
+    color: "text-red-700",
+    bg: "bg-red-50 border-red-200",
+  },
+  sent_to_hr: {
+    label: "HR Review",
+    color: "text-purple-700",
+    bg: "bg-purple-50 border-purple-200",
+  },
+  hr_rejected: {
+    label: "Action Required",
+    color: "text-red-700",
+    bg: "bg-red-50 border-red-200",
   },
   approved: {
     label: "Approved",
@@ -52,14 +72,33 @@ const STATUS_CONFIG: Record<
 
 export default function DashboardPage() {
   const [jds, setJds] = useState<JDListItem[]>([]);
+  const [pendingJDs, setPendingJDs] = useState<JDListItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState<
+    "my_jds" | "team_approvals" | "hr_approvals"
+  >("my_jds");
+
+  const user = getCurrentUser();
+  const role = user?.role || "employee";
 
   useEffect(() => {
     async function load() {
       try {
+        setLoading(true);
         const id = getOrCreateEmployeeId();
+
+        // Load personal JDs
         const data = await fetchEmployeeJDs(id);
         setJds(data || []);
+
+        // Load Pending Approval JDs based on role
+        if (role === "manager") {
+          const pending = await fetchManagerPendingJDs(id);
+          setPendingJDs(pending || []);
+        } else if (role === "hr") {
+          const pending = await fetchHRPendingJDs();
+          setPendingJDs(pending || []);
+        }
       } catch (err) {
         console.error("Failed to load JDs:", err);
       } finally {
@@ -67,13 +106,20 @@ export default function DashboardPage() {
       }
     }
     load();
-  }, []);
+  }, [role]);
 
   const draftCount = jds.filter(
-    (j) => j.status === "draft" || j.status === "jd_generated",
+    (j) =>
+      j.status === "draft" ||
+      j.status === "jd_generated" ||
+      j.status.includes("rejected"),
   ).length;
-  const sentCount = jds.filter((j) => j.status === "sent_to_manager").length;
+  const inReviewCount = jds.filter(
+    (j) => j.status === "sent_to_manager" || j.status === "sent_to_hr",
+  ).length;
   const approvedCount = jds.filter((j) => j.status === "approved").length;
+
+  const displayJDs = activeTab === "my_jds" ? jds : pendingJDs;
 
   return (
     <div className="h-[calc(100vh-3rem)] overflow-y-auto">
@@ -81,10 +127,13 @@ export default function DashboardPage() {
         {/* Welcome Header */}
         <div className="mb-8">
           <h1 className="text-3xl font-bold text-neutral-900 tracking-tight">
-            JD Intelligence Agent
+            JD Intelligence
+            <span className="ml-3 text-sm font-bold px-3 py-1 bg-neutral-100 text-neutral-600 rounded-full align-middle uppercase tracking-widest border border-neutral-200">
+              {role}
+            </span>
           </h1>
           <p className="mt-2 text-neutral-500">
-            Create, manage, and track your Job Descriptions
+            Welcome back, {user?.name || "Team Member"}
           </p>
         </div>
 
@@ -115,7 +164,7 @@ export default function DashboardPage() {
                 <FileText className="w-4.5 h-4.5 text-amber-600" />
               </div>
               <span className="text-sm font-medium text-neutral-500">
-                Drafts
+                Drafts / Revisions
               </span>
             </div>
             <p className="text-3xl font-bold text-neutral-900">{draftCount}</p>
@@ -126,10 +175,12 @@ export default function DashboardPage() {
                 <MessageSquare className="w-4.5 h-4.5 text-blue-600" />
               </div>
               <span className="text-sm font-medium text-neutral-500">
-                Sent to Manager
+                In Review
               </span>
             </div>
-            <p className="text-3xl font-bold text-neutral-900">{sentCount}</p>
+            <p className="text-3xl font-bold text-neutral-900">
+              {inReviewCount}
+            </p>
           </div>
           <div className="bg-white rounded-xl border border-neutral-200 p-5 shadow-sm">
             <div className="flex items-center gap-3 mb-3">
@@ -146,11 +197,63 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        {/* Recent JDs */}
+        {/* Multi-Role Tabs */}
+        {(role === "manager" || role === "hr") && (
+          <div className="flex items-center gap-2 mb-6 border-b border-neutral-200 pb-px">
+            <button
+              onClick={() => setActiveTab("my_jds")}
+              className={`px-4 py-3 text-sm font-bold border-b-2 transition-colors ${
+                activeTab === "my_jds"
+                  ? "border-blue-600 text-blue-600"
+                  : "border-transparent text-neutral-500 hover:text-neutral-700"
+              }`}
+            >
+              My JDs
+            </button>
+            {role === "manager" && (
+              <button
+                onClick={() => setActiveTab("team_approvals")}
+                className={`px-4 py-3 text-sm font-bold border-b-2 transition-colors flex items-center gap-2 ${
+                  activeTab === "team_approvals"
+                    ? "border-blue-600 text-blue-600"
+                    : "border-transparent text-neutral-500 hover:text-neutral-700"
+                }`}
+              >
+                Team Approvals
+                {pendingJDs.length > 0 && (
+                  <span className="bg-red-500 text-white text-[10px] px-2 py-0.5 rounded-full">
+                    {pendingJDs.length}
+                  </span>
+                )}
+              </button>
+            )}
+            {role === "hr" && (
+              <button
+                onClick={() => setActiveTab("hr_approvals")}
+                className={`px-4 py-3 text-sm font-bold border-b-2 transition-colors flex items-center gap-2 ${
+                  activeTab === "hr_approvals"
+                    ? "border-blue-600 text-blue-600"
+                    : "border-transparent text-neutral-500 hover:text-neutral-700"
+                }`}
+              >
+                HR Review Queue
+                {pendingJDs.length > 0 && (
+                  <span className="bg-red-500 text-white text-[10px] px-2 py-0.5 rounded-full">
+                    {pendingJDs.length}
+                  </span>
+                )}
+              </button>
+            )}
+          </div>
+        )}
+
+        {/* JD List Area */}
         <div className="bg-white rounded-2xl border border-neutral-200 shadow-sm">
-          <div className="px-6 py-5 border-b border-neutral-100">
+          <div className="px-6 py-5 border-b border-neutral-100 flex items-center justify-between">
             <h2 className="text-lg font-semibold text-neutral-900">
-              Recent Job Descriptions
+              {activeTab === "my_jds"
+                ? "Your Job Descriptions"
+                : "Requires Your Review"}
             </h2>
           </div>
 
@@ -158,21 +261,23 @@ export default function DashboardPage() {
             <div className="p-12 flex items-center justify-center">
               <Loader2 className="w-6 h-6 text-blue-600 animate-spin" />
             </div>
-          ) : jds.length === 0 ? (
+          ) : displayJDs.length === 0 ? (
             <div className="p-12 text-center">
               <div className="w-16 h-16 bg-neutral-50 rounded-2xl flex items-center justify-center mx-auto mb-4">
                 <FileText className="w-8 h-8 text-neutral-300" />
               </div>
               <h3 className="text-sm font-semibold text-neutral-700 mb-1">
-                No JDs Yet
+                {activeTab === "my_jds" ? "No JDs Yet" : "All Caught Up!"}
               </h3>
               <p className="text-sm text-neutral-400">
-                Start a JD interview to create your first one
+                {activeTab === "my_jds"
+                  ? "Start a JD interview to create your first one."
+                  : "There are no JDs waiting for your approval right now."}
               </p>
             </div>
           ) : (
             <div className="divide-y divide-neutral-100">
-              {jds.map((jdItem) => {
+              {displayJDs.map((jdItem) => {
                 const config =
                   STATUS_CONFIG[jdItem.status] || STATUS_CONFIG.draft;
                 return (

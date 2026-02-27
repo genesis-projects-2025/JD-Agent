@@ -4,7 +4,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { useParams, useRouter } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import {
   FileText,
   MessageSquare,
@@ -69,10 +69,28 @@ const STATUS_CONFIG: Record<
     icon: TrendingUp,
   },
   sent_to_manager: {
-    label: "Under Review",
+    label: "Manager Review",
     color: "text-blue-700",
     bg: "bg-blue-50 border-blue-100",
     icon: ShieldCheck,
+  },
+  manager_rejected: {
+    label: "Needs Revision",
+    color: "text-red-700",
+    bg: "bg-red-50 border-red-100",
+    icon: AlertTriangle,
+  },
+  sent_to_hr: {
+    label: "HR Review",
+    color: "text-purple-700",
+    bg: "bg-purple-50 border-purple-100",
+    icon: ShieldCheck,
+  },
+  hr_rejected: {
+    label: "Action Required",
+    color: "text-red-700",
+    bg: "bg-red-50 border-red-100",
+    icon: AlertTriangle,
   },
   approved: {
     label: "Verified Asset",
@@ -117,9 +135,14 @@ function JDGrid({
     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
       {jds.map((jd) => {
         const config = STATUS_CONFIG[jd.status] || STATUS_CONFIG.draft;
-        const href = ["jd_generated", "sent_to_manager", "approved"].includes(
-          jd.status,
-        )
+        const href = [
+          "jd_generated",
+          "sent_to_manager",
+          "manager_rejected",
+          "sent_to_hr",
+          "hr_rejected",
+          "approved",
+        ].includes(jd.status)
           ? `/jd/${jd.id}`
           : `/questionnaire/${jd.id}`;
 
@@ -196,132 +219,208 @@ function EmployeeView({
   employeeId: string;
   user: AuthUser | null;
 }) {
+  const [allJds, setAllJds] = useState<JDListItem[]>([]);
   const [jds, setJds] = useState<JDListItem[]>([]);
   const [loading, setLoading] = useState(true);
 
+  const searchParams = useSearchParams();
+  const currentView = searchParams.get("view");
+
+  const [filter, setFilter] = useState<
+    "all" | "draft" | "pending" | "approved"
+  >(currentView === "approvals" ? "pending" : "all");
+
   useEffect(() => {
     fetchEmployeeJDs(employeeId)
-      .then((d) => setJds(d || []))
+      .then((d) => {
+        setAllJds(d || []);
+        setJds(d || []);
+      })
       .catch(console.error)
       .finally(() => setLoading(false));
   }, [employeeId]);
 
-  const draftCount = jds.filter((j) =>
-    ["draft", "jd_generated", "collecting"].includes(j.status),
+  useEffect(() => {
+    if (filter === "all") setJds(allJds);
+    else if (filter === "draft")
+      setJds(
+        allJds.filter((j) =>
+          [
+            "draft",
+            "jd_generated",
+            "collecting",
+            "manager_rejected",
+            "hr_rejected",
+          ].includes(j.status),
+        ),
+      );
+    else if (filter === "pending")
+      setJds(
+        allJds.filter((j) =>
+          ["sent_to_manager", "sent_to_hr"].includes(j.status),
+        ),
+      );
+    else if (filter === "approved")
+      setJds(allJds.filter((j) => j.status === "approved"));
+  }, [filter, allJds]);
+
+  const draftCount = allJds.filter((j) =>
+    [
+      "draft",
+      "jd_generated",
+      "collecting",
+      "manager_rejected",
+      "hr_rejected",
+    ].includes(j.status),
   ).length;
-  const sentCount = jds.filter((j) => j.status === "sent_to_manager").length;
-  const approvedCount = jds.filter((j) => j.status === "approved").length;
+  const sentCount = allJds.filter((j) =>
+    ["sent_to_manager", "sent_to_hr"].includes(j.status),
+  ).length;
+  const approvedCount = allJds.filter((j) => j.status === "approved").length;
 
   if (loading) return <LoadingScreen />;
 
   return (
     <div className="max-w-7xl mx-auto space-y-10 animate-in fade-in slide-in-from-bottom-4 duration-700">
-      {/* Header */}
-      <header className="flex flex-col md:flex-row justify-between gap-6 pb-2">
-        <div className="flex-1 max-w-2xl bg-white p-6 rounded-3xl border border-surface-200 shadow-sm flex items-start gap-6">
-          <div className="w-16 h-16 bg-blue-100 text-blue-700 rounded-2xl flex items-center justify-center flex-shrink-0 font-extrabold text-2xl">
-            {user?.name ? user.name.charAt(0).toUpperCase() : "U"}
-          </div>
-          <div className="flex-1">
-            <div className="flex items-center gap-2 mb-1">
-              <span className="px-2.5 py-0.5 bg-surface-100 text-surface-600 text-[10px] font-black uppercase tracking-[0.1em] rounded-md">
-                {employeeId}
+      {/* Vibrant Blue Gradient Header (Employee Identity) */}
+      <header className="bg-gradient-to-r from-blue-900 via-blue-800 to-indigo-900 rounded-[2rem] p-8 shadow-2xl shadow-blue-900/20 text-white relative overflow-hidden">
+        {/* Abstract shapes */}
+        <div className="absolute top-0 right-0 p-32 bg-cyan-400/20 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2 pointer-events-none" />
+        <div className="absolute bottom-0 left-0 p-32 bg-indigo-500/20 rounded-full blur-3xl translate-y-1/2 -translate-x-1/2 pointer-events-none" />
+
+        <div className="relative z-10 flex flex-col md:flex-row md:items-end justify-between gap-6">
+          <div>
+            <div className="flex flex-wrap items-center gap-2 mb-4">
+              <span className="px-3 py-1.5 bg-white/10 backdrop-blur-md text-blue-100 text-[10px] font-black uppercase tracking-[0.2em] rounded-lg border border-white/20">
+                {user?.role || "Employee"} Portfolio
+              </span>
+              <span className="px-3 py-1.5 bg-cyan-500/20 text-cyan-200 text-[10px] font-black uppercase tracking-[0.2em] rounded-lg border border-cyan-500/30 font-mono">
+                ID: {employeeId}
               </span>
               {user?.department && (
-                <span className="px-2.5 py-0.5 bg-blue-50 text-blue-700 text-[10px] font-black uppercase tracking-[0.1em] rounded-md">
+                <span className="text-[11px] text-blue-200 font-bold uppercase tracking-widest pl-2 border-l border-white/20">
                   {user.department}
                 </span>
               )}
             </div>
-            <h1 className="text-2xl font-black text-surface-900 tracking-tight mb-1">
+            <h1 className="text-4xl font-black tracking-tight mb-2">
               {user?.name || "Unknown Name"}
             </h1>
-            <p className="text-sm font-bold text-blue-600 mb-3">
-              {user?.role || "Employee"}
-            </p>
-            <div className="grid grid-cols-2 gap-y-2 text-xs font-medium text-surface-500">
-              {user?.email && <p>📧 {user.email}</p>}
-              {user?.phone_mobile && <p>📱 {user.phone_mobile}</p>}
+
+            <div className="flex flex-wrap gap-x-6 gap-y-2 text-sm text-blue-200 font-medium">
+              {user?.email && (
+                <p className="flex items-center gap-1.5">📧 {user.email}</p>
+              )}
+              {user?.phone_mobile && (
+                <p className="flex items-center gap-1.5">
+                  📱 {user.phone_mobile}
+                </p>
+              )}
               {user?.reporting_manager && (
-                <p className="col-span-2 mt-1 pt-1 border-t border-surface-100">
-                  <span className="font-bold text-surface-400 uppercase tracking-wider text-[10px] block mb-0.5">
-                    Reporting To:
-                  </span>
-                  <span className="text-surface-700 font-bold">
+                <p className="flex items-center gap-1.5">
+                  <span className="text-blue-300">Reports to:</span>
+                  <span className="text-white font-bold">
                     {user.reporting_manager}
-                  </span>{" "}
-                  ({user.reporting_manager_code})
+                  </span>
                 </p>
               )}
             </div>
           </div>
-        </div>
 
-        <div className="flex flex-col justify-end">
-          <Link
-            href="/questionnaire"
-            className="group flex items-center gap-3 px-8 py-4 bg-primary-600 text-white rounded-2xl font-bold hover:bg-primary-700 hover:shadow-2xl hover:shadow-primary-500/20 transition-all duration-300 active:scale-[0.98]"
-          >
-            <Plus className="w-5 h-5 group-hover:rotate-90 transition-transform" />
-            Initialize New JD
-          </Link>
+          <div className="flex flex-col md:items-end gap-4 mt-4 md:mt-0">
+            <Link
+              href="/questionnaire"
+              className="group flex items-center justify-center gap-3 px-8 py-4 bg-white text-blue-900 rounded-2xl font-black hover:bg-cyan-50 hover:shadow-xl hover:shadow-cyan-500/20 transition-all duration-300 active:scale-[0.98]"
+            >
+              <Plus className="w-5 h-5 group-hover:rotate-90 transition-transform text-blue-600" />
+              Initialize New JD
+            </Link>
+          </div>
         </div>
       </header>
 
-      {/* Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+      {/* Horizontal Pill Filters */}
+      <div className="bg-white p-2 rounded-2xl border border-surface-200 shadow-sm flex flex-wrap gap-2">
         {[
           {
-            label: "Archived Drafts",
-            value: draftCount,
+            key: "all",
+            label: "All Output",
+            count: allJds.length,
+            color: "blue",
+            icon: Briefcase,
+          },
+          {
+            key: "draft",
+            label: "My Drafts",
+            count: draftCount,
+            color: "amber",
             icon: Clock,
-            color: "text-amber-600",
-            bg: "bg-amber-50",
           },
           {
-            label: "Review Pending",
-            value: sentCount,
+            key: "pending",
+            label: "Sent for Review",
+            count: sentCount,
+            color: "purple",
             icon: ShieldCheck,
-            color: "text-primary-600",
-            bg: "bg-primary-50",
           },
           {
-            label: "Verified Assets",
-            value: approvedCount,
+            key: "approved",
+            label: "Approved JDs",
+            count: approvedCount,
+            color: "emerald",
             icon: FileText,
-            color: "text-emerald-600",
-            bg: "bg-emerald-50",
           },
-        ].map((stat, i) => (
-          <div
-            key={i}
-            className="bg-white p-6 rounded-3xl border border-surface-100 shadow-premium hover:shadow-xl transition-all duration-500 group"
-          >
-            <div className="flex items-center gap-4">
+        ].map((tab) => {
+          const isActive = filter === tab.key;
+          const colorClasses = {
+            blue: "bg-blue-100 text-blue-700",
+            amber: "bg-amber-100 text-amber-700",
+            purple: "bg-purple-100 text-purple-700",
+            emerald: "bg-emerald-100 text-emerald-700",
+          }[tab.color];
+
+          return (
+            <button
+              key={tab.key}
+              onClick={() => setFilter(tab.key as any)}
+              className={`flex-1 min-w-[140px] flex items-center gap-3 p-3 rounded-xl transition-all duration-200 ${
+                isActive
+                  ? "bg-surface-900 text-white shadow-md shadow-surface-900/20 ring-1 ring-surface-900"
+                  : "hover:bg-surface-50 text-surface-600 hover:text-surface-900"
+              }`}
+            >
               <div
-                className={`w-14 h-14 ${stat.bg} ${stat.color} rounded-2xl flex items-center justify-center group-hover:scale-110 transition-transform`}
+                className={`w-10 h-10 rounded-lg flex items-center justify-center ${isActive ? "bg-white/10" : colorClasses}`}
               >
-                <stat.icon className="w-7 h-7" />
+                <tab.icon
+                  className={`w-5 h-5 ${isActive ? "text-white" : ""}`}
+                />
               </div>
-              <div>
-                <p className="text-[11px] font-black text-surface-400 uppercase tracking-widest leading-none mb-2">
-                  {stat.label}
+              <div className="text-left">
+                <p
+                  className={`text-[10px] font-black uppercase tracking-widest mb-0.5 ${isActive ? "text-surface-300" : "text-surface-400"}`}
+                >
+                  {tab.label}
                 </p>
-                <p className="text-3xl font-black text-surface-900 leading-none">
-                  {stat.value}
+                <p
+                  className={`text-xl font-black leading-none ${isActive ? "text-white" : "text-surface-900"}`}
+                >
+                  {tab.count}
                 </p>
               </div>
-            </div>
-          </div>
-        ))}
+            </button>
+          );
+        })}
       </div>
 
       {/* JD grid */}
       <div className="space-y-6">
         <div className="flex items-center justify-between px-2">
           <h2 className="text-xl font-bold text-surface-900 flex items-center gap-3">
-            <span className="w-1.5 h-6 bg-primary-600 rounded-full" />
-            Active Role Portfolio
+            <span className="w-1.5 h-6 bg-blue-600 rounded-full" />
+            {filter === "all"
+              ? "Active Role Portfolio"
+              : `Filtered: ${filter.charAt(0).toUpperCase() + filter.slice(1)}`}
           </h2>
         </div>
         <JDGrid jds={jds} showEmployee={false} />
@@ -333,99 +432,167 @@ function EmployeeView({
 // ── Manager view ──────────────────────────────────────────────────────────────
 
 function ManagerView({ user }: { user: AuthUser }) {
+  const [allJds, setAllJds] = useState<JDListItem[]>([]);
   const [jds, setJds] = useState<JDListItem[]>([]);
   const [loading, setLoading] = useState(true);
 
+  const searchParams = useSearchParams();
+  const currentView = searchParams.get("view");
+
+  const [filter, setFilter] = useState<"all" | "pending" | "approved">(
+    currentView === "approvals" ? "pending" : "all",
+  );
+
   useEffect(() => {
-    // Managers see JDs sent to them for review
-    getJDs({ status: "sent_to_manager" })
-      .then((d) => setJds(d || []))
-      .catch(console.error)
+    const { fetchManagerPendingJDs } = require("@/lib/api");
+    fetchManagerPendingJDs(user.employee_id)
+      .then((d: any) => {
+        setAllJds(d || []);
+        setJds((d || []).filter((j: any) => j.status === "sent_to_manager"));
+      })
+      .catch((err: any) => console.error(err))
       .finally(() => setLoading(false));
-  }, []);
+  }, [user.employee_id]);
+
+  useEffect(() => {
+    if (filter === "all") setJds(allJds);
+    else if (filter === "pending")
+      setJds(allJds.filter((j) => j.status === "sent_to_manager"));
+    else if (filter === "approved")
+      setJds(
+        allJds.filter(
+          (j) => j.status === "approved" || j.status === "sent_to_hr",
+        ),
+      );
+  }, [filter, allJds]);
 
   if (loading) return <LoadingScreen />;
 
-  const pending = jds.filter((j) => j.status === "sent_to_manager").length;
-  const approved = jds.filter((j) => j.status === "approved").length;
+  const pending = allJds.filter((j) => j.status === "sent_to_manager").length;
+  const approved = allJds.filter(
+    (j) => j.status === "approved" || j.status === "sent_to_hr",
+  ).length;
 
   return (
     <div className="max-w-7xl mx-auto space-y-10 animate-in fade-in slide-in-from-bottom-4 duration-700">
-      <header className="flex flex-col md:flex-row md:items-end justify-between gap-6 pb-2">
-        <div>
-          <div className="flex items-center gap-2 mb-3">
-            <span className="px-2.5 py-1 bg-blue-50 text-blue-700 text-[10px] font-black uppercase tracking-[0.2em] rounded-md border border-blue-100">
-              Manager Review Queue
-            </span>
-            {user.department && (
-              <span className="text-[10px] text-surface-400 font-bold">
-                {user.department}
+      {/* Executive Dark Header */}
+      <header className="bg-gradient-to-r from-slate-900 via-slate-800 to-blue-950 rounded-[2rem] p-10 relative overflow-hidden shadow-2xl shadow-slate-900/20">
+        {/* Subtle background glow */}
+        <div className="absolute top-0 right-0 p-32 bg-blue-500/10 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2 pointer-events-none" />
+
+        <div className="relative z-10 flex flex-col md:flex-row md:items-end justify-between gap-6">
+          <div>
+            <div className="flex items-center gap-3 mb-4">
+              <span className="px-3 py-1.5 bg-blue-500/20 text-blue-300 text-[10px] font-black uppercase tracking-[0.2em] rounded-lg border border-blue-500/30 backdrop-blur-sm shadow-inner shadow-white/5">
+                Executive Review
               </span>
-            )}
+              {user.department && (
+                <span className="text-[11px] text-slate-400 font-bold uppercase tracking-widest pl-3 border-l border-slate-700/50">
+                  {user.department}
+                </span>
+              )}
+            </div>
+            <h1 className="text-4xl font-black text-white tracking-tight leading-none mb-3">
+              Welcome, {user.name.split(" ")[0]}
+            </h1>
+            <p className="text-slate-400 font-medium text-sm">
+              Review and approve strategic Job Descriptions from your reports.
+            </p>
           </div>
-          <h1 className="text-4xl font-black text-surface-900 tracking-tight">
-            Welcome, {user.name.split(" ")[0]}
-          </h1>
-          <p className="text-surface-500 mt-2 font-medium">
-            Review and approve Job Descriptions from your team
-          </p>
+
+          <div className="flex items-center gap-6 bg-white/5 p-4 rounded-2xl border border-white/10 backdrop-blur-md">
+            <div className="text-center px-4 border-r border-slate-700">
+              <p className="text-4xl font-black text-white">{allJds.length}</p>
+              <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mt-1">
+                Total Submissions
+              </p>
+            </div>
+            <div className="text-center px-4">
+              <p className="text-4xl font-black text-emerald-400">{approved}</p>
+              <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mt-1">
+                Approved
+              </p>
+            </div>
+          </div>
         </div>
       </header>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+      {/* Horizontal Pill Filters */}
+      <div className="bg-white p-2 rounded-2xl border border-surface-200 shadow-sm flex flex-wrap gap-2">
         {[
           {
-            label: "Awaiting Review",
-            value: pending,
-            icon: Clock,
-            color: "text-amber-600",
-            bg: "bg-amber-50",
-            urgent: pending > 0,
+            key: "pending",
+            label: "Action Required",
+            count: pending,
+            color: pending > 0 ? "amber" : "slate",
+            icon: AlertTriangle,
           },
           {
-            label: "Approved",
-            value: approved,
+            key: "approved",
+            label: "Signed Off",
+            count: approved,
+            color: "emerald",
             icon: CheckCircle2,
-            color: "text-emerald-600",
-            bg: "bg-emerald-50",
-            urgent: false,
           },
           {
-            label: "Total Received",
-            value: jds.length,
+            key: "all",
+            label: "Portfolio Overview",
+            count: allJds.length,
+            color: "blue",
             icon: Briefcase,
-            color: "text-primary-600",
-            bg: "bg-primary-50",
-            urgent: false,
           },
-        ].map((stat, i) => (
-          <div
-            key={i}
-            className={`bg-white p-6 rounded-3xl border shadow-premium hover:shadow-xl transition-all duration-500 group ${stat.urgent ? "border-amber-300" : "border-surface-100"}`}
-          >
-            <div className="flex items-center gap-4">
+        ].map((tab) => {
+          const isActive = filter === tab.key;
+          const colorClasses = {
+            blue: "bg-blue-100 text-blue-700",
+            amber: "bg-amber-100 text-amber-700",
+            emerald: "bg-emerald-100 text-emerald-700",
+            slate: "bg-slate-100 text-slate-700",
+          }[tab.color];
+
+          return (
+            <button
+              key={tab.key}
+              onClick={() => setFilter(tab.key as any)}
+              className={`flex-1 min-w-[140px] flex items-center gap-3 p-3 rounded-xl transition-all duration-200 ${
+                isActive
+                  ? "bg-slate-900 text-white shadow-md shadow-slate-900/20 ring-1 ring-slate-900"
+                  : "hover:bg-slate-50 text-slate-600 hover:text-slate-900"
+              }`}
+            >
               <div
-                className={`w-14 h-14 ${stat.bg} ${stat.color} rounded-2xl flex items-center justify-center group-hover:scale-110 transition-transform`}
+                className={`w-10 h-10 rounded-lg flex items-center justify-center ${isActive ? "bg-white/10" : colorClasses}`}
               >
-                <stat.icon className="w-7 h-7" />
+                <tab.icon
+                  className={`w-5 h-5 ${isActive ? "text-white" : ""}`}
+                />
               </div>
-              <div>
-                <p className="text-[11px] font-black text-surface-400 uppercase tracking-widest leading-none mb-2">
-                  {stat.label}
+              <div className="text-left">
+                <p
+                  className={`text-[10px] font-black uppercase tracking-widest mb-0.5 ${isActive ? "text-slate-300" : "text-slate-400"}`}
+                >
+                  {tab.label}
                 </p>
-                <p className="text-3xl font-black text-surface-900 leading-none">
-                  {stat.value}
+                <p
+                  className={`text-xl font-black leading-none ${isActive ? "text-white" : "text-slate-900"}`}
+                >
+                  {tab.count}
                 </p>
               </div>
-            </div>
-          </div>
-        ))}
+            </button>
+          );
+        })}
       </div>
 
+      {/* JD Grid area */}
       <div className="space-y-6">
-        <h2 className="text-xl font-bold text-surface-900 flex items-center gap-3 px-2">
-          <span className="w-1.5 h-6 bg-blue-500 rounded-full" />
-          Pending Approvals
+        <h2 className="text-xl font-bold text-slate-900 flex items-center gap-3 px-2">
+          <span className="w-1.5 h-6 bg-slate-800 rounded-full" />
+          {filter === "all"
+            ? "All Team Roles"
+            : filter === "pending"
+              ? "Awaiting Your Approval"
+              : "Successfully Processed"}
         </h2>
         <JDGrid jds={jds} showEmployee={true} />
       </div>
@@ -439,13 +606,17 @@ function HRView({ user }: { user: AuthUser }) {
   const [jds, setJds] = useState<JDListItem[]>([]);
   const [allJds, setAllJds] = useState<JDListItem[]>([]);
   const [loading, setLoading] = useState(true);
-  const [filter, setFilter] = useState("all");
+
+  const searchParams = useSearchParams();
+  const currentView = searchParams.get("view");
+
+  const [filter, setFilter] = useState(
+    currentView === "approvals" ? "sent_to_hr" : "all",
+  );
 
   useEffect(() => {
     // HR sees ALL JDs
-    getJDs({
-      status: "",
-    })
+    getJDs()
       .then((d) => {
         const data = d || [];
         setAllJds(data);
@@ -463,7 +634,12 @@ function HRView({ user }: { user: AuthUser }) {
       setJds(
         allJds.filter((j) =>
           filter === "in_progress"
-            ? ["collecting", "draft", "jd_generated"].includes(j.status)
+            ? [
+                "collecting",
+                "draft",
+                "jd_generated",
+                "sent_to_manager",
+              ].includes(j.status)
             : j.status === filter,
         ),
       );
@@ -474,118 +650,144 @@ function HRView({ user }: { user: AuthUser }) {
 
   const counts = {
     all: allJds.length,
-    sent_to_manager: allJds.filter((j) => j.status === "sent_to_manager")
-      .length,
+    sent_to_hr: allJds.filter((j) => j.status === "sent_to_hr").length,
     approved: allJds.filter((j) => j.status === "approved").length,
     in_progress: allJds.filter((j) =>
-      ["collecting", "draft", "jd_generated"].includes(j.status),
+      ["collecting", "draft", "jd_generated", "sent_to_manager"].includes(
+        j.status,
+      ),
     ).length,
   };
 
   return (
     <div className="max-w-7xl mx-auto space-y-10 animate-in fade-in slide-in-from-bottom-4 duration-700">
-      <header className="pb-2">
-        <div className="flex items-center gap-2 mb-3">
-          <span className="px-2.5 py-1 bg-purple-50 text-purple-700 text-[10px] font-black uppercase tracking-[0.2em] rounded-md border border-purple-100">
-            HR Command Center
-          </span>
-        </div>
-        <h1 className="text-4xl font-black text-surface-900 tracking-tight">
-          Welcome, {user.name.split(" ")[0]}
-        </h1>
-        <p className="text-surface-500 mt-2 font-medium">
-          Company-wide Job Description overview
-        </p>
-      </header>
+      {/* Admin Purple Gradient Header */}
+      <header className="bg-gradient-to-r from-purple-900 via-indigo-900 to-indigo-800 rounded-3xl p-8 shadow-xl shadow-indigo-900/20 text-white relative overflow-hidden">
+        {/* Abstract shapes */}
+        <div className="absolute top-0 right-0 p-32 bg-purple-500/20 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2" />
+        <div className="absolute bottom-0 left-0 p-32 bg-blue-500/20 rounded-full blur-3xl translate-y-1/2 -translate-x-1/2" />
 
-      {/* Stats */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        {[
-          {
-            label: "Total JDs",
-            value: counts.all,
-            icon: Briefcase,
-            color: "text-surface-600",
-            bg: "bg-surface-50",
-          },
-          {
-            label: "Pending Review",
-            value: counts.sent_to_manager,
-            icon: Clock,
-            color: "text-amber-600",
-            bg: "bg-amber-50",
-            urgent: counts.sent_to_manager > 0,
-          },
-          {
-            label: "Approved",
-            value: counts.approved,
-            icon: CheckCircle2,
-            color: "text-emerald-600",
-            bg: "bg-emerald-50",
-          },
-          {
-            label: "In Progress",
-            value: counts.in_progress,
-            icon: TrendingUp,
-            color: "text-primary-600",
-            bg: "bg-primary-50",
-          },
-        ].map((stat, i) => (
-          <div
-            key={i}
-            className={`bg-white p-5 rounded-2xl border shadow-sm hover:shadow-md transition-all group ${(stat as any).urgent ? "border-amber-300" : "border-surface-100"}`}
-          >
-            <div
-              className={`w-10 h-10 ${stat.bg} ${stat.color} rounded-xl flex items-center justify-center mb-3 group-hover:scale-110 transition-transform`}
-            >
-              <stat.icon className="w-5 h-5" />
+        <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-6">
+          <div>
+            <div className="inline-flex items-center gap-2 mb-4 px-3 py-1.5 bg-white/10 backdrop-blur-md rounded-lg border border-white/20">
+              <ShieldCheck className="w-4 h-4 text-purple-200" />
+              <span className="text-[10px] font-black uppercase tracking-[0.2em] text-purple-100">
+                HR Command Center
+              </span>
             </div>
-            <p className="text-2xl font-black text-surface-900">{stat.value}</p>
-            <p className="text-[10px] font-black text-surface-400 uppercase tracking-widest mt-1">
-              {stat.label}
+            <h1 className="text-4xl font-black tracking-tight mb-2">
+              Welcome, {user.name.split(" ")[0]}
+            </h1>
+            <p className="text-indigo-200 font-medium">
+              Enterprise Job Description Governance Pipeline
             </p>
           </div>
-        ))}
-      </div>
 
-      {/* Filter tabs */}
-      <div className="flex gap-2 flex-wrap">
+          {/* Quick Metrics right in the header */}
+          <div className="flex items-center gap-6 bg-black/20 p-4 rounded-2xl border border-white/10 backdrop-blur-md">
+            <div className="text-center px-4 border-r border-white/10">
+              <p className="text-3xl font-black text-white">{counts.all}</p>
+              <p className="text-[10px] font-black uppercase tracking-widest text-indigo-300">
+                Total Active
+              </p>
+            </div>
+            <div className="text-center px-4">
+              <p className="text-3xl font-black text-emerald-400">
+                {counts.approved}
+              </p>
+              <p className="text-[10px] font-black uppercase tracking-widest text-indigo-300">
+                Total Approved
+              </p>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      {/* Administrative Filters - Horizontal Scrollable Row style */}
+      <div className="bg-white p-2 rounded-2xl border border-surface-200 shadow-sm flex flex-wrap gap-2">
         {[
-          { key: "all", label: "All", count: counts.all },
           {
-            key: "sent_to_manager",
-            label: "Pending",
-            count: counts.sent_to_manager,
+            key: "all",
+            label: "Global Directory",
+            count: counts.all,
+            icon: Briefcase,
+            color: "text-surface-600",
           },
-          { key: "approved", label: "Approved", count: counts.approved },
+          {
+            key: "sent_to_hr",
+            label: "Action Required by HR",
+            count: counts.sent_to_hr,
+            icon: Clock,
+            color: "text-amber-600",
+            alert: counts.sent_to_hr > 0,
+          },
+          {
+            key: "approved",
+            label: "Published Assets",
+            count: counts.approved,
+            icon: CheckCircle2,
+            color: "text-emerald-600",
+          },
           {
             key: "in_progress",
-            label: "In Progress",
+            label: "Drafts & Team Reviews",
             count: counts.in_progress,
+            icon: TrendingUp,
+            color: "text-blue-600",
           },
-        ].map(({ key, label, count }) => (
+        ].map(({ key, label, count, icon: Icon, color, alert }) => (
           <button
             key={key}
             onClick={() => setFilter(key)}
-            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold transition-all
-              ${
-                filter === key
-                  ? "bg-primary-600 text-white shadow-lg shadow-primary-500/20"
-                  : "bg-white text-surface-600 border border-surface-200 hover:bg-surface-50"
-              }`}
+            className={`flex-1 min-w-[200px] flex items-center justify-between p-4 rounded-xl transition-all duration-300 ${
+              filter === key
+                ? "bg-purple-50 ring-2 ring-purple-500 shadow-sm"
+                : "hover:bg-surface-50"
+            }`}
           >
-            {label}
-            <span
-              className={`text-xs px-1.5 py-0.5 rounded-full font-bold
-              ${filter === key ? "bg-white/20 text-white" : "bg-surface-100 text-surface-500"}`}
-            >
-              {count}
-            </span>
+            <div className="flex items-center gap-3">
+              <div
+                className={`w-8 h-8 rounded-lg flex items-center justify-center ${filter === key ? "bg-purple-100/50" : "bg-surface-100"}`}
+              >
+                <Icon
+                  className={`w-4 h-4 ${filter === key ? "text-purple-700" : color}`}
+                />
+              </div>
+              <span
+                className={`text-[13px] font-bold ${filter === key ? "text-purple-900" : "text-surface-700"}`}
+              >
+                {label}
+              </span>
+            </div>
+            <div className="relative">
+              <span
+                className={`text-[11px] px-2 py-1 rounded-md font-black ${
+                  filter === key
+                    ? "bg-purple-600 text-white"
+                    : alert
+                      ? "bg-amber-100 text-amber-700"
+                      : "bg-surface-100 text-surface-500"
+                }`}
+              >
+                {count}
+              </span>
+              {alert && filter !== key && (
+                <span className="absolute -top-1 -right-1 w-2 h-2 bg-amber-500 rounded-full animate-pulse" />
+              )}
+            </div>
           </button>
         ))}
       </div>
 
-      <JDGrid jds={jds} showEmployee={true} />
+      <div className="space-y-6">
+        <h2 className="text-xl font-bold text-surface-900 flex items-center gap-3 px-2">
+          <span className="w-1.5 h-6 bg-purple-600 rounded-full" />
+          {filter === "all"
+            ? "Enterprise Database"
+            : `Filtered Pipeline Results`}
+        </h2>
+        <JDGrid jds={jds} showEmployee={true} />
+      </div>
     </div>
   );
 }
@@ -613,7 +815,9 @@ function LoadingScreen() {
 export default function DynamicDashboardPage() {
   const params = useParams();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const urlId = params.id as string;
+  const currentView = searchParams.get("view");
 
   const [user, setUser] = useState<AuthUser | null>(null);
   const [empId, setEmpId] = useState<string>("");
@@ -652,10 +856,11 @@ export default function DynamicDashboardPage() {
 
   if (!ready) return <LoadingScreen />;
 
-  // Render correct dashboard based on role
-  // (Assuming HR/Manager logic depends on specific roles later, for now EmployeeView manages all Organogram users)
+  // Render correct dashboard based on role regardless of URL parameter.
+  // The internal components use that URL parameter to set their active filter.
   if (user && isHR(user)) return <HRView user={user} />;
   if (user && isManager(user)) return <ManagerView user={user} />;
 
+  // Default to EmployeeView
   return <EmployeeView employeeId={empId} user={user} />;
 }

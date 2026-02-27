@@ -31,6 +31,7 @@ type Props = {
   structuredData: any;
   isGenerating: boolean;
   isSaving: boolean;
+  saveSuccess?: boolean;
   onSave: () => void;
   onEdit: () => void;
   onClose: () => void;
@@ -91,6 +92,7 @@ export default function JDPreviewPanel({
   structuredData,
   isGenerating,
   isSaving,
+  saveSuccess,
   onSave,
   onEdit,
   onClose,
@@ -335,15 +337,25 @@ export default function JDPreviewPanel({
           <div className="flex-shrink-0 p-4 border-t border-surface-100 bg-surface-50 space-y-2">
             <button
               onClick={onSave}
-              disabled={isSaving}
-              className="w-full py-3.5 bg-primary-600 hover:bg-primary-700 text-white rounded-xl font-bold text-[13px] transition-all shadow-lg shadow-primary-500/20 active:scale-[0.98] disabled:opacity-50 flex items-center justify-center gap-2"
+              disabled={isSaving || saveSuccess}
+              className={`w-full py-3.5 text-white rounded-xl font-bold text-[13px] transition-all shadow-lg active:scale-[0.98] flex items-center justify-center gap-2 ${
+                saveSuccess
+                  ? "bg-emerald-600 hover:bg-emerald-700 shadow-emerald-500/20 disabled:opacity-100"
+                  : "bg-primary-600 hover:bg-primary-700 shadow-primary-500/20 disabled:opacity-50"
+              }`}
             >
               {isSaving ? (
                 <Loader2 className="w-4 h-4 animate-spin" />
+              ) : saveSuccess ? (
+                <CheckCircle2 className="w-4 h-4" />
               ) : (
                 <Save className="w-4 h-4" />
               )}
-              {isSaving ? "Saving to Database..." : "Save JD to Database"}
+              {isSaving
+                ? "Saving to Database..."
+                : saveSuccess
+                  ? "Saved Successfully!"
+                  : "Save JD to Database"}
             </button>
             <div className="flex gap-2">
               <button

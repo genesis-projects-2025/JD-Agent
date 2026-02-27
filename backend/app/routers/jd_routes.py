@@ -14,8 +14,11 @@ from app.crud.jd_crud import (
     get_questionnaire,
     list_questionnaires,
     update_questionnaire_jd,
+    update_questionnaire_jd,
     update_questionnaire_status,
     list_questionnaires_by_employee,
+    list_manager_pending_jds,
+    list_hr_pending_jds,
     delete_questionnaire,
 )
 import uuid
@@ -253,6 +256,19 @@ async def get_employee_jds(employee_id: str, db: AsyncSession = Depends(get_db))
     return [_serialize_list_item(r) for r in records]
 
 
+# ── List pending for Manager ──────────────────────────────────────────────────
+@router.get("/manager/{manager_id}/pending")
+async def get_manager_pending_jds(manager_id: str, db: AsyncSession = Depends(get_db)):
+    records = await list_manager_pending_jds(db, manager_id)
+    return [_serialize_list_item(r) for r in records]
+
+# ── List pending for HR ───────────────────────────────────────────────────────
+@router.get("/hr/pending")
+async def get_hr_pending_jds(db: AsyncSession = Depends(get_db)):
+    records = await list_hr_pending_jds(db)
+    return [_serialize_list_item(r) for r in records]
+
+
 # ── Get single JD ─────────────────────────────────────────────────────────────
 @router.get("/{jd_id}")
 async def get_jd(jd_id: str, db: AsyncSession = Depends(get_db)):
@@ -314,7 +330,7 @@ async def update_jd(jd_id: str, request: UpdateJDRequest, db: AsyncSession = Dep
 # ── Update status ─────────────────────────────────────────────────────────────
 @router.patch("/{jd_id}/status")
 async def update_jd_status(jd_id: str, request: UpdateStatusRequest, db: AsyncSession = Depends(get_db)):
-    valid_statuses = ["draft", "sent_to_manager", "approved", "rejected", "jd_generated"]
+    valid_statuses = ["draft", "sent_to_manager", "manager_rejected", "sent_to_hr", "hr_rejected", "approved", "jd_generated"]
     if request.status not in valid_statuses:
         raise HTTPException(status_code=400, detail=f"Invalid status. Must be one of: {valid_statuses}")
     try:

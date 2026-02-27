@@ -1,11 +1,15 @@
 // components/layout/sidebar.tsx
-
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
-import { fetchEmployeeJDs } from "@/lib/api";
+import {
+  fetchEmployeeJDs,
+  getCurrentUser,
+  fetchManagerPendingJDs,
+  fetchHRPendingJDs,
+} from "@/lib/api";
 import { useAuth } from "@/components/providers/auth-provider";
 import {
   LayoutDashboard,
@@ -18,6 +22,8 @@ import {
   ChevronRight,
   Loader2,
   LogOut,
+  Users,
+  ShieldCheck,
 } from "lucide-react";
 
 type JDListItem = {
@@ -29,9 +35,13 @@ type JDListItem = {
 };
 
 const STATUS_CONFIG: Record<string, { label: string; dotColor: string }> = {
+  collecting: { label: "In Progress", dotColor: "bg-amber-400" },
   draft: { label: "Draft", dotColor: "bg-amber-400" },
   jd_generated: { label: "Draft", dotColor: "bg-amber-400" },
-  sent_to_manager: { label: "Sent", dotColor: "bg-blue-400" },
+  sent_to_manager: { label: "Under Review", dotColor: "bg-blue-400" },
+  manager_rejected: { label: "Needs Rev", dotColor: "bg-red-400" },
+  sent_to_hr: { label: "HR Review", dotColor: "bg-purple-400" },
+  hr_rejected: { label: "Action Reqd", dotColor: "bg-red-400" },
   approved: { label: "Approved", dotColor: "bg-emerald-400" },
   rejected: { label: "Rejected", dotColor: "bg-red-400" },
 };
@@ -49,11 +59,18 @@ function formatDate(dateStr: string | null): string {
 
 export default function Sidebar() {
   const pathname = usePathname();
+  const searchParams = useSearchParams();
   const { employeeId, isAuthenticated, logout } = useAuth();
 
   const [jds, setJds] = useState<JDListItem[]>([]);
+  const [myJds, setMyJds] = useState<JDListItem[]>([]);
   const [loadingJds, setLoadingJds] = useState(false);
 
+  const user = getCurrentUser();
+  const role = user?.role || "employee";
+  const currentView = searchParams.get("view");
+
+  // Base links everyone has
   const links = [
     {
       name: "Dashboard",
@@ -67,16 +84,51 @@ export default function Sidebar() {
       icon: MessageSquare,
       description: "Start new interview",
     },
-    {
-      name: "Manager Response",
-      href: "/approvals",
-      icon: CheckCircle2,
-      description: "Feedback & status",
-    },
   ];
 
-  const isActive = (href: string) =>
-    pathname === href || pathname.startsWith(href);
+  // Role-specific links
+  if (role === "manager") {
+    links.push({
+      name: "Pending Approvals",
+      href: employeeId ? `/dashboard/${employeeId}?view=approvals` : "/",
+      icon: Users,
+      description: "Review pending JDs",
+    });
+    links.push({
+      name: "Feedback from HR",
+      href: employeeId ? `/dashboard/${employeeId}?view=feedback` : "/",
+      icon: CheckCircle2,
+      description: "Feedback & status",
+    });
+  } else if (role === "hr") {
+    links.push({
+      name: "Feedback to Manager",
+      href: employeeId ? `/dashboard/${employeeId}?view=approvals` : "/",
+      icon: ShieldCheck,
+      description: "Finalize JD assets",
+    });
+  } else {
+    links.push({
+      name: "Feedback from Manager",
+      href: employeeId ? `/dashboard/${employeeId}?view=approvals` : "/",
+      icon: CheckCircle2,
+      description: "Feedback & status",
+    });
+  }
+
+  const isActive = (href: string) => {
+    const baseHref = href.split("?")[0];
+    const isBaseMatch = pathname === baseHref || pathname.startsWith(baseHref);
+
+    // Exact match for root navigation without params
+    if (!href.includes("?")) {
+      return isBaseMatch && !currentView;
+    }
+
+    // Match for parameterized links
+    const linkView = href.split("view=")[1];
+    return isBaseMatch && currentView === linkView;
+  };
 
   // Load saved JDs
   useEffect(() => {
@@ -85,17 +137,36 @@ export default function Sidebar() {
     async function loadJDs() {
       setLoadingJds(true);
       try {
-        const data = await fetchEmployeeJDs(employeeId as string);
-        setJds(data || []);
+        // Dynamically fetch different JDs depending on role
+        if (role === "manager") {
+          const [pendingData, myData] = await Promise.all([
+            fetchManagerPendingJDs(employeeId as string),
+            fetchEmployeeJDs(employeeId as string),
+          ]);
+          setJds(pendingData || []);
+          setMyJds(myData || []);
+        } else if (role === "hr") {
+          const [pendingData, myData] = await Promise.all([
+            fetchHRPendingJDs(),
+            fetchEmployeeJDs(employeeId as string),
+          ]);
+          setJds(pendingData || []);
+          setMyJds(myData || []);
+        } else {
+          const data = await fetchEmployeeJDs(employeeId as string);
+          setJds(data || []);
+          setMyJds([]);
+        }
       } catch (err) {
         console.error("Failed to load JDs for sidebar:", err);
         setJds([]);
+        setMyJds([]);
       } finally {
         setLoadingJds(false);
       }
     }
     loadJDs();
-  }, [pathname, employeeId, isAuthenticated]); // Reload when navigating or ID changes
+  }, [pathname, employeeId, isAuthenticated, role]); // Reload when navigating or ID changes
 
   // Hide sidebar if they are not logged in!
   if (!isAuthenticated) return null;
@@ -172,7 +243,11 @@ export default function Sidebar() {
       <div className="flex-1 overflow-hidden flex flex-col border-t border-neutral-800/50 mt-2">
         <div className="px-5 py-3 flex items-center justify-between">
           <h2 className="text-xs font-semibold text-neutral-500 uppercase tracking-wider">
-            My JD Creations
+            {role === "manager"
+              ? "Pending Approvals"
+              : role === "hr"
+                ? "HR Review Queue"
+                : "My JD Creations"}
           </h2>
           {loadingJds && (
             <Loader2 className="w-3.5 h-3.5 text-neutral-500 animate-spin" />
@@ -183,9 +258,9 @@ export default function Sidebar() {
           {!loadingJds && jds.length === 0 && (
             <div className="px-3 py-6 text-center">
               <FileText className="w-8 h-8 text-neutral-700 mx-auto mb-2" />
-              <p className="text-xs text-neutral-500">No JDs saved yet</p>
+              <p className="text-xs text-neutral-500">No pending JDs</p>
               <p className="text-xs text-neutral-600 mt-1">
-                Complete an interview to create one
+                You're all caught up!
               </p>
             </div>
           )}
@@ -199,7 +274,7 @@ export default function Sidebar() {
                 key={jdItem.id}
                 href={`/jd/${jdItem.id}`}
                 className={`
-                  group flex flex-col gap-1.5 px-3 py-3 rounded-lg transition-all duration-150
+                  group flex flex-col gap-1.5 px-3 py-3 rounded-lg transition-all duration-150 mb-1
                   ${
                     isJDActive
                       ? "bg-neutral-700/50 border border-neutral-600"
@@ -231,6 +306,57 @@ export default function Sidebar() {
               </Link>
             );
           })}
+
+          {/* Secondary List for My Created JDs if they are Manager/HR */}
+          {myJds.length > 0 && (
+            <div className="mt-6 pt-4 border-t border-neutral-800/50">
+              <h2 className="text-xs font-semibold text-neutral-500 uppercase tracking-wider mb-3 px-2">
+                My JD Creations
+              </h2>
+              {myJds.map((jdItem) => {
+                const config =
+                  STATUS_CONFIG[jdItem.status] || STATUS_CONFIG.draft;
+                const isJDActive = pathname === `/jd/${jdItem.id}`;
+
+                return (
+                  <Link
+                    key={jdItem.id}
+                    href={`/jd/${jdItem.id}`}
+                    className={`
+                      group flex flex-col gap-1.5 px-3 py-3 rounded-lg transition-all duration-150 mb-1
+                      ${
+                        isJDActive
+                          ? "bg-neutral-700/50 border border-neutral-600"
+                          : "hover:bg-neutral-800/60 border border-transparent"
+                      }
+                    `}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-sm font-medium text-neutral-200 truncate">
+                        {jdItem.title || "Untitled JD"}
+                      </span>
+                      <ChevronRight className="w-3.5 h-3.5 text-neutral-600 group-hover:text-neutral-400 flex-shrink-0 transition-colors" />
+                    </div>
+
+                    <div className="flex items-center gap-3">
+                      <span className="flex items-center gap-1.5">
+                        <span
+                          className={`w-1.5 h-1.5 rounded-full ${config.dotColor}`}
+                        />
+                        <span className="text-xs text-neutral-500">
+                          {config.label}
+                        </span>
+                      </span>
+                      <span className="flex items-center gap-1 text-xs text-neutral-600">
+                        <Clock className="w-3 h-3" />
+                        {formatDate(jdItem.updated_at)}
+                      </span>
+                    </div>
+                  </Link>
+                );
+              })}
+            </div>
+          )}
         </div>
       </div>
 

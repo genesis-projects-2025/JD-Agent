@@ -304,7 +304,17 @@ async def update_questionnaire_jd(
     if not record:
         return None
     if record.employee_id != employee_id:
-        raise PermissionError("You can only edit your own JDs")
+        from app.models.user_model import Employee
+        editor_res = await db.execute(select(Employee).where(Employee.id == employee_id))
+        editor = editor_res.scalar_one_or_none()
+        creator_res = await db.execute(select(Employee).where(Employee.id == record.employee_id))
+        creator = creator_res.scalar_one_or_none()
+        
+        is_manager = editor and creator and editor.role == "manager" and creator.reporting_manager_code == editor.id
+        is_hr = editor and editor.role == "hr"
+        
+        if not is_manager and not is_hr:
+            raise PermissionError("You can only edit your own JDs, or JDs submitted to you.")
 
     safe_structured = _safe_jsonb(jd_structured)
 
@@ -350,7 +360,17 @@ async def update_questionnaire_status(
     if not record:
         return None
     if record.employee_id != employee_id:
-        raise PermissionError("You can only update status of your own JDs")
+        from app.models.user_model import Employee
+        editor_res = await db.execute(select(Employee).where(Employee.id == employee_id))
+        editor = editor_res.scalar_one_or_none()
+        creator_res = await db.execute(select(Employee).where(Employee.id == record.employee_id))
+        creator = creator_res.scalar_one_or_none()
+        
+        is_manager = editor and creator and editor.role == "manager" and creator.reporting_manager_code == editor.id
+        is_hr = editor and editor.role == "hr"
+        
+        if not is_manager and not is_hr:
+            raise PermissionError("You can only update status of your own JDs, or JDs submitted to you.")
 
     record.status = new_status
     await db.commit()
@@ -435,6 +455,38 @@ async def list_questionnaires_by_employee(
     result = await db.execute(
         select(JDSession)
         .where(JDSession.employee_id == employee_id)
+        .order_by(JDSession.updated_at.desc())
+    )
+    return list(result.scalars().all())
+
+async def list_manager_pending_jds(db: AsyncSession, manager_id: str) -> list[JDSession]:
+    # Managers see all JDs from their reports that are beyond the initial drafting stage
+    from app.models.user_model import Employee
+    result = await db.execute(
+        select(JDSession)
+        .join(Employee, JDSession.employee_id == Employee.id)
+        .where(
+            (Employee.reporting_manager_code == manager_id) &
+            (JDSession.status.in_([
+                "sent_to_manager", 
+                "manager_rejected", 
+                "sent_to_hr", 
+                "hr_rejected", 
+                "approved", 
+                "rejected"
+            ]))
+        )
+        .order_by(JDSession.updated_at.desc())
+    )
+    records = list(result.scalars().all())
+    print(f"DEBUG Manager Query ({manager_id}): found {len(records)} records")
+    return records
+
+async def list_hr_pending_jds(db: AsyncSession) -> list[JDSession]:
+    # HR sees all 'sent_to_hr'
+    result = await db.execute(
+        select(JDSession)
+        .where(JDSession.status == "sent_to_hr")
         .order_by(JDSession.updated_at.desc())
     )
     return list(result.scalars().all())

@@ -156,6 +156,13 @@ When ready:
 - jd_structured_data must always be {}
 
 ==================================================
+CRITICAL JSON ESCAPING RULES
+==================================================
+1. You MUST escape all newlines as \\n within any JSON string value.
+2. Do NOT use literal (raw) newlines inside the JSON values! If your conversation_response has paragraphs, use \\n\\n.
+3. Escape double quotes inside strings properly (\\\").
+
+==================================================
 STRICT JSON RESPONSE FORMAT
 ==================================================
 {

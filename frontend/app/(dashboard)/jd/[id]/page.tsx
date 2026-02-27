@@ -292,6 +292,11 @@ export default function JDViewPage() {
   const params = useParams();
   const router = useRouter();
   const jdId = params.id as string;
+  const { getCurrentUser } = require("@/lib/api");
+
+  const user = getCurrentUser();
+  const role = user?.role || "employee";
+  const currentUserId = user?.employee_id;
 
   const [jd, setJd] = useState<JDData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -330,14 +335,78 @@ export default function JDViewPage() {
   };
 
   const handleSendToManager = async () => {
-    if (!jd) return;
+    if (!jd || !currentUserId) return;
     setSending(true);
     try {
       await updateJDStatus(jdId, {
         status: "sent_to_manager",
-        employee_id: jd.employee_id,
+        employee_id: currentUserId,
       });
       setJd((prev) => (prev ? { ...prev, status: "sent_to_manager" } : prev));
+    } catch (err: any) {
+      alert(err?.response?.data?.detail || "Status sync failure");
+    } finally {
+      setSending(false);
+    }
+  };
+
+  const handleManagerSendToHR = async () => {
+    if (!jd || !currentUserId) return;
+    setSending(true);
+    try {
+      await updateJDStatus(jdId, {
+        status: "sent_to_hr",
+        employee_id: currentUserId,
+      });
+      setJd((prev) => (prev ? { ...prev, status: "sent_to_hr" } : prev));
+    } catch (err: any) {
+      alert(err?.response?.data?.detail || "Status sync failure");
+    } finally {
+      setSending(false);
+    }
+  };
+
+  const handleManagerReject = async () => {
+    if (!jd || !currentUserId) return;
+    setSending(true);
+    try {
+      await updateJDStatus(jdId, {
+        status: "manager_rejected",
+        employee_id: currentUserId,
+      });
+      setJd((prev) => (prev ? { ...prev, status: "manager_rejected" } : prev));
+    } catch (err: any) {
+      alert(err?.response?.data?.detail || "Status sync failure");
+    } finally {
+      setSending(false);
+    }
+  };
+
+  const handleHRApprove = async () => {
+    if (!jd || !currentUserId) return;
+    setSending(true);
+    try {
+      await updateJDStatus(jdId, {
+        status: "approved",
+        employee_id: currentUserId,
+      });
+      setJd((prev) => (prev ? { ...prev, status: "approved" } : prev));
+    } catch (err: any) {
+      alert(err?.response?.data?.detail || "Status sync failure");
+    } finally {
+      setSending(false);
+    }
+  };
+
+  const handleHRReject = async () => {
+    if (!jd || !currentUserId) return;
+    setSending(true);
+    try {
+      await updateJDStatus(jdId, {
+        status: "hr_rejected",
+        employee_id: currentUserId,
+      });
+      setJd((prev) => (prev ? { ...prev, status: "hr_rejected" } : prev));
     } catch (err: any) {
       alert(err?.response?.data?.detail || "Status sync failure");
     } finally {
@@ -350,7 +419,7 @@ export default function JDViewPage() {
     setIsDeleting(true);
     try {
       await deleteJD(jdId, jd.employee_id);
-      router.push(`/dashboard/${jd.employee_id}`);
+      router.push(`/dashboard/${currentUserId || ""}`);
     } catch (err: any) {
       alert(err?.message || "Failed to delete JD");
       setIsDeleting(false);
@@ -420,7 +489,7 @@ export default function JDViewPage() {
         <div className="max-w-5xl mx-auto px-8 py-5">
           <div className="flex items-center justify-between">
             <button
-              onClick={() => router.push(`/dashboard/${jd.employee_id}`)}
+              onClick={() => router.push(`/dashboard/${currentUserId || ""}`)}
               className="group flex items-center gap-2.5 text-surface-400 hover:text-primary-600 transition-all font-black text-[10px] uppercase tracking-widest"
             >
               <div className="w-8 h-8 rounded-lg bg-surface-50 flex items-center justify-center group-hover:bg-primary-50 transition-colors">
@@ -484,41 +553,110 @@ export default function JDViewPage() {
             {/* Only show submit/refine buttons when JD exists */}
             {hasJD && (
               <div className="flex gap-3 flex-shrink-0">
-                <button
-                  onClick={() => router.push(`/jd/${jdId}/edit`)}
-                  className="px-6 py-3.5 bg-white text-surface-700 border border-surface-200 rounded-2xl text-[14px] font-bold hover:bg-surface-50 transition-all shadow-sm active:scale-[0.98] flex items-center gap-2"
-                >
-                  <Edit3 className="w-4 h-4" />
-                  Refine Section
-                </button>
-                <button
-                  onClick={handleSendToManager}
-                  disabled={
-                    sendingToManager ||
-                    jd.status === "sent_to_manager" ||
-                    jd.status === "approved"
-                  }
-                  className={`px-8 py-3.5 rounded-2xl text-[14px] font-bold transition-all flex items-center gap-3 shadow-xl active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed
-                    ${
-                      jd.status === "sent_to_manager" ||
-                      jd.status === "approved"
-                        ? "bg-accent-50 text-accent-700 border border-accent-100 shadow-none"
-                        : "bg-primary-600 text-white hover:bg-primary-700 shadow-primary-500/20"
-                    }`}
-                >
-                  {sendingToManager ? (
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                  ) : jd.status === "sent_to_manager" ? (
-                    <CheckCircle2 className="w-4 h-4" />
-                  ) : (
-                    <Send className="w-4 h-4" />
+                {/* Employee view */}
+                {role === "employee" &&
+                  (jd.status === "draft" ||
+                    jd.status === "jd_generated" ||
+                    jd.status === "manager_rejected" ||
+                    jd.status === "hr_rejected") && (
+                    <>
+                      <button
+                        onClick={() => router.push(`/jd/${jdId}/edit`)}
+                        className="px-6 py-3.5 bg-white text-surface-700 border border-surface-200 rounded-2xl text-[14px] font-bold hover:bg-surface-50 transition-all shadow-sm active:scale-[0.98] flex items-center gap-2"
+                      >
+                        <Edit3 className="w-4 h-4" />
+                        Refine Section
+                      </button>
+                      <button
+                        onClick={handleSendToManager}
+                        disabled={sendingToManager}
+                        className="px-8 py-3.5 rounded-2xl text-[14px] font-bold transition-all flex items-center gap-3 shadow-xl active:scale-[0.98] bg-primary-600 text-white hover:bg-primary-700 shadow-primary-500/20"
+                      >
+                        {sendingToManager ? (
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                        ) : (
+                          <Send className="w-4 h-4" />
+                        )}
+                        Submit for Approval
+                      </button>
+                    </>
                   )}
-                  {jd.status === "sent_to_manager"
-                    ? "Asset Released"
-                    : jd.status === "approved"
-                      ? "Finalized"
-                      : "Submit for Approval"}
-                </button>
+                {role === "employee" &&
+                  (jd.status === "sent_to_manager" ||
+                    jd.status === "sent_to_hr" ||
+                    jd.status === "approved") && (
+                    <button
+                      disabled
+                      className="px-8 py-3.5 rounded-2xl text-[14px] font-bold transition-all flex items-center gap-3 bg-accent-50 text-accent-700 border border-accent-100 shadow-none"
+                    >
+                      <CheckCircle2 className="w-4 h-4" />
+                      {jd.status === "approved"
+                        ? "Finalized"
+                        : "Asset Released"}
+                    </button>
+                  )}
+
+                {/* Manager view */}
+                {role === "manager" && jd.status === "sent_to_manager" && (
+                  <>
+                    <button
+                      onClick={handleManagerReject}
+                      disabled={sendingToManager}
+                      className="px-6 py-3.5 bg-white text-red-600 border border-red-200 rounded-2xl text-[14px] font-bold hover:bg-red-50 transition-all shadow-sm active:scale-[0.98]"
+                    >
+                      Needs Revision
+                    </button>
+                    <button
+                      onClick={() => router.push(`/jd/${jdId}/edit`)}
+                      className="px-6 py-3.5 bg-white text-surface-700 border border-surface-200 rounded-2xl text-[14px] font-bold hover:bg-surface-50 transition-all shadow-sm active:scale-[0.98]"
+                    >
+                      Edit JD
+                    </button>
+                    <button
+                      onClick={handleManagerSendToHR}
+                      disabled={sendingToManager}
+                      className="px-8 py-3.5 bg-primary-600 text-white rounded-2xl flex items-center gap-3 text-[14px] font-bold hover:bg-primary-700 shadow-xl shadow-primary-500/20 active:scale-[0.98]"
+                    >
+                      {sendingToManager ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <Send className="w-4 h-4" />
+                      )}
+                      Approve & Send to HR
+                    </button>
+                  </>
+                )}
+
+                {/* HR view */}
+                {role === "hr" && jd.status === "sent_to_hr" && (
+                  <>
+                    <button
+                      onClick={handleHRReject}
+                      disabled={sendingToManager}
+                      className="px-6 py-3.5 bg-white text-red-600 border border-red-200 rounded-2xl text-[14px] font-bold hover:bg-red-50 transition-all shadow-sm active:scale-[0.98]"
+                    >
+                      Needs Revision
+                    </button>
+                    <button
+                      onClick={() => router.push(`/jd/${jdId}/edit`)}
+                      className="px-6 py-3.5 bg-white text-surface-700 border border-surface-200 rounded-2xl text-[14px] font-bold hover:bg-surface-50 transition-all shadow-sm active:scale-[0.98]"
+                    >
+                      Edit JD
+                    </button>
+                    <button
+                      onClick={handleHRApprove}
+                      disabled={sendingToManager}
+                      className="px-8 py-3.5 bg-emerald-600 text-white rounded-2xl flex items-center gap-3 text-[14px] font-bold hover:bg-emerald-700 shadow-xl shadow-emerald-500/20 active:scale-[0.98]"
+                    >
+                      {sendingToManager ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <CheckCircle2 className="w-4 h-4" />
+                      )}
+                      Final Approval
+                    </button>
+                  </>
+                )}
               </div>
             )}
           </div>

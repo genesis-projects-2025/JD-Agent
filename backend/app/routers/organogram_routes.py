@@ -39,24 +39,55 @@ async def get_organogram_employees(db: AsyncSession = Depends(get_db)):
     rows = result.mappings().all()
     return {"employees": [dict(row) for row in rows]}
 
-@router.post("/login")
+@router.post("/sso-sync")
 async def login_organogram(request: LoginRequest, db: AsyncSession = Depends(get_db)):
     """
-    Accepts an emp_code, looks it up in organogram, and upserts into employees table.
+    Accepts an emp_code, looks it up in organogram, calculates a hierarchical role
+    (employee, manager, or hr) for testing, and upserts into employees table.
     """
-    query = text("""
-        SELECT emp_code, emp_name, "Role" as role, reporting_manager, 
+    # 1. Fetch the user's organogram row
+    user_query = text("""
+        SELECT emp_code, emp_name, reporting_manager, 
                reporting_manager_code, email1 as email, phone_mobile, division as department
         FROM organogram
         WHERE emp_code = :emp_code
     """)
-    result = await db.execute(query, {"emp_code": request.emp_code})
-    row = result.mappings().first()
+    user_result = await db.execute(user_query, {"emp_code": request.emp_code})
+    row = user_result.mappings().first()
     
     if not row:
         raise HTTPException(status_code=404, detail="Employee not found in organogram")
         
-    # Upsert into employees table
+    # 2. Determine "hierarchy role"
+    #   employee: has a manager, but no one reports to them
+    #   manager: people report to them, and they have a manager
+    #   hr: top of the chain (no reporting manager)
+    
+    reporting_code = row.get("reporting_manager_code")
+    has_manager = bool(reporting_code and str(reporting_code).strip())
+
+    # Check if anyone reports to this user
+    reports_query = text("""
+        SELECT COUNT(1) as child_count
+        FROM organogram
+        WHERE reporting_manager_code = :emp_code
+    """)
+    reports_res = await db.execute(reports_query, {"emp_code": request.emp_code})
+    child_count = reports_res.scalar() or 0
+    has_reports = child_count > 0
+
+    if not has_manager:
+        computed_role = "hr"
+    elif has_reports:
+        computed_role = "manager"
+    else:
+        computed_role = "employee"
+        
+    # Hardcode override for HR testing request
+    if request.emp_code == 'E9579':
+        computed_role = "hr"
+        
+    # 3. Upsert into employees table
     from sqlalchemy.future import select
     emp_res = await db.execute(select(Employee).where(Employee.id == request.emp_code))
     emp = emp_res.scalar_one_or_none()
@@ -71,7 +102,7 @@ async def login_organogram(request: LoginRequest, db: AsyncSession = Depends(get
         emp.department = row["department"] or emp.department
         emp.reporting_manager = row["reporting_manager"]
         emp.reporting_manager_code = row["reporting_manager_code"]
-        emp.role = row["role"]
+        emp.role = computed_role
         emp.phone_mobile = phone_str
     else:
         # Insert new
@@ -82,7 +113,7 @@ async def login_organogram(request: LoginRequest, db: AsyncSession = Depends(get
             department=row["department"],
             reporting_manager=row["reporting_manager"],
             reporting_manager_code=row["reporting_manager_code"],
-            role=row["role"],
+            role=computed_role,
             phone_mobile=phone_str
         )
         db.add(emp)

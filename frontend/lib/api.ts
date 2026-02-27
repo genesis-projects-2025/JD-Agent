@@ -156,11 +156,24 @@ Azure AD token payload example:
 
 // ── API Fetching Functions ────────────────────────────────────────────────────
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+export const API_URL =
+  process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 export async function fetchEmployeeJDs(employeeId: string) {
   const res = await fetch(`${API_URL}/jd/employee/${employeeId}`);
   if (!res.ok) throw new Error("Failed to fetch employee JDs");
+  return res.json();
+}
+
+export async function fetchManagerPendingJDs(managerId: string) {
+  const res = await fetch(`${API_URL}/jd/manager/${managerId}/pending`);
+  if (!res.ok) throw new Error("Failed to fetch manager pending JDs");
+  return res.json();
+}
+
+export async function fetchHRPendingJDs() {
+  const res = await fetch(`${API_URL}/jd/hr/pending`);
+  if (!res.ok) throw new Error("Failed to fetch HR pending JDs");
   return res.json();
 }
 

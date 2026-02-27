@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager
 from app.core.database import init_db
 from app.models.jd_session_model import JDSession, ConversationTurn, JDVersion
 from app.models.user_model import Employee
+from app.models.taxonomy_model import Skill, JDSessionSkill, EmployeeSkill
 from app.routers.jd_routes import router as jd_router
 from app.routers.organogram_routes import router as organogram_router
 

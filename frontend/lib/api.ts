@@ -34,9 +34,7 @@ export function getOrCreateEmployeeId(): string {
       Math.random().toString(36).substring(2, 11) +
       Date.now().toString(36);
     localStorage.setItem("employee_id", id);
-    console.log("🆕 Created New Employee ID:", id);
   } else {
-    console.log("💾 Using Existing Employee ID:", id);
   }
   return id;
 }
@@ -44,7 +42,6 @@ export function getOrCreateEmployeeId(): string {
 export function getEmployeeId(): string | null {
   if (typeof window === "undefined") return null;
   const id = localStorage.getItem("employee_id");
-  if (id) console.log("🆔 Accessed Employee ID:", id);
   return id;
 }
 
@@ -113,13 +110,11 @@ export function devLogin(role: UserRole): AuthUser {
   const user = users[role];
   localStorage.setItem("auth_user", JSON.stringify(user));
   localStorage.setItem("employee_id", user.employee_id);
-  console.log(`✅ Dev login as ${role}:`, user.employee_id);
   return user;
 }
 
 export default function devLogout() {
   localStorage.removeItem("auth_user");
-  console.log("🚪 Logged out — role cleared, employee_id kept");
 }
 
 /*

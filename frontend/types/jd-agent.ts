@@ -53,6 +53,7 @@ export interface JDAgentResponse {
   employee_role_insights: EmployeeRoleInsights;
   jd_structured_data: JDStructuredData;
   jd_text_format: string;
+  suggested_skills?: string[];
   analytics: Analytics;
   approval: Approval;
 }

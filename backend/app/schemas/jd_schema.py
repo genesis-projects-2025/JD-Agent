@@ -62,6 +62,8 @@ class ChatResponse(BaseModel):
     employee_role_insights: EmployeeRoleInsights = Field(
         default_factory=EmployeeRoleInsights
     )
+    
+    suggested_skills: List[str] = Field(default_factory=list)
 
     jd_structured_data: Optional[JDStructuredData] = Field(
         default_factory=JDStructuredData

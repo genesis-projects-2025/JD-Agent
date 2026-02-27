@@ -267,12 +267,12 @@ export default function Sidebar() {
 
           {jds.map((jdItem) => {
             const config = STATUS_CONFIG[jdItem.status] || STATUS_CONFIG.draft;
-            const isJDActive = pathname === `/jd/${jdItem.id}`;
+            const isJDActive = pathname === `/questionnaire/${jdItem.id}`;
 
             return (
               <Link
                 key={jdItem.id}
-                href={`/jd/${jdItem.id}`}
+                href={`/questionnaire/${jdItem.id}`}
                 className={`
                   group flex flex-col gap-1.5 px-3 py-3 rounded-lg transition-all duration-150 mb-1
                   ${
@@ -316,12 +316,12 @@ export default function Sidebar() {
               {myJds.map((jdItem) => {
                 const config =
                   STATUS_CONFIG[jdItem.status] || STATUS_CONFIG.draft;
-                const isJDActive = pathname === `/jd/${jdItem.id}`;
+                const isJDActive = pathname === `/questionnaire/${jdItem.id}`;
 
                 return (
                   <Link
                     key={jdItem.id}
-                    href={`/jd/${jdItem.id}`}
+                    href={`/questionnaire/${jdItem.id}`}
                     className={`
                       group flex flex-col gap-1.5 px-3 py-3 rounded-lg transition-all duration-150 mb-1
                       ${

@@ -34,7 +34,6 @@ function SSOSync() {
         }
 
         const data = await res.json();
-        console.log(data);
 
         // Save to localStorage matching auth.ts and api.ts AuthUser type expectations
         localStorage.setItem("auth_user", JSON.stringify(data.employee));

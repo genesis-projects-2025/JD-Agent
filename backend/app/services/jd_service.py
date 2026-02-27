@@ -97,6 +97,7 @@ def build_fallback_response(session_memory: SessionMemory) -> str:
             employee_role_insights=EmployeeRoleInsights(**insights_dict) if insights_dict else EmployeeRoleInsights(),
             jd_structured_data=None,
             jd_text_format="",
+            suggested_skills=[],
             approval=Approval(),
             analytics=Analytics(),
         )
@@ -108,6 +109,7 @@ def build_fallback_response(session_memory: SessionMemory) -> str:
             "employee_role_insights": insights_dict or {},
             "jd_structured_data": {},
             "jd_text_format": "",
+            "suggested_skills": [],
             "analytics": {"questions_asked": 0, "questions_answered": 0, "insights_collected": 0, "estimated_completion_time_minutes": 0},
             "approval": {"approval_required": False, "approval_status": "pending"}
         })
@@ -145,6 +147,7 @@ def wrap_plain_text_into_json(plain_text: str, session_memory: SessionMemory) ->
                     "employee_role_insights": insights_dict,
                     "jd_structured_data": candidate.get("jd_structured_data", {}),
                     "jd_text_format": candidate.get("jd_text_format", ""),
+                    "suggested_skills": candidate.get("suggested_skills", []),
                     "analytics": candidate.get("analytics", {"questions_asked": 0, "questions_answered": 0, "insights_collected": 0, "estimated_completion_time_minutes": 10}),
                     "approval": candidate.get("approval", {"approval_required": False, "approval_status": "pending"})
                 }
@@ -165,6 +168,7 @@ def wrap_plain_text_into_json(plain_text: str, session_memory: SessionMemory) ->
                             "employee_role_insights": candidate.get("employee_role_insights", insights_dict),
                             "jd_structured_data": candidate.get("jd_structured_data", {}),
                             "jd_text_format": candidate.get("jd_text_format", ""),
+                            "suggested_skills": candidate.get("suggested_skills", []),
                             "analytics": candidate.get("analytics", {"questions_asked": 0, "questions_answered": 0, "insights_collected": 0, "estimated_completion_time_minutes": 10}),
                             "approval": candidate.get("approval", {"approval_required": False, "approval_status": "pending"})
                         }
@@ -189,6 +193,7 @@ def wrap_plain_text_into_json(plain_text: str, session_memory: SessionMemory) ->
         },
         "jd_structured_data": {},
         "jd_text_format": "",
+        "suggested_skills": [],
         "analytics": {
             "questions_asked": 0, "questions_answered": 0,
             "insights_collected": len([v for v in insights_dict.values() if v]),
@@ -328,10 +333,7 @@ async def handle_jd_generation(session_memory: SessionMemory) -> dict:
 
     insights_dict = safe_to_dict(session_memory.insights)
 
-    # print(f"📊 INSIGHTS AVAILABLE:")
-    # print(f"   Keys: {list(insights_dict.keys())}")
     # for k, v in insights_dict.items():
-    #     print(f"   {k}: {str(v)[:80]}")
 
     if not insights_dict:
         raise ValueError("No insights collected yet. Complete the interview first.")
@@ -359,10 +361,6 @@ async def handle_jd_generation(session_memory: SessionMemory) -> dict:
     response = jd_llm.invoke(messages)
     raw = strip_reasoning_tags(response.content)
 
-    # print("\n🔍 RAW JD LLM OUTPUT:")
-    # print("-" * 60)
-    # print(raw[:1500])
-    # print("-" * 60)
 
     # ── Parse response ─────────────────────────────────────────────────────────
     structured = {}
@@ -377,10 +375,8 @@ async def handle_jd_generation(session_memory: SessionMemory) -> dict:
     if block:
         try:
             parsed = json.loads(block, strict=False)
-            # print(f"   ✅ JSON parsed | top-level keys: {list(parsed.keys())}")
             # Extract jd_structured_data
             structured = parsed.get("jd_structured_data") or {}
-            # print(f"   jd_structured_data type: {type(structured)} | empty: {not structured}")
 
             # If LLM returned structured fields at top level (no nesting)
             if not structured:
@@ -396,7 +392,6 @@ async def handle_jd_generation(session_memory: SessionMemory) -> dict:
 
             # Extract jd_text_format
             jd_text = parsed.get("jd_text_format", "")
-            # print(f"   jd_text_format length: {len(jd_text)}")
 
             # Try fallback keys
             if not jd_text:
@@ -414,7 +409,6 @@ async def handle_jd_generation(session_memory: SessionMemory) -> dict:
 
         except json.JSONDecodeError as e:
             print(f"[JD Generation] ❌ JSON parse failed: {e}")
-            # print(f"   First 200 chars of block: {block[:200]}")
 
     # Strategy 2: raw output is pure markdown or unstructured text
     if not jd_text and not structured:
@@ -429,7 +423,6 @@ async def handle_jd_generation(session_memory: SessionMemory) -> dict:
         jd_text = _build_markdown_from_structured(structured, insights_dict)
 
     print(f"[JD Generation] 📋 FINAL RESULT | structured keys: {len(list(structured.keys()))} | text length: {len(jd_text)}")
-    # print(f"   jd_text preview: {jd_text[:200]}")
 
     if not jd_text and not structured:
         raise ValueError("JD generation produced no output. Check LLM response in logs above.")
@@ -459,14 +452,9 @@ async def handle_conversation(
 ):
     print("\n[Interview] 🚀 TURN STARTED")
 
-    if user_message == "TEST_RATE_LIMIT":
-        raise HTTPException(status_code=429, detail="Rate limit exceeded (Simulation)")
-
-    # print("\n📋 BUILDING CONTEXT...")
     msgs = build_context(session_memory, user_message)
 
     try:
-        # print("\n🤖 INVOKING INTERVIEW LLM...")
         response = interview_llm.invoke(msgs)
         raw_content = strip_reasoning_tags(response.content)
     except Exception as e:
@@ -476,7 +464,6 @@ async def handle_conversation(
             raise HTTPException(status_code=429, detail="Rate limit exceeded")
         raise HTTPException(status_code=500, detail="Internal LLM Error")
 
-    # print("\n🧩 PARSING & UPDATING MEMORY...")
     reply_content: str
 
     try:
@@ -493,7 +480,6 @@ async def handle_conversation(
         session_memory.progress = validated.progress.model_dump()
         current_status = validated.progress.status
 
-        # print(f"   status={current_status} | completion={validated.progress.completion_percentage}%")
 
         # ── SAFETY GUARD: Ensure conversation_response is clean human-readable text
         # If it somehow contains JSON structure, extract the inner text
@@ -503,7 +489,6 @@ async def handle_conversation(
                 inner = json.loads(conv_resp)
                 if "conversation_response" in inner:
                     parsed_json["conversation_response"] = inner["conversation_response"]
-                    # print(f"   ⚠️ SAFETY GUARD: stripped nested JSON from conversation_response")
             except (json.JSONDecodeError, TypeError):
                 pass
 

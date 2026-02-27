@@ -52,11 +52,9 @@ export function useChat(onSaveSuccess?: () => void, autoInit: boolean = true) {
     }
 
     const jdStructured = parsed.jd_structured_data ?? null;
-    const requiredSkills =
-      jdStructured &&
-      typeof jdStructured === "object" &&
-      Array.isArray(jdStructured.required_skills)
-        ? jdStructured.required_skills
+    const suggestedSkills =
+      parsed.suggested_skills && Array.isArray(parsed.suggested_skills)
+        ? parsed.suggested_skills
         : undefined;
 
     const newStatus = parsed.progress?.status ?? "collecting";
@@ -75,11 +73,8 @@ export function useChat(onSaveSuccess?: () => void, autoInit: boolean = true) {
         {
           sender: "agent",
           text: parsed.conversation_response,
-          skills: requiredSkills,
-          isSkillSelection:
-            newStatus === "collecting" &&
-            !!requiredSkills &&
-            requiredSkills.length > 0,
+          skills: suggestedSkills,
+          isSkillSelection: !!suggestedSkills && suggestedSkills.length > 0,
           isReadySelection: newStatus === "ready_for_generation",
         },
       ]);
@@ -109,7 +104,6 @@ export function useChat(onSaveSuccess?: () => void, autoInit: boolean = true) {
 
           if (existingData && existingData.conversation_history?.length > 0) {
             // ── Resume existing session ───────────────────────────────────────
-            console.log("♻️  Resuming existing session:", id);
 
             const dbHistory = existingData.conversation_history ?? [];
 
@@ -134,11 +128,8 @@ export function useChat(onSaveSuccess?: () => void, autoInit: boolean = true) {
                 const parsed = JSON.parse(h.content);
                 // Never extract data dumps as conversation text
                 text = parsed.conversation_response ?? h.content;
-                skills = parsed.jd_structured_data?.required_skills;
-                isSkillSelection =
-                  parsed.progress?.status === "collecting" &&
-                  !!skills &&
-                  skills.length > 0;
+                skills = parsed.suggested_skills;
+                isSkillSelection = !!skills && skills.length > 0;
                 isReadySelection =
                   parsed.progress?.status === "ready_for_generation";
               } catch {
@@ -172,7 +163,6 @@ export function useChat(onSaveSuccess?: () => void, autoInit: boolean = true) {
             setHydrated(true);
           } else {
             // ── New session — send greeting to trigger first question ─────────
-            console.log("🚀 Starting new JD session:", id);
             const data = await apiSendMessage(
               "Hello! I'm ready to start the JD interview.",
               [],
@@ -195,14 +185,6 @@ export function useChat(onSaveSuccess?: () => void, autoInit: boolean = true) {
 
   // ── Send chat message ────────────────────────────────────────────────────────
   const sendMessage = async (text: string) => {
-    // Dev helper to simulate rate limit
-    if (text === "TEST_UI_LIMIT") {
-      setMessages((prev) => [...prev, { sender: "employee", text }]);
-      setIsRateLimited(true);
-      setRetryTimer(40);
-      return;
-    }
-
     if (isRateLimited && retryTimer > 0) return;
 
     setIsRateLimited(false);
@@ -287,7 +269,6 @@ export function useChat(onSaveSuccess?: () => void, autoInit: boolean = true) {
       }
       setStatus("jd_generated");
 
-      console.log("Structured JD JSON:", data.jd_structured);
 
       setMessages((prev) => [
         ...prev,
@@ -320,7 +301,6 @@ export function useChat(onSaveSuccess?: () => void, autoInit: boolean = true) {
       const id = window.location.pathname.split("/").pop();
       if (!id) throw new Error("No session ID found");
 
-      console.log("Structured JD JSON (saving):", structuredData ?? {});
 
       const eid = getOrCreateEmployeeId();
       await apiSaveJD({

@@ -74,7 +74,10 @@ export function useChat(onSaveSuccess?: () => void, autoInit: boolean = true) {
           sender: "agent",
           text: parsed.conversation_response,
           skills: suggestedSkills,
-          isSkillSelection: !!suggestedSkills && suggestedSkills.length > 0,
+          isSkillSelection:
+            newStatus === "ready_for_generation" &&
+            !!suggestedSkills &&
+            suggestedSkills.length > 0,
           isReadySelection: newStatus === "ready_for_generation",
         },
       ]);
@@ -129,7 +132,10 @@ export function useChat(onSaveSuccess?: () => void, autoInit: boolean = true) {
                 // Never extract data dumps as conversation text
                 text = parsed.conversation_response ?? h.content;
                 skills = parsed.suggested_skills;
-                isSkillSelection = !!skills && skills.length > 0;
+                isSkillSelection =
+                  parsed.progress?.status === "ready_for_generation" &&
+                  !!skills &&
+                  skills.length > 0;
                 isReadySelection =
                   parsed.progress?.status === "ready_for_generation";
               } catch {
@@ -269,7 +275,6 @@ export function useChat(onSaveSuccess?: () => void, autoInit: boolean = true) {
       }
       setStatus("jd_generated");
 
-
       setMessages((prev) => [
         ...prev,
         {
@@ -300,7 +305,6 @@ export function useChat(onSaveSuccess?: () => void, autoInit: boolean = true) {
     try {
       const id = window.location.pathname.split("/").pop();
       if (!id) throw new Error("No session ID found");
-
 
       const eid = getOrCreateEmployeeId();
       await apiSaveJD({
@@ -345,5 +349,6 @@ export function useChat(onSaveSuccess?: () => void, autoInit: boolean = true) {
     isRateLimited,
     retryTimer,
     hydrated, // ✅ NEW — use this in the chat page to show a loading skeleton
+    updateJd: setJd,
   };
 }

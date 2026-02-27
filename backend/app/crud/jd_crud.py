@@ -451,7 +451,10 @@ async def update_questionnaire_status(
         is_manager = editor and creator and editor.role == "manager" and creator.reporting_manager_code == editor.id
         is_hr = editor and editor.role == "hr"
         
-        if not is_manager and not is_hr:
+        # Exception: employee submitting their own form
+        is_owner_submitting = (record.employee_id == employee_id)
+        
+        if not is_manager and not is_hr and not is_owner_submitting:
             raise PermissionError("You can only update status of your own JDs, or JDs submitted to you.")
 
     record.status = new_status
@@ -565,10 +568,10 @@ async def list_manager_pending_jds(db: AsyncSession, manager_id: str) -> list[JD
     return records
 
 async def list_hr_pending_jds(db: AsyncSession) -> list[JDSession]:
-    # HR sees all 'sent_to_hr'
+    # HR sees all 'sent_to_hr', 'hr_rejected', and 'approved' JDs
     result = await db.execute(
         select(JDSession)
-        .where(JDSession.status == "sent_to_hr")
+        .where(JDSession.status.in_(["sent_to_hr", "hr_rejected", "approved"]))
         .order_by(JDSession.updated_at.desc())
     )
     return list(result.scalars().all())

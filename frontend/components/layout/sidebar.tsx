@@ -267,12 +267,24 @@ export default function Sidebar() {
 
           {jds.map((jdItem) => {
             const config = STATUS_CONFIG[jdItem.status] || STATUS_CONFIG.draft;
-            const isJDActive = pathname === `/questionnaire/${jdItem.id}`;
+            const href = [
+              "draft",
+              "jd_generated",
+              "sent_to_manager",
+              "manager_rejected",
+              "sent_to_hr",
+              "hr_rejected",
+              "approved",
+            ].includes(jdItem.status)
+              ? `/jd/${jdItem.id}`
+              : `/questionnaire/${jdItem.id}`;
+
+            const isJDActive = pathname === href;
 
             return (
               <Link
                 key={jdItem.id}
-                href={`/questionnaire/${jdItem.id}`}
+                href={href}
                 className={`
                   group flex flex-col gap-1.5 px-3 py-3 rounded-lg transition-all duration-150 mb-1
                   ${
@@ -316,12 +328,24 @@ export default function Sidebar() {
               {myJds.map((jdItem) => {
                 const config =
                   STATUS_CONFIG[jdItem.status] || STATUS_CONFIG.draft;
-                const isJDActive = pathname === `/questionnaire/${jdItem.id}`;
+                const href = [
+                  "draft",
+                  "jd_generated",
+                  "sent_to_manager",
+                  "manager_rejected",
+                  "sent_to_hr",
+                  "hr_rejected",
+                  "approved",
+                ].includes(jdItem.status)
+                  ? `/jd/${jdItem.id}`
+                  : `/questionnaire/${jdItem.id}`;
+
+                const isJDActive = pathname === href;
 
                 return (
                   <Link
                     key={jdItem.id}
-                    href={`/questionnaire/${jdItem.id}`}
+                    href={href}
                     className={`
                       group flex flex-col gap-1.5 px-3 py-3 rounded-lg transition-all duration-150 mb-1
                       ${

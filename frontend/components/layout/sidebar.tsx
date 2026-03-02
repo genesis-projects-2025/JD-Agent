@@ -24,7 +24,9 @@ import {
   LogOut,
   Users,
   ShieldCheck,
+  Megaphone,
 } from "lucide-react";
+import FeedbackModal from "@/components/feedback/FeedbackModal";
 
 type JDListItem = {
   id: string;
@@ -65,6 +67,7 @@ export default function Sidebar() {
   const [jds, setJds] = useState<JDListItem[]>([]);
   const [myJds, setMyJds] = useState<JDListItem[]>([]);
   const [loadingJds, setLoadingJds] = useState(false);
+  const [isFeedbackOpen, setIsFeedbackOpen] = useState(false);
 
   const user = getCurrentUser();
   const role = user?.role || "employee";
@@ -386,6 +389,16 @@ export default function Sidebar() {
 
       {/* Footer Section */}
       <div className="p-4 border-t border-neutral-800/50 space-y-2 flex flex-col">
+        <button
+          onClick={() => setIsFeedbackOpen(true)}
+          className="w-full flex items-center gap-3 px-4 py-2.5 rounded-lg text-emerald-400 hover:text-white hover:bg-emerald-500/20 transition-all text-sm font-medium border border-emerald-500/20"
+        >
+          <Megaphone className="w-4 h-4" />
+          <span>Send Feedback</span>
+        </button>
+
+        <div className="h-px bg-neutral-800/50 my-2" />
+
         <button className="w-full flex items-center gap-3 px-4 py-2.5 rounded-lg text-neutral-400 hover:text-white hover:bg-neutral-800/50 transition-all text-sm">
           <Settings className="w-4 h-4" />
           <span>Settings</span>
@@ -405,6 +418,11 @@ export default function Sidebar() {
           <span>Sign Out</span>
         </button>
       </div>
+
+      <FeedbackModal
+        isOpen={isFeedbackOpen}
+        onClose={() => setIsFeedbackOpen(false)}
+      />
     </aside>
   );
 }

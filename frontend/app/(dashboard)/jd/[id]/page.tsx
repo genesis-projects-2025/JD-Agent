@@ -36,6 +36,7 @@ import {
   saveJD,
 } from "@/lib/api";
 import { DeleteModal } from "@/components/ui/delete-modal";
+import FeedbackModal from "@/components/feedback/FeedbackModal";
 
 export default function JDPage() {
   const params = useParams();
@@ -50,6 +51,7 @@ export default function JDPage() {
   const [sendingToManager, setSendingToManager] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [showFeedbackPrompt, setShowFeedbackPrompt] = useState(false);
 
   // Edit mode
   const [isEditing, setIsEditing] = useState(false);
@@ -211,6 +213,7 @@ export default function JDPage() {
       await sendToHR(jd.id, jd.employee_id);
       const updated = await fetchJD(jd.id);
       setJd(updated);
+      setShowFeedbackPrompt(true);
     } catch (e: any) {
       alert(e.message || "Failed to send to HR.");
     } finally {
@@ -241,6 +244,7 @@ export default function JDPage() {
       await approveJD(jd.id, jd.employee_id);
       const updated = await fetchJD(jd.id);
       setJd(updated);
+      setShowFeedbackPrompt(true);
     } catch (e: any) {
       alert(e.message || "Failed to approve JD.");
     } finally {
@@ -288,6 +292,7 @@ export default function JDPage() {
       await submitToManager(jd.id, jd.employee_id);
       const updated = await fetchJD(jd.id);
       setJd(updated);
+      setShowFeedbackPrompt(true);
     } catch (e: any) {
       alert(e.message || "Failed to submit JD.");
     } finally {
@@ -702,6 +707,13 @@ export default function JDPage() {
           </div>
         )}
       </div>
+
+      <FeedbackModal
+        isOpen={showFeedbackPrompt}
+        onClose={() => setShowFeedbackPrompt(false)}
+        jdSessionId={jdId}
+        defaultCategory="JD Process"
+      />
     </div>
   );
 }

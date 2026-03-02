@@ -75,7 +75,7 @@ const STATUS_CONFIG: Record<
     icon: ShieldCheck,
   },
   manager_rejected: {
-    label: "Needs Revision",
+    label: "Manager Rejected",
     color: "text-red-700",
     bg: "bg-red-50 border-red-100",
     icon: AlertTriangle,
@@ -87,7 +87,7 @@ const STATUS_CONFIG: Record<
     icon: ShieldCheck,
   },
   hr_rejected: {
-    label: "Action Required",
+    label: "HR Rejected",
     color: "text-red-700",
     bg: "bg-red-50 border-red-100",
     icon: AlertTriangle,

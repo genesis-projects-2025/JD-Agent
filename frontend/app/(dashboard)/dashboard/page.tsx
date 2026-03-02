@@ -49,7 +49,7 @@ const STATUS_CONFIG: Record<
     bg: "bg-blue-50 border-blue-200",
   },
   manager_rejected: {
-    label: "Needs Revision",
+    label: "Manager Rejected",
     color: "text-red-700",
     bg: "bg-red-50 border-red-200",
   },
@@ -59,7 +59,7 @@ const STATUS_CONFIG: Record<
     bg: "bg-purple-50 border-purple-200",
   },
   hr_rejected: {
-    label: "Action Required",
+    label: "HR Rejected",
     color: "text-red-700",
     bg: "bg-red-50 border-red-200",
   },

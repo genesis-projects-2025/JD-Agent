@@ -33,10 +33,15 @@ def _safe_jsonb(value) -> dict:
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
-def _extract_title(jd_structured: dict) -> Optional[str]:
-    if not isinstance(jd_structured, dict):
-        return None
-
+    title = (
+        jd_structured.get("job_title")
+        or jd_structured.get("title")
+        or jd_structured.get("role_title")
+        or jd_structured.get("position")
+    )
+    if title and isinstance(title, str) and len(title) < 200:
+        return title.strip()
+        
     emp_info = jd_structured.get("employee_information", {})
     if isinstance(emp_info, dict):
         title = (
@@ -46,15 +51,6 @@ def _extract_title(jd_structured: dict) -> Optional[str]:
         )
         if title and isinstance(title, str) and len(title) < 200:
             return title.strip()
-
-    title = (
-        jd_structured.get("job_title")
-        or jd_structured.get("title")
-        or jd_structured.get("role_title")
-        or jd_structured.get("position")
-    )
-    if title and isinstance(title, str) and len(title) < 200:
-        return title.strip()
 
     return None
 
@@ -196,7 +192,10 @@ async def save_questionnaire_jd(
         record.conversation_state = safe_progress
 
         if status:
-            record.status = status
+            # ONLY update status if the record is brand new, draft, or generated.
+            # If it's already in review or rejected, keep that state so edits don't kick it out of the queue.
+            if not record.status or record.status in ["draft", "collecting", "jd_generated"]:
+                record.status = status
 
         if title:
             record.title = title

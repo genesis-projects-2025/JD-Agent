@@ -252,16 +252,22 @@ export default function JDPage() {
     if (!jd) return;
     setIsSavingEdit(true);
     try {
+      // Attach the role context to show who edited this last
+      const enrichedData = {
+        ...editedData,
+        _last_edited_by: role,
+      };
+
       // Create a wrapper payload simulating the AI's internal response framework
       const payload = JSON.stringify({
         jd_text_format: editedJdText,
-        jd_structured_data: editedData,
+        jd_structured_data: enrichedData,
       });
 
       await saveJD({
         id: jd.id,
         jd_text: payload,
-        jd_structured: editedData,
+        jd_structured: enrichedData,
         employee_id: jd.employee_id,
       });
 
@@ -286,6 +292,44 @@ export default function JDPage() {
       alert(e.message || "Failed to submit JD.");
     } finally {
       setSendingToManager(false);
+    }
+  };
+
+  const handleEditToggle = () => {
+    if (isEditing) handleSaveEdits();
+    else {
+      let pTextRaw = jd.generated_jd || "";
+      let pText = pTextRaw;
+      try {
+        const p = JSON.parse(pTextRaw);
+        if (p.jd_text_format) pText = p.jd_text_format;
+      } catch (e) {}
+
+      let pStruct = safeParseObject(jd.jd_structured);
+      if (
+        !pStruct ||
+        Object.keys(pStruct).length === 0 ||
+        !pStruct.key_responsibilities
+      ) {
+        const p = safeParseObject(jd.generated_jd);
+        if (p.jd_structured_data) {
+          pStruct = p.jd_structured_data;
+        } else if (p.role_summary || p.key_responsibilities) {
+          pStruct = p;
+        }
+      }
+
+      // Final Failsafe for missing keys
+      if (!pStruct || typeof pStruct !== "object") pStruct = {};
+      pStruct.key_responsibilities = pStruct.key_responsibilities || [];
+      pStruct.required_skills = pStruct.required_skills || [];
+      pStruct.tools_and_technologies = pStruct.tools_and_technologies || [];
+      pStruct.performance_metrics = pStruct.performance_metrics || [];
+
+      console.log("JD Edit Button -> Extracted pStruct:", pStruct);
+      setEditedJdText(pText);
+      setEditedData(pStruct);
+      setIsEditing(true);
     }
   };
 
@@ -321,6 +365,13 @@ export default function JDPage() {
               <span className="px-4 py-1.5 bg-primary-50 text-primary-700 rounded-xl text-[11px] font-black uppercase tracking-widest border border-primary-100 shadow-sm">
                 {jd.status.replace(/_/g, " ")}
               </span>
+
+              {jd.jd_structured?._last_edited_by && (
+                <span className="px-4 py-1.5 bg-amber-50 text-amber-700 rounded-xl text-[11px] font-black uppercase tracking-widest border border-amber-200 shadow-sm flex items-center gap-1">
+                  <Edit className="w-3.5 h-3.5" />
+                  Edited by {jd.jd_structured._last_edited_by}
+                </span>
+              )}
             </div>
             <h1 className="text-4xl md:text-5xl font-black text-surface-900 tracking-tight mb-3">
               {jd.title || "Strategic Role Architecture"}
@@ -335,22 +386,36 @@ export default function JDPage() {
           {(role === "manager" || role === "hr") && (
             <div className="flex flex-col gap-3 min-w-[240px]">
               {role === "manager" && jd.status === "sent_to_manager" && (
-                <>
+                <div className="flex flex-col sm:flex-row gap-3 w-full">
                   <button
                     onClick={handleManagerSendToHR}
-                    disabled={sendingToManager}
-                    className="w-full px-6 py-4 bg-emerald-600 text-white rounded-2xl font-bold flex flex-center items-center justify-center gap-2 shadow-md hover:shadow-lg hover:-translate-y-0.5 hover:bg-emerald-700 text-[15px] transition-all"
+                    disabled={sendingToManager || isEditing}
+                    className="flex-1 px-5 py-3.5 bg-emerald-600 text-white rounded-xl font-bold flex flex-center items-center justify-center gap-2 shadow-sm hover:shadow-md hover:-translate-y-0.5 hover:bg-emerald-700 text-[14px] transition-all disabled:opacity-50 whitespace-nowrap"
                   >
-                    <CheckCircle2 className="w-5 h-5" /> Approve & Forward
+                    <CheckCircle2 className="w-4 h-4" /> Approve
+                  </button>
+                  <button
+                    onClick={handleEditToggle}
+                    disabled={isSavingEdit || sendingToManager}
+                    className="flex-1 px-5 py-3.5 bg-white text-primary-700 border border-primary-200 rounded-xl font-bold hover:bg-primary-50 transition-all shadow-sm active:scale-[0.98] flex items-center justify-center gap-2 text-[14px] disabled:opacity-50 whitespace-nowrap"
+                  >
+                    {isSavingEdit ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : isEditing ? (
+                      <Save className="w-4 h-4" />
+                    ) : (
+                      <Edit className="w-4 h-4" />
+                    )}
+                    {isEditing ? "Save" : "Edit"}
                   </button>
                   <button
                     onClick={handleManagerReject}
-                    disabled={sendingToManager}
-                    className="w-full px-6 py-4 bg-red-50 text-red-600 border border-red-100 rounded-2xl font-bold flex flex-center items-center justify-center gap-2 shadow-sm hover:bg-red-100 text-[15px] transition-all"
+                    disabled={sendingToManager || isEditing}
+                    className="px-5 py-3.5 bg-red-50 text-red-600 border border-red-100 rounded-xl font-bold flex flex-center items-center justify-center gap-2 shadow-sm hover:bg-red-100 text-[14px] transition-all disabled:opacity-50 whitespace-nowrap"
                   >
-                    <XCircle className="w-5 h-5" /> Reject / Revise
+                    <XCircle className="w-4 h-4" /> Reject
                   </button>
-                </>
+                </div>
               )}
               {role === "manager" &&
                 ["sent_to_hr", "hr_rejected", "approved"].includes(
@@ -364,22 +429,36 @@ export default function JDPage() {
                   </button>
                 )}
               {role === "hr" && jd.status === "sent_to_hr" && (
-                <>
+                <div className="flex flex-col sm:flex-row gap-3 w-full">
                   <button
                     onClick={handleHRApprove}
-                    disabled={sendingToManager}
-                    className="w-full px-6 py-4 bg-purple-600 text-white rounded-2xl font-bold flex flex-center items-center justify-center gap-2 shadow-md hover:shadow-lg hover:-translate-y-0.5 hover:bg-purple-700 text-[15px] transition-all"
+                    disabled={sendingToManager || isEditing}
+                    className="flex-1 px-5 py-3.5 bg-purple-600 text-white rounded-xl font-bold flex flex-center items-center justify-center gap-2 shadow-sm hover:shadow-md hover:-translate-y-0.5 hover:bg-purple-700 text-[14px] transition-all disabled:opacity-50 whitespace-nowrap"
                   >
-                    <ShieldCheck className="w-5 h-5" /> Final Corporate Approval
+                    <ShieldCheck className="w-4 h-4" /> Approve
+                  </button>
+                  <button
+                    onClick={handleEditToggle}
+                    disabled={isSavingEdit || sendingToManager}
+                    className="flex-1 px-5 py-3.5 bg-white text-primary-700 border border-primary-200 rounded-xl font-bold hover:bg-primary-50 transition-all shadow-sm active:scale-[0.98] flex items-center justify-center gap-2 text-[14px] disabled:opacity-50 whitespace-nowrap"
+                  >
+                    {isSavingEdit ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : isEditing ? (
+                      <Save className="w-4 h-4" />
+                    ) : (
+                      <Edit className="w-4 h-4" />
+                    )}
+                    {isEditing ? "Save" : "Edit"}
                   </button>
                   <button
                     onClick={handleHRReject}
-                    disabled={sendingToManager}
-                    className="w-full px-6 py-4 bg-red-50 text-red-600 border border-red-100 rounded-2xl font-bold flex flex-center items-center justify-center gap-2 shadow-sm hover:bg-red-100 text-[15px] transition-all"
+                    disabled={sendingToManager || isEditing}
+                    className="px-5 py-3.5 bg-red-50 text-red-600 border border-red-100 rounded-xl font-bold flex flex-center items-center justify-center gap-2 shadow-sm hover:bg-red-100 text-[14px] transition-all disabled:opacity-50 whitespace-nowrap"
                   >
-                    <XCircle className="w-5 h-5" /> Reject / Revise
+                    <XCircle className="w-4 h-4" /> Reject
                   </button>
-                </>
+                </div>
               )}
               {role === "hr" && jd.status === "approved" && (
                 <button
@@ -395,10 +474,10 @@ export default function JDPage() {
           {role === "employee" && (
             <div className="flex flex-col sm:flex-row gap-3 mt-4 md:mt-0">
               {[
+                "draft",
                 "jd_generated",
                 "manager_rejected",
                 "hr_rejected",
-                "draft",
               ].includes(jd.status) && (
                 <>
                   <button
@@ -408,52 +487,9 @@ export default function JDPage() {
                     <Edit3 className="w-4 h-4" /> Refine in Chat
                   </button>
                   <button
-                    onClick={() => {
-                      if (isEditing) handleSaveEdits();
-                      else {
-                        let pTextRaw = jd.generated_jd || "";
-                        let pText = pTextRaw;
-                        try {
-                          const p = JSON.parse(pTextRaw);
-                          if (p.jd_text_format) pText = p.jd_text_format;
-                        } catch (e) {}
-
-                        let pStruct = safeParseObject(jd.jd_structured);
-                        if (
-                          !pStruct ||
-                          Object.keys(pStruct).length === 0 ||
-                          !pStruct.key_responsibilities
-                        ) {
-                          const p = safeParseObject(jd.generated_jd);
-                          if (p.jd_structured_data) {
-                            pStruct = p.jd_structured_data;
-                          } else if (p.role_summary || p.key_responsibilities) {
-                            pStruct = p;
-                          }
-                        }
-
-                        // Final Failsafe for missing keys
-                        if (!pStruct || typeof pStruct !== "object")
-                          pStruct = {};
-                        pStruct.key_responsibilities =
-                          pStruct.key_responsibilities || [];
-                        pStruct.required_skills = pStruct.required_skills || [];
-                        pStruct.tools_and_technologies =
-                          pStruct.tools_and_technologies || [];
-                        pStruct.performance_metrics =
-                          pStruct.performance_metrics || [];
-
-                        console.log(
-                          "JD Edit Button -> Extracted pStruct:",
-                          pStruct,
-                        );
-                        setEditedJdText(pText);
-                        setEditedData(pStruct);
-                        setIsEditing(true);
-                      }
-                    }}
+                    onClick={handleEditToggle}
                     disabled={isSavingEdit}
-                    className="px-6 py-3.5 bg-white text-primary-700 border border-primary-200 rounded-2xl font-bold hover:bg-primary-50 transition-all shadow-sm active:scale-[0.98] flex items-center justify-center gap-2 text-[14px]"
+                    className="px-6 py-3.5 bg-white text-primary-700 border border-primary-200 rounded-2xl font-bold hover:bg-primary-50 transition-all shadow-sm active:scale-[0.98] flex items-center justify-center gap-2 text-[14px] disabled:opacity-50"
                   >
                     {isSavingEdit ? (
                       <Loader2 className="w-4 h-4 animate-spin" />
@@ -543,11 +579,33 @@ export default function JDPage() {
               <textarea
                 value={editedJdText}
                 onChange={(e) => setEditedJdText(e.target.value)}
-                className="flex-1 w-full bg-surface-50 border border-surface-200 rounded-xl p-6 text-surface-800 text-[14px] font-mono leading-relaxed focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none resize-none min-h-[600px]"
+                className="flex-1 w-full bg-surface-50 border border-surface-200 rounded-xl p-6 text-surface-800 text-[14px] font-mono leading-relaxed focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none resize-none min-h-[500px] h-[600px] shadow-inner"
                 placeholder="Edit Job Description Markdown..."
               />
             ) : (
-              <div className="flex-1 w-full bg-surface-50 border border-surface-200 rounded-xl p-8 overflow-y-auto max-h-[800px] flex flex-col gap-10">
+              <div className="flex-1 w-full bg-surface-50 border border-surface-200 rounded-xl p-8 overflow-y-auto h-[600px] flex flex-col gap-10 shadow-inner">
+                {/* Job Title */}
+                <div className="space-y-3">
+                  <label className="text-[13px] font-black text-surface-500 uppercase tracking-widest">
+                    Job Title
+                  </label>
+                  <input
+                    type="text"
+                    value={
+                      editedData.job_title ||
+                      editedData.role_title ||
+                      editedData.title ||
+                      editedData.employee_information?.job_title ||
+                      ""
+                    }
+                    onChange={(e) =>
+                      handleTextChange("job_title", e.target.value)
+                    }
+                    className="w-full bg-white border border-surface-200 rounded-xl p-5 text-[15px] font-medium text-surface-900 leading-relaxed focus:ring-2 focus:ring-primary-500 outline-none shadow-sm transition-shadow focus:shadow-md"
+                    placeholder="e.g. Senior AI Architect"
+                  />
+                </div>
+
                 {/* Role Summary */}
                 <div className="space-y-3">
                   <label className="text-[13px] font-black text-surface-500 uppercase tracking-widest">
@@ -558,7 +616,7 @@ export default function JDPage() {
                     onChange={(e) =>
                       handleTextChange("role_summary", e.target.value)
                     }
-                    className="w-full bg-white border border-surface-200 rounded-xl p-5 text-[15px] font-medium text-surface-900 leading-relaxed focus:ring-2 focus:ring-primary-500 outline-none resize-none min-h-[160px] shadow-md transition-shadow focus:shadow-lg"
+                    className="w-full bg-white border border-surface-200 rounded-xl p-5 text-[15px] font-medium text-surface-900 leading-relaxed focus:ring-2 focus:ring-primary-500 outline-none resize-none min-h-[160px] shadow-sm transition-shadow focus:shadow-md"
                     placeholder="Brief overview of the role..."
                   />
                 </div>
@@ -606,7 +664,7 @@ export default function JDPage() {
                                   e.target.value,
                                 )
                               }
-                              className="flex-1 bg-white border border-surface-200 rounded-xl p-4 text-[15px] font-medium text-surface-900 focus:ring-2 focus:ring-primary-500 outline-none shadow-md transition-shadow focus:shadow-lg"
+                              className="flex-1 bg-white border border-surface-200 rounded-xl p-4 text-[15px] font-medium text-surface-900 focus:ring-2 focus:ring-primary-500 outline-none shadow-sm transition-shadow focus:shadow-md"
                               placeholder={`Enter ${field.label.toLowerCase()}...`}
                             />
                             <button

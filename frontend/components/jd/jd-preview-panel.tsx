@@ -378,7 +378,7 @@ export default function JDPreviewPanel({
                   setIsEditing(!isEditing);
                 }}
                 disabled={isSaving}
-                className={`flex-1 py-3 hover:bg-surface-50 border border-surface-200 rounded-xl font-bold text-[12px] transition-all active:scale-[0.98] flex items-center justify-center gap-2 shadow-sm ${
+                className={`w-full py-3 hover:bg-surface-50 border border-surface-200 rounded-xl font-bold text-[12px] transition-all active:scale-[0.98] flex items-center justify-center gap-2 shadow-sm ${
                   isEditing
                     ? "bg-primary-50 text-primary-700 border-primary-200"
                     : "bg-white text-surface-700"
@@ -390,13 +390,6 @@ export default function JDPreviewPanel({
                   <Edit className="w-3.5 h-3.5" />
                 )}
                 {isEditing ? "Done Editing" : "Edit JD"}
-              </button>
-              <button
-                onClick={() => router.push(`/jd/${sessionId}`)}
-                className="flex-1 py-3 bg-white hover:bg-surface-50 text-surface-600 border border-surface-200 rounded-xl font-bold text-[12px] transition-all active:scale-[0.98] flex items-center justify-center gap-2 shadow-sm"
-              >
-                <ExternalLink className="w-3.5 h-3.5" />
-                Review & Submit
               </button>
             </div>
           </div>

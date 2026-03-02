@@ -68,8 +68,13 @@ export default function Sidebar() {
   const [myJds, setMyJds] = useState<JDListItem[]>([]);
   const [loadingJds, setLoadingJds] = useState(false);
   const [isFeedbackOpen, setIsFeedbackOpen] = useState(false);
+  const [isMounted, setIsMounted] = useState(false);
 
-  const user = getCurrentUser();
+  useEffect(() => {
+    setIsMounted(true);
+  }, []);
+
+  const user = isMounted ? getCurrentUser() : null;
   const role = user?.role || "employee";
   const currentView = searchParams.get("view");
 
@@ -172,7 +177,8 @@ export default function Sidebar() {
   }, [pathname, employeeId, isAuthenticated, role]); // Reload when navigating or ID changes
 
   // Hide sidebar if they are not logged in or are on the admin portal
-  if (!isAuthenticated || pathname.startsWith("/admin")) return null;
+  if (!isMounted || !isAuthenticated || pathname.startsWith("/admin"))
+    return null;
 
   return (
     <aside className="w-72 h-screen bg-gradient-to-b from-neutral-900 via-neutral-900 to-neutral-800 text-white flex flex-col border-r border-neutral-800 shadow-2xl">

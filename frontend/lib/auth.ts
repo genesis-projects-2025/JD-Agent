@@ -1,31 +1,25 @@
+import { getCurrentUser } from "./api";
+
 /**
- * Simple authentication helper to maintain a persistent employee identity
- * without a full auth system. Stores a unique ID in localStorage.
+ * Modern SSO helper to fetch the active authenticated user from sessionStorage.
+ * Replaces the legacy random-generation fallback.
  */
 
 export function getOrCreateEmployeeId(): string {
   if (typeof window === "undefined") return "server_id";
 
-  let id = localStorage.getItem("employee_id");
-  if (!id) {
-    // Generate a unique employee ID
-    id =
-      "emp_" +
-      Math.random().toString(36).substring(2, 11) +
-      Date.now().toString(36);
-    localStorage.setItem("employee_id", id);
-    console.log("🆕 Created New Employee ID:", id);
-  } else {
-    console.log("💾 Using Existing Employee ID:", id);
+  const user = getCurrentUser();
+  if (user && user.employee_id) {
+    return user.employee_id;
   }
-  return id;
+
+  // Failsafe (should never hit if SSO is active)
+  return "UNKNOWN_USER";
 }
 
 export function getEmployeeId(): string | null {
   if (typeof window === "undefined") return null;
-  const id = localStorage.getItem("employee_id");
-  if (id) {
-    console.log("🆔 Accessed Employee ID:", id);
-  }
-  return id;
+
+  const user = getCurrentUser();
+  return user ? user.employee_id : null;
 }

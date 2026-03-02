@@ -12,6 +12,7 @@ import { useChat } from "@/hooks/useChat";
 import { exportJDToPDF } from "@/lib/pdf-export";
 import { deleteJD } from "@/lib/api";
 import { DeleteModal } from "@/components/ui/delete-modal";
+import FeedbackModal from "@/components/feedback/FeedbackModal";
 import {
   Loader2,
   ArrowLeft,
@@ -30,6 +31,7 @@ export default function QuestionnairePage() {
   const [isDeleting, setIsDeleting] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
+  const [showFeedbackModal, setShowFeedbackModal] = useState(false);
 
   const {
     messages,
@@ -75,7 +77,7 @@ export default function QuestionnairePage() {
   const handleConfirmDelete = async () => {
     setIsDeleting(true);
     try {
-      const employeeId = localStorage.getItem("employee_id");
+      const employeeId = sessionStorage.getItem("employee_id");
       if (!employeeId) throw new Error("Missing employee identification.");
       await deleteJD(sessionId, employeeId);
       router.push(`/dashboard/${employeeId}`);
@@ -200,9 +202,9 @@ export default function QuestionnairePage() {
                 const success = await handleSaveJD();
                 if (success) {
                   setSaveSuccess(true);
-                  // Stays on page with success feedback showing momentarily, then routes to Full Document View
+                  // Stays on page with success feedback showing momentarily, then triggers Feedback Modal
                   setTimeout(() => {
-                    router.push(`/jd/${sessionId}`);
+                    setShowFeedbackModal(true);
                   }, 1200);
                 }
               }}
@@ -224,6 +226,16 @@ export default function QuestionnairePage() {
         isDeleting={isDeleting}
         title="Delete Interview"
         description="Are you sure you want to delete this interview progress? This cannot be undone."
+      />
+
+      <FeedbackModal
+        isOpen={showFeedbackModal}
+        onClose={() => {
+          setShowFeedbackModal(false);
+          router.push(`/jd/${sessionId}`);
+        }}
+        jdSessionId={sessionId}
+        defaultCategory="JD Process"
       />
     </div>
   );

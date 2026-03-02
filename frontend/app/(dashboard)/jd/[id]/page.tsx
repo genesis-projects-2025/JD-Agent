@@ -61,6 +61,11 @@ export default function JDPage() {
   const [activeTab, setActiveTab] = useState<"markdown" | "structured">(
     "markdown",
   );
+  const [isMounted, setIsMounted] = useState(false);
+
+  useEffect(() => {
+    setIsMounted(true);
+  }, []);
 
   // Helper to deep unwrap double-stringified JSON objects from the LLM core
   const safeParseObject = (obj: any): any => {
@@ -159,10 +164,12 @@ export default function JDPage() {
         setLoading(false);
       }
     };
-    init();
-  }, [jdId]);
+    if (isMounted) {
+      init();
+    }
+  }, [jdId, isMounted]);
 
-  if (loading) {
+  if (!isMounted || loading) {
     return (
       <div className="h-[calc(100vh-8rem)] flex items-center justify-center">
         <Loader2 className="w-8 h-8 text-primary-600 animate-spin" />

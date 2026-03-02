@@ -77,11 +77,17 @@ export default function DashboardPage() {
   const [activeTab, setActiveTab] = useState<
     "my_jds" | "team_approvals" | "hr_approvals"
   >("my_jds");
+  const [isMounted, setIsMounted] = useState(false);
 
-  const user = getCurrentUser();
+  useEffect(() => {
+    setIsMounted(true);
+  }, []);
+
+  const user = isMounted ? getCurrentUser() : null;
   const role = user?.role || "employee";
 
   useEffect(() => {
+    if (!isMounted) return;
     async function load() {
       try {
         setLoading(true);
@@ -129,6 +135,8 @@ export default function DashboardPage() {
   ).length;
 
   const displayJDs = activeTab === "my_jds" ? jds : pendingJDs;
+
+  if (!isMounted) return null;
 
   return (
     <div className="h-[calc(100vh-3rem)] overflow-y-auto bg-surface-50">

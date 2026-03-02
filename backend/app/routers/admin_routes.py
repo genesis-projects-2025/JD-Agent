@@ -1,0 +1,171 @@
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.future import select
+from sqlalchemy import func
+from pydantic import BaseModel
+from typing import List, Optional
+
+from app.core.database import get_db
+from app.models.jd_session_model import JDSession
+from app.models.user_model import Employee
+
+router = APIRouter(tags=["Admin"])
+
+class AdminLoginRequest(BaseModel):
+    code: str
+    password: str
+
+class AdminLoginResponse(BaseModel):
+    token: str
+    role: str
+
+class StatCardData(BaseModel):
+    total_employees: int
+    pending_jds: int
+    approved_jds: int
+    rejected_jds: int
+
+class PipelineData(BaseModel):
+    status: str
+    count: int
+
+class UserFilterRequest(BaseModel):
+    role: Optional[str] = None
+    status: Optional[str] = None
+    search: Optional[str] = None
+
+
+@router.post("/auth/admin-login", response_model=AdminLoginResponse)
+async def admin_login(request: AdminLoginRequest):
+    # Hardcoded admin credentials as requested
+    if request.code == "Mani007" and request.password == "Manideekshith@11":
+        return AdminLoginResponse(token="admin-secret-token", role="ADMIN")
+    
+    raise HTTPException(status_code=401, detail="Invalid admin credentials")
+
+
+@router.get("/admin/stats/overview", response_model=StatCardData)
+async def get_admin_overview(db: AsyncSession = Depends(get_db)):
+    # total employees
+    emp_res = await db.execute(select(func.count(Employee.id)))
+    total_employees = emp_res.scalar_one()
+    
+    # pending jds
+    pending_res = await db.execute(
+        select(func.count(JDSession.id)).where(
+            JDSession.status.in_(["collecting", "pending_manager", "pending_hr"])
+        )
+    )
+    pending_jds = pending_res.scalar_one()
+    
+    # approved
+    approved_res = await db.execute(select(func.count(JDSession.id)).where(JDSession.status == "approved"))
+    approved_jds = approved_res.scalar_one()
+    
+    # rejected
+    rejected_res = await db.execute(select(func.count(JDSession.id)).where(JDSession.status == "rejected"))
+    rejected_jds = rejected_res.scalar_one()
+
+    return StatCardData(
+        total_employees=total_employees,
+        pending_jds=pending_jds,
+        approved_jds=approved_jds,
+        rejected_jds=rejected_jds
+    )
+
+@router.get("/admin/stats/charts")
+async def get_admin_charts(db: AsyncSession = Depends(get_db)):
+    # 1. Pipeline Chart (Bar Chart)
+    pipeline_res = await db.execute(
+        select(JDSession.status, func.count(JDSession.id).label('count')).group_by(JDSession.status)
+    )
+    status_counts = pipeline_res.all()
+    
+    pipeline_data = [{"status": row[0], "count": row[1]} for row in status_counts]
+
+    pipeline_map = {item["status"]: item["count"] for item in pipeline_data}
+    normalized_pipeline = [
+        {"status": "Drafting", "count": pipeline_map.get("collecting", 0)},
+        {"status": "Pending Manager", "count": pipeline_map.get("pending_manager", 0)},
+        {"status": "Pending HR", "count": pipeline_map.get("pending_hr", 0)},
+        {"status": "Approved", "count": pipeline_map.get("approved", 0)},
+        {"status": "Rejected", "count": pipeline_map.get("rejected", 0)},
+    ]
+
+    # 2. Manager Response Chart (Doughnut)
+    # JDs that have reached 'pending_manager' or further (all past collecting)
+    manager_responded_res = await db.execute(
+        select(func.count(JDSession.id)).where(JDSession.status.in_(["pending_hr", "approved", "rejected"]))
+    )
+    manager_responded = manager_responded_res.scalar_one()
+    
+    manager_pending_res = await db.execute(
+        select(func.count(JDSession.id)).where(JDSession.status == "pending_manager")
+    )
+    manager_pending = manager_pending_res.scalar_one()
+
+    response_rate = [
+        {"name": "Responded", "value": manager_responded},
+        {"name": "Pending", "value": manager_pending}
+    ]
+
+    return {
+        "pipeline": normalized_pipeline,
+        "manager_response": response_rate
+    }
+
+
+@router.get("/admin/users")
+async def get_admin_users(
+    role: Optional[str] = None, 
+    status: Optional[str] = None, 
+    search: Optional[str] = None, 
+    db: AsyncSession = Depends(get_db)
+):
+    query = select(Employee, JDSession).outerjoin(
+        JDSession, Employee.id == JDSession.employee_id
+    )
+
+    if role:
+        query = query.where(Employee.role.ilike(f"%{role}%"))
+    
+    if status:
+         if status.lower() == "no jd":
+             query = query.where(JDSession.id == None)
+         else:
+             query = query.where(JDSession.status == status)
+    
+    if search:
+        search_filter = f"%{search}%"
+        query = query.where(
+            (Employee.name.ilike(search_filter)) | 
+            (Employee.id.ilike(search_filter)) |
+            (Employee.email.ilike(search_filter))
+        )
+
+    query = query.order_by(Employee.name)
+    result = await db.execute(query)
+    # the result has 2 elements per tuple: (Employee instance, JDSession instance)
+    rows = result.all()
+
+    formatted_results = []
+    seen_emps = set()
+
+    for emp, session in rows:
+        if emp.id in seen_emps:
+            continue
+            
+        seen_emps.add(emp.id)
+        formatted_results.append({
+            "employee_id": emp.id,
+            "name": emp.name,
+            "email": emp.email,
+            "department": emp.department,
+            "role": emp.role,
+            "manager_name": emp.reporting_manager,
+            "jd_status": session.status if session else "No JD",
+            "jd_session_id": str(session.id) if session else None,
+            "last_active": session.updated_at.isoformat() if session and session.updated_at else None
+        })
+
+    return formatted_results

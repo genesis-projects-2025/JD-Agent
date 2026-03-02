@@ -34,6 +34,7 @@ type Props = {
   saveSuccess?: boolean;
   onSave: () => void;
   onEdit: () => void;
+  updateJd: (newJd: string) => void;
   onClose: () => void;
   sessionId: string;
 };
@@ -95,6 +96,7 @@ export default function JDPreviewPanel({
   saveSuccess,
   onSave,
   onEdit,
+  updateJd,
   onClose,
   sessionId,
 }: Props) {
@@ -102,6 +104,7 @@ export default function JDPreviewPanel({
   const [activeTab, setActiveTab] = useState<"structured" | "markdown">(
     "structured",
   );
+  const [isEditing, setIsEditing] = useState(false);
 
   const s = structuredData || {};
   const empInfo = s.employee_information || {};
@@ -323,12 +326,21 @@ export default function JDPreviewPanel({
               </div>
             ) : (
               /* MARKDOWN VIEW */
-              <div className="p-6">
-                <div className="prose prose-sm prose-neutral max-w-none prose-headings:font-bold prose-headings:text-surface-900 prose-h1:text-xl prose-h2:text-base prose-h2:mt-6 prose-p:text-surface-700 prose-li:text-surface-700 prose-strong:text-primary-700">
-                  <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                    {jd}
-                  </ReactMarkdown>
-                </div>
+              <div className="p-6 h-full flex flex-col min-h-[400px]">
+                {isEditing ? (
+                  <textarea
+                    value={jd || ""}
+                    onChange={(e) => updateJd(e.target.value)}
+                    className="flex-1 w-full bg-surface-50 border border-surface-200 rounded-xl p-4 text-surface-800 text-[13px] font-mono leading-relaxed focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none resize-none"
+                    placeholder="Type markdown job description here..."
+                  />
+                ) : (
+                  <div className="prose prose-sm prose-neutral max-w-none prose-headings:font-bold prose-headings:text-surface-900 prose-h1:text-xl prose-h2:text-base prose-h2:mt-6 prose-p:text-surface-700 prose-li:text-surface-700 prose-strong:text-primary-700">
+                    <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                      {jd}
+                    </ReactMarkdown>
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -359,19 +371,25 @@ export default function JDPreviewPanel({
             </button>
             <div className="flex gap-2">
               <button
-                onClick={onEdit}
+                onClick={() => {
+                  if (!isEditing) {
+                    setActiveTab("markdown");
+                  }
+                  setIsEditing(!isEditing);
+                }}
                 disabled={isSaving}
-                className="flex-1 py-3 bg-white hover:bg-surface-50 text-surface-700 border border-surface-200 rounded-xl font-bold text-[12px] transition-all active:scale-[0.98] flex items-center justify-center gap-2 shadow-sm"
+                className={`w-full py-3 hover:bg-surface-50 border border-surface-200 rounded-xl font-bold text-[12px] transition-all active:scale-[0.98] flex items-center justify-center gap-2 shadow-sm ${
+                  isEditing
+                    ? "bg-primary-50 text-primary-700 border-primary-200"
+                    : "bg-white text-surface-700"
+                }`}
               >
-                <Edit className="w-3.5 h-3.5" />
-                Edit JD
-              </button>
-              <button
-                onClick={() => router.push(`/jd/${sessionId}`)}
-                className="flex-1 py-3 bg-white hover:bg-surface-50 text-surface-600 border border-surface-200 rounded-xl font-bold text-[12px] transition-all active:scale-[0.98] flex items-center justify-center gap-2 shadow-sm"
-              >
-                <ExternalLink className="w-3.5 h-3.5" />
-                Full View
+                {isEditing ? (
+                  <CheckCircle2 className="w-3.5 h-3.5" />
+                ) : (
+                  <Edit className="w-3.5 h-3.5" />
+                )}
+                {isEditing ? "Done Editing" : "Edit JD"}
               </button>
             </div>
           </div>

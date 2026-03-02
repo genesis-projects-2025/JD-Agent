@@ -257,9 +257,46 @@ export async function rejectJD(
   comment: string,
   employeeId: string = "admin",
 ) {
-  // In a real app we might patch the comment via a separate endpoint.
-  // Assuming the `updateJDStatus` suffices here per backend schema.
   return updateJDStatus(jdId, { status: "rejected", employee_id: employeeId });
+}
+
+export async function submitToManager(
+  jdId: string,
+  employeeId: string = "admin",
+) {
+  return updateJDStatus(jdId, {
+    status: "sent_to_manager",
+    employee_id: employeeId,
+  });
+}
+
+export async function rejectJDManager(
+  jdId: string,
+  comment: string,
+  employeeId: string = "admin",
+) {
+  return updateJDStatus(jdId, {
+    status: "manager_rejected",
+    employee_id: employeeId,
+  });
+}
+
+export async function sendToHR(jdId: string, employeeId: string = "admin") {
+  return updateJDStatus(jdId, {
+    status: "sent_to_hr",
+    employee_id: employeeId,
+  });
+}
+
+export async function rejectJDHR(
+  jdId: string,
+  comment: string,
+  employeeId: string = "admin",
+) {
+  return updateJDStatus(jdId, {
+    status: "hr_rejected",
+    employee_id: employeeId,
+  });
 }
 
 export async function updateJD(

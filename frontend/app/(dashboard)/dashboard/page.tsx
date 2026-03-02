@@ -49,7 +49,7 @@ const STATUS_CONFIG: Record<
     bg: "bg-blue-50 border-blue-200",
   },
   manager_rejected: {
-    label: "Needs Revision",
+    label: "Manager Rejected",
     color: "text-red-700",
     bg: "bg-red-50 border-red-200",
   },
@@ -59,7 +59,7 @@ const STATUS_CONFIG: Record<
     bg: "bg-purple-50 border-purple-200",
   },
   hr_rejected: {
-    label: "Action Required",
+    label: "HR Rejected",
     color: "text-red-700",
     bg: "bg-red-50 border-red-200",
   },
@@ -108,104 +108,136 @@ export default function DashboardPage() {
     load();
   }, [role]);
 
-  const draftCount = jds.filter(
+  // Aggregate counts based on role.
+  // Employees only see their own stats. Managers/HR see stats representing their active queue + history.
+  const dataSource = role === "employee" ? jds : pendingJDs;
+
+  const draftCount = dataSource.filter(
     (j) =>
       j.status === "draft" ||
       j.status === "jd_generated" ||
-      j.status.includes("rejected"),
+      j.status === "manager_rejected" ||
+      j.status === "hr_rejected",
   ).length;
-  const inReviewCount = jds.filter(
+
+  const inReviewCount = dataSource.filter(
     (j) => j.status === "sent_to_manager" || j.status === "sent_to_hr",
   ).length;
-  const approvedCount = jds.filter((j) => j.status === "approved").length;
+
+  const approvedCount = dataSource.filter(
+    (j) => j.status === "approved",
+  ).length;
 
   const displayJDs = activeTab === "my_jds" ? jds : pendingJDs;
 
   return (
-    <div className="h-[calc(100vh-3rem)] overflow-y-auto">
-      <div className="max-w-5xl mx-auto py-8 px-6">
+    <div className="h-[calc(100vh-3rem)] overflow-y-auto bg-surface-50">
+      <div className="max-w-6xl mx-auto py-10 px-8 animate-in fade-in slide-in-from-bottom-4 duration-700">
         {/* Welcome Header */}
-        <div className="mb-8">
-          <h1 className="text-3xl font-bold text-neutral-900 tracking-tight">
-            JD Intelligence
-            <span className="ml-3 text-sm font-bold px-3 py-1 bg-neutral-100 text-neutral-600 rounded-full align-middle uppercase tracking-widest border border-neutral-200">
-              {role}
-            </span>
-          </h1>
-          <p className="mt-2 text-neutral-500">
-            Welcome back, {user?.name || "Team Member"}
-          </p>
+        <div className="mb-10 flex flex-col md:flex-row md:items-end justify-between gap-6">
+          <div>
+            <h1 className="text-4xl font-black text-surface-900 tracking-tight flex items-center gap-3">
+              JD Intelligence
+              <span className="text-xs font-bold px-3 py-1 bg-gradient-to-r from-primary-500 to-primary-600 text-white rounded-full uppercase tracking-widest shadow-sm">
+                {role}
+              </span>
+            </h1>
+            <p className="mt-3 text-lg font-medium text-surface-500">
+              Welcome back,{" "}
+              <span className="text-surface-700 font-bold">
+                {user?.name || "Team Member"}
+              </span>
+              . Ready to shape the future of your team?
+            </p>
+          </div>
         </div>
 
         {/* Quick Action */}
         <Link
           href="/questionnaire"
-          className="group flex items-center justify-between p-6 bg-gradient-to-r from-blue-600 to-blue-700 rounded-2xl text-white shadow-xl shadow-blue-600/20 hover:shadow-2xl hover:shadow-blue-600/30 transition-all mb-8"
+          className="group relative overflow-hidden flex items-center justify-between p-8 bg-gradient-to-r from-primary-600 via-primary-700 to-indigo-800 rounded-3xl text-white shadow-xl shadow-primary-900/20 hover:shadow-2xl hover:shadow-primary-900/40 hover:-translate-y-1 transition-all duration-300 mb-10"
         >
-          <div className="flex items-center gap-4">
-            <div className="w-12 h-12 bg-white/20 backdrop-blur-sm rounded-xl flex items-center justify-center">
-              <Plus className="w-6 h-6" />
+          <div className="absolute inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-20 mix-blend-overlay"></div>
+          <div className="relative z-10 flex items-center gap-6">
+            <div className="w-16 h-16 bg-white/10 backdrop-blur-md rounded-2xl flex items-center justify-center border border-white/20 group-hover:scale-110 transition-transform duration-500">
+              <Plus className="w-8 h-8 text-white" />
             </div>
             <div>
-              <h2 className="text-lg font-bold">Start New JD Interview</h2>
-              <p className="text-blue-100 text-sm mt-0.5">
-                Answer questions to generate a professional Job Description
+              <h2 className="text-2xl font-black tracking-tight">
+                Start New JD Interview
+              </h2>
+              <p className="text-primary-100 text-base font-medium mt-1 opacity-90">
+                Answer guided questions to generate a hyper-professional Job
+                Description instantly.
               </p>
             </div>
           </div>
-          <ArrowRight className="w-5 h-5 text-blue-200 group-hover:translate-x-1 transition-transform" />
+          <div className="relative z-10 w-12 h-12 rounded-full bg-white/10 flex items-center justify-center backdrop-blur-md border border-white/20 group-hover:bg-white/20 transition-colors">
+            <ArrowRight className="w-6 h-6 text-white group-hover:translate-x-1 transition-transform duration-300" />
+          </div>
         </Link>
 
         {/* Stats Cards */}
-        <div className="grid grid-cols-3 gap-4 mb-8">
-          <div className="bg-white rounded-xl border border-neutral-200 p-5 shadow-sm">
-            <div className="flex items-center gap-3 mb-3">
-              <div className="w-9 h-9 bg-amber-50 rounded-lg flex items-center justify-center">
-                <FileText className="w-4.5 h-4.5 text-amber-600" />
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-12">
+          {/* Drafts */}
+          <div className="bg-white rounded-3xl p-6 shadow-sm border border-surface-200 hover:shadow-md transition-shadow">
+            <div className="flex items-center gap-4 mb-4">
+              <div className="w-12 h-12 rounded-2xl bg-amber-50 text-amber-600 flex items-center justify-center border border-amber-100/50">
+                <FileText className="w-5 h-5" />
               </div>
-              <span className="text-sm font-medium text-neutral-500">
-                Drafts / Revisions
-              </span>
+              <div>
+                <span className="text-sm font-bold text-surface-500 uppercase tracking-widest">
+                  Drafts
+                </span>
+                <p className="text-4xl font-black text-surface-900 mt-0.5">
+                  {draftCount}
+                </p>
+              </div>
             </div>
-            <p className="text-3xl font-bold text-neutral-900">{draftCount}</p>
           </div>
-          <div className="bg-white rounded-xl border border-neutral-200 p-5 shadow-sm">
-            <div className="flex items-center gap-3 mb-3">
-              <div className="w-9 h-9 bg-blue-50 rounded-lg flex items-center justify-center">
-                <MessageSquare className="w-4.5 h-4.5 text-blue-600" />
+          {/* In Review */}
+          <div className="bg-white rounded-3xl p-6 shadow-sm border border-surface-200 hover:shadow-md transition-shadow">
+            <div className="flex items-center gap-4 mb-4">
+              <div className="w-12 h-12 rounded-2xl bg-blue-50 text-blue-600 flex items-center justify-center border border-blue-100/50">
+                <MessageSquare className="w-5 h-5" />
               </div>
-              <span className="text-sm font-medium text-neutral-500">
-                In Review
-              </span>
+              <div>
+                <span className="text-sm font-bold text-surface-500 uppercase tracking-widest">
+                  In Review
+                </span>
+                <p className="text-4xl font-black text-surface-900 mt-0.5">
+                  {inReviewCount}
+                </p>
+              </div>
             </div>
-            <p className="text-3xl font-bold text-neutral-900">
-              {inReviewCount}
-            </p>
           </div>
-          <div className="bg-white rounded-xl border border-neutral-200 p-5 shadow-sm">
-            <div className="flex items-center gap-3 mb-3">
-              <div className="w-9 h-9 bg-emerald-50 rounded-lg flex items-center justify-center">
-                <Briefcase className="w-4.5 h-4.5 text-emerald-600" />
+          {/* Approved */}
+          <div className="bg-white rounded-3xl p-6 shadow-sm border border-surface-200 hover:shadow-md transition-shadow">
+            <div className="flex items-center gap-4 mb-4">
+              <div className="w-12 h-12 rounded-2xl bg-emerald-50 text-emerald-600 flex items-center justify-center border border-emerald-100/50">
+                <Briefcase className="w-5 h-5" />
               </div>
-              <span className="text-sm font-medium text-neutral-500">
-                Approved
-              </span>
+              <div>
+                <span className="text-sm font-bold text-surface-500 uppercase tracking-widest">
+                  Approved
+                </span>
+                <p className="text-4xl font-black text-surface-900 mt-0.5">
+                  {approvedCount}
+                </p>
+              </div>
             </div>
-            <p className="text-3xl font-bold text-neutral-900">
-              {approvedCount}
-            </p>
           </div>
         </div>
 
         {/* Multi-Role Tabs */}
         {(role === "manager" || role === "hr") && (
-          <div className="flex items-center gap-2 mb-6 border-b border-neutral-200 pb-px">
+          <div className="flex items-center gap-3 mb-8 bg-surface-200/50 p-1.5 rounded-2xl w-fit">
             <button
               onClick={() => setActiveTab("my_jds")}
-              className={`px-4 py-3 text-sm font-bold border-b-2 transition-colors ${
+              className={`px-5 py-2.5 text-sm font-bold rounded-xl transition-all ${
                 activeTab === "my_jds"
-                  ? "border-blue-600 text-blue-600"
-                  : "border-transparent text-neutral-500 hover:text-neutral-700"
+                  ? "bg-white text-surface-900 shadow-sm"
+                  : "text-surface-500 hover:text-surface-700 hover:bg-surface-200/50"
               }`}
             >
               My JDs
@@ -213,15 +245,15 @@ export default function DashboardPage() {
             {role === "manager" && (
               <button
                 onClick={() => setActiveTab("team_approvals")}
-                className={`px-4 py-3 text-sm font-bold border-b-2 transition-colors flex items-center gap-2 ${
+                className={`px-5 py-2.5 text-sm font-bold rounded-xl transition-all flex items-center gap-2 ${
                   activeTab === "team_approvals"
-                    ? "border-blue-600 text-blue-600"
-                    : "border-transparent text-neutral-500 hover:text-neutral-700"
+                    ? "bg-white text-surface-900 shadow-sm"
+                    : "text-surface-500 hover:text-surface-700 hover:bg-surface-200/50"
                 }`}
               >
-                Team Approvals
+                Team JDs
                 {pendingJDs.length > 0 && (
-                  <span className="bg-red-500 text-white text-[10px] px-2 py-0.5 rounded-full">
+                  <span className="bg-primary-500 text-white text-[11px] px-2 py-0.5 rounded-full font-black">
                     {pendingJDs.length}
                   </span>
                 )}
@@ -230,15 +262,15 @@ export default function DashboardPage() {
             {role === "hr" && (
               <button
                 onClick={() => setActiveTab("hr_approvals")}
-                className={`px-4 py-3 text-sm font-bold border-b-2 transition-colors flex items-center gap-2 ${
+                className={`px-5 py-2.5 text-sm font-bold rounded-xl transition-all flex items-center gap-2 ${
                   activeTab === "hr_approvals"
-                    ? "border-blue-600 text-blue-600"
-                    : "border-transparent text-neutral-500 hover:text-neutral-700"
+                    ? "bg-white text-surface-900 shadow-sm"
+                    : "text-surface-500 hover:text-surface-700 hover:bg-surface-200/50"
                 }`}
               >
                 HR Review Queue
                 {pendingJDs.length > 0 && (
-                  <span className="bg-red-500 text-white text-[10px] px-2 py-0.5 rounded-full">
+                  <span className="bg-primary-500 text-white text-[11px] px-2 py-0.5 rounded-full font-black">
                     {pendingJDs.length}
                   </span>
                 )}
@@ -248,35 +280,40 @@ export default function DashboardPage() {
         )}
 
         {/* JD List Area */}
-        <div className="bg-white rounded-2xl border border-neutral-200 shadow-sm">
-          <div className="px-6 py-5 border-b border-neutral-100 flex items-center justify-between">
-            <h2 className="text-lg font-semibold text-neutral-900">
+        <div className="bg-white rounded-3xl border border-surface-200 shadow-premium overflow-hidden">
+          <div className="px-8 py-6 border-b border-surface-100 flex items-center justify-between bg-surface-50/50">
+            <h2 className="text-xl font-black text-surface-900 tracking-tight">
               {activeTab === "my_jds"
                 ? "Your Job Descriptions"
-                : "Requires Your Review"}
+                : role === "hr"
+                  ? "Documents in your HR Queue"
+                  : "Your Team's Documents"}
             </h2>
           </div>
 
           {loading ? (
-            <div className="p-12 flex items-center justify-center">
-              <Loader2 className="w-6 h-6 text-blue-600 animate-spin" />
+            <div className="p-16 flex flex-col items-center justify-center gap-4">
+              <Loader2 className="w-8 h-8 text-primary-500 animate-spin" />
+              <p className="text-surface-500 font-medium">
+                Loading documents...
+              </p>
             </div>
           ) : displayJDs.length === 0 ? (
-            <div className="p-12 text-center">
-              <div className="w-16 h-16 bg-neutral-50 rounded-2xl flex items-center justify-center mx-auto mb-4">
-                <FileText className="w-8 h-8 text-neutral-300" />
+            <div className="p-16 text-center">
+              <div className="w-20 h-20 bg-surface-50 rounded-3xl flex items-center justify-center mx-auto mb-6 border border-surface-100">
+                <FileText className="w-10 h-10 text-surface-300" />
               </div>
-              <h3 className="text-sm font-semibold text-neutral-700 mb-1">
-                {activeTab === "my_jds" ? "No JDs Yet" : "All Caught Up!"}
+              <h3 className="text-lg font-bold text-surface-800 mb-2">
+                {activeTab === "my_jds" ? "No Documents Yet" : "All Caught Up!"}
               </h3>
-              <p className="text-sm text-neutral-400">
+              <p className="text-base text-surface-400 max-w-sm mx-auto">
                 {activeTab === "my_jds"
-                  ? "Start a JD interview to create your first one."
-                  : "There are no JDs waiting for your approval right now."}
+                  ? "Start a new interview by clicking the button above to generate your first document."
+                  : "There are no pending documents waiting for your review."}
               </p>
             </div>
           ) : (
-            <div className="divide-y divide-neutral-100">
+            <div className="divide-y divide-surface-100">
               {displayJDs.map((jdItem) => {
                 const config =
                   STATUS_CONFIG[jdItem.status] || STATUS_CONFIG.draft;
@@ -284,25 +321,25 @@ export default function DashboardPage() {
                   <Link
                     key={jdItem.id}
                     href={`/jd/${jdItem.id}`}
-                    className="group flex items-center justify-between px-6 py-4 hover:bg-neutral-50 transition-colors"
+                    className="group flex flex-col sm:flex-row sm:items-center justify-between p-6 sm:px-8 hover:bg-surface-50/60 transition-colors"
                   >
-                    <div className="flex items-center gap-4">
-                      <div className="w-10 h-10 bg-neutral-50 rounded-lg flex items-center justify-center group-hover:bg-blue-50 transition-colors">
-                        <Briefcase className="w-5 h-5 text-neutral-400 group-hover:text-blue-500 transition-colors" />
+                    <div className="flex items-center gap-5">
+                      <div className="w-12 h-12 bg-surface-100 rounded-2xl flex items-center justify-center group-hover:bg-white group-hover:shadow-sm transition-all border border-transparent group-hover:border-surface-200">
+                        <Briefcase className="w-6 h-6 text-surface-400 group-hover:text-primary-600 transition-colors" />
                       </div>
                       <div>
-                        <h3 className="text-sm font-semibold text-neutral-900">
+                        <h3 className="text-base font-bold text-surface-900 group-hover:text-primary-700 transition-colors">
                           {jdItem.title || "Untitled JD"}
                         </h3>
-                        <div className="flex items-center gap-3 mt-1">
+                        <div className="flex flex-wrap items-center gap-3 mt-1.5">
                           <span
-                            className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium border ${config.bg} ${config.color}`}
+                            className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-black uppercase tracking-widest border ${config.bg} ${config.color}`}
                           >
-                            <span className="w-1 h-1 rounded-full bg-current" />
+                            <span className="w-1.5 h-1.5 rounded-full bg-current" />
                             {config.label}
                           </span>
-                          <span className="flex items-center gap-1 text-xs text-neutral-400">
-                            <Clock className="w-3 h-3" />
+                          <span className="flex items-center gap-1.5 text-[12px] font-bold text-surface-400">
+                            <Clock className="w-3.5 h-3.5" />
                             {jdItem.updated_at
                               ? new Date(jdItem.updated_at).toLocaleDateString(
                                   "en-US",
@@ -314,13 +351,13 @@ export default function DashboardPage() {
                                 )
                               : "—"}
                           </span>
-                          <span className="text-xs text-neutral-400">
+                          <span className="text-[12px] font-bold text-surface-400 bg-surface-100 px-2 py-0.5 rounded-md">
                             v{jdItem.version}
                           </span>
                         </div>
                       </div>
                     </div>
-                    <ArrowRight className="w-4 h-4 text-neutral-300 group-hover:text-neutral-500 group-hover:translate-x-0.5 transition-all" />
+                    <ArrowRight className="w-5 h-5 text-surface-300 group-hover:text-primary-500 group-hover:translate-x-1 transition-all mt-4 sm:mt-0" />
                   </Link>
                 );
               })}

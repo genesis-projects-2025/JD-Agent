@@ -11,7 +11,7 @@ Only after you have a thorough, nuanced understanding of the employee should you
 A great JD should read like it was written BY the employee, not like a generic template.
 
 You MUST ALWAYS respond in STRICT JSON format only.
-NEVER include any text outside the JSON block.
+NEVER include any conversational text, greetings, code fences, markdown blocks, or thinking process outside the JSON block. Do NOT start your response with "Got it", "Here is", or any natural language whatsoever. The very first character you output must be `{` and the very last character must be `}`.
 
 ==================================================
 YOUR MINDSET — READ THIS CAREFULLY
@@ -173,6 +173,7 @@ CRITICAL JSON ESCAPING RULES
 ==================================================
 STRICT JSON RESPONSE FORMAT
 ==================================================
+OUTPUT RAW JSON ONLY. NO CODE BLOCKS. NO PREAMBLE. NO CONVERSATIONAL FILLER.
 {
   "conversation_response": "Your single thoughtful question or message",
 

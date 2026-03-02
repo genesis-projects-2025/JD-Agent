@@ -168,8 +168,8 @@ export default function Sidebar() {
     loadJDs();
   }, [pathname, employeeId, isAuthenticated, role]); // Reload when navigating or ID changes
 
-  // Hide sidebar if they are not logged in!
-  if (!isAuthenticated) return null;
+  // Hide sidebar if they are not logged in or are on the admin portal
+  if (!isAuthenticated || pathname.startsWith("/admin")) return null;
 
   return (
     <aside className="w-72 h-screen bg-gradient-to-b from-neutral-900 via-neutral-900 to-neutral-800 text-white flex flex-col border-r border-neutral-800 shadow-2xl">
@@ -267,12 +267,24 @@ export default function Sidebar() {
 
           {jds.map((jdItem) => {
             const config = STATUS_CONFIG[jdItem.status] || STATUS_CONFIG.draft;
-            const isJDActive = pathname === `/questionnaire/${jdItem.id}`;
+            const href = [
+              "draft",
+              "jd_generated",
+              "sent_to_manager",
+              "manager_rejected",
+              "sent_to_hr",
+              "hr_rejected",
+              "approved",
+            ].includes(jdItem.status)
+              ? `/jd/${jdItem.id}`
+              : `/questionnaire/${jdItem.id}`;
+
+            const isJDActive = pathname === href;
 
             return (
               <Link
                 key={jdItem.id}
-                href={`/questionnaire/${jdItem.id}`}
+                href={href}
                 className={`
                   group flex flex-col gap-1.5 px-3 py-3 rounded-lg transition-all duration-150 mb-1
                   ${
@@ -316,12 +328,24 @@ export default function Sidebar() {
               {myJds.map((jdItem) => {
                 const config =
                   STATUS_CONFIG[jdItem.status] || STATUS_CONFIG.draft;
-                const isJDActive = pathname === `/questionnaire/${jdItem.id}`;
+                const href = [
+                  "draft",
+                  "jd_generated",
+                  "sent_to_manager",
+                  "manager_rejected",
+                  "sent_to_hr",
+                  "hr_rejected",
+                  "approved",
+                ].includes(jdItem.status)
+                  ? `/jd/${jdItem.id}`
+                  : `/questionnaire/${jdItem.id}`;
+
+                const isJDActive = pathname === href;
 
                 return (
                   <Link
                     key={jdItem.id}
-                    href={`/questionnaire/${jdItem.id}`}
+                    href={href}
                     className={`
                       group flex flex-col gap-1.5 px-3 py-3 rounded-lg transition-all duration-150 mb-1
                       ${

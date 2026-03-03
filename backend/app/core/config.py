@@ -9,8 +9,10 @@ class Settings(BaseSettings):
     DATABASE_PASS: str
     DATABASE_HOST: str = "localhost"
     DATABASE_PORT: int = 5432
-    GEMINI_API_KEY: str=""
-    PINECONE_API_KEY: str=""
+    DATABASE_SSL: str = "disable"   # ADD THIS LINE
+    GEMINI_API_KEY: str = ""
+    PINECONE_API_KEY: str = ""
+
     @property
     def DATABASE_URL(self) -> str:
         encoded_pass = quote_plus(self.DATABASE_PASS)
@@ -18,6 +20,7 @@ class Settings(BaseSettings):
             f"postgresql+asyncpg://{self.DATABASE_USER_NAME}:"
             f"{encoded_pass}@{self.DATABASE_HOST}:"
             f"{self.DATABASE_PORT}/{self.DATABASE_NAME}"
+            f"?ssl={self.DATABASE_SSL}"   # ADD THIS LINE
         )
 
     class Config:

@@ -23,7 +23,11 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="JD Agent API", lifespan=lifespan)
 
 origins = [
-    "https://jd-agent-kappa.vercel.app/"
+    "https://jd-agent-kappa.vercel.app",   # ← no trailing slash
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+    "http://localhost:3001",
+    "http://localhost:5173",
 ]
 
 app.add_middleware(

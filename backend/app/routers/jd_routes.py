@@ -241,6 +241,9 @@ async def save_jd(request: SaveJDRequest, db: AsyncSession = Depends(get_db)):
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Failed to save JD: {str(e)}")
 
+@router.get("/")
+def health_check():
+    return {"status": "ok"}
 
 # ── List all (admin) ──────────────────────────────────────────────────────────
 @router.get("/list")

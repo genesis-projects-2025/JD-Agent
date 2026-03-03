@@ -11,7 +11,7 @@ from app.routers.jd_routes import router as jd_router
 from app.routers.organogram_routes import router as organogram_router
 from app.routers.admin_routes import router as admin_router
 from app.routers.feedback_routes import router as feedback_router
-# this is normal fiel
+# this is normal file
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Runs on startup — creates tables if they don't exist

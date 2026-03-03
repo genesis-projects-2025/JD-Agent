@@ -78,7 +78,6 @@ async def get_all_feedback(db: AsyncSession = Depends(get_db)):
             
         return formatted_list
     except Exception as e:
-        print(f"Error fetching feedback: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.patch("/admin/feedback/{feedback_id}/status")

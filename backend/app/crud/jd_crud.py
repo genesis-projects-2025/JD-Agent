@@ -566,7 +566,6 @@ async def list_manager_pending_jds(db: AsyncSession, manager_id: str) -> list[JD
         .order_by(JDSession.updated_at.desc())
     )
     records = list(result.scalars().all())
-    print(f"DEBUG Manager Query ({manager_id}): found {len(records)} records")
     return records
 
 async def list_hr_pending_jds(db: AsyncSession) -> list[JDSession]:

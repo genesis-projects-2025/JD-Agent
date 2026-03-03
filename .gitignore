@@ -5,6 +5,7 @@ __pycache__/
 .DS_Store
 *.log
 .env
+.env.local
 .idea/
 .vscode/
 dist/
@@ -17,3 +18,5 @@ coverage/
 *.swo
 *.tmp
 *.zip
+# Employee data — never commit to git
+backend/organogram_export.csvbackend/seed_aiven.py

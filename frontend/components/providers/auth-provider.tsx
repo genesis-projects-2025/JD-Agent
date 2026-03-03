@@ -47,6 +47,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           sessionStorage.setItem("employee_id", emp.employee_id);
           setEmployeeId(emp.employee_id);
 
+          // Console Debugger for the user
+          console.group(
+            `%c🚀 AUTHENTICATED: ${emp.employee_id}`,
+            "color: #10b981; font-weight: bold; font-size: 14px",
+          );
+          console.log(
+            "%cEmployee Data:",
+            "color: #3b82f6; font-weight: bold",
+            emp,
+          );
+          console.groupEnd();
+
           // Clean up the URL parameter natively so they don't share authenticated raw links
           const newUrl = window.location.pathname;
           router.replace(newUrl);

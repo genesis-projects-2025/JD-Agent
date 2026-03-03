@@ -30,7 +30,10 @@ function SSOSync() {
         });
 
         if (!res.ok) {
-          throw new Error("Failed to sync SSO user with backend");
+          setError(
+            `Invalid authentication code or server error: ${res.status}`,
+          );
+          return;
         }
 
         const data = await res.json();
@@ -54,8 +57,9 @@ function SSOSync() {
         // Redirect to their dashboard
         router.push(`/dashboard/${data.employee.employee_id}`);
       } catch (err: any) {
-        console.error("SSO Error:", err);
-        setError(err.message || "SSO Sync Failed");
+        // Only log actual network crashes here
+        console.warn("Network or SSO Sync Error:", err.message);
+        setError("Network Error: Could not reach the authentication server.");
       }
     };
 

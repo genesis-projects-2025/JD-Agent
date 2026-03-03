@@ -63,7 +63,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           const newUrl = window.location.pathname;
           router.replace(newUrl);
         } catch (err: any) {
-          console.error("Auth Failure:", err);
+          console.warn(
+            "Auth Failure (Expected if code is invalid):",
+            err.message,
+          );
           setError("Invalid Employee Code or Unauthorized Access.");
           sessionStorage.removeItem("auth_user");
           sessionStorage.removeItem("employee_id");

@@ -828,7 +828,7 @@ export default function DynamicDashboardPage() {
     // 1. Get raw session from sessionStorage
     const sessionStr = sessionStorage.getItem("auth_user");
     if (!sessionStr) {
-      router.replace("/login");
+      router.replace("/");
       return;
     }
 
@@ -836,7 +836,7 @@ export default function DynamicDashboardPage() {
     try {
       sessionUser = JSON.parse(sessionStr);
     } catch {
-      router.replace("/login");
+      router.replace("/");
       return;
     }
 

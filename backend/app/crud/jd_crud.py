@@ -560,8 +560,7 @@ async def list_manager_pending_jds(db: AsyncSession, manager_id: str) -> list[JD
                 "manager_rejected", 
                 "sent_to_hr", 
                 "hr_rejected", 
-                "approved", 
-                "rejected"
+                "approved"
             ]))
         )
         .order_by(JDSession.updated_at.desc())

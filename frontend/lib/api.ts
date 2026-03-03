@@ -117,38 +117,6 @@ export default function devLogout() {
   sessionStorage.removeItem("auth_user");
 }
 
-/*
-── PROD SSO INTEGRATION ───────────────────────────────────────────────────────
-
-When you're ready to connect Darwinbox / Azure AD:
-
-STEP 1 — User clicks "Sign in with SSO" button
-  → redirect to: /api/auth/sso  (your FastAPI endpoint)
-
-STEP 2 — Backend validates the token from the IdP
-  POST /api/auth/sso-callback { token }
-  → validates with Microsoft/Darwinbox
-  → gets or creates employee in DB
-  → returns { employee_id, name, email, role, department }
-
-STEP 3 — Frontend stores the user
-  const user = await res.json()
-  sessionStorage.setItem("auth_user", JSON.stringify(user))
-  router.push(`/dashboard/${user.employee_id}`)
-
-STEP 4 — getCurrentUser() above picks it up automatically.
-  Zero other changes needed anywhere in the app.
-
-Azure AD token payload example:
-{
-  "oid": "abc123",             → employee_id
-  "name": "John Doe",          → name
-  "email": "john@company.com", → email
-  "extension_role": "manager", → role  (set as custom attr in Azure AD)
-  "department": "Engineering"  → department
-}
-*/
-
 // ── API Fetching Functions ────────────────────────────────────────────────────
 
 export const API_URL =
@@ -181,7 +149,7 @@ export async function fetchOrganogramEmployees() {
 }
 
 export async function loginWithOrganogram(empCode: string) {
-  const res = await fetch(`${API_URL}/auth/login`, {
+  const res = await fetch(`${API_URL}/auth/sso-sync`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ emp_code: empCode }),

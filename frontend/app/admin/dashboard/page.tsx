@@ -4,7 +4,6 @@ import { useEffect, useState } from "react";
 import { API_URL } from "@/lib/api";
 import {
   Users,
-  FileText,
   CheckCircle,
   XCircle,
   Search,
@@ -83,7 +82,13 @@ export default function AdminDashboard() {
     if (activeTab === "HR" && u.role?.toLowerCase() !== "hr") return false;
 
     if (statusFilter === "Pending") {
-      const pendingStatuses = ["collecting", "pending_manager", "pending_hr"];
+      const pendingStatuses = [
+        "collecting",
+        "draft",
+        "jd_generated",
+        "sent_to_manager",
+        "sent_to_hr",
+      ];
       if (!pendingStatuses.includes(u.jd_status?.toLowerCase())) return false;
     }
     if (
@@ -93,7 +98,7 @@ export default function AdminDashboard() {
       return false;
     if (
       statusFilter === "Rejected" &&
-      u.jd_status?.toLowerCase() !== "rejected"
+      !["manager_rejected", "hr_rejected"].includes(u.jd_status?.toLowerCase())
     )
       return false;
 
@@ -110,21 +115,21 @@ export default function AdminDashboard() {
         </span>
       );
     }
-    if (s === "rejected") {
+    if (s.includes("rejected")) {
       return (
         <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-red-50 text-red-700 border border-red-200">
           <div className="w-1.5 h-1.5 rounded-full bg-red-500" /> Rejected
         </span>
       );
     }
-    if (s.includes("pending")) {
+    if (s === "sent_to_manager" || s === "sent_to_hr") {
       return (
         <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-50 text-amber-700 border border-amber-200">
           <div className="w-1.5 h-1.5 rounded-full bg-amber-500" /> Pending
         </span>
       );
     }
-    if (s === "collecting") {
+    if (["collecting", "draft", "jd_generated"].includes(s)) {
       return (
         <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-blue-50 text-blue-700 border border-blue-200">
           <div className="w-1.5 h-1.5 rounded-full bg-blue-500" /> Drafting

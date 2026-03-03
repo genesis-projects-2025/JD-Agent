@@ -1,7 +1,13 @@
 "use client";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { LayoutDashboard, Users, LogOut, FileText } from "lucide-react";
+import {
+  LayoutDashboard,
+  Users,
+  LogOut,
+  FileText,
+  Megaphone,
+} from "lucide-react";
 import { useEffect, useState } from "react";
 
 export default function AdminLayout({
@@ -36,6 +42,7 @@ export default function AdminLayout({
     { label: "Dashboard", href: "/admin/dashboard", icon: LayoutDashboard },
     { label: "Role Models (JDs)", href: "/admin/jds", icon: FileText },
     { label: "Employees", href: "/admin/users", icon: Users },
+    { label: "Feedback Inbox", href: "/admin/feedback", icon: Megaphone },
   ];
 
   return (

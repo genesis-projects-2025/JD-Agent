@@ -30,20 +30,36 @@ function SSOSync() {
         });
 
         if (!res.ok) {
-          throw new Error("Failed to sync SSO user with backend");
+          setError(
+            `Invalid authentication code or server error: ${res.status}`,
+          );
+          return;
         }
 
         const data = await res.json();
 
-        // Save to localStorage matching auth.ts and api.ts AuthUser type expectations
-        localStorage.setItem("auth_user", JSON.stringify(data.employee));
-        localStorage.setItem("employee_id", data.employee.employee_id);
+        // Save to sessionStorage matching auth.ts and api.ts AuthUser type expectations
+        sessionStorage.setItem("auth_user", JSON.stringify(data.employee));
+        sessionStorage.setItem("employee_id", data.employee.employee_id);
+
+        // Console Debugger for the user
+        console.group(
+          `%c🚀 SSO AUTHENTICATED: ${data.employee.employee_id}`,
+          "color: #10b981; font-weight: bold; font-size: 14px",
+        );
+        console.log(
+          "%cEmployee Data:",
+          "color: #3b82f6; font-weight: bold",
+          data.employee,
+        );
+        console.groupEnd();
 
         // Redirect to their dashboard
         router.push(`/dashboard/${data.employee.employee_id}`);
       } catch (err: any) {
-        console.error("SSO Error:", err);
-        setError(err.message || "SSO Sync Failed");
+        // Only log actual network crashes here
+        console.warn("Network or SSO Sync Error:", err.message);
+        setError("Network Error: Could not reach the authentication server.");
       }
     };
 

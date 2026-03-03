@@ -75,7 +75,7 @@ export default function QuestionnairePage() {
   const handleConfirmDelete = async () => {
     setIsDeleting(true);
     try {
-      const employeeId = localStorage.getItem("employee_id");
+      const employeeId = sessionStorage.getItem("employee_id");
       if (!employeeId) throw new Error("Missing employee identification.");
       await deleteJD(sessionId, employeeId);
       router.push(`/dashboard/${employeeId}`);
@@ -200,7 +200,7 @@ export default function QuestionnairePage() {
                 const success = await handleSaveJD();
                 if (success) {
                   setSaveSuccess(true);
-                  // Stays on page with success feedback showing momentarily, then routes to Full Document View
+                  // Stays on page with success feedback showing momentarily, then redirects
                   setTimeout(() => {
                     router.push(`/jd/${sessionId}`);
                   }, 1200);

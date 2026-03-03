@@ -24,7 +24,9 @@ import {
   LogOut,
   Users,
   ShieldCheck,
+  Megaphone,
 } from "lucide-react";
+import FeedbackModal from "@/components/feedback/FeedbackModal";
 
 type JDListItem = {
   id: string;
@@ -65,8 +67,14 @@ export default function Sidebar() {
   const [jds, setJds] = useState<JDListItem[]>([]);
   const [myJds, setMyJds] = useState<JDListItem[]>([]);
   const [loadingJds, setLoadingJds] = useState(false);
+  const [isFeedbackOpen, setIsFeedbackOpen] = useState(false);
+  const [isMounted, setIsMounted] = useState(false);
 
-  const user = getCurrentUser();
+  useEffect(() => {
+    setIsMounted(true);
+  }, []);
+
+  const user = isMounted ? getCurrentUser() : null;
   const role = user?.role || "employee";
   const currentView = searchParams.get("view");
 
@@ -169,7 +177,8 @@ export default function Sidebar() {
   }, [pathname, employeeId, isAuthenticated, role]); // Reload when navigating or ID changes
 
   // Hide sidebar if they are not logged in or are on the admin portal
-  if (!isAuthenticated || pathname.startsWith("/admin")) return null;
+  if (!isMounted || !isAuthenticated || pathname.startsWith("/admin"))
+    return null;
 
   return (
     <aside className="w-72 h-screen bg-gradient-to-b from-neutral-900 via-neutral-900 to-neutral-800 text-white flex flex-col border-r border-neutral-800 shadow-2xl">
@@ -386,6 +395,16 @@ export default function Sidebar() {
 
       {/* Footer Section */}
       <div className="p-4 border-t border-neutral-800/50 space-y-2 flex flex-col">
+        <button
+          onClick={() => setIsFeedbackOpen(true)}
+          className="w-full flex items-center gap-3 px-4 py-2.5 rounded-lg text-emerald-400 hover:text-white hover:bg-emerald-500/20 transition-all text-sm font-medium border border-emerald-500/20"
+        >
+          <Megaphone className="w-4 h-4" />
+          <span>Send Feedback</span>
+        </button>
+
+        <div className="h-px bg-neutral-800/50 my-2" />
+
         <button className="w-full flex items-center gap-3 px-4 py-2.5 rounded-lg text-neutral-400 hover:text-white hover:bg-neutral-800/50 transition-all text-sm">
           <Settings className="w-4 h-4" />
           <span>Settings</span>
@@ -405,6 +424,11 @@ export default function Sidebar() {
           <span>Sign Out</span>
         </button>
       </div>
+
+      <FeedbackModal
+        isOpen={isFeedbackOpen}
+        onClose={() => setIsFeedbackOpen(false)}
+      />
     </aside>
   );
 }

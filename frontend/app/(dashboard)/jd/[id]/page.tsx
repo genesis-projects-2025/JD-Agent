@@ -36,6 +36,7 @@ import {
   saveJD,
 } from "@/lib/api";
 import { DeleteModal } from "@/components/ui/delete-modal";
+import FeedbackModal from "@/components/feedback/FeedbackModal";
 
 export default function JDPage() {
   const params = useParams();
@@ -50,6 +51,7 @@ export default function JDPage() {
   const [sendingToManager, setSendingToManager] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [showFeedbackPrompt, setShowFeedbackPrompt] = useState(false);
 
   // Edit mode
   const [isEditing, setIsEditing] = useState(false);
@@ -59,6 +61,11 @@ export default function JDPage() {
   const [activeTab, setActiveTab] = useState<"markdown" | "structured">(
     "markdown",
   );
+  const [isMounted, setIsMounted] = useState(false);
+
+  useEffect(() => {
+    setIsMounted(true);
+  }, []);
 
   // Helper to deep unwrap double-stringified JSON objects from the LLM core
   const safeParseObject = (obj: any): any => {
@@ -157,10 +164,12 @@ export default function JDPage() {
         setLoading(false);
       }
     };
-    init();
-  }, [jdId]);
+    if (isMounted) {
+      init();
+    }
+  }, [jdId, isMounted]);
 
-  if (loading) {
+  if (!isMounted || loading) {
     return (
       <div className="h-[calc(100vh-8rem)] flex items-center justify-center">
         <Loader2 className="w-8 h-8 text-primary-600 animate-spin" />
@@ -211,6 +220,7 @@ export default function JDPage() {
       await sendToHR(jd.id, jd.employee_id);
       const updated = await fetchJD(jd.id);
       setJd(updated);
+      setShowFeedbackPrompt(true);
     } catch (e: any) {
       alert(e.message || "Failed to send to HR.");
     } finally {
@@ -241,6 +251,7 @@ export default function JDPage() {
       await approveJD(jd.id, jd.employee_id);
       const updated = await fetchJD(jd.id);
       setJd(updated);
+      setShowFeedbackPrompt(true);
     } catch (e: any) {
       alert(e.message || "Failed to approve JD.");
     } finally {
@@ -288,6 +299,7 @@ export default function JDPage() {
       await submitToManager(jd.id, jd.employee_id);
       const updated = await fetchJD(jd.id);
       setJd(updated);
+      setShowFeedbackPrompt(true);
     } catch (e: any) {
       alert(e.message || "Failed to submit JD.");
     } finally {
@@ -702,6 +714,13 @@ export default function JDPage() {
           </div>
         )}
       </div>
+
+      <FeedbackModal
+        isOpen={showFeedbackPrompt}
+        onClose={() => setShowFeedbackPrompt(false)}
+        jdSessionId={jdId}
+        defaultCategory="JD Process"
+      />
     </div>
   );
 }

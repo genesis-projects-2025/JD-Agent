@@ -42,27 +42,42 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           const res = await loginWithOrganogram(urlEmpCode);
           const emp = res.employee;
 
-          // Cache session locally
-          localStorage.setItem("auth_user", JSON.stringify(emp));
-          localStorage.setItem("employee_id", emp.employee_id);
+          // Cache session carefully in sessionStorage so tabs are isolated
+          sessionStorage.setItem("auth_user", JSON.stringify(emp));
+          sessionStorage.setItem("employee_id", emp.employee_id);
           setEmployeeId(emp.employee_id);
+
+          // Console Debugger for the user
+          console.group(
+            `%c🚀 AUTHENTICATED: ${emp.employee_id}`,
+            "color: #10b981; font-weight: bold; font-size: 14px",
+          );
+          console.log(
+            "%cEmployee Data:",
+            "color: #3b82f6; font-weight: bold",
+            emp,
+          );
+          console.groupEnd();
 
           // Clean up the URL parameter natively so they don't share authenticated raw links
           const newUrl = window.location.pathname;
           router.replace(newUrl);
         } catch (err: any) {
-          console.error("Auth Failure:", err);
+          console.warn(
+            "Auth Failure (Expected if code is invalid):",
+            err.message,
+          );
           setError("Invalid Employee Code or Unauthorized Access.");
-          localStorage.removeItem("auth_user");
-          localStorage.removeItem("employee_id");
+          sessionStorage.removeItem("auth_user");
+          sessionStorage.removeItem("employee_id");
         } finally {
           setIsLoading(false);
           return;
         }
       }
 
-      // 2. No URL param — Check Local Storage Cache fallback
-      const cachedId = localStorage.getItem("employee_id");
+      // 2. No URL param — Check Session Storage Cache fallback
+      const cachedId = sessionStorage.getItem("employee_id");
       if (cachedId) {
         setEmployeeId(cachedId);
       }
@@ -74,8 +89,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [searchParams, router]);
 
   const logout = () => {
-    localStorage.removeItem("employee_id");
-    localStorage.removeItem("auth_user");
+    sessionStorage.removeItem("employee_id");
+    sessionStorage.removeItem("auth_user");
     setEmployeeId(null);
     router.push("/"); // Boot to landing
   };

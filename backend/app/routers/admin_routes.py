@@ -50,10 +50,10 @@ async def get_admin_overview(db: AsyncSession = Depends(get_db)):
     emp_res = await db.execute(select(func.count(Employee.id)))
     total_employees = emp_res.scalar_one()
     
-    # pending jds
+    # pending jds (waiting on manager or hr)
     pending_res = await db.execute(
         select(func.count(JDSession.id)).where(
-            JDSession.status.in_(["collecting", "pending_manager", "pending_hr"])
+            JDSession.status.in_(["sent_to_manager", "sent_to_hr"])
         )
     )
     pending_jds = pending_res.scalar_one()
@@ -62,8 +62,10 @@ async def get_admin_overview(db: AsyncSession = Depends(get_db)):
     approved_res = await db.execute(select(func.count(JDSession.id)).where(JDSession.status == "approved"))
     approved_jds = approved_res.scalar_one()
     
-    # rejected
-    rejected_res = await db.execute(select(func.count(JDSession.id)).where(JDSession.status == "rejected"))
+    # rejected (by manager or hr)
+    rejected_res = await db.execute(select(func.count(JDSession.id)).where(
+        JDSession.status.in_(["manager_rejected", "hr_rejected"])
+    ))
     rejected_jds = rejected_res.scalar_one()
 
     return StatCardData(
@@ -85,22 +87,22 @@ async def get_admin_charts(db: AsyncSession = Depends(get_db)):
 
     pipeline_map = {item["status"]: item["count"] for item in pipeline_data}
     normalized_pipeline = [
-        {"status": "Drafting", "count": pipeline_map.get("collecting", 0)},
-        {"status": "Pending Manager", "count": pipeline_map.get("pending_manager", 0)},
-        {"status": "Pending HR", "count": pipeline_map.get("pending_hr", 0)},
+        {"status": "Drafting", "count": pipeline_map.get("collecting", 0) + pipeline_map.get("draft", 0) + pipeline_map.get("jd_generated", 0)},
+        {"status": "Pending Manager", "count": pipeline_map.get("sent_to_manager", 0)},
+        {"status": "Pending HR", "count": pipeline_map.get("sent_to_hr", 0)},
         {"status": "Approved", "count": pipeline_map.get("approved", 0)},
-        {"status": "Rejected", "count": pipeline_map.get("rejected", 0)},
+        {"status": "Rejected", "count": pipeline_map.get("manager_rejected", 0) + pipeline_map.get("hr_rejected", 0)},
     ]
 
     # 2. Manager Response Chart (Doughnut)
-    # JDs that have reached 'pending_manager' or further (all past collecting)
+    # JDs that have reached 'sent_to_manager' or further
     manager_responded_res = await db.execute(
-        select(func.count(JDSession.id)).where(JDSession.status.in_(["pending_hr", "approved", "rejected"]))
+        select(func.count(JDSession.id)).where(JDSession.status.in_(["sent_to_hr", "manager_rejected", "hr_rejected", "approved"]))
     )
     manager_responded = manager_responded_res.scalar_one()
     
     manager_pending_res = await db.execute(
-        select(func.count(JDSession.id)).where(JDSession.status == "pending_manager")
+        select(func.count(JDSession.id)).where(JDSession.status == "sent_to_manager")
     )
     manager_pending = manager_pending_res.scalar_one()
 

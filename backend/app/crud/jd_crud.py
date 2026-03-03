@@ -33,6 +33,10 @@ def _safe_jsonb(value) -> dict:
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
+def _extract_title(jd_structured: dict) -> Optional[str]:
+    if not isinstance(jd_structured, dict):
+        return None
+    
     title = (
         jd_structured.get("job_title")
         or jd_structured.get("title")
@@ -556,8 +560,7 @@ async def list_manager_pending_jds(db: AsyncSession, manager_id: str) -> list[JD
                 "manager_rejected", 
                 "sent_to_hr", 
                 "hr_rejected", 
-                "approved", 
-                "rejected"
+                "approved"
             ]))
         )
         .order_by(JDSession.updated_at.desc())

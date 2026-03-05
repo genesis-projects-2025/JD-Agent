@@ -228,8 +228,14 @@ function EmployeeView({
   const currentView = searchParams.get("view");
 
   const [filter, setFilter] = useState<
-    "all" | "draft" | "pending" | "approved"
-  >(currentView === "approvals" ? "pending" : "all");
+    "all" | "draft" | "pending" | "approved" | "feedback"
+  >(
+    currentView === "feedback"
+      ? "feedback"
+      : currentView === "approvals"
+        ? "pending"
+        : "all",
+  );
 
   useEffect(() => {
     fetchEmployeeJDs(employeeId)
@@ -373,12 +379,13 @@ function EmployeeView({
           },
         ].map((tab) => {
           const isActive = filter === tab.key;
-          const colorClasses = {
-            blue: "bg-blue-100 text-blue-700",
-            amber: "bg-amber-100 text-amber-700",
-            purple: "bg-purple-100 text-purple-700",
-            emerald: "bg-emerald-100 text-emerald-700",
-          }[tab.color];
+          const colorClasses =
+            {
+              blue: "bg-blue-100 text-blue-700",
+              amber: "bg-amber-100 text-amber-700",
+              purple: "bg-purple-100 text-purple-700",
+              emerald: "bg-emerald-100 text-emerald-700",
+            }[tab.color as string] || "bg-surface-100 text-surface-700";
 
           return (
             <button
@@ -442,8 +449,14 @@ function ManagerView({ user }: { user: AuthUser }) {
   const currentView = searchParams.get("view");
 
   const [filter, setFilter] = useState<
-    "all" | "pending" | "approved" | "my_jds"
-  >(currentView === "approvals" ? "pending" : "all");
+    "all" | "pending" | "approved" | "my_jds" | "feedback"
+  >(
+    currentView === "feedback"
+      ? "feedback"
+      : currentView === "approvals"
+        ? "pending"
+        : "all",
+  );
 
   useEffect(() => {
     async function load() {
@@ -572,12 +585,13 @@ function ManagerView({ user }: { user: AuthUser }) {
           },
         ].map((tab) => {
           const isActive = filter === tab.key;
-          const colorClasses = {
-            blue: "bg-blue-100 text-blue-700",
-            amber: "bg-amber-100 text-amber-700",
-            emerald: "bg-emerald-100 text-emerald-700",
-            slate: "bg-slate-100 text-slate-700",
-          }[tab.color];
+          const colorClasses =
+            {
+              blue: "bg-blue-100 text-blue-700",
+              amber: "bg-amber-100 text-amber-700",
+              emerald: "bg-emerald-100 text-emerald-700",
+              slate: "bg-slate-100 text-slate-700",
+            }[tab.color as string] || "bg-surface-100 text-surface-700";
 
           return (
             <button

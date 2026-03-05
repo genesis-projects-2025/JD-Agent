@@ -23,6 +23,7 @@ from app.crud.jd_crud import (
     create_review_comment,
     get_review_comments_for_jd,
     get_unread_feedback_for_user,
+    get_all_feedback_for_user,
     mark_feedback_read,
 )
 import uuid
@@ -286,6 +287,16 @@ async def get_user_feedback(employee_id: str, role: str = "employee", db: AsyncS
         return feedback
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to fetch feedback: {str(e)}")
+
+
+@router.get("/feedback/all/{employee_id}")
+async def get_all_user_feedback(employee_id: str, role: str = "employee", db: AsyncSession = Depends(get_db)):
+    """Get all feedback (read and unread) for a specific user (for the dedicated feedback page)."""
+    try:
+        feedback = await get_all_feedback_for_user(db, employee_id, role)
+        return feedback
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch all feedback: {str(e)}")
 
 
 @router.patch("/feedback/{comment_id}/read")

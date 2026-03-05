@@ -360,6 +360,17 @@ export async function fetchUnreadFeedback(
   return res.json();
 }
 
+export async function fetchAllFeedback(
+  employeeId: string,
+  role: string = "employee",
+) {
+  const res = await fetch(
+    `${API_URL}/jd/feedback/all/${employeeId}?role=${role}`,
+  );
+  if (!res.ok) throw new Error("Failed to fetch all feedback");
+  return res.json();
+}
+
 export async function markFeedbackRead(commentId: string) {
   const res = await fetch(`${API_URL}/jd/feedback/${commentId}/read`, {
     method: "PATCH",

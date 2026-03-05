@@ -718,7 +718,7 @@ async def get_unread_feedback_for_user(
             .join(Employee, JDSession.employee_id == Employee.id)
             .where(
                 (JDReviewComment.target_role == "manager") &
-                (Employee.reporting_manager_code == employee_id) &
+                ((Employee.reporting_manager_code == employee_id) | (JDSession.employee_id == employee_id)) &
                 (JDReviewComment.is_read == False)
             )
             .order_by(JDReviewComment.created_at.desc())
@@ -740,6 +740,88 @@ async def get_unread_feedback_for_user(
             "jd_title": jd.title if jd else "Untitled JD",
             "reviewer_name": reviewer.name if reviewer else "Unknown",
             "reviewer_role": reviewer.role if reviewer else "unknown",
+            "action": c.action,
+            "comment": c.comment,
+            "is_read": c.is_read,
+            "created_at": c.created_at.isoformat() if c.created_at else None,
+        })
+    return serialized
+
+
+async def get_all_feedback_for_user(
+    db: AsyncSession,
+    employee_id: str,
+    user_role: str,
+) -> list:
+    """
+    Get ALL review comments (read and unread) relevant to this user.
+    - Employee: comments where JD employee_id == this user AND target_role == "employee"
+    - Manager: comments where target_role == "manager" AND JD belongs to their reports
+    - HR: comments where reviewer_id == this user (what they rejected)
+    """
+    from app.models.review_comment_model import JDReviewComment
+    from app.models.user_model import Employee
+
+    if user_role == "employee":
+        result = await db.execute(
+            select(JDReviewComment)
+            .join(JDSession, JDReviewComment.jd_session_id == JDSession.id)
+            .where(
+                (JDSession.employee_id == employee_id) &
+                (JDReviewComment.target_role == "employee")
+            )
+            .order_by(JDReviewComment.created_at.desc())
+        )
+    elif user_role == "manager":
+        result = await db.execute(
+            select(JDReviewComment)
+            .join(JDSession, JDReviewComment.jd_session_id == JDSession.id)
+            .join(Employee, JDSession.employee_id == Employee.id)
+            .where(
+                (JDReviewComment.target_role == "manager") &
+                ((Employee.reporting_manager_code == employee_id) | (JDSession.employee_id == employee_id))
+            )
+            .order_by(JDReviewComment.created_at.desc())
+        )
+    elif user_role == "hr":
+        result = await db.execute(
+            select(JDReviewComment)
+            .where(JDReviewComment.reviewer_id == employee_id)
+            .order_by(JDReviewComment.created_at.desc())
+        )
+    else:
+        return []
+
+    comments = list(result.scalars().all())
+    serialized = []
+    for c in comments:
+        jd_res = await db.execute(select(JDSession).where(JDSession.id == c.jd_session_id))
+        jd = jd_res.scalar_one_or_none()
+        reviewer_res = await db.execute(select(Employee).where(Employee.id == c.reviewer_id))
+        reviewer = reviewer_res.scalar_one_or_none()
+        
+        # Determine employee metadata for the JD
+        emp_name = "Unknown"
+        emp_dept = ""
+        jd_status = "unknown"
+        if jd:
+            jd_status = jd.status
+            emp_res = await db.execute(select(Employee).where(Employee.id == jd.employee_id))
+            emp = emp_res.scalar_one_or_none()
+            if emp:
+                emp_name = emp.name
+                emp_dept = emp.department
+
+        serialized.append({
+            "id": str(c.id),
+            "jd_session_id": str(c.jd_session_id),
+            "jd_title": jd.title if jd else "Untitled JD",
+            "jd_status": jd_status,
+            "jd_employee_name": emp_name,
+            "jd_department": emp_dept,
+            "reviewer_name": reviewer.name if reviewer else "Unknown User",
+            "reviewer_role": reviewer.role if reviewer else "unknown",
+            "target_role": c.target_role,
             "action": c.action,
             "comment": c.comment,
             "is_read": c.is_read,

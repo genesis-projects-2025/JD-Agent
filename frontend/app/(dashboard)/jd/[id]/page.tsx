@@ -390,6 +390,8 @@ export default function JDPage() {
               url += "?view=pending";
             } else if (u.role === "hr" && jd.status === "sent_to_hr") {
               url += "?view=approvals";
+            } else if (jd.status.includes("rejected")) {
+              url += "?view=feedback";
             }
           }
           router.push(url);
@@ -648,110 +650,96 @@ export default function JDPage() {
         </div>
       </div>
 
-      {/* Review Audit Trail */}
-      {reviewComments.length > 0 && (
-        <div className="space-y-3">
-          <h3 className="text-[11px] font-black text-surface-500 uppercase tracking-widest px-1">
-            Review History
-          </h3>
-          {reviewComments.map((rc: any) => (
-            <div
-              key={rc.id}
-              className={`rounded-2xl p-5 shadow-sm border ${
-                rc.action === "rejected"
-                  ? "bg-red-50 border-red-200"
-                  : rc.action === "approved"
-                    ? "bg-emerald-50 border-emerald-200"
-                    : "bg-amber-50 border-amber-200"
-              }`}
-            >
-              <div className="flex items-center justify-between mb-2">
-                <div className="flex items-center gap-2">
-                  <span
-                    className={`px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider ${
-                      rc.action === "rejected"
-                        ? "bg-red-100 text-red-700"
-                        : rc.action === "approved"
-                          ? "bg-emerald-100 text-emerald-700"
-                          : "bg-amber-100 text-amber-700"
-                    }`}
-                  >
-                    {rc.action === "rejected"
-                      ? "Rejected"
-                      : rc.action === "approved"
-                        ? "Approved"
-                        : "Revision Requested"}
-                  </span>
-                  <span className="text-[11px] font-bold text-surface-600">
-                    by {rc.reviewer_name} ({rc.reviewer_role})
-                  </span>
+      {/* Feedback Banner (if rejected and targeted at current role) */}
+      {reviewComments.length > 0 &&
+        jd.status.includes("rejected") &&
+        reviewComments[0].action === "rejected" &&
+        reviewComments[0].target_role === role && (
+          <div className="bg-red-50 border-2 border-red-200 rounded-[32px] p-6 mb-8 animate-in slide-in-from-top-4 duration-500 shadow-lg shadow-red-900/5">
+            <div className="flex items-start gap-4">
+              <div className="w-12 h-12 bg-red-100 rounded-2xl flex items-center justify-center flex-shrink-0 animate-pulse">
+                <AlertTriangle className="w-6 h-6 text-red-600" />
+              </div>
+              <div className="flex-1">
+                <h3 className="text-lg font-bold text-red-900 mb-1">
+                  Revision Requested
+                </h3>
+                <p className="text-red-700 text-sm leading-relaxed mb-4">
+                  {reviewComments[0].reviewer_name} requested changes to this
+                  document:
+                </p>
+                <div className="bg-white/60 backdrop-blur-sm rounded-xl p-4 border border-red-200/50">
+                  <p className="text-red-800 text-[15px] font-medium leading-relaxed italic">
+                    "{reviewComments[0].comment}"
+                  </p>
                 </div>
-                <div className="flex items-center gap-2">
-                  {rc.target_role && rc.action === "rejected" && (
-                    <span className="px-2 py-0.5 bg-surface-100 text-surface-500 text-[10px] font-bold rounded-md">
-                      → {rc.target_role}
-                    </span>
-                  )}
-                  {rc.created_at && (
-                    <span className="text-[10px] text-surface-400">
-                      {new Date(rc.created_at).toLocaleDateString("en-US", {
-                        month: "short",
-                        day: "numeric",
-                        hour: "2-digit",
-                        minute: "2-digit",
-                      })}
-                    </span>
-                  )}
+                <div className="mt-4 flex items-center gap-2">
+                  <span className="text-[10px] font-black uppercase tracking-widest text-red-400 bg-red-100/50 px-2 py-1 rounded-md">
+                    Action Required: Update and resubmit
+                  </span>
                 </div>
               </div>
-              {rc.comment && (
-                <p
-                  className={`text-[13px] leading-relaxed ${
-                    rc.action === "rejected"
-                      ? "text-red-600"
-                      : rc.action === "approved"
-                        ? "text-emerald-600"
-                        : "text-amber-600"
-                  }`}
-                >
+            </div>
+          </div>
+        )}
+
+      {/* Review Audit Trail - Hidden if banner is shown to avoid redundancy, or shown compact */}
+      {reviewComments.length > 1 && (
+        <div className="space-y-3 mb-8">
+          <h3 className="text-[11px] font-black text-surface-500 uppercase tracking-widest px-1">
+            Previous Review Activity
+          </h3>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            {reviewComments.slice(1).map((rc: any) => (
+              <div
+                key={rc.id}
+                className={`rounded-2xl p-4 border ${
+                  rc.action === "rejected"
+                    ? "bg-red-50/30 border-red-100"
+                    : "bg-emerald-50/30 border-emerald-100"
+                }`}
+              >
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-[10px] font-bold text-surface-500">
+                    {rc.reviewer_role} Review
+                  </span>
+                  <span className="text-[10px] text-surface-400">
+                    {new Date(rc.created_at).toLocaleDateString()}
+                  </span>
+                </div>
+                <p className="text-xs font-medium text-surface-700 line-clamp-2">
                   {rc.comment}
                 </p>
-              )}
-            </div>
-          ))}
+              </div>
+            ))}
+          </div>
         </div>
       )}
 
       {/* Document block */}
-      <div className="bg-white rounded-2xl md:rounded-[40px] p-5 md:p-16 border border-surface-200 shadow-premium relative min-h-[500px] flex flex-col">
+      <div className="bg-white rounded-2xl md:rounded-[40px] p-5 md:p-16 border border-surface-200 shadow-premium relative min-h-[500px] flex flex-col transition-all duration-500">
         {isEditing ? (
           <div className="flex flex-col flex-1">
-            <div className="flex gap-2 mb-4">
+            <div className="flex gap-2 mb-6">
               <button
                 onClick={() => setActiveTab("markdown")}
-                className={`px-4 py-2 font-bold text-[12px] uppercase tracking-widest rounded-xl transition-all ${
+                className={`px-5 py-2.5 font-bold text-[12px] uppercase tracking-widest rounded-xl transition-all ${
                   activeTab === "markdown"
-                    ? "bg-primary-600 text-white shadow-sm"
+                    ? "bg-primary-600 text-white shadow-lg shadow-primary-900/40"
                     : "bg-surface-50 text-surface-500 hover:bg-surface-100"
                 }`}
               >
                 Markdown Document
               </button>
               <button
-                onClick={() => {
-                  console.log(
-                    "Switching to structured tab. editedData state:",
-                    editedData,
-                  );
-                  setActiveTab("structured");
-                }}
-                className={`px-4 py-2 font-bold text-[12px] uppercase tracking-widest rounded-xl transition-all ${
+                onClick={() => setActiveTab("structured")}
+                className={`px-5 py-2.5 font-bold text-[12px] uppercase tracking-widest rounded-xl transition-all ${
                   activeTab === "structured"
-                    ? "bg-primary-600 text-white shadow-sm"
+                    ? "bg-primary-600 text-white shadow-lg shadow-primary-900/40"
                     : "bg-surface-50 text-surface-500 hover:bg-surface-100"
                 }`}
               >
-                Structured Core Model (JSON)
+                Structured Core Model
               </button>
             </div>
 
@@ -759,14 +747,14 @@ export default function JDPage() {
               <textarea
                 value={editedJdText}
                 onChange={(e) => setEditedJdText(e.target.value)}
-                className="flex-1 w-full bg-surface-50 border border-surface-200 rounded-xl p-6 text-surface-800 text-[14px] font-mono leading-relaxed focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none resize-none min-h-[500px] h-[600px] shadow-inner"
+                className="w-full bg-surface-50 border border-surface-200 rounded-2xl p-8 text-surface-800 text-[15px] font-mono leading-relaxed focus:ring-4 focus:ring-primary-500/10 focus:border-primary-500 outline-none resize-none min-h-[800px] shadow-inner transition-all"
                 placeholder="Edit Job Description Markdown..."
               />
             ) : (
-              <div className="flex-1 w-full bg-surface-50 border border-surface-200 rounded-xl p-8 overflow-y-auto h-[600px] flex flex-col gap-10 shadow-inner">
+              <div className="w-full bg-surface-50 border border-surface-200 rounded-2xl p-8 space-y-12 shadow-inner">
                 {/* Job Title */}
-                <div className="space-y-3">
-                  <label className="text-[13px] font-black text-surface-500 uppercase tracking-widest">
+                <div className="space-y-4">
+                  <label className="text-[11px] font-black text-surface-500 uppercase tracking-widest px-1">
                     Job Title
                   </label>
                   <input
@@ -775,20 +763,19 @@ export default function JDPage() {
                       editedData.job_title ||
                       editedData.role_title ||
                       editedData.title ||
-                      editedData.employee_information?.job_title ||
                       ""
                     }
                     onChange={(e) =>
                       handleTextChange("job_title", e.target.value)
                     }
-                    className="w-full bg-white border border-surface-200 rounded-xl p-5 text-[15px] font-medium text-surface-900 leading-relaxed focus:ring-2 focus:ring-primary-500 outline-none shadow-sm transition-shadow focus:shadow-md"
-                    placeholder="e.g. Senior AI Architect"
+                    className="w-full bg-white border border-surface-200 rounded-2xl p-6 text-[16px] font-bold text-surface-900 leading-relaxed focus:ring-4 focus:ring-primary-500/10 focus:border-primary-500 outline-none shadow-sm transition-all"
+                    placeholder="e.g. Strategic Role Architect"
                   />
                 </div>
 
                 {/* Role Summary */}
-                <div className="space-y-3">
-                  <label className="text-[13px] font-black text-surface-500 uppercase tracking-widest">
+                <div className="space-y-4">
+                  <label className="text-[11px] font-black text-surface-500 uppercase tracking-widest px-1">
                     Role Summary
                   </label>
                   <textarea
@@ -796,8 +783,8 @@ export default function JDPage() {
                     onChange={(e) =>
                       handleTextChange("role_summary", e.target.value)
                     }
-                    className="w-full bg-white border border-surface-200 rounded-xl p-5 text-[15px] font-medium text-surface-900 leading-relaxed focus:ring-2 focus:ring-primary-500 outline-none resize-none min-h-[160px] shadow-sm transition-shadow focus:shadow-md"
-                    placeholder="Brief overview of the role..."
+                    className="w-full bg-white border border-surface-200 rounded-2xl p-6 text-[15px] font-medium text-surface-800 leading-relaxed focus:ring-4 focus:ring-primary-500/10 focus:border-primary-500 outline-none resize-none min-h-[160px] shadow-sm transition-all"
+                    placeholder="Brief overview of the role's purpose..."
                   />
                 </div>
 
@@ -814,16 +801,16 @@ export default function JDPage() {
                   },
                   { key: "performance_metrics", label: "Performance Metrics" },
                 ].map((field) => (
-                  <div key={field.key} className="space-y-4">
-                    <div className="flex items-center justify-between">
-                      <label className="text-[13px] font-black text-surface-500 uppercase tracking-widest">
+                  <div key={field.key} className="space-y-5">
+                    <div className="flex items-center justify-between px-1">
+                      <label className="text-[11px] font-black text-surface-500 uppercase tracking-widest">
                         {field.label}
                       </label>
                       <button
                         onClick={() => handleAddArrayItem(field.key)}
-                        className="flex items-center gap-2 text-[13px] font-bold text-primary-600 hover:text-primary-700 hover:bg-primary-50 px-4 py-2 rounded-xl border border-primary-100 transition-colors shadow-sm active:scale-[0.98]"
+                        className="flex items-center gap-2 text-[11px] font-black uppercase tracking-widest text-primary-600 hover:text-primary-700 bg-primary-50 hover:bg-primary-100 px-4 py-2 rounded-xl transition-all active:scale-95"
                       >
-                        <Plus className="w-4 h-4" /> Add Item
+                        <Plus className="w-3.5 h-3.5" /> Add Item
                       </button>
                     </div>
 
@@ -832,10 +819,9 @@ export default function JDPage() {
                         (item: string, idx: number) => (
                           <div
                             key={idx}
-                            className="flex gap-3 group items-center"
+                            className="flex items-start gap-3 group animate-in fade-in slide-in-from-left-2 duration-300"
                           >
-                            <input
-                              type="text"
+                            <textarea
                               value={item}
                               onChange={(e) =>
                                 handleArrayChange(
@@ -844,29 +830,18 @@ export default function JDPage() {
                                   e.target.value,
                                 )
                               }
-                              className="flex-1 bg-white border border-surface-200 rounded-xl p-4 text-[15px] font-medium text-surface-900 focus:ring-2 focus:ring-primary-500 outline-none shadow-sm transition-shadow focus:shadow-md"
-                              placeholder={`Enter ${field.label.toLowerCase()}...`}
+                              className="flex-1 bg-white border border-surface-200 rounded-2xl p-4 text-[14px] font-medium text-surface-800 leading-relaxed focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 outline-none resize-none min-h-[80px] shadow-sm transition-all"
                             />
                             <button
                               onClick={() =>
                                 handleRemoveArrayItem(field.key, idx)
                               }
-                              className="p-4 text-red-500 hover:text-red-700 hover:bg-red-50 rounded-xl transition-all border border-transparent hover:border-red-200 shadow-sm opacity-60 group-hover:opacity-100 flex-shrink-0"
-                              title="Delete Item"
+                              className="mt-2 w-10 h-10 bg-surface-100 text-surface-400 rounded-xl flex items-center justify-center hover:bg-red-50 hover:text-red-500 transition-all opacity-0 group-hover:opacity-100 focus:opacity-100"
                             >
-                              <Trash className="w-5 h-5" />
+                              <Trash className="w-4 h-4" />
                             </button>
                           </div>
                         ),
-                      )}
-
-                      {(!editedData[field.key] ||
-                        editedData[field.key].length === 0) && (
-                        <div className="text-center p-8 border-2 border-dashed border-surface-200 rounded-xl bg-surface-50/50">
-                          <p className="text-[14px] text-surface-500 font-medium">
-                            No {field.label.toLowerCase()} added yet.
-                          </p>
-                        </div>
                       )}
                     </div>
                   </div>
@@ -875,10 +850,20 @@ export default function JDPage() {
             )}
           </div>
         ) : (
-          <div className="prose prose-neutral max-w-none prose-headings:font-bold prose-headings:text-surface-900 prose-p:text-surface-800 prose-li:text-surface-800 prose-strong:text-primary-700">
-            <ReactMarkdown remarkPlugins={[remarkGfm]}>
-              {displayJDContent}
-            </ReactMarkdown>
+          <div className="flex-1 animate-in fade-in zoom-in-95 duration-700 h-full">
+            <div
+              className="prose prose-slate prose-lg max-w-none 
+                prose-headings:font-black prose-headings:tracking-tight prose-headings:text-surface-900
+                prose-p:text-surface-700 prose-p:leading-relaxed prose-p:text-[16px]
+                prose-li:text-surface-700 prose-li:text-[15px]
+                prose-strong:text-primary-900 prose-strong:font-bold
+                prose-ul:list-disc prose-ul:pl-6
+                prose-blockquote:border-l-4 prose-blockquote:border-primary-200 prose-blockquote:bg-surface-50 prose-blockquote:py-4 prose-blockquote:px-6 prose-blockquote:rounded-r-2xl prose-blockquote:italic"
+            >
+              <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                {displayJDContent}
+              </ReactMarkdown>
+            </div>
           </div>
         )}
       </div>

@@ -25,6 +25,7 @@ import {
   Users,
   ShieldCheck,
   CheckCircle2,
+  AlertTriangle,
   ChevronRight,
   Clock,
   Loader2,
@@ -135,29 +136,24 @@ export default function Sidebar() {
   // Role-specific links
   if (role === "manager") {
     links.push({
-      name: "Pending JDs",
-      href: employeeId ? `/dashboard/${employeeId}?view=pending` : "/",
-      icon: Users,
-      description: "Review JDs from employees",
-    });
-    links.push({
       name: "Feedback from HR",
-      href: employeeId ? `/dashboard/${employeeId}?view=feedback` : "/",
-      icon: CheckCircle2,
+      href: employeeId ? `/feedback/${employeeId}` : "/",
+      icon: AlertTriangle,
       description: "HR change requests",
     });
   } else if (role === "hr") {
     links.push({
-      name: "Pending JDs",
-      href: employeeId ? `/dashboard/${employeeId}?view=pending` : "/",
-      icon: ShieldCheck,
-      description: "Review JDs from managers",
-    });
-    links.push({
       name: "Feedback to Manager",
-      href: employeeId ? `/dashboard/${employeeId}?view=approvals` : "/",
+      href: employeeId ? `/feedback/${employeeId}` : "/",
       icon: ShieldCheck,
-      description: "Requested changes",
+      description: "JDs you rejected",
+    });
+  } else if (role === "employee") {
+    links.push({
+      name: "Feedback Received",
+      href: employeeId ? `/feedback/${employeeId}` : "/",
+      icon: AlertTriangle,
+      description: "Revision requests",
     });
   }
 

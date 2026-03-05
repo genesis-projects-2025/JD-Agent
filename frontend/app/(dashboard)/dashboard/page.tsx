@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
   FileText,
   MessageSquare,
@@ -10,6 +11,9 @@ import {
   Briefcase,
   Loader2,
   Plus,
+  Trash2,
+  Play,
+  Eye,
 } from "lucide-react";
 
 import {
@@ -19,6 +23,7 @@ import {
   getCurrentUser,
 } from "@/lib/api";
 import { getOrCreateEmployeeId } from "@/lib/auth";
+import { DeleteModal } from "@/components/ui/delete-modal";
 
 type JDListItem = {
   id: string;
@@ -71,6 +76,7 @@ const STATUS_CONFIG: Record<
 };
 
 export default function DashboardPage() {
+  const router = useRouter();
   const [jds, setJds] = useState<JDListItem[]>([]);
   const [pendingJDs, setPendingJDs] = useState<JDListItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -79,6 +85,11 @@ export default function DashboardPage() {
   >("my_jds");
   const [isMounted, setIsMounted] = useState(false);
 
+  // Delete Modal State
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+  const [jdToDelete, setJdToDelete] = useState<string | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+
   useEffect(() => {
     setIsMounted(true);
   }, []);
@@ -86,33 +97,69 @@ export default function DashboardPage() {
   const user = isMounted ? getCurrentUser() : null;
   const role = user?.role || "employee";
 
+  async function loadData() {
+    try {
+      setLoading(true);
+      const id = getOrCreateEmployeeId();
+
+      // Load personal JDs
+      const data = await fetchEmployeeJDs(id);
+      setJds(data || []);
+
+      // Load Pending Approval JDs based on role
+      if (role === "manager") {
+        const pending = await fetchManagerPendingJDs(id);
+        setPendingJDs(pending || []);
+      } else if (role === "hr") {
+        const pending = await fetchHRPendingJDs();
+        setPendingJDs(pending || []);
+      }
+    } catch (err) {
+      console.error("Failed to load JDs:", err);
+    } finally {
+      setLoading(false);
+    }
+  }
+
   useEffect(() => {
     if (!isMounted) return;
-    async function load() {
-      try {
-        setLoading(true);
-        const id = getOrCreateEmployeeId();
+    loadData();
+  }, [role, isMounted]);
 
-        // Load personal JDs
-        const data = await fetchEmployeeJDs(id);
-        setJds(data || []);
+  const handleDeleteClick = (e: React.MouseEvent, id: string) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setJdToDelete(id);
+    setIsDeleteModalOpen(true);
+  };
 
-        // Load Pending Approval JDs based on role
-        if (role === "manager") {
-          const pending = await fetchManagerPendingJDs(id);
-          setPendingJDs(pending || []);
-        } else if (role === "hr") {
-          const pending = await fetchHRPendingJDs();
-          setPendingJDs(pending || []);
-        }
-      } catch (err) {
-        console.error("Failed to load JDs:", err);
-      } finally {
-        setLoading(false);
+  const confirmDelete = async () => {
+    if (!jdToDelete) return;
+
+    try {
+      setIsDeleting(true);
+      const response = await fetch(
+        `http://localhost:8000/api/jds/${jdToDelete}`,
+        {
+          method: "DELETE",
+        },
+      );
+
+      if (!response.ok) {
+        throw new Error("Failed to delete JD");
       }
+
+      // Reload Data
+      await loadData();
+    } catch (error) {
+      console.error("Error deleting JD:", error);
+      alert("Failed to delete the document. Please try again.");
+    } finally {
+      setIsDeleting(false);
+      setIsDeleteModalOpen(false);
+      setJdToDelete(null);
     }
-    load();
-  }, [role]);
+  };
 
   // Aggregate counts based on role.
   // Employees only see their own stats. Managers/HR see stats representing their active queue + history.
@@ -288,7 +335,7 @@ export default function DashboardPage() {
         )}
 
         {/* JD List Area */}
-        <div className="bg-white rounded-3xl border border-surface-200 shadow-premium overflow-hidden">
+        <div className="bg-white rounded-3xl border border-surface-200 shadow-premium overflow-hidden mb-8">
           <div className="px-4 sm:px-8 py-5 sm:py-6 border-b border-surface-100 flex flex-col sm:flex-row sm:items-center justify-between bg-surface-50/50 gap-4">
             <h2 className="text-lg sm:text-xl font-black text-surface-900 tracking-tight">
               {activeTab === "my_jds"
@@ -325,14 +372,23 @@ export default function DashboardPage() {
               {displayJDs.map((jdItem) => {
                 const config =
                   STATUS_CONFIG[jdItem.status] || STATUS_CONFIG.draft;
+
+                const isDraft =
+                  jdItem.status === "draft" || jdItem.status === "jd_generated";
+
+                // Clicking the entire row routes appropriately depending on status
+                const href = isDraft
+                  ? `/questionnaire/${jdItem.id}`
+                  : `/jd/${jdItem.id}`;
+
                 return (
-                  <Link
+                  <div
                     key={jdItem.id}
-                    href={`/jd/${jdItem.id}`}
-                    className="group flex flex-col sm:flex-row sm:items-center justify-between p-6 sm:px-8 hover:bg-surface-50/60 transition-colors"
+                    className="group flex flex-col sm:flex-row sm:items-center justify-between p-6 sm:px-8 hover:bg-surface-50/60 transition-colors cursor-pointer"
+                    onClick={() => router.push(href)}
                   >
                     <div className="flex items-center gap-5">
-                      <div className="w-12 h-12 bg-surface-100 rounded-2xl flex items-center justify-center group-hover:bg-white group-hover:shadow-sm transition-all border border-transparent group-hover:border-surface-200">
+                      <div className="w-12 h-12 bg-surface-100 rounded-2xl flex items-center justify-center group-hover:bg-white group-hover:shadow-sm transition-all border border-transparent group-hover:border-surface-200 shrink-0">
                         <Briefcase className="w-6 h-6 text-surface-400 group-hover:text-primary-600 transition-colors" />
                       </div>
                       <div>
@@ -365,14 +421,63 @@ export default function DashboardPage() {
                         </div>
                       </div>
                     </div>
-                    <ArrowRight className="w-5 h-5 text-surface-300 group-hover:text-primary-500 group-hover:translate-x-1 transition-all mt-4 sm:mt-0" />
-                  </Link>
+
+                    {/* Actions Column */}
+                    <div
+                      className="flex items-center gap-3 mt-4 sm:mt-0 ml-auto pl-17 sm:pl-0"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      {activeTab === "my_jds" && (
+                        <>
+                          <button
+                            onClick={(e) => handleDeleteClick(e, jdItem.id)}
+                            className="p-2 sm:p-2.5 text-surface-400 hover:text-red-500 hover:bg-red-50 rounded-xl transition-colors border border-transparent hover:border-red-100"
+                            title="Delete JD"
+                          >
+                            <Trash2 className="w-4 h-4 sm:w-5 sm:h-5" />
+                          </button>
+                        </>
+                      )}
+
+                      <Link
+                        href={href}
+                        onClick={(e) => e.stopPropagation()}
+                        className={`flex items-center gap-2 px-3 sm:px-4 py-2 sm:py-2.5 rounded-xl font-bold text-sm transition-all ${
+                          isDraft
+                            ? "bg-primary-50 text-primary-700 hover:bg-primary-100 border border-primary-100/50"
+                            : "bg-surface-100 text-surface-700 hover:bg-surface-200 border border-surface-200"
+                        }`}
+                      >
+                        {isDraft ? (
+                          <>
+                            <Play className="w-4 h-4" />
+                            <span className="hidden sm:inline">Continue</span>
+                          </>
+                        ) : (
+                          <>
+                            <Eye className="w-4 h-4" />
+                            <span className="hidden sm:inline">View</span>
+                            <span className="sm:hidden">View</span>
+                          </>
+                        )}
+                      </Link>
+                    </div>
+                  </div>
                 );
               })}
             </div>
           )}
         </div>
       </div>
+
+      <DeleteModal
+        isOpen={isDeleteModalOpen}
+        onClose={() => setIsDeleteModalOpen(false)}
+        onConfirm={confirmDelete}
+        title="Delete Document"
+        description="Are you sure you want to delete this JD document? This action cannot be undone and all data will be permanently removed."
+        isDeleting={isDeleting}
+      />
     </div>
   );
 }

@@ -434,38 +434,55 @@ function EmployeeView({
 
 function ManagerView({ user }: { user: AuthUser }) {
   const [allJds, setAllJds] = useState<JDListItem[]>([]);
+  const [myJds, setMyJds] = useState<JDListItem[]>([]);
   const [jds, setJds] = useState<JDListItem[]>([]);
   const [loading, setLoading] = useState(true);
 
   const searchParams = useSearchParams();
   const currentView = searchParams.get("view");
 
-  const [filter, setFilter] = useState<"all" | "pending" | "approved">(
-    currentView === "approvals" ? "pending" : "all",
-  );
+  const [filter, setFilter] = useState<
+    "all" | "pending" | "approved" | "my_jds"
+  >(currentView === "approvals" ? "pending" : "all");
 
   useEffect(() => {
-    const { fetchManagerPendingJDs } = require("@/lib/api");
-    fetchManagerPendingJDs(user.employee_id)
-      .then((d: any) => {
-        setAllJds(d || []);
-        setJds((d || []).filter((j: any) => j.status === "sent_to_manager"));
-      })
-      .catch((err: any) => console.error(err))
-      .finally(() => setLoading(false));
+    async function load() {
+      try {
+        const { fetchManagerPendingJDs } = require("@/lib/api");
+        const [teamData, personalData] = await Promise.all([
+          fetchManagerPendingJDs(user.employee_id),
+          fetchEmployeeJDs(user.employee_id),
+        ]);
+        setAllJds(teamData || []);
+        setMyJds(personalData || []);
+        // Default view shows pending
+        setJds(
+          (teamData || []).filter((j: any) => j.status === "sent_to_manager"),
+        );
+      } catch (err) {
+        console.error(err);
+      } finally {
+        setLoading(false);
+      }
+    }
+    load();
   }, [user.employee_id]);
 
   useEffect(() => {
-    if (filter === "all") setJds(allJds);
-    else if (filter === "pending")
+    if (filter === "my_jds") {
+      setJds(myJds);
+    } else if (filter === "all") {
+      setJds(allJds);
+    } else if (filter === "pending") {
       setJds(allJds.filter((j) => j.status === "sent_to_manager"));
-    else if (filter === "approved")
+    } else if (filter === "approved") {
       setJds(
         allJds.filter(
           (j) => j.status === "approved" || j.status === "sent_to_hr",
         ),
       );
-  }, [filter, allJds]);
+    }
+  }, [filter, allJds, myJds]);
 
   if (loading) return <LoadingScreen />;
 
@@ -546,6 +563,13 @@ function ManagerView({ user }: { user: AuthUser }) {
             color: "blue",
             icon: Briefcase,
           },
+          {
+            key: "my_jds",
+            label: "My JDs",
+            count: myJds.length,
+            color: "slate",
+            icon: FileText,
+          },
         ].map((tab) => {
           const isActive = filter === tab.key;
           const colorClasses = {
@@ -597,9 +621,11 @@ function ManagerView({ user }: { user: AuthUser }) {
             ? "All Team Roles"
             : filter === "pending"
               ? "Awaiting Your Approval"
-              : "Successfully Processed"}
+              : filter === "my_jds"
+                ? "Your Personal Documents"
+                : "Successfully Processed"}
         </h2>
-        <JDGrid jds={jds} showEmployee={true} />
+        <JDGrid jds={jds} showEmployee={filter !== "my_jds"} />
       </div>
     </div>
   );
@@ -610,6 +636,7 @@ function ManagerView({ user }: { user: AuthUser }) {
 function HRView({ user }: { user: AuthUser }) {
   const [jds, setJds] = useState<JDListItem[]>([]);
   const [allJds, setAllJds] = useState<JDListItem[]>([]);
+  const [myJds, setMyJds] = useState<JDListItem[]>([]);
   const [loading, setLoading] = useState(true);
 
   const searchParams = useSearchParams();
@@ -620,20 +647,30 @@ function HRView({ user }: { user: AuthUser }) {
   );
 
   useEffect(() => {
-    // HR sees ALL JDs
-    getJDs()
-      .then((d) => {
-        const data = d || [];
+    async function load() {
+      try {
+        const [allData, personalData] = await Promise.all([
+          getJDs(),
+          fetchEmployeeJDs(user.employee_id),
+        ]);
+        const data = allData || [];
         setAllJds(data);
         setJds(data);
-      })
-      .catch(console.error)
-      .finally(() => setLoading(false));
-  }, []);
+        setMyJds(personalData || []);
+      } catch (err) {
+        console.error(err);
+      } finally {
+        setLoading(false);
+      }
+    }
+    load();
+  }, [user.employee_id]);
 
   // Client-side filter
   useEffect(() => {
-    if (filter === "all") {
+    if (filter === "my_jds") {
+      setJds(myJds);
+    } else if (filter === "all") {
       setJds(allJds);
     } else {
       setJds(
@@ -649,7 +686,7 @@ function HRView({ user }: { user: AuthUser }) {
         ),
       );
     }
-  }, [filter, allJds]);
+  }, [filter, allJds, myJds]);
 
   if (loading) return <LoadingScreen />;
 
@@ -657,11 +694,7 @@ function HRView({ user }: { user: AuthUser }) {
     all: allJds.length,
     sent_to_hr: allJds.filter((j) => j.status === "sent_to_hr").length,
     approved: allJds.filter((j) => j.status === "approved").length,
-    in_progress: allJds.filter((j) =>
-      ["collecting", "draft", "jd_generated", "sent_to_manager"].includes(
-        j.status,
-      ),
-    ).length,
+    my_jds: myJds.length,
   };
 
   return (
@@ -736,10 +769,10 @@ function HRView({ user }: { user: AuthUser }) {
             color: "text-emerald-600",
           },
           {
-            key: "in_progress",
-            label: "Drafts & Team Reviews",
-            count: counts.in_progress,
-            icon: TrendingUp,
+            key: "my_jds",
+            label: "My JDs",
+            count: counts.my_jds,
+            icon: FileText,
             color: "text-blue-600",
           },
         ].map(({ key, label, count, icon: Icon, color, alert }) => (
@@ -791,9 +824,11 @@ function HRView({ user }: { user: AuthUser }) {
           <span className="w-1.5 h-6 bg-purple-600 rounded-full" />
           {filter === "all"
             ? "Enterprise Database"
-            : `Filtered Pipeline Results`}
+            : filter === "my_jds"
+              ? "Your Personal Documents"
+              : "Filtered Pipeline Results"}
         </h2>
-        <JDGrid jds={jds} showEmployee={true} />
+        <JDGrid jds={jds} showEmployee={filter !== "my_jds"} />
       </div>
     </div>
   );

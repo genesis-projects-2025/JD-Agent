@@ -6,27 +6,27 @@ import { usePathname, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import {
   fetchEmployeeJDs,
-  getCurrentUser,
   fetchManagerPendingJDs,
   fetchHRPendingJDs,
+  getCurrentUser,
 } from "@/lib/api";
 import { useAuth } from "@/components/providers/auth-provider";
 import {
   LayoutDashboard,
-  MessageSquare,
-  CheckCircle2,
   FileText,
   Settings,
   HelpCircle,
-  Clock,
-  ChevronRight,
-  Loader2,
   LogOut,
-  Users,
-  ShieldCheck,
   Megaphone,
   Menu,
   X,
+  FilePlus,
+  Users,
+  ShieldCheck,
+  CheckCircle2,
+  ChevronRight,
+  Clock,
+  Loader2,
 } from "lucide-react";
 import FeedbackModal from "@/components/feedback/FeedbackModal";
 
@@ -38,8 +38,14 @@ type JDListItem = {
   updated_at: string | null;
 };
 
+type NavItem = {
+  name: string;
+  href: string;
+  icon: React.ElementType;
+  description: string;
+};
+
 const STATUS_CONFIG: Record<string, { label: string; dotColor: string }> = {
-  collecting: { label: "In Progress", dotColor: "bg-amber-400" },
   draft: { label: "Draft", dotColor: "bg-amber-400" },
   jd_generated: { label: "Draft", dotColor: "bg-amber-400" },
   sent_to_manager: { label: "Under Review", dotColor: "bg-blue-400" },
@@ -67,78 +73,15 @@ export default function Sidebar() {
   const { employeeId, isAuthenticated, logout } = useAuth();
 
   const [jds, setJds] = useState<JDListItem[]>([]);
-  const [myJds, setMyJds] = useState<JDListItem[]>([]);
   const [loadingJds, setLoadingJds] = useState(false);
   const [isFeedbackOpen, setIsFeedbackOpen] = useState(false);
   const [isMounted, setIsMounted] = useState(false);
   const [isMobileOpen, setIsMobileOpen] = useState(false);
 
-  useEffect(() => {
-    setIsMounted(true);
-  }, []);
-
+  // Safely get user info
   const user = isMounted ? getCurrentUser() : null;
   const role = user?.role || "employee";
   const currentView = searchParams.get("view");
-
-  // Base links everyone has
-  const links = [
-    {
-      name: "Dashboard",
-      href: employeeId ? `/dashboard/${employeeId}` : "/",
-      icon: LayoutDashboard,
-      description: "Overview & stats",
-    },
-    {
-      name: "Create My JD",
-      href: "/questionnaire",
-      icon: MessageSquare,
-      description: "Start new interview",
-    },
-  ];
-
-  // Role-specific links
-  if (role === "manager") {
-    links.push({
-      name: "Feedback from HR",
-      href: employeeId ? `/dashboard/${employeeId}?view=feedback` : "/",
-      icon: CheckCircle2,
-      description: "Feedback & status",
-    });
-  } else if (role === "hr") {
-    links.push({
-      name: "Feedback to Manager",
-      href: employeeId ? `/dashboard/${employeeId}?view=approvals` : "/",
-      icon: ShieldCheck,
-      description: "Finalize JD assets",
-    });
-  } else {
-    links.push({
-      name: "Feedback from Manager",
-      href: employeeId ? `/dashboard/${employeeId}?view=approvals` : "/",
-      icon: CheckCircle2,
-      description: "Feedback & status",
-    });
-  }
-
-  const isActive = (href: string) => {
-    const baseHref = href.split("?")[0];
-    const isBaseMatch = pathname === baseHref || pathname.startsWith(baseHref);
-
-    // Exact match for root navigation without params
-    if (!href.includes("?")) {
-      return isBaseMatch && !currentView;
-    }
-
-    // Match for parameterized links
-    const linkView = href.split("view=")[1];
-    return isBaseMatch && currentView === linkView;
-  };
-
-  // Close sidebar on navigation on mobile
-  useEffect(() => {
-    setIsMobileOpen(false);
-  }, [pathname, searchParams]);
 
   // Load saved JDs
   useEffect(() => {
@@ -147,36 +90,90 @@ export default function Sidebar() {
     async function loadJDs() {
       setLoadingJds(true);
       try {
-        // Dynamically fetch different JDs depending on role
-        if (role === "manager") {
-          const [pendingData, myData] = await Promise.all([
-            fetchManagerPendingJDs(employeeId as string),
-            fetchEmployeeJDs(employeeId as string),
-          ]);
-          setJds(pendingData || []);
-          setMyJds(myData || []);
-        } else if (role === "hr") {
-          const [pendingData, myData] = await Promise.all([
-            fetchHRPendingJDs(),
-            fetchEmployeeJDs(employeeId as string),
-          ]);
-          setJds(pendingData || []);
-          setMyJds(myData || []);
-        } else {
-          const data = await fetchEmployeeJDs(employeeId as string);
-          setJds(data || []);
-          setMyJds([]);
-        }
+        const data = await fetchEmployeeJDs(employeeId as string);
+        setJds(data || []);
       } catch (err) {
         console.error("Failed to load JDs for sidebar:", err);
         setJds([]);
-        setMyJds([]);
       } finally {
         setLoadingJds(false);
       }
     }
     loadJDs();
-  }, [pathname, employeeId, isAuthenticated, role]); // Reload when navigating or ID changes
+  }, [pathname, employeeId, isAuthenticated, role]);
+
+  // Base links everyone has
+  const links: NavItem[] = [
+    {
+      name: "Dashboard",
+      href: employeeId ? `/dashboard/${employeeId}` : "/",
+      icon: LayoutDashboard,
+      description: "Overview & stats",
+    },
+    {
+      name: "Create New JD",
+      href: "/questionnaire",
+      icon: FilePlus,
+      description: "Start new interview",
+    },
+  ];
+
+  // Role-specific links
+  if (role === "manager") {
+    links.push({
+      name: "Pending JDs",
+      href: employeeId ? `/dashboard/${employeeId}?view=pending` : "/",
+      icon: Users,
+      description: "Review JDs from employees",
+    });
+    links.push({
+      name: "Feedback from HR",
+      href: employeeId ? `/dashboard/${employeeId}?view=feedback` : "/",
+      icon: CheckCircle2,
+      description: "HR change requests",
+    });
+  } else if (role === "hr") {
+    links.push({
+      name: "Pending JDs",
+      href: employeeId ? `/dashboard/${employeeId}?view=pending` : "/",
+      icon: ShieldCheck,
+      description: "Review JDs from managers",
+    });
+    links.push({
+      name: "Feedback to Manager",
+      href: employeeId ? `/dashboard/${employeeId}?view=approvals` : "/",
+      icon: ShieldCheck,
+      description: "Requested changes",
+    });
+  }
+
+  // Determine active link
+  const isActive = (href: string) => {
+    if (href === "/" && pathname !== "/") return false;
+
+    const baseHref = href.split("?")[0];
+    const isBaseMatch =
+      pathname === baseHref || pathname.startsWith(baseHref + "/");
+
+    if (!isBaseMatch) return false;
+
+    // For links without a query string
+    if (!href.includes("?")) {
+      return !currentView;
+    }
+
+    // For links with a specific view parameter
+    const linkView = href.split("view=")[1]?.split("&")[0];
+    return currentView === linkView;
+  };
+
+  useEffect(() => {
+    setIsMounted(true);
+  }, []);
+
+  useEffect(() => {
+    setIsMobileOpen(false);
+  }, [pathname, searchParams]);
 
   // Hide sidebar if they are not logged in or are on the admin portal
   if (!isMounted || !isAuthenticated || pathname.startsWith("/admin"))
@@ -206,21 +203,12 @@ export default function Sidebar() {
         className={`
         fixed inset-y-0 left-0 z-50
         md:relative md:z-auto
-        w-[280px] md:w-72 h-screen bg-gradient-to-b from-neutral-900 via-neutral-900 to-neutral-800 text-white flex flex-col border-r border-neutral-800 shadow-2xl
-        transition-transform duration-300 ease-in-out
+        w-72 h-screen bg-gradient-to-b from-neutral-900 via-neutral-900 to-neutral-800 text-white flex flex-col border-r border-neutral-800 shadow-2xl
+        transition-transform duration-300 ease-out
         ${isMobileOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0"}
       `}
       >
-        {/* Mobile Close Button */}
-        <button
-          onClick={() => setIsMobileOpen(false)}
-          className="md:hidden absolute top-4 right-4 p-2 text-neutral-400 hover:text-white bg-neutral-800/50 rounded-lg"
-        >
-          <X className="w-5 h-5" />
-        </button>
-
-        {/* Logo Section */}
-        <div className="p-6 border-b border-neutral-800/50">
+        <div className="p-6 flex items-center justify-between shrink-0">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 bg-gradient-to-br from-primary-500 to-primary-700 rounded-xl flex items-center justify-center shadow-lg shadow-primary-900/50">
               <FileText className="w-5 h-5 text-white" />
@@ -232,10 +220,16 @@ export default function Sidebar() {
               <p className="text-xs text-neutral-400">Pulse Pharma</p>
             </div>
           </div>
+          <button
+            onClick={() => setIsMobileOpen(false)}
+            className="md:hidden p-2 text-neutral-400 hover:text-white bg-neutral-800 rounded-lg"
+          >
+            <X className="w-5 h-5" />
+          </button>
         </div>
 
         {/* Navigation */}
-        <nav className="p-4 space-y-1.5">
+        <nav className="p-4 space-y-1.5 shrink-0">
           {links.map((link) => {
             const Icon = link.icon;
             const active = isActive(link.href);
@@ -287,13 +281,9 @@ export default function Sidebar() {
 
         {/* Saved JDs Section */}
         <div className="flex-1 overflow-hidden flex flex-col border-t border-neutral-800/50 mt-2">
-          <div className="px-5 py-3 flex items-center justify-between">
+          <div className="px-5 py-3 flex items-center justify-between shrink-0">
             <h2 className="text-xs font-semibold text-neutral-500 uppercase tracking-wider">
-              {role === "manager"
-                ? "Pending Approvals"
-                : role === "hr"
-                  ? "HR Review Queue"
-                  : "My JD Creations"}
+              My JDs
             </h2>
             {loadingJds && (
               <Loader2 className="w-3.5 h-3.5 text-neutral-500 animate-spin" />
@@ -304,9 +294,9 @@ export default function Sidebar() {
             {!loadingJds && jds.length === 0 && (
               <div className="px-3 py-6 text-center">
                 <FileText className="w-8 h-8 text-neutral-700 mx-auto mb-2" />
-                <p className="text-xs text-neutral-500">No pending JDs</p>
+                <p className="text-xs text-neutral-500">No JDs started</p>
                 <p className="text-xs text-neutral-600 mt-1">
-                  You're all caught up!
+                  Click 'Create New JD' above!
                 </p>
               </div>
             )}
@@ -376,85 +366,11 @@ export default function Sidebar() {
                 </Link>
               );
             })}
-
-            {/* Secondary List for My Created JDs if they are Manager/HR */}
-            {myJds.length > 0 && (
-              <div className="mt-6 pt-4 border-t border-neutral-800/50">
-                <h2 className="text-xs font-semibold text-neutral-500 uppercase tracking-wider mb-3 px-2">
-                  My JD Creations
-                </h2>
-                {myJds.map((jdItem) => {
-                  const config =
-                    STATUS_CONFIG[jdItem.status] || STATUS_CONFIG.draft;
-                  const href = [
-                    "draft",
-                    "jd_generated",
-                    "sent_to_manager",
-                    "manager_rejected",
-                    "sent_to_hr",
-                    "hr_rejected",
-                    "approved",
-                  ].includes(jdItem.status)
-                    ? `/jd/${jdItem.id}`
-                    : `/questionnaire/${jdItem.id}`;
-
-                  const isJDActive = pathname === href;
-
-                  return (
-                    <Link
-                      key={jdItem.id}
-                      href={href}
-                      className={`
-                      group block relative overflow-hidden rounded-xl transition-all duration-300 mb-2.5
-                      ${
-                        isJDActive
-                          ? "bg-primary-900/40 border border-primary-500/30 shadow-[0_0_15px_rgba(59,130,246,0.1)]"
-                          : "bg-neutral-800/30 border border-neutral-700/50 hover:bg-neutral-800 hover:border-neutral-600 hover:-translate-y-0.5 hover:shadow-lg"
-                      }
-                    `}
-                    >
-                      <div className="p-3">
-                        <div className="flex items-start justify-between gap-2 mb-2">
-                          <span className="text-sm font-bold text-neutral-200 leading-tight line-clamp-2">
-                            {jdItem.title || "Untitled JD"}
-                          </span>
-                          <ChevronRight
-                            className={`w-4 h-4 flex-shrink-0 mt-0.5 transition-transform duration-300 ${
-                              isJDActive
-                                ? "text-primary-400 translate-x-1"
-                                : "text-neutral-500 group-hover:text-neutral-300 group-hover:translate-x-1"
-                            }`}
-                          />
-                        </div>
-
-                        <div className="flex items-center justify-between mt-auto">
-                          <span className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-black/20 border border-white/5">
-                            <span
-                              className={`w-1.5 h-1.5 rounded-full ${config.dotColor}`}
-                            />
-                            <span className="text-[10px] font-bold text-neutral-400 uppercase tracking-wider">
-                              {config.label}
-                            </span>
-                          </span>
-                          <span className="flex items-center gap-1 text-[10px] font-medium text-neutral-500">
-                            <Clock className="w-3 h-3" />
-                            {formatDate(jdItem.updated_at)}
-                          </span>
-                        </div>
-                      </div>
-                      {isJDActive && (
-                        <div className="absolute left-0 top-0 bottom-0 w-1 bg-primary-500 rounded-l-xl" />
-                      )}
-                    </Link>
-                  );
-                })}
-              </div>
-            )}
           </div>
         </div>
 
         {/* Footer Section */}
-        <div className="p-4 border-t border-neutral-800/50 space-y-2 flex flex-col">
+        <div className="p-4 border-t border-neutral-800/50 space-y-2 flex flex-col shrink-0 mt-auto">
           <button
             onClick={() => setIsFeedbackOpen(true)}
             className="w-full flex items-center gap-3 px-4 py-2.5 rounded-lg text-emerald-400 hover:text-white hover:bg-emerald-500/20 transition-all text-sm font-medium border border-emerald-500/20"

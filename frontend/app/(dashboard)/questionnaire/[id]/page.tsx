@@ -87,9 +87,9 @@ export default function QuestionnairePage() {
   };
 
   return (
-    <div className="h-screen flex flex-col overflow-hidden bg-surface-50">
+    <div className="fixed inset-0 flex flex-col overflow-hidden bg-surface-50">
       {/* Top nav bar */}
-      <div className="flex-shrink-0 h-14 bg-white border-b border-surface-200 flex items-center px-4 sm:px-6 gap-2 sm:gap-4 z-40 shadow-sm overflow-x-auto">
+      <div className="flex-shrink-0 h-14 bg-white border-b border-surface-200 flex items-center pl-14 pr-4 sm:px-6 gap-2 sm:gap-4 z-40 shadow-sm overflow-x-auto">
         <button
           onClick={() => {
             const u = getCurrentUser();

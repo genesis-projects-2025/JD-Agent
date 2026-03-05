@@ -192,16 +192,14 @@ export default function Sidebar() {
   return (
     <>
       {/* Mobile Toggle Button — hidden on questionnaire/chat pages */}
-      {isAuthenticated &&
-        !pathname.startsWith("/admin") &&
-        !pathname.startsWith("/questionnaire") && (
-          <button
-            onClick={() => setIsMobileOpen(true)}
-            className="md:hidden fixed top-4 left-4 z-40 p-2.5 bg-neutral-900 text-white rounded-xl shadow-xl hover:bg-neutral-800 transition-colors"
-          >
-            <Menu className="w-5 h-5" />
-          </button>
-        )}
+      {isAuthenticated && !pathname.startsWith("/admin") && (
+        <button
+          onClick={() => setIsMobileOpen(true)}
+          className="md:hidden fixed top-4 left-4 z-40 p-2.5 bg-neutral-900 text-white rounded-xl shadow-xl hover:bg-neutral-800 transition-colors"
+        >
+          <Menu className="w-5 h-5" />
+        </button>
+      )}
 
       {/* Mobile Backdrop */}
       {isMobileOpen && (

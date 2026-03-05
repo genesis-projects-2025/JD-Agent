@@ -29,7 +29,7 @@ export default function RootLayout({
         <Suspense fallback={null}>
           <AuthProvider>
             <Sidebar />
-            <main className="flex-1 h-full overflow-y-auto p-6">
+            <main className="flex-1 relative h-[100dvh] overflow-hidden bg-surface-50">
               {children}
             </main>
           </AuthProvider>

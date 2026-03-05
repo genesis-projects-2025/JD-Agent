@@ -288,150 +288,152 @@ function EmployeeView({
   if (loading) return <LoadingScreen />;
 
   return (
-    <div className="max-w-7xl mx-auto space-y-8 sm:space-y-10 pt-14 pb-10 sm:pt-0 animate-in fade-in slide-in-from-bottom-4 duration-700">
-      {/* Vibrant Blue Gradient Header (Employee Identity) */}
-      <header className="bg-gradient-to-r from-blue-900 via-blue-800 to-indigo-900 rounded-[2rem] p-6 sm:p-8 shadow-2xl shadow-blue-900/20 text-white relative overflow-hidden">
-        {/* Abstract shapes */}
-        <div className="absolute top-0 right-0 p-32 bg-cyan-400/20 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2 pointer-events-none" />
-        <div className="absolute bottom-0 left-0 p-32 bg-indigo-500/20 rounded-full blur-3xl translate-y-1/2 -translate-x-1/2 pointer-events-none" />
+    <div className="absolute inset-0 overflow-y-auto p-4 sm:p-6 pb-24">
+      <div className="max-w-7xl mx-auto space-y-8 sm:space-y-10 pt-14 pb-10 sm:pt-0 animate-in fade-in slide-in-from-bottom-4 duration-700">
+        {/* Vibrant Blue Gradient Header (Employee Identity) */}
+        <header className="bg-gradient-to-r from-blue-900 via-blue-800 to-indigo-900 rounded-[2rem] p-6 sm:p-8 shadow-2xl shadow-blue-900/20 text-white relative overflow-hidden">
+          {/* Abstract shapes */}
+          <div className="absolute top-0 right-0 p-32 bg-cyan-400/20 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2 pointer-events-none" />
+          <div className="absolute bottom-0 left-0 p-32 bg-indigo-500/20 rounded-full blur-3xl translate-y-1/2 -translate-x-1/2 pointer-events-none" />
 
-        <div className="relative z-10 flex flex-col md:flex-row md:items-end justify-between gap-6">
-          <div>
-            <div className="flex flex-wrap items-center gap-2 mb-4">
-              <span className="px-3 py-1.5 bg-white/10 backdrop-blur-md text-blue-100 text-[10px] font-black uppercase tracking-[0.2em] rounded-lg border border-white/20">
-                {user?.role || "Employee"} Portfolio
-              </span>
-              <span className="px-3 py-1.5 bg-cyan-500/20 text-cyan-200 text-[10px] font-black uppercase tracking-[0.2em] rounded-lg border border-cyan-500/30 font-mono">
-                ID: {employeeId}
-              </span>
-              {user?.department && (
-                <span className="text-[11px] text-blue-200 font-bold uppercase tracking-widest pl-2 border-l border-white/20">
-                  {user.department}
+          <div className="relative z-10 flex flex-col md:flex-row md:items-end justify-between gap-6">
+            <div>
+              <div className="flex flex-wrap items-center gap-2 mb-4">
+                <span className="px-3 py-1.5 bg-white/10 backdrop-blur-md text-blue-100 text-[10px] font-black uppercase tracking-[0.2em] rounded-lg border border-white/20">
+                  {user?.role || "Employee"} Portfolio
                 </span>
-              )}
-            </div>
-            <h1 className="text-3xl sm:text-4xl font-black tracking-tight mb-2">
-              {user?.name || "Unknown Name"}
-            </h1>
-
-            <div className="flex flex-wrap gap-x-6 gap-y-2 text-sm text-blue-200 font-medium">
-              {user?.email && (
-                <p className="flex items-center gap-1.5">📧 {user.email}</p>
-              )}
-              {user?.phone_mobile && (
-                <p className="flex items-center gap-1.5">
-                  📱 {user.phone_mobile}
-                </p>
-              )}
-              {user?.reporting_manager && (
-                <p className="flex items-center gap-1.5">
-                  <span className="text-blue-300">Reports to:</span>
-                  <span className="text-white font-bold">
-                    {user.reporting_manager}
+                <span className="px-3 py-1.5 bg-cyan-500/20 text-cyan-200 text-[10px] font-black uppercase tracking-[0.2em] rounded-lg border border-cyan-500/30 font-mono">
+                  ID: {employeeId}
+                </span>
+                {user?.department && (
+                  <span className="text-[11px] text-blue-200 font-bold uppercase tracking-widest pl-2 border-l border-white/20">
+                    {user.department}
                   </span>
-                </p>
-              )}
+                )}
+              </div>
+              <h1 className="text-3xl sm:text-4xl font-black tracking-tight mb-2">
+                {user?.name || "Unknown Name"}
+              </h1>
+
+              <div className="flex flex-wrap gap-x-6 gap-y-2 text-sm text-blue-200 font-medium">
+                {user?.email && (
+                  <p className="flex items-center gap-1.5">📧 {user.email}</p>
+                )}
+                {user?.phone_mobile && (
+                  <p className="flex items-center gap-1.5">
+                    📱 {user.phone_mobile}
+                  </p>
+                )}
+                {user?.reporting_manager && (
+                  <p className="flex items-center gap-1.5">
+                    <span className="text-blue-300">Reports to:</span>
+                    <span className="text-white font-bold">
+                      {user.reporting_manager}
+                    </span>
+                  </p>
+                )}
+              </div>
+            </div>
+
+            <div className="flex flex-col md:items-end gap-4 mt-4 md:mt-0">
+              <Link
+                href="/questionnaire"
+                className="group flex flex-1 sm:flex-none w-full sm:w-auto items-center justify-center gap-3 px-8 py-4 bg-white text-blue-900 rounded-2xl font-black hover:bg-cyan-50 hover:shadow-xl hover:shadow-cyan-500/20 transition-all duration-300 active:scale-[0.98]"
+              >
+                <Plus className="w-5 h-5 group-hover:rotate-90 transition-transform text-blue-600" />
+                Initialize New JD
+              </Link>
             </div>
           </div>
+        </header>
 
-          <div className="flex flex-col md:items-end gap-4 mt-4 md:mt-0">
-            <Link
-              href="/questionnaire"
-              className="group flex flex-1 sm:flex-none w-full sm:w-auto items-center justify-center gap-3 px-8 py-4 bg-white text-blue-900 rounded-2xl font-black hover:bg-cyan-50 hover:shadow-xl hover:shadow-cyan-500/20 transition-all duration-300 active:scale-[0.98]"
-            >
-              <Plus className="w-5 h-5 group-hover:rotate-90 transition-transform text-blue-600" />
-              Initialize New JD
-            </Link>
-          </div>
-        </div>
-      </header>
-
-      {/* Horizontal Pill Filters */}
-      <div className="bg-white p-2 rounded-2xl border border-surface-200 shadow-sm flex flex-wrap gap-2">
-        {[
-          {
-            key: "all",
-            label: "All Output",
-            count: allJds.length,
-            color: "blue",
-            icon: Briefcase,
-          },
-          {
-            key: "draft",
-            label: "My Drafts",
-            count: draftCount,
-            color: "amber",
-            icon: Clock,
-          },
-          {
-            key: "pending",
-            label: "Sent for Review",
-            count: sentCount,
-            color: "purple",
-            icon: ShieldCheck,
-          },
-          {
-            key: "approved",
-            label: "Approved JDs",
-            count: approvedCount,
-            color: "emerald",
-            icon: FileText,
-          },
-        ].map((tab) => {
-          const isActive = filter === tab.key;
-          const colorClasses =
+        {/* Horizontal Pill Filters */}
+        <div className="bg-white p-2 rounded-2xl border border-surface-200 shadow-sm flex flex-wrap gap-2">
+          {[
             {
-              blue: "bg-blue-100 text-blue-700",
-              amber: "bg-amber-100 text-amber-700",
-              purple: "bg-purple-100 text-purple-700",
-              emerald: "bg-emerald-100 text-emerald-700",
-            }[tab.color as string] || "bg-surface-100 text-surface-700";
+              key: "all",
+              label: "All Output",
+              count: allJds.length,
+              color: "blue",
+              icon: Briefcase,
+            },
+            {
+              key: "draft",
+              label: "My Drafts",
+              count: draftCount,
+              color: "amber",
+              icon: Clock,
+            },
+            {
+              key: "pending",
+              label: "Sent for Review",
+              count: sentCount,
+              color: "purple",
+              icon: ShieldCheck,
+            },
+            {
+              key: "approved",
+              label: "Approved JDs",
+              count: approvedCount,
+              color: "emerald",
+              icon: FileText,
+            },
+          ].map((tab) => {
+            const isActive = filter === tab.key;
+            const colorClasses =
+              {
+                blue: "bg-blue-100 text-blue-700",
+                amber: "bg-amber-100 text-amber-700",
+                purple: "bg-purple-100 text-purple-700",
+                emerald: "bg-emerald-100 text-emerald-700",
+              }[tab.color as string] || "bg-surface-100 text-surface-700";
 
-          return (
-            <button
-              key={tab.key}
-              onClick={() => setFilter(tab.key as any)}
-              className={`flex-1 min-w-[140px] flex items-center gap-3 p-3 rounded-xl transition-all duration-200 ${
-                isActive
-                  ? "bg-surface-900 text-white shadow-md shadow-surface-900/20 ring-1 ring-surface-900"
-                  : "hover:bg-surface-50 text-surface-600 hover:text-surface-900"
-              }`}
-            >
-              <div
-                className={`w-10 h-10 rounded-lg flex items-center justify-center ${isActive ? "bg-white/10" : colorClasses}`}
+            return (
+              <button
+                key={tab.key}
+                onClick={() => setFilter(tab.key as any)}
+                className={`flex-1 min-w-[140px] flex items-center gap-3 p-3 rounded-xl transition-all duration-200 ${
+                  isActive
+                    ? "bg-surface-900 text-white shadow-md shadow-surface-900/20 ring-1 ring-surface-900"
+                    : "hover:bg-surface-50 text-surface-600 hover:text-surface-900"
+                }`}
               >
-                <tab.icon
-                  className={`w-5 h-5 ${isActive ? "text-white" : ""}`}
-                />
-              </div>
-              <div className="text-left">
-                <p
-                  className={`text-[10px] font-black uppercase tracking-widest mb-0.5 ${isActive ? "text-surface-300" : "text-surface-400"}`}
+                <div
+                  className={`w-10 h-10 rounded-lg flex items-center justify-center ${isActive ? "bg-white/10" : colorClasses}`}
                 >
-                  {tab.label}
-                </p>
-                <p
-                  className={`text-xl font-black leading-none ${isActive ? "text-white" : "text-surface-900"}`}
-                >
-                  {tab.count}
-                </p>
-              </div>
-            </button>
-          );
-        })}
-      </div>
-
-      {/* JD grid */}
-      <div className="space-y-6">
-        <div className="flex items-center justify-between px-2">
-          <h2 className="text-xl font-bold text-surface-900 flex items-center gap-3">
-            <span className="w-1.5 h-6 bg-blue-600 rounded-full" />
-            {filter === "all"
-              ? "Active Role Portfolio"
-              : `Filtered: ${filter.charAt(0).toUpperCase() + filter.slice(1)}`}
-          </h2>
+                  <tab.icon
+                    className={`w-5 h-5 ${isActive ? "text-white" : ""}`}
+                  />
+                </div>
+                <div className="text-left">
+                  <p
+                    className={`text-[10px] font-black uppercase tracking-widest mb-0.5 ${isActive ? "text-surface-300" : "text-surface-400"}`}
+                  >
+                    {tab.label}
+                  </p>
+                  <p
+                    className={`text-xl font-black leading-none ${isActive ? "text-white" : "text-surface-900"}`}
+                  >
+                    {tab.count}
+                  </p>
+                </div>
+              </button>
+            );
+          })}
         </div>
-        <JDGrid jds={jds} showEmployee={false} />
+
+        {/* JD grid */}
+        <div className="space-y-6">
+          <div className="flex items-center justify-between px-2">
+            <h2 className="text-xl font-bold text-surface-900 flex items-center gap-3">
+              <span className="w-1.5 h-6 bg-blue-600 rounded-full" />
+              {filter === "all"
+                ? "Active Role Portfolio"
+                : `Filtered: ${filter.charAt(0).toUpperCase() + filter.slice(1)}`}
+            </h2>
+          </div>
+          <JDGrid jds={jds} showEmployee={false} />
+        </div>
       </div>
     </div>
   );
@@ -505,141 +507,143 @@ function ManagerView({ user }: { user: AuthUser }) {
   ).length;
 
   return (
-    <div className="max-w-7xl mx-auto space-y-8 sm:space-y-10 pt-14 pb-10 sm:pt-0 animate-in fade-in slide-in-from-bottom-4 duration-700">
-      {/* Executive Dark Header */}
-      <header className="bg-gradient-to-r from-slate-900 via-slate-800 to-blue-950 rounded-[2rem] p-6 sm:p-10 relative overflow-hidden shadow-2xl shadow-slate-900/20">
-        {/* Subtle background glow */}
-        <div className="absolute top-0 right-0 p-32 bg-blue-500/10 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2 pointer-events-none" />
+    <div className="absolute inset-0 overflow-y-auto p-4 sm:p-6 pb-24">
+      <div className="max-w-7xl mx-auto space-y-8 sm:space-y-10 pt-14 pb-10 sm:pt-0 animate-in fade-in slide-in-from-bottom-4 duration-700">
+        {/* Executive Dark Header */}
+        <header className="bg-gradient-to-r from-slate-900 via-slate-800 to-blue-950 rounded-[2rem] p-6 sm:p-10 relative overflow-hidden shadow-2xl shadow-slate-900/20">
+          {/* Subtle background glow */}
+          <div className="absolute top-0 right-0 p-32 bg-blue-500/10 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2 pointer-events-none" />
 
-        <div className="relative z-10 flex flex-col md:flex-row md:items-end justify-between gap-6">
-          <div>
-            <div className="flex items-center gap-3 mb-4">
-              <span className="px-3 py-1.5 bg-blue-500/20 text-blue-300 text-[10px] font-black uppercase tracking-[0.2em] rounded-lg border border-blue-500/30 backdrop-blur-sm shadow-inner shadow-white/5">
-                Executive Review
-              </span>
-              {user.department && (
-                <span className="text-[11px] text-slate-400 font-bold uppercase tracking-widest pl-3 border-l border-slate-700/50">
-                  {user.department}
+          <div className="relative z-10 flex flex-col md:flex-row md:items-end justify-between gap-6">
+            <div>
+              <div className="flex items-center gap-3 mb-4">
+                <span className="px-3 py-1.5 bg-blue-500/20 text-blue-300 text-[10px] font-black uppercase tracking-[0.2em] rounded-lg border border-blue-500/30 backdrop-blur-sm shadow-inner shadow-white/5">
+                  Executive Review
                 </span>
-              )}
+                {user.department && (
+                  <span className="text-[11px] text-slate-400 font-bold uppercase tracking-widest pl-3 border-l border-slate-700/50">
+                    {user.department}
+                  </span>
+                )}
+              </div>
+              <h1 className="text-4xl font-black text-white tracking-tight leading-none mb-3">
+                Welcome, {user.name.split(" ")[0]}
+              </h1>
+              <p className="text-slate-400 font-medium text-sm">
+                Review and approve strategic Job Descriptions from your reports.
+              </p>
             </div>
-            <h1 className="text-4xl font-black text-white tracking-tight leading-none mb-3">
-              Welcome, {user.name.split(" ")[0]}
-            </h1>
-            <p className="text-slate-400 font-medium text-sm">
-              Review and approve strategic Job Descriptions from your reports.
-            </p>
-          </div>
 
-          <div className="flex bg-white/5 p-4 rounded-2xl border border-white/10 backdrop-blur-md w-full sm:w-auto overflow-hidden divide-x divide-slate-700">
-            <div className="text-center px-4 flex-1">
-              <p className="text-3xl sm:text-4xl font-black text-white">
-                {allJds.length}
-              </p>
-              <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mt-1 line-clamp-1">
-                Total Submissions
-              </p>
-            </div>
-            <div className="text-center px-4 flex-1">
-              <p className="text-3xl sm:text-4xl font-black text-emerald-400">
-                {approved}
-              </p>
-              <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mt-1 line-clamp-1">
-                Approved
-              </p>
+            <div className="flex bg-white/5 p-4 rounded-2xl border border-white/10 backdrop-blur-md w-full sm:w-auto overflow-hidden divide-x divide-slate-700">
+              <div className="text-center px-4 flex-1">
+                <p className="text-3xl sm:text-4xl font-black text-white">
+                  {allJds.length}
+                </p>
+                <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mt-1 line-clamp-1">
+                  Total Submissions
+                </p>
+              </div>
+              <div className="text-center px-4 flex-1">
+                <p className="text-3xl sm:text-4xl font-black text-emerald-400">
+                  {approved}
+                </p>
+                <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mt-1 line-clamp-1">
+                  Approved
+                </p>
+              </div>
             </div>
           </div>
-        </div>
-      </header>
+        </header>
 
-      {/* Horizontal Pill Filters */}
-      <div className="bg-white p-2 rounded-2xl border border-surface-200 shadow-sm flex flex-wrap gap-2">
-        {[
-          {
-            key: "pending",
-            label: "Action Required",
-            count: pending,
-            color: pending > 0 ? "amber" : "slate",
-            icon: AlertTriangle,
-          },
-          {
-            key: "approved",
-            label: "Signed Off",
-            count: approved,
-            color: "emerald",
-            icon: CheckCircle2,
-          },
-          {
-            key: "all",
-            label: "Portfolio Overview",
-            count: allJds.length,
-            color: "blue",
-            icon: Briefcase,
-          },
-          {
-            key: "my_jds",
-            label: "My JDs",
-            count: myJds.length,
-            color: "slate",
-            icon: FileText,
-          },
-        ].map((tab) => {
-          const isActive = filter === tab.key;
-          const colorClasses =
+        {/* Horizontal Pill Filters */}
+        <div className="bg-white p-2 rounded-2xl border border-surface-200 shadow-sm flex flex-wrap gap-2">
+          {[
             {
-              blue: "bg-blue-100 text-blue-700",
-              amber: "bg-amber-100 text-amber-700",
-              emerald: "bg-emerald-100 text-emerald-700",
-              slate: "bg-slate-100 text-slate-700",
-            }[tab.color as string] || "bg-surface-100 text-surface-700";
+              key: "pending",
+              label: "Action Required",
+              count: pending,
+              color: pending > 0 ? "amber" : "slate",
+              icon: AlertTriangle,
+            },
+            {
+              key: "approved",
+              label: "Signed Off",
+              count: approved,
+              color: "emerald",
+              icon: CheckCircle2,
+            },
+            {
+              key: "all",
+              label: "Portfolio Overview",
+              count: allJds.length,
+              color: "blue",
+              icon: Briefcase,
+            },
+            {
+              key: "my_jds",
+              label: "My JDs",
+              count: myJds.length,
+              color: "slate",
+              icon: FileText,
+            },
+          ].map((tab) => {
+            const isActive = filter === tab.key;
+            const colorClasses =
+              {
+                blue: "bg-blue-100 text-blue-700",
+                amber: "bg-amber-100 text-amber-700",
+                emerald: "bg-emerald-100 text-emerald-700",
+                slate: "bg-slate-100 text-slate-700",
+              }[tab.color as string] || "bg-surface-100 text-surface-700";
 
-          return (
-            <button
-              key={tab.key}
-              onClick={() => setFilter(tab.key as any)}
-              className={`flex-1 min-w-[140px] flex items-center gap-3 p-3 rounded-xl transition-all duration-200 ${
-                isActive
-                  ? "bg-slate-900 text-white shadow-md shadow-slate-900/20 ring-1 ring-slate-900"
-                  : "hover:bg-slate-50 text-slate-600 hover:text-slate-900"
-              }`}
-            >
-              <div
-                className={`w-10 h-10 rounded-lg flex items-center justify-center ${isActive ? "bg-white/10" : colorClasses}`}
+            return (
+              <button
+                key={tab.key}
+                onClick={() => setFilter(tab.key as any)}
+                className={`flex-1 min-w-[140px] flex items-center gap-3 p-3 rounded-xl transition-all duration-200 ${
+                  isActive
+                    ? "bg-slate-900 text-white shadow-md shadow-slate-900/20 ring-1 ring-slate-900"
+                    : "hover:bg-slate-50 text-slate-600 hover:text-slate-900"
+                }`}
               >
-                <tab.icon
-                  className={`w-5 h-5 ${isActive ? "text-white" : ""}`}
-                />
-              </div>
-              <div className="text-left">
-                <p
-                  className={`text-[10px] font-black uppercase tracking-widest mb-0.5 ${isActive ? "text-slate-300" : "text-slate-400"}`}
+                <div
+                  className={`w-10 h-10 rounded-lg flex items-center justify-center ${isActive ? "bg-white/10" : colorClasses}`}
                 >
-                  {tab.label}
-                </p>
-                <p
-                  className={`text-xl font-black leading-none ${isActive ? "text-white" : "text-slate-900"}`}
-                >
-                  {tab.count}
-                </p>
-              </div>
-            </button>
-          );
-        })}
-      </div>
+                  <tab.icon
+                    className={`w-5 h-5 ${isActive ? "text-white" : ""}`}
+                  />
+                </div>
+                <div className="text-left">
+                  <p
+                    className={`text-[10px] font-black uppercase tracking-widest mb-0.5 ${isActive ? "text-slate-300" : "text-slate-400"}`}
+                  >
+                    {tab.label}
+                  </p>
+                  <p
+                    className={`text-xl font-black leading-none ${isActive ? "text-white" : "text-slate-900"}`}
+                  >
+                    {tab.count}
+                  </p>
+                </div>
+              </button>
+            );
+          })}
+        </div>
 
-      {/* JD Grid area */}
-      <div className="space-y-6">
-        <h2 className="text-lg sm:text-xl font-bold text-slate-900 flex items-center gap-3 px-2">
-          <span className="w-1.5 h-6 bg-slate-800 rounded-full" />
-          {filter === "all"
-            ? "All Team Roles"
-            : filter === "pending"
-              ? "Awaiting Your Approval"
-              : filter === "my_jds"
-                ? "Your Personal Documents"
-                : "Successfully Processed"}
-        </h2>
-        <JDGrid jds={jds} showEmployee={filter !== "my_jds"} />
+        {/* JD Grid area */}
+        <div className="space-y-6">
+          <h2 className="text-lg sm:text-xl font-bold text-slate-900 flex items-center gap-3 px-2">
+            <span className="w-1.5 h-6 bg-slate-800 rounded-full" />
+            {filter === "all"
+              ? "All Team Roles"
+              : filter === "pending"
+                ? "Awaiting Your Approval"
+                : filter === "my_jds"
+                  ? "Your Personal Documents"
+                  : "Successfully Processed"}
+          </h2>
+          <JDGrid jds={jds} showEmployee={filter !== "my_jds"} />
+        </div>
       </div>
     </div>
   );
@@ -712,137 +716,139 @@ function HRView({ user }: { user: AuthUser }) {
   };
 
   return (
-    <div className="max-w-7xl mx-auto space-y-8 sm:space-y-10 pt-14 pb-10 sm:pt-0 animate-in fade-in slide-in-from-bottom-4 duration-700">
-      {/* Admin Purple Gradient Header */}
-      <header className="bg-gradient-to-r from-purple-900 via-indigo-900 to-indigo-800 rounded-3xl p-6 sm:p-8 shadow-xl shadow-indigo-900/20 text-white relative overflow-hidden">
-        {/* Abstract shapes */}
-        <div className="absolute top-0 right-0 p-32 bg-purple-500/20 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2" />
-        <div className="absolute bottom-0 left-0 p-32 bg-blue-500/20 rounded-full blur-3xl translate-y-1/2 -translate-x-1/2" />
+    <div className="absolute inset-0 overflow-y-auto p-4 sm:p-6 pb-24">
+      <div className="max-w-7xl mx-auto space-y-8 sm:space-y-10 pt-14 pb-10 sm:pt-0 animate-in fade-in slide-in-from-bottom-4 duration-700">
+        {/* Admin Purple Gradient Header */}
+        <header className="bg-gradient-to-r from-purple-900 via-indigo-900 to-indigo-800 rounded-3xl p-6 sm:p-8 shadow-xl shadow-indigo-900/20 text-white relative overflow-hidden">
+          {/* Abstract shapes */}
+          <div className="absolute top-0 right-0 p-32 bg-purple-500/20 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2" />
+          <div className="absolute bottom-0 left-0 p-32 bg-blue-500/20 rounded-full blur-3xl translate-y-1/2 -translate-x-1/2" />
 
-        <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-6">
-          <div>
-            <div className="inline-flex items-center gap-2 mb-4 px-3 py-1.5 bg-white/10 backdrop-blur-md rounded-lg border border-white/20">
-              <ShieldCheck className="w-4 h-4 text-purple-200" />
-              <span className="text-[10px] font-black uppercase tracking-[0.2em] text-purple-100">
-                HR Command Center
-              </span>
-            </div>
-            <h1 className="text-4xl font-black tracking-tight mb-2">
-              Welcome, {user.name.split(" ")[0]}
-            </h1>
-            <p className="text-indigo-200 font-medium">
-              Enterprise Job Description Governance Pipeline
-            </p>
-          </div>
-
-          {/* Quick Metrics right in the header */}
-          <div className="flex bg-black/20 p-4 rounded-2xl border border-white/10 backdrop-blur-md w-full sm:w-auto divide-x divide-white/10">
-            <div className="text-center px-2 sm:px-4 flex-1">
-              <p className="text-2xl sm:text-3xl font-black text-white">
-                {counts.all}
-              </p>
-              <p className="text-[10px] font-black uppercase tracking-widest text-indigo-300 line-clamp-1">
-                Total Active
-              </p>
-            </div>
-            <div className="text-center px-2 sm:px-4 flex-1">
-              <p className="text-2xl sm:text-3xl font-black text-emerald-400">
-                {counts.approved}
-              </p>
-              <p className="text-[10px] font-black uppercase tracking-widest text-indigo-300 line-clamp-1">
-                Total Approved
-              </p>
-            </div>
-          </div>
-        </div>
-      </header>
-
-      {/* Administrative Filters - Horizontal Scrollable Row style */}
-      <div className="bg-white p-2 rounded-2xl border border-surface-200 shadow-sm flex flex-wrap gap-2">
-        {[
-          {
-            key: "all",
-            label: "Global Directory",
-            count: counts.all,
-            icon: Briefcase,
-            color: "text-surface-600",
-          },
-          {
-            key: "sent_to_hr",
-            label: "Action Required by HR",
-            count: counts.sent_to_hr,
-            icon: Clock,
-            color: "text-amber-600",
-            alert: counts.sent_to_hr > 0,
-          },
-          {
-            key: "approved",
-            label: "Published Assets",
-            count: counts.approved,
-            icon: CheckCircle2,
-            color: "text-emerald-600",
-          },
-          {
-            key: "my_jds",
-            label: "My JDs",
-            count: counts.my_jds,
-            icon: FileText,
-            color: "text-blue-600",
-          },
-        ].map(({ key, label, count, icon: Icon, color, alert }) => (
-          <button
-            key={key}
-            onClick={() => setFilter(key)}
-            className={`flex-1 min-w-[200px] flex items-center justify-between p-4 rounded-xl transition-all duration-300 ${
-              filter === key
-                ? "bg-purple-50 ring-2 ring-purple-500 shadow-sm"
-                : "hover:bg-surface-50"
-            }`}
-          >
-            <div className="flex items-center gap-3">
-              <div
-                className={`w-8 h-8 rounded-lg flex items-center justify-center ${filter === key ? "bg-purple-100/50" : "bg-surface-100"}`}
-              >
-                <Icon
-                  className={`w-4 h-4 ${filter === key ? "text-purple-700" : color}`}
-                />
+          <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-6">
+            <div>
+              <div className="inline-flex items-center gap-2 mb-4 px-3 py-1.5 bg-white/10 backdrop-blur-md rounded-lg border border-white/20">
+                <ShieldCheck className="w-4 h-4 text-purple-200" />
+                <span className="text-[10px] font-black uppercase tracking-[0.2em] text-purple-100">
+                  HR Command Center
+                </span>
               </div>
-              <span
-                className={`text-[13px] font-bold ${filter === key ? "text-purple-900" : "text-surface-700"}`}
-              >
-                {label}
-              </span>
+              <h1 className="text-4xl font-black tracking-tight mb-2">
+                Welcome, {user.name.split(" ")[0]}
+              </h1>
+              <p className="text-indigo-200 font-medium">
+                Enterprise Job Description Governance Pipeline
+              </p>
             </div>
-            <div className="relative">
-              <span
-                className={`text-[11px] px-2 py-1 rounded-md font-black ${
-                  filter === key
-                    ? "bg-purple-600 text-white"
-                    : alert
-                      ? "bg-amber-100 text-amber-700"
-                      : "bg-surface-100 text-surface-500"
-                }`}
-              >
-                {count}
-              </span>
-              {alert && filter !== key && (
-                <span className="absolute -top-1 -right-1 w-2 h-2 bg-amber-500 rounded-full animate-pulse" />
-              )}
-            </div>
-          </button>
-        ))}
-      </div>
 
-      <div className="space-y-6">
-        <h2 className="text-xl font-bold text-surface-900 flex items-center gap-3 px-2">
-          <span className="w-1.5 h-6 bg-purple-600 rounded-full" />
-          {filter === "all"
-            ? "Enterprise Database"
-            : filter === "my_jds"
-              ? "Your Personal Documents"
-              : "Filtered Pipeline Results"}
-        </h2>
-        <JDGrid jds={jds} showEmployee={filter !== "my_jds"} />
+            {/* Quick Metrics right in the header */}
+            <div className="flex bg-black/20 p-4 rounded-2xl border border-white/10 backdrop-blur-md w-full sm:w-auto divide-x divide-white/10">
+              <div className="text-center px-2 sm:px-4 flex-1">
+                <p className="text-2xl sm:text-3xl font-black text-white">
+                  {counts.all}
+                </p>
+                <p className="text-[10px] font-black uppercase tracking-widest text-indigo-300 line-clamp-1">
+                  Total Active
+                </p>
+              </div>
+              <div className="text-center px-2 sm:px-4 flex-1">
+                <p className="text-2xl sm:text-3xl font-black text-emerald-400">
+                  {counts.approved}
+                </p>
+                <p className="text-[10px] font-black uppercase tracking-widest text-indigo-300 line-clamp-1">
+                  Total Approved
+                </p>
+              </div>
+            </div>
+          </div>
+        </header>
+
+        {/* Administrative Filters - Horizontal Scrollable Row style */}
+        <div className="bg-white p-2 rounded-2xl border border-surface-200 shadow-sm flex flex-wrap gap-2">
+          {[
+            {
+              key: "all",
+              label: "Global Directory",
+              count: counts.all,
+              icon: Briefcase,
+              color: "text-surface-600",
+            },
+            {
+              key: "sent_to_hr",
+              label: "Action Required by HR",
+              count: counts.sent_to_hr,
+              icon: Clock,
+              color: "text-amber-600",
+              alert: counts.sent_to_hr > 0,
+            },
+            {
+              key: "approved",
+              label: "Published Assets",
+              count: counts.approved,
+              icon: CheckCircle2,
+              color: "text-emerald-600",
+            },
+            {
+              key: "my_jds",
+              label: "My JDs",
+              count: counts.my_jds,
+              icon: FileText,
+              color: "text-blue-600",
+            },
+          ].map(({ key, label, count, icon: Icon, color, alert }) => (
+            <button
+              key={key}
+              onClick={() => setFilter(key)}
+              className={`flex-1 min-w-[200px] flex items-center justify-between p-4 rounded-xl transition-all duration-300 ${
+                filter === key
+                  ? "bg-purple-50 ring-2 ring-purple-500 shadow-sm"
+                  : "hover:bg-surface-50"
+              }`}
+            >
+              <div className="flex items-center gap-3">
+                <div
+                  className={`w-8 h-8 rounded-lg flex items-center justify-center ${filter === key ? "bg-purple-100/50" : "bg-surface-100"}`}
+                >
+                  <Icon
+                    className={`w-4 h-4 ${filter === key ? "text-purple-700" : color}`}
+                  />
+                </div>
+                <span
+                  className={`text-[13px] font-bold ${filter === key ? "text-purple-900" : "text-surface-700"}`}
+                >
+                  {label}
+                </span>
+              </div>
+              <div className="relative">
+                <span
+                  className={`text-[11px] px-2 py-1 rounded-md font-black ${
+                    filter === key
+                      ? "bg-purple-600 text-white"
+                      : alert
+                        ? "bg-amber-100 text-amber-700"
+                        : "bg-surface-100 text-surface-500"
+                  }`}
+                >
+                  {count}
+                </span>
+                {alert && filter !== key && (
+                  <span className="absolute -top-1 -right-1 w-2 h-2 bg-amber-500 rounded-full animate-pulse" />
+                )}
+              </div>
+            </button>
+          ))}
+        </div>
+
+        <div className="space-y-6">
+          <h2 className="text-xl font-bold text-surface-900 flex items-center gap-3 px-2">
+            <span className="w-1.5 h-6 bg-purple-600 rounded-full" />
+            {filter === "all"
+              ? "Enterprise Database"
+              : filter === "my_jds"
+                ? "Your Personal Documents"
+                : "Filtered Pipeline Results"}
+          </h2>
+          <JDGrid jds={jds} showEmployee={filter !== "my_jds"} />
+        </div>
       </div>
     </div>
   );

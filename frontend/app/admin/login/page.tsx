@@ -48,15 +48,15 @@ export default function AdminLoginPage() {
       <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-blue-600/20 rounded-full blur-[120px]" />
       <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-purple-600/20 rounded-full blur-[120px]" />
 
-      <div className="relative z-10 w-full max-w-md p-8 bg-slate-800/50 backdrop-blur-xl border border-slate-700 rounded-3xl shadow-2xl">
-        <div className="text-center mb-10">
+      <div className="relative z-10 w-full max-w-md p-6 sm:p-8 m-4 bg-slate-800/50 backdrop-blur-xl border border-slate-700 rounded-3xl shadow-2xl">
+        <div className="text-center mb-8 sm:mb-10">
           <div className="mx-auto w-16 h-16 bg-blue-500/10 rounded-2xl flex items-center justify-center mb-6 border border-blue-500/20">
             <Lock className="w-8 h-8 text-blue-400" />
           </div>
-          <h1 className="text-3xl font-bold bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent">
+          <h1 className="text-2xl sm:text-3xl font-bold bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent">
             Admin Portal
           </h1>
-          <p className="text-slate-400 mt-2">
+          <p className="text-sm sm:text-base text-slate-400 mt-2">
             Sign in to access the command center
           </p>
         </div>
@@ -79,7 +79,7 @@ export default function AdminLoginPage() {
                 value={code}
                 onChange={(e) => setCode(e.target.value)}
                 autoComplete="off"
-                className="w-full bg-slate-900/50 border border-slate-700 text-slate-100 px-11 py-3.5 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/50 transition-all font-medium"
+                className="w-full bg-slate-900/50 border border-slate-700 text-slate-100 px-11 py-3 sm:py-3.5 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/50 transition-all font-medium text-sm sm:text-base"
                 placeholder="Enter admin code"
                 disabled={loading}
               />
@@ -97,7 +97,7 @@ export default function AdminLoginPage() {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 autoComplete="current-password"
-                className="w-full bg-slate-900/50 border border-slate-700 text-slate-100 px-11 py-3.5 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/50 transition-all font-medium"
+                className="w-full bg-slate-900/50 border border-slate-700 text-slate-100 px-11 py-3 sm:py-3.5 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/50 transition-all font-medium text-sm sm:text-base"
                 placeholder="••••••••"
                 disabled={loading}
               />
@@ -107,7 +107,7 @@ export default function AdminLoginPage() {
           <button
             type="submit"
             disabled={loading || !code || !password}
-            className="w-full py-4 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 text-white rounded-xl font-bold transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center shadow-lg shadow-blue-900/20"
+            className="w-full py-3.5 sm:py-4 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 text-white rounded-xl font-bold transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center shadow-lg shadow-blue-900/20 text-sm sm:text-base"
           >
             {loading ? (
               <Loader2 className="w-5 h-5 animate-spin" />

@@ -139,12 +139,12 @@ export default function DashboardPage() {
   if (!isMounted) return null;
 
   return (
-    <div className="h-[calc(100vh-3rem)] overflow-y-auto bg-surface-50">
-      <div className="max-w-6xl mx-auto py-10 px-8 animate-in fade-in slide-in-from-bottom-4 duration-700">
+    <div className="h-[calc(100vh-3rem)] md:h-[calc(100vh)] overflow-y-auto bg-surface-50">
+      <div className="max-w-6xl mx-auto pt-20 pb-10 px-4 sm:px-8 md:pt-10 animate-in fade-in slide-in-from-bottom-4 duration-700">
         {/* Welcome Header */}
         <div className="mb-10 flex flex-col md:flex-row md:items-end justify-between gap-6">
           <div>
-            <h1 className="text-4xl font-black text-surface-900 tracking-tight flex items-center gap-3">
+            <h1 className="text-3xl sm:text-4xl font-black text-surface-900 tracking-tight flex flex-wrap items-center gap-3">
               JD Intelligence
               <span className="text-xs font-bold px-3 py-1 bg-gradient-to-r from-primary-500 to-primary-600 text-white rounded-full uppercase tracking-widest shadow-sm">
                 {role}
@@ -166,12 +166,12 @@ export default function DashboardPage() {
           className="group relative overflow-hidden flex items-center justify-between p-8 bg-gradient-to-r from-primary-600 via-primary-700 to-indigo-800 rounded-3xl text-white shadow-xl shadow-primary-900/20 hover:shadow-2xl hover:shadow-primary-900/40 hover:-translate-y-1 transition-all duration-300 mb-10"
         >
           <div className="absolute inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-20 mix-blend-overlay"></div>
-          <div className="relative z-10 flex items-center gap-6">
-            <div className="w-16 h-16 bg-white/10 backdrop-blur-md rounded-2xl flex items-center justify-center border border-white/20 group-hover:scale-110 transition-transform duration-500">
+          <div className="relative z-10 flex flex-col sm:flex-row items-start sm:items-center gap-4 sm:gap-6">
+            <div className="w-16 h-16 shrink-0 bg-white/10 backdrop-blur-md rounded-2xl flex items-center justify-center border border-white/20 group-hover:scale-110 transition-transform duration-500">
               <Plus className="w-8 h-8 text-white" />
             </div>
             <div>
-              <h2 className="text-2xl font-black tracking-tight">
+              <h2 className="text-xl sm:text-2xl font-black tracking-tight">
                 Start New JD Interview
               </h2>
               <p className="text-primary-100 text-base font-medium mt-1 opacity-90">
@@ -180,7 +180,7 @@ export default function DashboardPage() {
               </p>
             </div>
           </div>
-          <div className="relative z-10 w-12 h-12 rounded-full bg-white/10 flex items-center justify-center backdrop-blur-md border border-white/20 group-hover:bg-white/20 transition-colors">
+          <div className="hidden sm:flex relative z-10 w-12 h-12 shrink-0 rounded-full bg-white/10 items-center justify-center backdrop-blur-md border border-white/20 group-hover:bg-white/20 transition-colors">
             <ArrowRight className="w-6 h-6 text-white group-hover:translate-x-1 transition-transform duration-300" />
           </div>
         </Link>
@@ -239,10 +239,10 @@ export default function DashboardPage() {
 
         {/* Multi-Role Tabs */}
         {(role === "manager" || role === "hr") && (
-          <div className="flex items-center gap-3 mb-8 bg-surface-200/50 p-1.5 rounded-2xl w-fit">
+          <div className="flex overflow-x-auto gap-3 mb-8 bg-surface-200/50 p-1.5 rounded-2xl w-full sm:w-fit custom-scrollbar pb-2 sm:pb-1.5">
             <button
               onClick={() => setActiveTab("my_jds")}
-              className={`px-5 py-2.5 text-sm font-bold rounded-xl transition-all ${
+              className={`whitespace-nowrap px-5 py-2.5 text-sm font-bold rounded-xl transition-all ${
                 activeTab === "my_jds"
                   ? "bg-white text-surface-900 shadow-sm"
                   : "text-surface-500 hover:text-surface-700 hover:bg-surface-200/50"
@@ -253,7 +253,7 @@ export default function DashboardPage() {
             {role === "manager" && (
               <button
                 onClick={() => setActiveTab("team_approvals")}
-                className={`px-5 py-2.5 text-sm font-bold rounded-xl transition-all flex items-center gap-2 ${
+                className={`whitespace-nowrap px-5 py-2.5 text-sm font-bold rounded-xl transition-all flex items-center gap-2 ${
                   activeTab === "team_approvals"
                     ? "bg-white text-surface-900 shadow-sm"
                     : "text-surface-500 hover:text-surface-700 hover:bg-surface-200/50"
@@ -270,7 +270,7 @@ export default function DashboardPage() {
             {role === "hr" && (
               <button
                 onClick={() => setActiveTab("hr_approvals")}
-                className={`px-5 py-2.5 text-sm font-bold rounded-xl transition-all flex items-center gap-2 ${
+                className={`whitespace-nowrap px-5 py-2.5 text-sm font-bold rounded-xl transition-all flex items-center gap-2 ${
                   activeTab === "hr_approvals"
                     ? "bg-white text-surface-900 shadow-sm"
                     : "text-surface-500 hover:text-surface-700 hover:bg-surface-200/50"
@@ -289,8 +289,8 @@ export default function DashboardPage() {
 
         {/* JD List Area */}
         <div className="bg-white rounded-3xl border border-surface-200 shadow-premium overflow-hidden">
-          <div className="px-8 py-6 border-b border-surface-100 flex items-center justify-between bg-surface-50/50">
-            <h2 className="text-xl font-black text-surface-900 tracking-tight">
+          <div className="px-4 sm:px-8 py-5 sm:py-6 border-b border-surface-100 flex flex-col sm:flex-row sm:items-center justify-between bg-surface-50/50 gap-4">
+            <h2 className="text-lg sm:text-xl font-black text-surface-900 tracking-tight">
               {activeTab === "my_jds"
                 ? "Your Job Descriptions"
                 : role === "hr"
@@ -339,7 +339,7 @@ export default function DashboardPage() {
                         <h3 className="text-base font-bold text-surface-900 group-hover:text-primary-700 transition-colors">
                           {jdItem.title || "Untitled JD"}
                         </h3>
-                        <div className="flex flex-wrap items-center gap-3 mt-1.5">
+                        <div className="flex flex-wrap items-center gap-2 sm:gap-3 mt-1.5">
                           <span
                             className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-black uppercase tracking-widest border ${config.bg} ${config.color}`}
                           >

@@ -39,13 +39,16 @@ export default function HomePage() {
             <div className="w-10 h-10 bg-gradient-to-br from-blue-600 to-blue-800 rounded-xl flex items-center justify-center shadow-lg shadow-blue-900/20">
               <FileText className="w-5 h-5 text-white" />
             </div>
-            <span className="text-xl font-bold tracking-tight text-neutral-900">
+            <span className="text-xl font-bold tracking-tight text-neutral-900 hidden sm:inline-block">
               Pulse Pharma Intelligence
+            </span>
+            <span className="text-xl font-bold tracking-tight text-neutral-900 sm:hidden">
+              Pulse Pharma
             </span>
           </div>
           <div className="flex items-center gap-4">
             {!isAuthenticated && (
-              <div className="flex items-center gap-2 text-red-600 font-bold text-sm bg-red-50 px-4 py-2 rounded-full border border-red-100">
+              <div className="flex items-center gap-2 text-red-600 font-bold text-xs sm:text-sm bg-red-50 px-3 py-1.5 md:px-4 md:py-2 rounded-full border border-red-100">
                 <ShieldAlert className="w-4 h-4" />
                 Access Restricted
               </div>
@@ -60,7 +63,7 @@ export default function HomePage() {
                 </button>
                 <button
                   onClick={handleStartInterview}
-                  className="px-6 py-2.5 bg-neutral-900 text-white rounded-full text-sm font-bold shadow-xl shadow-neutral-900/20 hover:scale-[1.02] active:scale-[0.98] transition-all"
+                  className="px-4 py-2 md:px-6 md:py-2.5 bg-neutral-900 text-white rounded-full text-xs sm:text-sm font-bold shadow-xl shadow-neutral-900/20 hover:scale-[1.02] active:scale-[0.98] transition-all"
                 >
                   New Document
                 </button>
@@ -82,7 +85,7 @@ export default function HomePage() {
                 <ShieldAlert className="w-10 h-10" />
               </div>
               <h1 className="text-4xl md:text-5xl font-extrabold tracking-tight text-neutral-900 mb-6 leading-tight">
-                Authentication <br /> Required
+                Authentication <br className="sm:hidden" /> Required
               </h1>
               <p className="text-lg text-neutral-500 mb-8 leading-relaxed font-medium">
                 You must possess a valid, encrypted employee link to access the
@@ -101,12 +104,12 @@ export default function HomePage() {
                 <span>AI-POWERED JD INTELLIGENCE</span>
               </div>
 
-              <h1 className="text-6xl md:text-7xl font-extrabold tracking-tight text-neutral-900 mb-8 max-w-4xl mx-auto leading-[1.1] animate-in fade-in slide-in-from-bottom-8 duration-1000">
+              <h1 className="text-5xl md:text-6xl lg:text-7xl font-extrabold tracking-tight text-neutral-900 mb-8 max-w-4xl mx-auto leading-[1.1] animate-in fade-in slide-in-from-bottom-8 duration-1000">
                 Precision Hiring Starts with{" "}
                 <span className="text-blue-600">Perfect Descriptions</span>
               </h1>
 
-              <p className="text-xl text-neutral-500 mb-12 max-w-2xl mx-auto leading-relaxed animate-in fade-in slide-in-from-bottom-12 duration-1200">
+              <p className="text-lg md:text-xl text-neutral-500 mb-12 max-w-2xl mx-auto leading-relaxed animate-in fade-in slide-in-from-bottom-12 duration-1200 px-4">
                 Automate your job description workflow with Pulse Pharma's
                 intelligent agent. From interview to approval in minutes, not
                 days.
@@ -122,7 +125,7 @@ export default function HomePage() {
                 </button>
                 <button
                   onClick={handleGoToDashboard}
-                  className="px-8 py-4 bg-white text-neutral-900 border border-neutral-200 rounded-2xl font-bold hover:bg-neutral-50 hover:border-neutral-300 transition-all flex items-center gap-2"
+                  className="w-full sm:w-auto px-8 py-4 bg-white text-neutral-900 border border-neutral-200 rounded-2xl font-bold hover:bg-neutral-50 hover:border-neutral-300 transition-all flex items-center justify-center gap-2"
                 >
                   View Dashboard
                 </button>

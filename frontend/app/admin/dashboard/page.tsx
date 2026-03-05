@@ -154,7 +154,7 @@ export default function AdminDashboard() {
   }
 
   return (
-    <div className="space-y-8 max-w-7xl mx-auto pb-12">
+    <div className="space-y-6 sm:space-y-8 max-w-7xl mx-auto pb-8 sm:pb-12">
       {/* Stat Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         <StatCard
@@ -197,9 +197,9 @@ export default function AdminDashboard() {
       {/* Charts Row */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Pipeline Bar Chart */}
-        <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 lg:col-span-2">
-          <div className="flex items-center justify-between mb-6">
-            <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+        <div className="bg-white p-4 sm:p-6 rounded-2xl shadow-sm border border-slate-200 lg:col-span-2">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-6 gap-2">
+            <h3 className="text-base sm:text-lg font-bold text-slate-800 flex items-center gap-2">
               <TrendingUp className="w-5 h-5 text-blue-500" />
               JD Completion Pipeline
             </h3>
@@ -262,9 +262,9 @@ export default function AdminDashboard() {
         </div>
 
         {/* Manager Response Rate Doughnut */}
-        <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
-          <div className="flex items-center justify-between mb-2">
-            <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+        <div className="bg-white p-4 sm:p-6 rounded-2xl shadow-sm border border-slate-200">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-2">
+            <h3 className="text-base sm:text-lg font-bold text-slate-800 flex items-center gap-2">
               <UserCheck className="w-5 h-5 text-purple-500" />
               Manager Response Rate
             </h3>
@@ -323,11 +323,11 @@ export default function AdminDashboard() {
       </div>
 
       {/* Master Database Table */}
-      <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
-        <div className="p-6 border-b border-slate-200 space-y-4">
-          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-            <div className="flex items-center gap-3">
-              <h3 className="text-lg font-bold text-slate-800">
+      <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden text-sm sm:text-base">
+        <div className="p-4 sm:p-6 border-b border-slate-200 space-y-4">
+          <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+            <div className="flex flex-wrap items-center gap-3 w-full md:w-auto">
+              <h3 className="text-base sm:text-lg font-bold text-slate-800 truncate">
                 Master Directory
               </h3>
               {statusFilter !== "All" && (
@@ -344,7 +344,7 @@ export default function AdminDashboard() {
               )}
             </div>
 
-            <div className="relative w-full sm:w-72">
+            <div className="relative w-full md:w-72 mt-2 md:mt-0">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
               <input
                 type="text"
@@ -356,13 +356,13 @@ export default function AdminDashboard() {
             </div>
           </div>
 
-          <div className="flex items-center gap-2 overflow-x-auto pb-2">
-            <Filter className="w-4 h-4 text-slate-400 mr-2" />
+          <div className="flex items-center gap-2 overflow-x-auto pb-2 custom-scrollbar">
+            <Filter className="w-4 h-4 text-slate-400 mr-2 shrink-0" />
             {["All", "Employees", "Managers", "HR"].map((tab) => (
               <button
                 key={tab}
                 onClick={() => setActiveTab(tab)}
-                className={`px-4 py-1.5 rounded-full text-sm font-medium whitespace-nowrap transition-colors ${
+                className={`px-3 sm:px-4 py-1.5 rounded-full text-xs sm:text-sm font-medium whitespace-nowrap transition-colors ${
                   activeTab === tab
                     ? "bg-slate-800 text-white"
                     : "bg-slate-100 text-slate-600 hover:bg-slate-200"

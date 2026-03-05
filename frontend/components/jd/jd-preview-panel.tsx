@@ -124,26 +124,32 @@ export default function JDPreviewPanel({
   return (
     <div className="flex flex-col h-full bg-white border-l border-surface-200 w-full">
       {/* Header */}
-      <div className="flex-shrink-0 px-6 py-4 border-b border-surface-100 bg-gradient-to-r from-primary-600 to-primary-800">
+      <div className="flex-shrink-0 px-4 sm:px-6 py-3 sm:py-4 border-b border-surface-100 bg-gradient-to-r from-primary-600 to-primary-800">
         <div className="flex items-center justify-between mb-1">
-          <div className="flex items-center gap-2.5">
-            <Sparkles className="w-5 h-5 text-white/80" />
-            <span className="text-[10px] font-black text-white/70 uppercase tracking-[0.25em]">
+          <div className="flex items-center gap-2 sm:gap-2.5">
+            <Sparkles className="w-4 h-4 sm:w-5 sm:h-5 text-white/80 shrink-0" />
+            <span className="text-[9px] sm:text-[10px] font-black text-white/70 uppercase tracking-[0.25em] truncate">
               Generated JD
             </span>
           </div>
           <button
             onClick={onClose}
-            className="w-8 h-8 flex items-center justify-center rounded-lg bg-white/10 hover:bg-white/20 text-white transition-colors"
+            className="w-7 h-7 sm:w-8 sm:h-8 flex items-center justify-center rounded-lg bg-white/10 hover:bg-white/20 text-white transition-colors shrink-0 md:hidden"
+          >
+            <X className="w-4 h-4" />
+          </button>
+          <button
+            onClick={onClose}
+            className="hidden md:flex w-8 h-8 items-center justify-center rounded-lg bg-white/10 hover:bg-white/20 text-white transition-colors shrink-0"
           >
             <X className="w-4 h-4" />
           </button>
         </div>
-        <h2 className="text-lg font-black text-white leading-tight tracking-tight">
+        <h2 className="text-base sm:text-lg font-black text-white leading-tight tracking-tight line-clamp-2">
           {isGenerating ? "Architecting..." : title}
         </h2>
         {!isGenerating && (dept || location) && (
-          <p className="text-[11px] text-white/60 mt-1 font-medium">
+          <p className="text-[10px] sm:text-[11px] text-white/60 mt-1 font-medium truncate">
             {[dept, location, workType].filter(Boolean).join(" · ")}
           </p>
         )}
@@ -190,12 +196,12 @@ export default function JDPreviewPanel({
       {!isGenerating && jd && (
         <>
           {hasStructured && (
-            <div className="flex-shrink-0 flex border-b border-surface-100 px-4 pt-3 gap-1">
+            <div className="flex-shrink-0 flex border-b border-surface-100 px-2 sm:px-4 pt-2 sm:pt-3 gap-1 overflow-x-auto">
               {(["structured", "markdown"] as const).map((tab) => (
                 <button
                   key={tab}
                   onClick={() => setActiveTab(tab)}
-                  className={`px-4 py-2 text-[10px] font-black uppercase tracking-widest rounded-t-lg transition-all ${
+                  className={`px-3 sm:px-4 py-1.5 sm:py-2 text-[9px] sm:text-[10px] font-black uppercase tracking-widest rounded-t-lg transition-all whitespace-nowrap ${
                     activeTab === tab
                       ? "bg-primary-600 text-white"
                       : "text-surface-400 hover:text-surface-700"
@@ -211,12 +217,12 @@ export default function JDPreviewPanel({
           <div className="flex-1 overflow-y-auto">
             {/* STRUCTURED VIEW */}
             {activeTab === "structured" && hasStructured ? (
-              <div className="p-6 space-y-1">
+              <div className="p-4 sm:p-6 space-y-1">
                 {/* Role meta */}
                 {reportsTo && (
-                  <div className="mb-6 px-4 py-3 bg-surface-50 rounded-xl border border-surface-100 flex items-center gap-3 text-[12px] text-surface-600">
-                    <Users className="w-4 h-4 text-surface-400" />
-                    <span>
+                  <div className="mb-4 sm:mb-6 px-3 sm:px-4 py-2 sm:py-3 bg-surface-50 rounded-xl border border-surface-100 flex items-center gap-2 sm:gap-3 text-[11px] sm:text-[12px] text-surface-600">
+                    <Users className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-surface-400 shrink-0" />
+                    <span className="truncate">
                       <span className="font-bold text-surface-900">
                         Reports to:
                       </span>{" "}
@@ -326,16 +332,16 @@ export default function JDPreviewPanel({
               </div>
             ) : (
               /* MARKDOWN VIEW */
-              <div className="p-6 h-full flex flex-col min-h-[400px]">
+              <div className="p-4 sm:p-6 h-full flex flex-col min-h-[400px]">
                 {isEditing ? (
                   <textarea
                     value={jd || ""}
                     onChange={(e) => updateJd(e.target.value)}
-                    className="flex-1 w-full bg-surface-50 border border-surface-200 rounded-xl p-4 text-surface-800 text-[13px] font-mono leading-relaxed focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none resize-none"
+                    className="flex-1 w-full bg-surface-50 border border-surface-200 rounded-xl p-3 sm:p-4 text-surface-800 text-[12px] sm:text-[13px] font-mono leading-relaxed focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none resize-none"
                     placeholder="Type markdown job description here..."
                   />
                 ) : (
-                  <div className="prose prose-sm prose-neutral max-w-none prose-headings:font-bold prose-headings:text-surface-900 prose-h1:text-xl prose-h2:text-base prose-h2:mt-6 prose-p:text-surface-700 prose-li:text-surface-700 prose-strong:text-primary-700">
+                  <div className="prose prose-sm prose-neutral max-w-none prose-headings:font-bold prose-headings:text-surface-900 prose-h1:text-lg sm:prose-h1:text-xl prose-h2:text-sm sm:prose-h2:text-base prose-h2:mt-4 sm:prose-h2:mt-6 prose-p:text-surface-700 prose-li:text-surface-700 prose-strong:text-primary-700 text-sm">
                     <ReactMarkdown remarkPlugins={[remarkGfm]}>
                       {jd}
                     </ReactMarkdown>

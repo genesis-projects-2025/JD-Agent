@@ -23,7 +23,7 @@ export function DeleteModal({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm animate-in fade-in duration-200">
       <div
-        className="bg-white w-full max-w-md rounded-[24px] p-6 shadow-2xl animate-in zoom-in-95 duration-300"
+        className="bg-white w-[90%] sm:w-full max-w-md rounded-[20px] sm:rounded-[24px] p-5 sm:p-6 shadow-2xl animate-in zoom-in-95 duration-300 m-4"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex justify-between items-start mb-4">
@@ -43,18 +43,18 @@ export function DeleteModal({
           {description}
         </p>
 
-        <div className="flex gap-3">
+        <div className="flex flex-col sm:flex-row gap-2 sm:gap-3">
           <button
             onClick={onClose}
             disabled={isDeleting}
-            className="flex-1 px-4 py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl transition-colors disabled:opacity-50"
+            className="w-full sm:flex-1 px-4 py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl transition-colors disabled:opacity-50"
           >
             Cancel
           </button>
           <button
             onClick={onConfirm}
             disabled={isDeleting}
-            className="flex-1 px-4 py-3 bg-red-600 hover:bg-red-700 text-white font-bold rounded-xl shadow-lg shadow-red-600/20 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+            className="w-full sm:flex-1 px-4 py-3 bg-red-600 hover:bg-red-700 text-white font-bold rounded-xl shadow-lg shadow-red-600/20 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
           >
             {isDeleting ? (
               <Loader2 className="w-5 h-5 animate-spin" />

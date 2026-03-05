@@ -119,10 +119,12 @@ export default function AdminFeedbackInbox() {
   }
 
   return (
-    <div className="h-[calc(100vh-8rem)] flex gap-6 max-w-[1600px] mx-auto">
-      {/* Left Pane: Inbox List */}
-      <div className="w-1/3 min-w-[320px] bg-white rounded-2xl border border-slate-200 shadow-sm flex flex-col overflow-hidden">
-        <div className="p-4 border-b border-slate-200 bg-slate-50 space-y-3">
+    <div className="h-[calc(100vh-4rem)] md:h-[calc(100vh-8rem)] flex flex-col md:flex-row gap-4 md:gap-6 max-w-[1600px] mx-auto p-4 sm:p-0">
+      {/* Left Pane: Inbox List (Hidden on mobile if a message is selected) */}
+      <div
+        className={`w-full md:w-1/3 md:min-w-[320px] bg-white text-sm sm:text-base rounded-2xl border border-slate-200 shadow-sm flex-col overflow-hidden ${selectedId ? "hidden md:flex" : "flex flex-1 md:flex-none"}`}
+      >
+        <div className="p-3 sm:p-4 border-b border-slate-200 bg-slate-50 space-y-3">
           <h2 className="font-bold text-slate-800 flex items-center gap-2">
             <MessageSquare className="w-4 h-4 text-blue-500" />
             Feedback Inbox
@@ -137,12 +139,12 @@ export default function AdminFeedbackInbox() {
               className="w-full pl-9 pr-4 py-2 bg-white border border-slate-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-500/50"
             />
           </div>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             {["all", "unread", "reviewed", "resolved"].map((status) => (
               <button
                 key={status}
                 onClick={() => setStatusFilter(status)}
-                className={`px-3 py-1 rounded-full text-[11px] font-bold uppercase tracking-wider transition-colors ${
+                className={`px-2 sm:px-3 py-1 rounded-full text-[10px] sm:text-[11px] font-bold uppercase tracking-wider transition-colors ${
                   statusFilter === status
                     ? "bg-slate-800 text-white"
                     : "bg-white border border-slate-200 text-slate-500 hover:bg-slate-100"
@@ -194,30 +196,39 @@ export default function AdminFeedbackInbox() {
       </div>
 
       {/* Right Pane: Detail View */}
-      <div className="flex-1 bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden flex flex-col">
+      <div
+        className={`flex-1 bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden flex-col text-sm sm:text-base ${!selectedId ? "hidden md:flex" : "flex"}`}
+      >
         {selectedFeedback ? (
           <>
-            <div className="p-6 border-b border-slate-200 bg-slate-50 flex items-start justify-between">
-              <div>
-                <div className="flex items-center gap-3 mb-4">
+            <div className="p-4 sm:p-6 border-b border-slate-200 bg-slate-50 flex flex-col xl:flex-row items-start justify-between gap-4">
+              <div className="w-full">
+                {/* Mobile Back Button */}
+                <button
+                  onClick={() => setSelectedId(null)}
+                  className="md:hidden flex items-center gap-2 text-slate-500 hover:text-slate-800 font-medium mb-4 text-sm bg-white border border-slate-200 px-3 py-1.5 rounded-lg w-fit shadow-sm"
+                >
+                  ← Back to Inbox
+                </button>
+                <div className="flex items-start sm:items-center gap-3 mb-4">
                   <div className="w-12 h-12 bg-blue-100 text-blue-700 rounded-full flex items-center justify-center font-bold text-lg">
                     {selectedFeedback.user_name.charAt(0)}
                   </div>
                   <div>
-                    <h1 className="text-xl font-bold text-slate-900">
+                    <h1 className="text-lg sm:text-xl font-bold text-slate-900 leading-tight">
                       {selectedFeedback.user_name}
                     </h1>
-                    <div className="flex items-center gap-4 text-sm text-slate-500 mt-1">
+                    <div className="flex flex-wrap items-center gap-2 sm:gap-4 text-xs sm:text-sm text-slate-500 mt-1.5">
                       <span className="flex items-center gap-1.5 border border-slate-200 bg-white px-2 py-0.5 rounded-md">
-                        <User className="w-3.5 h-3.5" />{" "}
+                        <User className="w-3.5 h-3.5 hidden sm:block" />{" "}
                         {selectedFeedback.user_role}
                       </span>
                       <span className="flex items-center gap-1.5 border border-slate-200 bg-white px-2 py-0.5 rounded-md">
-                        <Building2 className="w-3.5 h-3.5" />{" "}
+                        <Building2 className="w-3.5 h-3.5 hidden sm:block" />{" "}
                         {selectedFeedback.user_department}
                       </span>
-                      <span className="flex items-center gap-1.5 text-slate-400">
-                        <Clock className="w-3.5 h-3.5" />{" "}
+                      <span className="flex items-center gap-1.5 text-slate-400 mt-1 sm:mt-0 w-full sm:w-auto">
+                        <Clock className="w-3.5 h-3.5 hidden sm:block" />{" "}
                         {formatDate(selectedFeedback.created_at)}
                       </span>
                     </div>
@@ -225,7 +236,7 @@ export default function AdminFeedbackInbox() {
                 </div>
               </div>
 
-              <div className="flex gap-2">
+              <div className="flex flex-wrap gap-2 w-full xl:w-auto sm:mt-2">
                 {selectedFeedback.status !== "reviewed" && (
                   <button
                     onClick={() =>
@@ -254,9 +265,9 @@ export default function AdminFeedbackInbox() {
               </div>
             </div>
 
-            <div className="p-8 flex-1 overflow-y-auto">
-              <div className="flex items-center justify-between mb-6 pb-6 border-b border-slate-100">
-                <div className="flex items-center gap-3">
+            <div className="p-4 md:p-8 flex-1 overflow-y-auto">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6 pb-6 border-b border-slate-100">
+                <div className="flex flex-wrap items-center gap-2 sm:gap-3">
                   <span className="px-3 py-1 bg-blue-50 text-blue-700 border border-blue-200 rounded-md text-xs font-bold tracking-wide uppercase">
                     {selectedFeedback.category}
                   </span>

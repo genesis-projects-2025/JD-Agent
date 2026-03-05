@@ -282,9 +282,9 @@ function EmployeeView({
   if (loading) return <LoadingScreen />;
 
   return (
-    <div className="max-w-7xl mx-auto space-y-10 animate-in fade-in slide-in-from-bottom-4 duration-700">
+    <div className="max-w-7xl mx-auto space-y-8 sm:space-y-10 pt-14 pb-10 sm:pt-0 animate-in fade-in slide-in-from-bottom-4 duration-700">
       {/* Vibrant Blue Gradient Header (Employee Identity) */}
-      <header className="bg-gradient-to-r from-blue-900 via-blue-800 to-indigo-900 rounded-[2rem] p-8 shadow-2xl shadow-blue-900/20 text-white relative overflow-hidden">
+      <header className="bg-gradient-to-r from-blue-900 via-blue-800 to-indigo-900 rounded-[2rem] p-6 sm:p-8 shadow-2xl shadow-blue-900/20 text-white relative overflow-hidden">
         {/* Abstract shapes */}
         <div className="absolute top-0 right-0 p-32 bg-cyan-400/20 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2 pointer-events-none" />
         <div className="absolute bottom-0 left-0 p-32 bg-indigo-500/20 rounded-full blur-3xl translate-y-1/2 -translate-x-1/2 pointer-events-none" />
@@ -304,7 +304,7 @@ function EmployeeView({
                 </span>
               )}
             </div>
-            <h1 className="text-4xl font-black tracking-tight mb-2">
+            <h1 className="text-3xl sm:text-4xl font-black tracking-tight mb-2">
               {user?.name || "Unknown Name"}
             </h1>
 
@@ -331,7 +331,7 @@ function EmployeeView({
           <div className="flex flex-col md:items-end gap-4 mt-4 md:mt-0">
             <Link
               href="/questionnaire"
-              className="group flex items-center justify-center gap-3 px-8 py-4 bg-white text-blue-900 rounded-2xl font-black hover:bg-cyan-50 hover:shadow-xl hover:shadow-cyan-500/20 transition-all duration-300 active:scale-[0.98]"
+              className="group flex flex-1 sm:flex-none w-full sm:w-auto items-center justify-center gap-3 px-8 py-4 bg-white text-blue-900 rounded-2xl font-black hover:bg-cyan-50 hover:shadow-xl hover:shadow-cyan-500/20 transition-all duration-300 active:scale-[0.98]"
             >
               <Plus className="w-5 h-5 group-hover:rotate-90 transition-transform text-blue-600" />
               Initialize New JD
@@ -475,9 +475,9 @@ function ManagerView({ user }: { user: AuthUser }) {
   ).length;
 
   return (
-    <div className="max-w-7xl mx-auto space-y-10 animate-in fade-in slide-in-from-bottom-4 duration-700">
+    <div className="max-w-7xl mx-auto space-y-8 sm:space-y-10 pt-14 pb-10 sm:pt-0 animate-in fade-in slide-in-from-bottom-4 duration-700">
       {/* Executive Dark Header */}
-      <header className="bg-gradient-to-r from-slate-900 via-slate-800 to-blue-950 rounded-[2rem] p-10 relative overflow-hidden shadow-2xl shadow-slate-900/20">
+      <header className="bg-gradient-to-r from-slate-900 via-slate-800 to-blue-950 rounded-[2rem] p-6 sm:p-10 relative overflow-hidden shadow-2xl shadow-slate-900/20">
         {/* Subtle background glow */}
         <div className="absolute top-0 right-0 p-32 bg-blue-500/10 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2 pointer-events-none" />
 
@@ -501,16 +501,20 @@ function ManagerView({ user }: { user: AuthUser }) {
             </p>
           </div>
 
-          <div className="flex items-center gap-6 bg-white/5 p-4 rounded-2xl border border-white/10 backdrop-blur-md">
-            <div className="text-center px-4 border-r border-slate-700">
-              <p className="text-4xl font-black text-white">{allJds.length}</p>
-              <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mt-1">
+          <div className="flex bg-white/5 p-4 rounded-2xl border border-white/10 backdrop-blur-md w-full sm:w-auto overflow-hidden divide-x divide-slate-700">
+            <div className="text-center px-4 flex-1">
+              <p className="text-3xl sm:text-4xl font-black text-white">
+                {allJds.length}
+              </p>
+              <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mt-1 line-clamp-1">
                 Total Submissions
               </p>
             </div>
-            <div className="text-center px-4">
-              <p className="text-4xl font-black text-emerald-400">{approved}</p>
-              <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mt-1">
+            <div className="text-center px-4 flex-1">
+              <p className="text-3xl sm:text-4xl font-black text-emerald-400">
+                {approved}
+              </p>
+              <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mt-1 line-clamp-1">
                 Approved
               </p>
             </div>
@@ -587,7 +591,7 @@ function ManagerView({ user }: { user: AuthUser }) {
 
       {/* JD Grid area */}
       <div className="space-y-6">
-        <h2 className="text-xl font-bold text-slate-900 flex items-center gap-3 px-2">
+        <h2 className="text-lg sm:text-xl font-bold text-slate-900 flex items-center gap-3 px-2">
           <span className="w-1.5 h-6 bg-slate-800 rounded-full" />
           {filter === "all"
             ? "All Team Roles"
@@ -661,9 +665,9 @@ function HRView({ user }: { user: AuthUser }) {
   };
 
   return (
-    <div className="max-w-7xl mx-auto space-y-10 animate-in fade-in slide-in-from-bottom-4 duration-700">
+    <div className="max-w-7xl mx-auto space-y-8 sm:space-y-10 pt-14 pb-10 sm:pt-0 animate-in fade-in slide-in-from-bottom-4 duration-700">
       {/* Admin Purple Gradient Header */}
-      <header className="bg-gradient-to-r from-purple-900 via-indigo-900 to-indigo-800 rounded-3xl p-8 shadow-xl shadow-indigo-900/20 text-white relative overflow-hidden">
+      <header className="bg-gradient-to-r from-purple-900 via-indigo-900 to-indigo-800 rounded-3xl p-6 sm:p-8 shadow-xl shadow-indigo-900/20 text-white relative overflow-hidden">
         {/* Abstract shapes */}
         <div className="absolute top-0 right-0 p-32 bg-purple-500/20 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2" />
         <div className="absolute bottom-0 left-0 p-32 bg-blue-500/20 rounded-full blur-3xl translate-y-1/2 -translate-x-1/2" />
@@ -685,18 +689,20 @@ function HRView({ user }: { user: AuthUser }) {
           </div>
 
           {/* Quick Metrics right in the header */}
-          <div className="flex items-center gap-6 bg-black/20 p-4 rounded-2xl border border-white/10 backdrop-blur-md">
-            <div className="text-center px-4 border-r border-white/10">
-              <p className="text-3xl font-black text-white">{counts.all}</p>
-              <p className="text-[10px] font-black uppercase tracking-widest text-indigo-300">
+          <div className="flex bg-black/20 p-4 rounded-2xl border border-white/10 backdrop-blur-md w-full sm:w-auto divide-x divide-white/10">
+            <div className="text-center px-2 sm:px-4 flex-1">
+              <p className="text-2xl sm:text-3xl font-black text-white">
+                {counts.all}
+              </p>
+              <p className="text-[10px] font-black uppercase tracking-widest text-indigo-300 line-clamp-1">
                 Total Active
               </p>
             </div>
-            <div className="text-center px-4">
-              <p className="text-3xl font-black text-emerald-400">
+            <div className="text-center px-2 sm:px-4 flex-1">
+              <p className="text-2xl sm:text-3xl font-black text-emerald-400">
                 {counts.approved}
               </p>
-              <p className="text-[10px] font-black uppercase tracking-widest text-indigo-300">
+              <p className="text-[10px] font-black uppercase tracking-widest text-indigo-300 line-clamp-1">
                 Total Approved
               </p>
             </div>

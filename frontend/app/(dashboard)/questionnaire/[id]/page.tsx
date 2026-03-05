@@ -89,37 +89,37 @@ export default function QuestionnairePage() {
   return (
     <div className="h-screen flex flex-col overflow-hidden bg-surface-50">
       {/* Top nav bar */}
-      <div className="flex-shrink-0 h-14 bg-white border-b border-surface-200 flex items-center px-6 gap-4 z-40 shadow-sm">
+      <div className="flex-shrink-0 h-14 bg-white border-b border-surface-200 flex items-center px-4 sm:px-6 gap-2 sm:gap-4 z-40 shadow-sm overflow-x-auto">
         <button
           onClick={() => router.back()}
-          className="flex items-center gap-2 text-surface-400 hover:text-primary-600 transition-colors text-[11px] font-black uppercase tracking-widest group"
+          className="flex items-center gap-1.5 sm:gap-2 text-surface-400 hover:text-primary-600 transition-colors text-[10px] sm:text-[11px] font-black uppercase tracking-widest group whitespace-nowrap shrink-0"
         >
           <ArrowLeft className="w-4 h-4" />
-          Back
+          <span className="hidden sm:inline">Back</span>
         </button>
 
-        <div className="h-4 w-px bg-surface-200" />
+        <div className="h-4 w-px bg-surface-200 shrink-0" />
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 shrink-0">
           <FileText className="w-4 h-4 text-primary-600" />
-          <span className="text-[11px] font-black text-surface-600 uppercase tracking-widest">
+          <span className="text-[10px] sm:text-[11px] font-black text-surface-600 uppercase tracking-widest whitespace-nowrap">
             JD Interview
           </span>
         </div>
 
-        <div className="flex-1" />
+        <div className="flex-1 min-w-4" />
 
         {/* JD Ready indicator */}
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2 sm:gap-3 shrink-0">
           {jd && status === "jd_generated" && (
             <button
               onClick={() => setShowPanel((p) => !p)}
-              className="flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-xl text-[11px] font-black uppercase tracking-widest hover:bg-primary-700 transition-all shadow-lg shadow-primary-500/20 active:scale-95"
+              className="flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-1.5 sm:py-2 bg-primary-600 text-white rounded-xl text-[10px] sm:text-[11px] font-black uppercase tracking-widest hover:bg-primary-700 transition-all shadow-lg shadow-primary-500/20 active:scale-95 whitespace-nowrap"
             >
-              <Sparkles className="w-3.5 h-3.5" />
-              {showPanel ? "Hide JD" : "View Generated JD"}
+              <Sparkles className="w-3.5 h-3.5 hidden sm:block" />
+              {showPanel ? "Hide JD" : "View JD"}
               <ChevronRight
-                className={`w-3.5 h-3.5 transition-transform ${showPanel ? "rotate-180" : ""}`}
+                className={`w-3.5 h-3.5 transition-transform ${showPanel ? "rotate-90 md:rotate-180" : ""}`}
               />
             </button>
           )}
@@ -128,7 +128,7 @@ export default function QuestionnairePage() {
             onClick={() => setShowDeleteModal(true)}
             disabled={isDeleting}
             title="Delete Interview Draft"
-            className="p-2 text-surface-400 hover:text-red-500 bg-surface-50 hover:bg-red-50 rounded-lg transition-colors disabled:opacity-50"
+            className="p-1.5 sm:p-2 text-surface-400 hover:text-red-500 bg-surface-50 hover:bg-red-50 rounded-lg transition-colors disabled:opacity-50"
           >
             {isDeleting ? (
               <Loader2 className="w-4 h-4 animate-spin" />
@@ -140,19 +140,22 @@ export default function QuestionnairePage() {
 
         {/* Generating indicator */}
         {isGeneratingJD && (
-          <div className="flex items-center gap-2 px-4 py-2 bg-primary-50 text-primary-700 rounded-xl text-[11px] font-black uppercase tracking-widest border border-primary-100">
+          <div className="flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-1.5 sm:py-2 bg-primary-50 text-primary-700 rounded-xl text-[10px] sm:text-[11px] font-black uppercase tracking-widest border border-primary-100 whitespace-nowrap shrink-0">
             <Loader2 className="w-3.5 h-3.5 animate-spin" />
-            Generating JD...
+            <span className="hidden sm:inline">Generating JD...</span>
+            <span className="sm:hidden">Gen JD...</span>
           </div>
         )}
       </div>
 
       {/* Main content area */}
-      <div className="flex-1 flex min-h-0">
+      <div className="flex-1 flex flex-col md:flex-row min-h-0 relative">
         {/* Chat column */}
         <div
-          className={`flex flex-col min-h-0 transition-all duration-500 ease-out ${
-            showPanel ? "w-1/2 border-r border-surface-200" : "w-full"
+          className={`flex flex-col min-h-0 transition-all duration-500 ease-out bg-surface-50 w-full ${
+            showPanel
+              ? "h-1/2 md:h-auto md:w-1/2 md:border-r border-b md:border-b-0 border-surface-200"
+              : "h-full"
           }`}
         >
           <ChatWindow
@@ -187,9 +190,9 @@ export default function QuestionnairePage() {
           />
         </div>
 
-        {/* JD Preview Panel — slides in from right */}
+        {/* JD Preview Panel — slides in from right or bottom */}
         {showPanel && (
-          <div className="w-1/2 flex flex-col min-h-0 animate-in slide-in-from-right duration-400">
+          <div className="w-full h-1/2 md:w-1/2 md:h-full flex flex-col min-h-0 animate-in slide-in-from-bottom md:slide-in-from-right duration-400 bg-white">
             <JDPreviewPanel
               jd={jd}
               structuredData={structuredData}

@@ -124,3 +124,10 @@ class UpdateStatusRequest(BaseModel):
 
 class GenerateJDRequest(BaseModel):
     id: str  # session_id
+
+
+class CreateReviewRequest(BaseModel):
+    action: Literal["rejected", "approved", "revision_requested"]
+    target_role: Literal["employee", "manager"]
+    comment: Optional[str] = None
+    reviewer_id: str

@@ -597,3 +597,170 @@ async def delete_questionnaire(
     await db.commit()
     print(f"🗑️ JD deleted — id={record.id}")
     return True
+
+
+# ── Review Comment CRUD ───────────────────────────────────────────────────────
+
+async def create_review_comment(
+    db: AsyncSession,
+    jd_session_id: str,
+    reviewer_id: str,
+    target_role: str,
+    action: str,
+    comment: Optional[str] = None,
+) -> "JDReviewComment":
+    from app.models.review_comment_model import JDReviewComment
+
+    session_uuid = _safe_uuid(jd_session_id)
+    review = JDReviewComment(
+        jd_session_id=session_uuid,
+        reviewer_id=reviewer_id,
+        target_role=target_role,
+        action=action,
+        comment=comment,
+        is_read=False,
+    )
+    db.add(review)
+
+    # Also update the JD session's reviewer_comment for backward compatibility
+    result = await db.execute(
+        select(JDSession).where(JDSession.id == session_uuid)
+    )
+    record = result.scalar_one_or_none()
+    if record:
+        record.reviewed_by = reviewer_id
+        record.reviewer_comment = comment
+        record.reviewed_at = _now().replace(tzinfo=None)
+
+        # Update status based on action
+        if action == "rejected":
+            # Determine the correct rejection status from the reviewer's role
+            from app.models.user_model import Employee
+            reviewer_res = await db.execute(select(Employee).where(Employee.id == reviewer_id))
+            reviewer = reviewer_res.scalar_one_or_none()
+
+            if reviewer and reviewer.role == "hr":
+                record.status = "hr_rejected"
+            elif reviewer and reviewer.role == "manager":
+                record.status = "manager_rejected"
+        elif action == "approved":
+            record.status = "approved"
+
+    await db.commit()
+    await db.refresh(review)
+    print(f"📝 Review comment created — jd={jd_session_id}, action={action}, target={target_role}")
+    return review
+
+
+async def get_review_comments_for_jd(
+    db: AsyncSession,
+    jd_session_id: str,
+) -> list:
+    from app.models.review_comment_model import JDReviewComment
+    from app.models.user_model import Employee
+
+    session_uuid = _safe_uuid(jd_session_id)
+    result = await db.execute(
+        select(JDReviewComment)
+        .where(JDReviewComment.jd_session_id == session_uuid)
+        .order_by(JDReviewComment.created_at.desc())
+    )
+    comments = list(result.scalars().all())
+
+    # Eagerly load reviewer names
+    serialized = []
+    for c in comments:
+        reviewer_res = await db.execute(select(Employee).where(Employee.id == c.reviewer_id))
+        reviewer = reviewer_res.scalar_one_or_none()
+        serialized.append({
+            "id": str(c.id),
+            "jd_session_id": str(c.jd_session_id),
+            "reviewer_id": c.reviewer_id,
+            "reviewer_name": reviewer.name if reviewer else "Unknown",
+            "reviewer_role": reviewer.role if reviewer else "unknown",
+            "target_role": c.target_role,
+            "action": c.action,
+            "comment": c.comment,
+            "is_read": c.is_read,
+            "created_at": c.created_at.isoformat() if c.created_at else None,
+        })
+    return serialized
+
+
+async def get_unread_feedback_for_user(
+    db: AsyncSession,
+    employee_id: str,
+    user_role: str,
+) -> list:
+    """
+    Get unread review comments targeted at this user.
+    - If user is an employee: get comments where the JD's employee_id == this user AND target_role == "employee"
+    - If user is a manager: get comments where target_role == "manager" AND the JD belongs to one of their reports
+    """
+    from app.models.review_comment_model import JDReviewComment
+    from app.models.user_model import Employee
+
+    if user_role == "employee":
+        result = await db.execute(
+            select(JDReviewComment)
+            .join(JDSession, JDReviewComment.jd_session_id == JDSession.id)
+            .where(
+                (JDSession.employee_id == employee_id) &
+                (JDReviewComment.target_role == "employee") &
+                (JDReviewComment.is_read == False)
+            )
+            .order_by(JDReviewComment.created_at.desc())
+        )
+    elif user_role == "manager":
+        result = await db.execute(
+            select(JDReviewComment)
+            .join(JDSession, JDReviewComment.jd_session_id == JDSession.id)
+            .join(Employee, JDSession.employee_id == Employee.id)
+            .where(
+                (JDReviewComment.target_role == "manager") &
+                (Employee.reporting_manager_code == employee_id) &
+                (JDReviewComment.is_read == False)
+            )
+            .order_by(JDReviewComment.created_at.desc())
+        )
+    else:
+        return []
+
+    comments = list(result.scalars().all())
+    serialized = []
+    for c in comments:
+        # Get JD title
+        jd_res = await db.execute(select(JDSession).where(JDSession.id == c.jd_session_id))
+        jd = jd_res.scalar_one_or_none()
+        reviewer_res = await db.execute(select(Employee).where(Employee.id == c.reviewer_id))
+        reviewer = reviewer_res.scalar_one_or_none()
+        serialized.append({
+            "id": str(c.id),
+            "jd_session_id": str(c.jd_session_id),
+            "jd_title": jd.title if jd else "Untitled JD",
+            "reviewer_name": reviewer.name if reviewer else "Unknown",
+            "reviewer_role": reviewer.role if reviewer else "unknown",
+            "action": c.action,
+            "comment": c.comment,
+            "is_read": c.is_read,
+            "created_at": c.created_at.isoformat() if c.created_at else None,
+        })
+    return serialized
+
+
+async def mark_feedback_read(
+    db: AsyncSession,
+    comment_id: str,
+) -> bool:
+    from app.models.review_comment_model import JDReviewComment
+
+    comment_uuid = _safe_uuid(comment_id)
+    result = await db.execute(
+        select(JDReviewComment).where(JDReviewComment.id == comment_uuid)
+    )
+    comment = result.scalar_one_or_none()
+    if not comment:
+        return False
+    comment.is_read = True
+    await db.commit()
+    return True

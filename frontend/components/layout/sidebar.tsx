@@ -9,6 +9,7 @@ import {
   fetchManagerPendingJDs,
   fetchHRPendingJDs,
   getCurrentUser,
+  fetchUnreadFeedback,
 } from "@/lib/api";
 import { useAuth } from "@/components/providers/auth-provider";
 import {
@@ -77,6 +78,7 @@ export default function Sidebar() {
   const [isFeedbackOpen, setIsFeedbackOpen] = useState(false);
   const [isMounted, setIsMounted] = useState(false);
   const [isMobileOpen, setIsMobileOpen] = useState(false);
+  const [unreadFeedbackCount, setUnreadFeedbackCount] = useState(0);
 
   // Safely get user info
   const user = isMounted ? getCurrentUser() : null;
@@ -101,6 +103,18 @@ export default function Sidebar() {
     }
     loadJDs();
   }, [pathname, employeeId, isAuthenticated, role]);
+
+  // Load unread feedback count for sidebar badge
+  useEffect(() => {
+    if (!isAuthenticated || !employeeId || !isMounted) return;
+    const r = user?.role || "employee";
+    if (r !== "manager" && r !== "employee") return;
+    fetchUnreadFeedback(employeeId, r)
+      .then((data) =>
+        setUnreadFeedbackCount(Array.isArray(data) ? data.length : 0),
+      )
+      .catch(() => setUnreadFeedbackCount(0));
+  }, [pathname, employeeId, isAuthenticated, isMounted, user?.role]);
 
   // Base links everyone has
   const links: NavItem[] = [
@@ -181,15 +195,17 @@ export default function Sidebar() {
 
   return (
     <>
-      {/* Mobile Toggle Button */}
-      {isAuthenticated && !pathname.startsWith("/admin") && (
-        <button
-          onClick={() => setIsMobileOpen(true)}
-          className="md:hidden fixed top-4 left-4 z-40 p-2.5 bg-neutral-900 text-white rounded-xl shadow-xl hover:bg-neutral-800 transition-colors"
-        >
-          <Menu className="w-5 h-5" />
-        </button>
-      )}
+      {/* Mobile Toggle Button — hidden on questionnaire/chat pages */}
+      {isAuthenticated &&
+        !pathname.startsWith("/admin") &&
+        !pathname.startsWith("/questionnaire") && (
+          <button
+            onClick={() => setIsMobileOpen(true)}
+            className="md:hidden fixed top-4 left-4 z-40 p-2.5 bg-neutral-900 text-white rounded-xl shadow-xl hover:bg-neutral-800 transition-colors"
+          >
+            <Menu className="w-5 h-5" />
+          </button>
+        )}
 
       {/* Mobile Backdrop */}
       {isMobileOpen && (
@@ -209,8 +225,11 @@ export default function Sidebar() {
       `}
       >
         <div className="p-6 flex items-center justify-between shrink-0">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-gradient-to-br from-primary-500 to-primary-700 rounded-xl flex items-center justify-center shadow-lg shadow-primary-900/50">
+          <Link
+            href={employeeId ? `/dashboard/${employeeId}` : "/"}
+            className="flex items-center gap-3 group transition-opacity hover:opacity-80"
+          >
+            <div className="w-10 h-10 bg-gradient-to-br from-primary-500 to-primary-700 rounded-xl flex items-center justify-center shadow-lg shadow-primary-900/50 group-hover:scale-105 transition-transform">
               <FileText className="w-5 h-5 text-white" />
             </div>
             <div>
@@ -219,7 +238,7 @@ export default function Sidebar() {
               </h1>
               <p className="text-xs text-neutral-400">Pulse Pharma</p>
             </div>
-          </div>
+          </Link>
           <button
             onClick={() => setIsMobileOpen(false)}
             className="md:hidden p-2 text-neutral-400 hover:text-white bg-neutral-800 rounded-lg"
@@ -261,9 +280,15 @@ export default function Sidebar() {
                 {/* Text */}
                 <div className="flex-1">
                   <div
-                    className={`font-medium text-sm ${active ? "text-white" : ""}`}
+                    className={`font-medium text-sm ${active ? "text-white" : ""} flex items-center gap-2`}
                   >
                     {link.name}
+                    {link.name.includes("Feedback") &&
+                      unreadFeedbackCount > 0 && (
+                        <span className="inline-flex items-center justify-center w-5 h-5 text-[10px] font-bold bg-red-500 text-white rounded-full animate-pulse shadow-lg shadow-red-500/30">
+                          {unreadFeedbackCount}
+                        </span>
+                      )}
                   </div>
                   <div className="text-xs opacity-60 mt-0.5">
                     {link.description}

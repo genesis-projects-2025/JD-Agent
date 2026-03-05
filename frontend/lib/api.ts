@@ -324,3 +324,46 @@ export async function saveJD(data: {
   }
   return res.json();
 }
+
+// ── Review / Feedback API ─────────────────────────────────────────────────────
+
+export async function createReviewComment(
+  jdId: string,
+  data: {
+    action: "rejected" | "approved" | "revision_requested";
+    target_role: "employee" | "manager";
+    comment?: string;
+    reviewer_id: string;
+  },
+) {
+  const res = await fetch(`${API_URL}/jd/${jdId}/review`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) throw new Error("Failed to submit review");
+  return res.json();
+}
+
+export async function fetchReviewComments(jdId: string) {
+  const res = await fetch(`${API_URL}/jd/${jdId}/reviews`);
+  if (!res.ok) throw new Error("Failed to fetch review comments");
+  return res.json();
+}
+
+export async function fetchUnreadFeedback(
+  employeeId: string,
+  role: string = "employee",
+) {
+  const res = await fetch(`${API_URL}/jd/feedback/${employeeId}?role=${role}`);
+  if (!res.ok) throw new Error("Failed to fetch feedback");
+  return res.json();
+}
+
+export async function markFeedbackRead(commentId: string) {
+  const res = await fetch(`${API_URL}/jd/feedback/${commentId}/read`, {
+    method: "PATCH",
+  });
+  if (!res.ok) throw new Error("Failed to mark feedback as read");
+  return res.json();
+}

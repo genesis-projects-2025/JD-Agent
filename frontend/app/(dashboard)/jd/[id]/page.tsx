@@ -34,9 +34,12 @@ import {
   sendToHR,
   submitToManager,
   saveJD,
+  createReviewComment,
+  fetchReviewComments,
 } from "@/lib/api";
 import { DeleteModal } from "@/components/ui/delete-modal";
 import FeedbackModal from "@/components/feedback/FeedbackModal";
+import { ReviewRejectModal } from "@/components/ui/review-reject-modal";
 
 export default function JDPage() {
   const params = useParams();
@@ -52,6 +55,9 @@ export default function JDPage() {
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [showFeedbackPrompt, setShowFeedbackPrompt] = useState(false);
+  const [showRejectModal, setShowRejectModal] = useState(false);
+  const [rejectingAs, setRejectingAs] = useState<"manager" | "hr">("manager");
+  const [reviewComments, setReviewComments] = useState<any[]>([]);
 
   // Edit mode
   const [isEditing, setIsEditing] = useState(false);
@@ -112,8 +118,12 @@ export default function JDPage() {
         const u = getCurrentUser();
         if (u) setRole(u.role);
 
-        const data = await fetchJD(jdId);
+        const [data, comments] = await Promise.all([
+          fetchJD(jdId),
+          fetchReviewComments(jdId).catch(() => []),
+        ]);
         setJd(data);
+        setReviewComments(comments);
 
         // Initialize edit states
         let pText = data.generated_jd || "";
@@ -188,7 +198,14 @@ export default function JDPage() {
           This Job Description may have been moved or deleted.
         </p>
         <button
-          onClick={() => router.back()}
+          onClick={() => {
+            const u = getCurrentUser();
+            if (u) {
+              router.push(`/dashboard/${u.employee_id}`);
+            } else {
+              router.push("/dashboard");
+            }
+          }}
           className="px-6 py-3 bg-surface-100 text-surface-700 rounded-xl font-bold hover:bg-surface-200 transition-colors"
         >
           Go Back
@@ -197,21 +214,36 @@ export default function JDPage() {
     );
   }
 
-  const handleManagerReject = async () => {
-    const reason = prompt(
-      "Enter reasoning for rejection (sent back to employee):",
-    );
-    if (!reason) return;
+  const handleRejectWithModal = async (
+    targetRole: "employee" | "manager",
+    comment: string,
+  ) => {
+    const user = getCurrentUser();
+    if (!user) return;
     setSendingToManager(true);
     try {
-      await rejectJDManager(jd.id, reason, jd.employee_id);
-      const updated = await fetchJD(jd.id);
+      await createReviewComment(jd.id, {
+        action: "rejected",
+        target_role: targetRole,
+        comment,
+        reviewer_id: user.employee_id,
+      });
+      const [updated, comments] = await Promise.all([
+        fetchJD(jd.id),
+        fetchReviewComments(jd.id).catch(() => []),
+      ]);
       setJd(updated);
+      setReviewComments(comments);
     } catch (e: any) {
       alert(e.message || "Failed to reject JD.");
     } finally {
       setSendingToManager(false);
     }
+  };
+
+  const handleManagerReject = () => {
+    setRejectingAs("manager");
+    setShowRejectModal(true);
   };
 
   const handleManagerSendToHR = async () => {
@@ -228,21 +260,9 @@ export default function JDPage() {
     }
   };
 
-  const handleHRReject = async () => {
-    const reason = prompt(
-      "Enter reasoning for rejection (sent back to manager/employee):",
-    );
-    if (!reason) return;
-    setSendingToManager(true);
-    try {
-      await rejectJDHR(jd.id, reason, jd.employee_id);
-      const updated = await fetchJD(jd.id);
-      setJd(updated);
-    } catch (e: any) {
-      alert(e.message || "Failed to reject JD.");
-    } finally {
-      setSendingToManager(false);
-    }
+  const handleHRReject = () => {
+    setRejectingAs("hr");
+    setShowRejectModal(true);
   };
 
   const handleHRApprove = async () => {
@@ -355,9 +375,25 @@ export default function JDPage() {
   } catch (e) {}
 
   return (
-    <div className="max-w-7xl mx-auto space-y-6 pb-24 animate-in fade-in duration-500">
+    <div className="max-w-7xl mx-auto space-y-4 md:space-y-6 pb-24 px-3 md:px-0 animate-in fade-in duration-500">
       <button
-        onClick={() => router.back()}
+        onClick={() => {
+          const u = getCurrentUser();
+          if (!u) {
+            router.push("/dashboard");
+            return;
+          }
+
+          let url = `/dashboard/${u.employee_id}`;
+          if (jd) {
+            if (u.role === "manager" && jd.status === "sent_to_manager") {
+              url += "?view=pending";
+            } else if (u.role === "hr" && jd.status === "sent_to_hr") {
+              url += "?view=approvals";
+            }
+          }
+          router.push(url);
+        }}
         className="flex items-center gap-2 text-surface-400 hover:text-primary-600 transition-colors text-[11px] font-black uppercase tracking-widest group px-2"
       >
         <ArrowLeft className="w-4 h-4 group-hover:-translate-x-1 transition-transform" />
@@ -365,7 +401,7 @@ export default function JDPage() {
       </button>
 
       {/* Header card */}
-      <div className="bg-white rounded-[40px] p-10 md:p-12 border border-surface-200 shadow-premium relative overflow-hidden">
+      <div className="bg-white rounded-2xl md:rounded-[40px] p-5 md:p-12 border border-surface-200 shadow-premium relative overflow-hidden">
         <div className="absolute top-0 right-0 w-[500px] h-[500px] bg-gradient-to-br from-primary-50 via-white to-transparent opacity-50 rounded-full blur-3xl -translate-y-1/2 translate-x-1/3 pointer-events-none"></div>
         <div className="relative z-10 flex flex-col md:flex-row md:items-start justify-between gap-8">
           <div>
@@ -385,7 +421,7 @@ export default function JDPage() {
                 </span>
               )}
             </div>
-            <h1 className="text-4xl md:text-5xl font-black text-surface-900 tracking-tight mb-3">
+            <h1 className="text-2xl md:text-4xl lg:text-5xl font-black text-surface-900 tracking-tight mb-3">
               {jd.title || "Strategic Role Architecture"}
             </h1>
             {jd.department && (
@@ -429,6 +465,42 @@ export default function JDPage() {
                   </button>
                 </div>
               )}
+
+              {/* Manager Owner Actions (for their own drafts) */}
+              {role === "manager" &&
+                ["draft", "jd_generated", "hr_rejected"].includes(
+                  jd.status,
+                ) && (
+                  <div className="flex flex-col sm:flex-row gap-3 w-full">
+                    <button
+                      onClick={() => router.push(`/questionnaire/${jdId}`)}
+                      className="px-5 py-3.5 bg-white text-surface-700 border border-surface-200 rounded-xl font-bold hover:bg-surface-50 transition-all shadow-sm flex items-center justify-center gap-2 text-[14px]"
+                    >
+                      <Edit3 className="w-4 h-4" /> Refine in Chat
+                    </button>
+                    <button
+                      onClick={handleEditToggle}
+                      disabled={isSavingEdit || sendingToManager}
+                      className="px-5 py-3.5 bg-white text-primary-700 border border-primary-200 rounded-xl font-bold hover:bg-primary-50 transition-all shadow-sm flex items-center justify-center gap-2 text-[14px] disabled:opacity-50"
+                    >
+                      {isSavingEdit ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : isEditing ? (
+                        <Save className="w-4 h-4" />
+                      ) : (
+                        <Edit className="w-4 h-4" />
+                      )}
+                      {isEditing ? "Save" : "Edit"}
+                    </button>
+                    <button
+                      onClick={handleManagerSendToHR}
+                      disabled={sendingToManager || isEditing}
+                      className="flex-1 px-5 py-3.5 bg-primary-600 text-white rounded-xl font-bold flex flex-center items-center justify-center gap-2 shadow-sm hover:bg-primary-700 text-[14px] transition-all disabled:opacity-50 whitespace-nowrap"
+                    >
+                      <Send className="w-4 h-4" /> Send to HR
+                    </button>
+                  </div>
+                )}
               {role === "manager" &&
                 ["sent_to_hr", "hr_rejected", "approved"].includes(
                   jd.status,
@@ -472,6 +544,40 @@ export default function JDPage() {
                   </button>
                 </div>
               )}
+
+              {/* HR Owner Actions (for their own drafts) */}
+              {role === "hr" &&
+                ["draft", "jd_generated"].includes(jd.status) && (
+                  <div className="flex flex-col sm:flex-row gap-3 w-full">
+                    <button
+                      onClick={() => router.push(`/questionnaire/${jdId}`)}
+                      className="px-5 py-3.5 bg-white text-surface-700 border border-surface-200 rounded-xl font-bold hover:bg-surface-50 transition-all shadow-sm flex items-center justify-center gap-2 text-[14px]"
+                    >
+                      <Edit3 className="w-4 h-4" /> Refine in Chat
+                    </button>
+                    <button
+                      onClick={handleEditToggle}
+                      disabled={isSavingEdit || sendingToManager}
+                      className="px-5 py-3.5 bg-white text-primary-700 border border-primary-200 rounded-xl font-bold hover:bg-primary-50 transition-all shadow-sm flex items-center justify-center gap-2 text-[14px] disabled:opacity-50"
+                    >
+                      {isSavingEdit ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : isEditing ? (
+                        <Save className="w-4 h-4" />
+                      ) : (
+                        <Edit className="w-4 h-4" />
+                      )}
+                      {isEditing ? "Save" : "Edit"}
+                    </button>
+                    <button
+                      onClick={handleHRApprove}
+                      disabled={sendingToManager || isEditing}
+                      className="flex-1 px-5 py-3.5 bg-purple-600 text-white rounded-xl font-bold flex flex-center items-center justify-center gap-2 shadow-sm hover:bg-purple-700 text-[14px] transition-all disabled:opacity-50 whitespace-nowrap"
+                    >
+                      <ShieldCheck className="w-4 h-4" /> Approve & Sign Off
+                    </button>
+                  </div>
+                )}
               {role === "hr" && jd.status === "approved" && (
                 <button
                   disabled
@@ -542,20 +648,82 @@ export default function JDPage() {
         </div>
       </div>
 
-      {jd.reviewer_comment && (
-        <div className="bg-red-50 border border-red-200 rounded-2xl p-6 shadow-sm">
-          <div className="flex items-center gap-2 text-red-700 mb-2 font-bold text-sm">
-            <AlertTriangle className="w-5 h-5" />
-            Rejection Feedback ({jd.reviewed_by})
-          </div>
-          <p className="text-red-600 text-[13px] leading-relaxed">
-            {jd.reviewer_comment}
-          </p>
+      {/* Review Audit Trail */}
+      {reviewComments.length > 0 && (
+        <div className="space-y-3">
+          <h3 className="text-[11px] font-black text-surface-500 uppercase tracking-widest px-1">
+            Review History
+          </h3>
+          {reviewComments.map((rc: any) => (
+            <div
+              key={rc.id}
+              className={`rounded-2xl p-5 shadow-sm border ${
+                rc.action === "rejected"
+                  ? "bg-red-50 border-red-200"
+                  : rc.action === "approved"
+                    ? "bg-emerald-50 border-emerald-200"
+                    : "bg-amber-50 border-amber-200"
+              }`}
+            >
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center gap-2">
+                  <span
+                    className={`px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider ${
+                      rc.action === "rejected"
+                        ? "bg-red-100 text-red-700"
+                        : rc.action === "approved"
+                          ? "bg-emerald-100 text-emerald-700"
+                          : "bg-amber-100 text-amber-700"
+                    }`}
+                  >
+                    {rc.action === "rejected"
+                      ? "Rejected"
+                      : rc.action === "approved"
+                        ? "Approved"
+                        : "Revision Requested"}
+                  </span>
+                  <span className="text-[11px] font-bold text-surface-600">
+                    by {rc.reviewer_name} ({rc.reviewer_role})
+                  </span>
+                </div>
+                <div className="flex items-center gap-2">
+                  {rc.target_role && rc.action === "rejected" && (
+                    <span className="px-2 py-0.5 bg-surface-100 text-surface-500 text-[10px] font-bold rounded-md">
+                      → {rc.target_role}
+                    </span>
+                  )}
+                  {rc.created_at && (
+                    <span className="text-[10px] text-surface-400">
+                      {new Date(rc.created_at).toLocaleDateString("en-US", {
+                        month: "short",
+                        day: "numeric",
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })}
+                    </span>
+                  )}
+                </div>
+              </div>
+              {rc.comment && (
+                <p
+                  className={`text-[13px] leading-relaxed ${
+                    rc.action === "rejected"
+                      ? "text-red-600"
+                      : rc.action === "approved"
+                        ? "text-emerald-600"
+                        : "text-amber-600"
+                  }`}
+                >
+                  {rc.comment}
+                </p>
+              )}
+            </div>
+          ))}
         </div>
       )}
 
       {/* Document block */}
-      <div className="bg-white rounded-[40px] p-10 md:p-16 border border-surface-200 shadow-premium relative min-h-[500px] flex flex-col">
+      <div className="bg-white rounded-2xl md:rounded-[40px] p-5 md:p-16 border border-surface-200 shadow-premium relative min-h-[500px] flex flex-col">
         {isEditing ? (
           <div className="flex flex-col flex-1">
             <div className="flex gap-2 mb-4">
@@ -720,6 +888,14 @@ export default function JDPage() {
         onClose={() => setShowFeedbackPrompt(false)}
         jdSessionId={jdId}
         defaultCategory="JD Process"
+      />
+
+      <ReviewRejectModal
+        isOpen={showRejectModal}
+        onClose={() => setShowRejectModal(false)}
+        onSubmit={handleRejectWithModal}
+        reviewerRole={rejectingAs}
+        jdTitle={jd?.title || ""}
       />
     </div>
   );

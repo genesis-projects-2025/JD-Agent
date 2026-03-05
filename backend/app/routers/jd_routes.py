@@ -20,6 +20,10 @@ from app.crud.jd_crud import (
     list_manager_pending_jds,
     list_hr_pending_jds,
     delete_questionnaire,
+    create_review_comment,
+    get_review_comments_for_jd,
+    get_unread_feedback_for_user,
+    mark_feedback_read,
 )
 import uuid
 
@@ -272,6 +276,32 @@ async def get_hr_pending_jds(db: AsyncSession = Depends(get_db)):
     return [_serialize_list_item(r) for r in records]
 
 
+# ── Feedback (must be before /{jd_id} to avoid route conflict) ────────────────
+
+@router.get("/feedback/{employee_id}")
+async def get_user_feedback(employee_id: str, role: str = "employee", db: AsyncSession = Depends(get_db)):
+    """Get unread feedback for a specific user (for sidebar notification)."""
+    try:
+        feedback = await get_unread_feedback_for_user(db, employee_id, role)
+        return feedback
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch feedback: {str(e)}")
+
+
+@router.patch("/feedback/{comment_id}/read")
+async def mark_read(comment_id: str, db: AsyncSession = Depends(get_db)):
+    """Mark a specific feedback comment as read."""
+    try:
+        success = await mark_feedback_read(db, comment_id)
+        if not success:
+            raise HTTPException(status_code=404, detail="Comment not found")
+        return {"status": "success", "message": "Feedback marked as read"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to mark feedback: {str(e)}")
+
+
 # ── Get single JD ─────────────────────────────────────────────────────────────
 @router.get("/{jd_id}")
 async def get_jd(jd_id: str, db: AsyncSession = Depends(get_db)):
@@ -368,6 +398,56 @@ async def delete_jd(jd_id: str, employee_id: str, db: AsyncSession = Depends(get
         raise HTTPException(status_code=403, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to delete JD: {str(e)}")
+
+
+# ── Review / Feedback ─────────────────────────────────────────────────────────
+
+@router.post("/{jd_id}/review")
+async def submit_review(jd_id: str, request: dict, db: AsyncSession = Depends(get_db)):
+    """Create a review comment (rejection/approval with audit trail)."""
+    action = request.get("action")
+    target_role = request.get("target_role", "employee")
+    comment = request.get("comment")
+    reviewer_id = request.get("reviewer_id")
+
+    if not action or not reviewer_id:
+        raise HTTPException(status_code=400, detail="action and reviewer_id are required")
+
+    valid_actions = ["rejected", "approved", "revision_requested"]
+    if action not in valid_actions:
+        raise HTTPException(status_code=400, detail=f"Invalid action. Must be one of: {valid_actions}")
+
+    try:
+        review = await create_review_comment(
+            db=db,
+            jd_session_id=jd_id,
+            reviewer_id=reviewer_id,
+            target_role=target_role,
+            action=action,
+            comment=comment,
+        )
+        return {
+            "status": "success",
+            "id": str(review.id),
+            "message": f"Review action '{action}' recorded successfully.",
+        }
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Failed to create review: {str(e)}")
+
+
+@router.get("/{jd_id}/reviews")
+async def get_reviews(jd_id: str, db: AsyncSession = Depends(get_db)):
+    """Get all review comments for a JD (audit trail)."""
+    try:
+        comments = await get_review_comments_for_jd(db, jd_id)
+        return comments
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch reviews: {str(e)}")
+
+
+
 
 
 # ── Serializer ────────────────────────────────────────────────────────────────

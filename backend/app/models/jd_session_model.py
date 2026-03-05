@@ -34,6 +34,7 @@ class JDSession(Base):
     employee = relationship("Employee", back_populates="jd_sessions")
     conversation_turns = relationship("ConversationTurn", back_populates="session", cascade="all, delete-orphan", order_by="ConversationTurn.turn_index")
     versions = relationship("JDVersion", back_populates="session", cascade="all, delete-orphan")
+    review_comments = relationship("JDReviewComment", back_populates="jd_session", cascade="all, delete-orphan", order_by="JDReviewComment.created_at.desc()")
 
 
 class ConversationTurn(Base):

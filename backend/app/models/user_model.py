@@ -18,6 +18,7 @@ class Employee(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     jd_sessions = relationship("JDSession", back_populates="employee")
+    review_comments_given = relationship("JDReviewComment", back_populates="reviewer")
 
     def __repr__(self):
         return f"<Employee id={self.id} name={self.name}>"

@@ -10,7 +10,7 @@ import MessageInput from "@/components/chat/message-input";
 import JDPreviewPanel from "@/components/jd/jd-preview-panel";
 import { useChat } from "@/hooks/useChat";
 import { exportJDToPDF } from "@/lib/pdf-export";
-import { deleteJD } from "@/lib/api";
+import { deleteJD, getCurrentUser } from "@/lib/api";
 import { DeleteModal } from "@/components/ui/delete-modal";
 import {
   Loader2,
@@ -91,7 +91,10 @@ export default function QuestionnairePage() {
       {/* Top nav bar */}
       <div className="flex-shrink-0 h-14 bg-white border-b border-surface-200 flex items-center px-4 sm:px-6 gap-2 sm:gap-4 z-40 shadow-sm overflow-x-auto">
         <button
-          onClick={() => router.back()}
+          onClick={() => {
+            const u = getCurrentUser();
+            router.push(u ? `/dashboard/${u.employee_id}` : "/dashboard");
+          }}
           className="flex items-center gap-1.5 sm:gap-2 text-surface-400 hover:text-primary-600 transition-colors text-[10px] sm:text-[11px] font-black uppercase tracking-widest group whitespace-nowrap shrink-0"
         >
           <ArrowLeft className="w-4 h-4" />
@@ -150,11 +153,11 @@ export default function QuestionnairePage() {
 
       {/* Main content area */}
       <div className="flex-1 flex flex-col md:flex-row min-h-0 relative">
-        {/* Chat column */}
+        {/* Chat column — hidden on mobile when JD panel is open */}
         <div
           className={`flex flex-col min-h-0 transition-all duration-500 ease-out bg-surface-50 w-full ${
             showPanel
-              ? "h-1/2 md:h-auto md:w-1/2 md:border-r border-b md:border-b-0 border-surface-200"
+              ? "hidden md:flex md:h-auto md:w-1/2 md:border-r border-surface-200"
               : "h-full"
           }`}
         >
@@ -190,9 +193,9 @@ export default function QuestionnairePage() {
           />
         </div>
 
-        {/* JD Preview Panel — slides in from right or bottom */}
+        {/* JD Preview Panel — full screen on mobile, 50% on desktop */}
         {showPanel && (
-          <div className="w-full h-1/2 md:w-1/2 md:h-full flex flex-col min-h-0 animate-in slide-in-from-bottom md:slide-in-from-right duration-400 bg-white">
+          <div className="w-full h-full md:w-1/2 md:h-full flex flex-col min-h-0 animate-in slide-in-from-bottom md:slide-in-from-right duration-400 bg-white">
             <JDPreviewPanel
               jd={jd}
               structuredData={structuredData}

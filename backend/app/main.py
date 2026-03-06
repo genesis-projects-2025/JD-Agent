@@ -11,7 +11,9 @@ from app.models.review_comment_model import JDReviewComment
 from app.routers.jd_routes import router as jd_router
 from app.routers.organogram_routes import router as organogram_router
 from app.routers.admin_routes import router as admin_router
+from app.routers.hr_routes import router as hr_router
 from app.routers.feedback_routes import router as feedback_router
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Runs on startup — creates tables if they don't exist
@@ -23,11 +25,16 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="JD Agent API", lifespan=lifespan)
 
 origins = [
-    "https://jd-agent-kappa.vercel.app",   # ← no trailing slash
+    "https://jd-agent-kappa.vercel.app",
     "http://localhost:3000",
-    "http://127.0.0.1:3000",
     "http://localhost:3001",
-    "http://localhost:5173",
+    "http://localhost:3002",
+    "http://localhost:3003",
+    "http://localhost:3004",
+    "http://localhost:3005",
+    "http://127.0.0.1:3000",
+    "http://127.0.0.1:3001",
+    "http://127.0.0.1:3002",
 ]
 
 app.add_middleware(
@@ -42,3 +49,4 @@ app.include_router(jd_router, prefix="/jd")
 app.include_router(organogram_router, prefix="/auth")
 app.include_router(admin_router)
 app.include_router(feedback_router)
+app.include_router(hr_router, prefix="/api/hr", tags=["HR Dashboard"])

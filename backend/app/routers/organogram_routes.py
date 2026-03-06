@@ -21,17 +21,8 @@ async def get_organogram_employees(db: AsyncSession = Depends(get_db)):
     Fetches all employees from the organogram to populate the login search list.
     """
     query = text("""
-        SELECT emp_code, emp_name, "Role" as role, reporting_manager, 
-               reporting_manager_code, email1, phone_mobile, department
-        FROM organogram
-        WHERE status = 'Active' OR status IS NULL OR status = ''
-    """)
-    # (Optional: Department column doesn't exist directly in given organogram output, but we handles safely below)
-    # We'll stick strictly to exact organogram column names shown.
-    
-    query = text("""
-        SELECT emp_code, emp_name, "Role" as role, reporting_manager, 
-               reporting_manager_code, email1 as email, phone_mobile, division as department
+        SELECT code as emp_code, employee_name as emp_name, designation as role, reporting_manager, 
+               reporting_manager_code, '' as email, NULL as phone_mobile, department
         FROM organogram
     """)
     
@@ -47,10 +38,10 @@ async def login_organogram(request: LoginRequest, db: AsyncSession = Depends(get
     """
     # 1. Fetch the user's organogram row
     user_query = text("""
-        SELECT emp_code, emp_name, reporting_manager, 
-               reporting_manager_code, email1 as email, phone_mobile, division as department
+        SELECT code as emp_code, employee_name as emp_name, reporting_manager, 
+               reporting_manager_code, '' as email, NULL as phone_mobile, department
         FROM organogram
-        WHERE emp_code = :emp_code
+        WHERE code = :emp_code
     """)
     user_result = await db.execute(user_query, {"emp_code": request.emp_code})
     row = user_result.mappings().first()
@@ -84,7 +75,7 @@ async def login_organogram(request: LoginRequest, db: AsyncSession = Depends(get
         computed_role = "employee"
         
     # Hardcode override for HR testing request
-    if request.emp_code == 'E9579':
+    if request.emp_code == 'C0014':
         computed_role = "hr"
         
     # 3. Upsert into employees table
@@ -139,14 +130,21 @@ async def login_organogram(request: LoginRequest, db: AsyncSession = Depends(get
 async def get_my_profile(emp_code: str, db: AsyncSession = Depends(get_db)):
     """
     Fetches the synced employee profile from the employees table.
+    If the table was recently wiped, it auto-restores their profile from the organogram table seamlessly.
     """
     from sqlalchemy.future import select
     result = await db.execute(select(Employee).where(Employee.id == emp_code))
     emp = result.scalar_one_or_none()
     
     if not emp:
-        raise HTTPException(status_code=404, detail="Employee profile not found")
-        
+        # Fallback seamless recovery
+        req = LoginRequest(emp_code=emp_code)
+        try:
+            recovery = await login_organogram(req, db)
+            return recovery["employee"]
+        except HTTPException:
+            raise HTTPException(status_code=404, detail="Employee profile not found in directory")
+            
     return {
         "employee_id": emp.id,
         "name": emp.name,

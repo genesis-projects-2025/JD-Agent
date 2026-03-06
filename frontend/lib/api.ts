@@ -124,19 +124,43 @@ export const API_URL =
 
 export async function fetchEmployeeJDs(employeeId: string) {
   const res = await fetch(`${API_URL}/jd/employee/${employeeId}`);
+  if (res.status === 404) return [];
   if (!res.ok) throw new Error("Failed to fetch employee JDs");
   return res.json();
 }
 
 export async function fetchManagerPendingJDs(managerId: string) {
   const res = await fetch(`${API_URL}/jd/manager/${managerId}/pending`);
+  if (res.status === 404) return [];
   if (!res.ok) throw new Error("Failed to fetch manager pending JDs");
   return res.json();
 }
 
 export async function fetchHRPendingJDs() {
   const res = await fetch(`${API_URL}/jd/hr/pending`);
+  if (res.status === 404) return [];
   if (!res.ok) throw new Error("Failed to fetch HR pending JDs");
+  return res.json();
+}
+
+export async function fetchHRDepartmentStats() {
+  const res = await fetch(`${API_URL}/api/hr/department-stats`);
+  if (res.status === 404) return [];
+  if (!res.ok) throw new Error("Failed to fetch HR Department statistics");
+  return res.json();
+}
+
+export async function fetchDepartmentEmployees(
+  departmentName: string,
+  page: number = 1,
+  limit: number = 50,
+) {
+  const encodedName = encodeURIComponent(departmentName);
+  const res = await fetch(
+    `${API_URL}/api/hr/departments/${encodedName}/employees?page=${page}&limit=${limit}`,
+  );
+  if (res.status === 404) return [];
+  if (!res.ok) throw new Error("Failed to fetch department employees");
   return res.json();
 }
 
@@ -160,7 +184,14 @@ export async function loginWithOrganogram(empCode: string) {
 
 export async function fetchEmployeeProfile(empCode: string): Promise<AuthUser> {
   const res = await fetch(`${API_URL}/auth/me/${empCode}`);
-  if (!res.ok) throw new Error("Failed to fetch employee profile");
+  if (!res.ok) {
+    const errorText = await res.text().catch(() => "Unknown backend error");
+    console.error(
+      `Failed to fetch employee profile for ${empCode}: Status ${res.status}.`,
+      errorText,
+    );
+    throw new Error(`Profile fetch failed: ${res.status}`);
+  }
   return res.json();
 }
 
@@ -212,6 +243,7 @@ export async function deleteJD(jdId: string, employeeId: string) {
 
 export async function getJDs(params?: { status?: string }) {
   const res = await fetch(`${API_URL}/jd/list`);
+  if (res.status === 404) return [];
   if (!res.ok) throw new Error("Failed to fetch all JDs");
   return res.json();
 }
@@ -226,6 +258,17 @@ export async function rejectJD(
   employeeId: string = "admin",
 ) {
   return updateJDStatus(jdId, { status: "rejected", employee_id: employeeId });
+}
+
+export async function submitJD(
+  jdId: string,
+  employeeId: string,
+  targetStatus: string = "sent_to_manager",
+) {
+  return updateJDStatus(jdId, {
+    status: targetStatus,
+    employee_id: employeeId,
+  });
 }
 
 export async function submitToManager(

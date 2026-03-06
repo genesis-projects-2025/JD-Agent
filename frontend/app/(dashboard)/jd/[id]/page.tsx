@@ -33,6 +33,7 @@ import {
   rejectJDManager,
   sendToHR,
   submitToManager,
+  submitJD,
   saveJD,
   createReviewComment,
   fetchReviewComments,
@@ -331,7 +332,18 @@ export default function JDPage() {
   const handleSendToManager = async () => {
     setSendingToManager(true);
     try {
-      await submitToManager(jd.id, jd.employee_id);
+      const u = getCurrentUser();
+      if (!u) throw new Error("Not logged in");
+
+      // Dynamic Routing Logic:
+      // If the employee has NO manager, or their manager is "C0014" (HR),
+      // route directly to HR instead of manager.
+      let targetStatus = "sent_to_manager";
+      if (!u.reporting_manager_code || u.reporting_manager_code === "C0014") {
+        targetStatus = "sent_to_hr";
+      }
+
+      await submitJD(jd.id, jd.employee_id, targetStatus);
       const updated = await fetchJD(jd.id);
       setJd(updated);
       setShowFeedbackPrompt(true);

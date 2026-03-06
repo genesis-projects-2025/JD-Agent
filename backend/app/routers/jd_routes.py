@@ -95,8 +95,6 @@ async def init_jd(request: InitJDRequest, db: AsyncSession = Depends(get_db)):
         identity_context = {}
         if emp.name and emp.name != "Unknown Employee":
             identity_context["employee_name"] = emp.name
-        if emp.role:
-            identity_context["title"] = emp.role
         if emp.department:
             identity_context["department"] = emp.department
         if emp.reporting_manager:
@@ -105,6 +103,26 @@ async def init_jd(request: InitJDRequest, db: AsyncSession = Depends(get_db)):
             identity_context["email"] = emp.email
         if emp.phone_mobile:
             identity_context["phone"] = emp.phone_mobile
+            
+        # Fetch actual Job Title, Location, and DOJ from Organogram table
+        from sqlalchemy import text
+        org_query = text("""
+            SELECT designation, location, date_of_joining 
+            FROM organogram 
+            WHERE code = :code
+        """)
+        org_res = await db.execute(org_query, {"code": request.employee_id})
+        org_row = org_res.mappings().first()
+        if org_row:
+            if org_row.get("designation"):
+                identity_context["title"] = org_row["designation"]
+            if org_row.get("location"):
+                identity_context["location"] = org_row["location"]
+            if org_row.get("date_of_joining"):
+                identity_context["date_of_joining"] = org_row["date_of_joining"]
+        elif emp.role:
+            # Fallback
+            identity_context["title"] = emp.role
             
         if identity_context:
             starting_insights["identity_context"] = identity_context
@@ -245,10 +263,10 @@ async def save_jd(request: SaveJDRequest, db: AsyncSession = Depends(get_db)):
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Failed to save JD: {str(e)}")
-
 @router.get("/")
 def health_check():
     return {"status": "ok"}
+
 
 # ── List all (admin) ──────────────────────────────────────────────────────────
 @router.get("/list")

@@ -18,6 +18,7 @@ import {
   CheckCircle2,
   AlertTriangle,
   Users,
+  ChevronLeft,
 } from "lucide-react";
 
 import {
@@ -29,6 +30,8 @@ import {
   isHR,
   isManager,
   fetchEmployeeProfile,
+  fetchHRDepartmentStats,
+  fetchDepartmentEmployees,
 } from "@/lib/api";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -103,6 +106,12 @@ const STATUS_CONFIG: Record<
     color: "text-red-700",
     bg: "bg-red-50 border-red-100",
     icon: AlertTriangle,
+  },
+  "Not Submitted": {
+    label: "Not Submitted",
+    color: "text-surface-500",
+    bg: "bg-surface-100 border-surface-200",
+    icon: Clock,
   },
 };
 
@@ -655,6 +664,14 @@ function HRView({ user }: { user: AuthUser }) {
   const [jds, setJds] = useState<JDListItem[]>([]);
   const [allJds, setAllJds] = useState<JDListItem[]>([]);
   const [myJds, setMyJds] = useState<JDListItem[]>([]);
+  const [departmentStats, setDepartmentStats] = useState<any[]>([]);
+
+  const [selectedDepartment, setSelectedDepartment] = useState<string | null>(
+    null,
+  );
+  const [deptEmployees, setDeptEmployees] = useState<any[]>([]);
+  const [loadingDept, setLoadingDept] = useState(false);
+
   const [loading, setLoading] = useState(true);
 
   const searchParams = useSearchParams();
@@ -667,14 +684,16 @@ function HRView({ user }: { user: AuthUser }) {
   useEffect(() => {
     async function load() {
       try {
-        const [allData, personalData] = await Promise.all([
+        const [allData, personalData, statsData] = await Promise.all([
           getJDs(),
           fetchEmployeeJDs(user.employee_id),
+          fetchHRDepartmentStats().catch(() => []),
         ]);
         const data = allData || [];
         setAllJds(data);
         setJds(data);
         setMyJds(personalData || []);
+        setDepartmentStats(statsData || []);
       } catch (err) {
         console.error(err);
       } finally {
@@ -683,6 +702,24 @@ function HRView({ user }: { user: AuthUser }) {
     }
     load();
   }, [user.employee_id]);
+
+  const handleDepartmentClick = async (deptName: string) => {
+    setSelectedDepartment(deptName);
+    setLoadingDept(true);
+    try {
+      const data = await fetchDepartmentEmployees(deptName, 1, 100);
+      setDeptEmployees(data || []);
+    } catch (error) {
+      console.error("Error fetching department employees:", error);
+    } finally {
+      setLoadingDept(false);
+    }
+  };
+
+  const closeDepartmentDetail = () => {
+    setSelectedDepartment(null);
+    setDeptEmployees([]);
+  };
 
   // Client-side filter
   useEffect(() => {
@@ -794,6 +831,13 @@ function HRView({ user }: { user: AuthUser }) {
               icon: FileText,
               color: "text-blue-600",
             },
+            {
+              key: "departments",
+              label: "Department Analytics",
+              count: departmentStats.length,
+              icon: Users,
+              color: "text-purple-600",
+            },
           ].map(({ key, label, count, icon: Icon, color, alert }) => (
             <button
               key={key}
@@ -838,17 +882,205 @@ function HRView({ user }: { user: AuthUser }) {
           ))}
         </div>
 
-        <div className="space-y-6">
-          <h2 className="text-xl font-bold text-surface-900 flex items-center gap-3 px-2">
-            <span className="w-1.5 h-6 bg-purple-600 rounded-full" />
-            {filter === "all"
-              ? "Enterprise Database"
-              : filter === "my_jds"
-                ? "Your Personal Documents"
-                : "Filtered Pipeline Results"}
-          </h2>
-          <JDGrid jds={jds} showEmployee={filter !== "my_jds"} />
-        </div>
+        {filter === "departments" && !selectedDepartment && (
+          <div className="bg-white rounded-3xl border border-surface-200 shadow-premium overflow-hidden mb-8">
+            <div className="px-4 sm:px-8 py-5 sm:py-6 border-b border-surface-100 flex flex-col sm:flex-row sm:items-center justify-between bg-surface-50/50 gap-4">
+              <h2 className="text-lg sm:text-xl font-black text-surface-900 tracking-tight flex items-center gap-3">
+                <span className="w-1.5 h-6 bg-purple-600 rounded-full" />
+                Department Overview
+              </h2>
+            </div>
+
+            {loading ? (
+              <div className="p-16 flex flex-col items-center justify-center gap-4">
+                <Loader2 className="w-8 h-8 text-primary-500 animate-spin" />
+                <p className="text-surface-500 font-medium">Loading stats...</p>
+              </div>
+            ) : departmentStats.length === 0 ? (
+              <div className="p-16 text-center">
+                <p className="text-surface-500">
+                  No department statistics found.
+                </p>
+              </div>
+            ) : (
+              <div className="p-6 sm:p-8 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {departmentStats.map((stat) => (
+                  <div
+                    key={stat.department}
+                    onClick={() => handleDepartmentClick(stat.department)}
+                    className="border border-surface-200 rounded-2xl p-5 bg-surface-50/30 hover:shadow-md hover:border-purple-300 transition-all cursor-pointer group"
+                  >
+                    <div className="flex justify-between items-start mb-4">
+                      <h3 className="text-lg font-bold text-surface-900 group-hover:text-purple-700 transition-colors">
+                        {stat.department}
+                      </h3>
+                      <div className="bg-white p-1.5 rounded-lg shadow-sm border border-surface-100">
+                        <Users className="w-4 h-4 text-surface-400" />
+                      </div>
+                    </div>
+
+                    <div className="flex justify-between items-center mb-2">
+                      <span className="text-sm font-medium text-surface-500">
+                        Completion ({stat.completed_jds}/{stat.total_employees})
+                      </span>
+                      <span className="text-sm font-black text-purple-600">
+                        {stat.completion_percentage}%
+                      </span>
+                    </div>
+                    <div className="w-full h-3 bg-surface-200 rounded-full overflow-hidden mb-6">
+                      <div
+                        className="h-full bg-purple-500 rounded-full transition-all duration-1000 ease-out"
+                        style={{ width: `${stat.completion_percentage}%` }}
+                      />
+                    </div>
+
+                    <div className="grid grid-cols-3 gap-3">
+                      <div className="bg-white p-2.5 rounded-xl border border-surface-100 text-center">
+                        <span className="block text-[10px] font-bold text-surface-400 uppercase tracking-wider mb-1">
+                          Submitted
+                        </span>
+                        <span className="text-lg font-black text-surface-800">
+                          {stat.submitted}
+                        </span>
+                      </div>
+                      <div className="bg-white p-2.5 rounded-xl border border-surface-100 text-center">
+                        <span className="block text-[10px] font-bold text-surface-400 uppercase tracking-wider mb-1">
+                          Reviewing
+                        </span>
+                        <span className="text-lg font-black text-purple-600">
+                          {stat.under_review}
+                        </span>
+                      </div>
+                      <div className="bg-white p-2.5 rounded-xl border border-surface-100 text-center">
+                        <span className="block text-[10px] font-bold text-surface-400 uppercase tracking-wider mb-1">
+                          Approved
+                        </span>
+                        <span className="text-lg font-black text-emerald-600">
+                          {stat.approved}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {filter === "departments" && selectedDepartment && (
+          <div className="bg-white rounded-3xl border border-surface-200 shadow-premium overflow-hidden mb-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+            <div className="px-4 sm:px-8 py-5 sm:py-6 border-b border-surface-100 flex flex-col sm:flex-row sm:items-center justify-between bg-surface-50/50 gap-4">
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={closeDepartmentDetail}
+                  className="p-2 -ml-2 text-surface-400 hover:text-surface-700 hover:bg-surface-200 rounded-xl transition-colors shrink-0"
+                >
+                  <ChevronLeft className="w-5 h-5" />
+                </button>
+                <h2 className="text-lg sm:text-xl font-black text-surface-900 tracking-tight flex items-center gap-2">
+                  <Users className="w-5 h-5 text-purple-500" />
+                  {selectedDepartment} Directory
+                </h2>
+              </div>
+            </div>
+
+            {loadingDept ? (
+              <div className="p-16 flex flex-col items-center justify-center gap-4">
+                <Loader2 className="w-8 h-8 text-purple-500 animate-spin" />
+                <p className="text-surface-500 font-medium">
+                  Loading employees...
+                </p>
+              </div>
+            ) : deptEmployees.length === 0 ? (
+              <div className="p-16 text-center">
+                <div className="w-20 h-20 bg-surface-50 rounded-3xl flex items-center justify-center mx-auto mb-6 border border-surface-100">
+                  <Users className="w-10 h-10 text-surface-300" />
+                </div>
+                <h3 className="text-lg font-bold text-surface-800 mb-2">
+                  No Employees Found
+                </h3>
+                <p className="text-base text-surface-400 max-w-sm mx-auto">
+                  There are currently no employees assigned to this department
+                  in the Global Directory.
+                </p>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left border-collapse">
+                  <thead>
+                    <tr className="bg-surface-50/80 border-b border-surface-200 text-xs font-bold text-surface-500 uppercase tracking-wider">
+                      <th className="px-6 py-4 font-bold">Employee</th>
+                      <th className="px-6 py-4 font-bold">Designation</th>
+                      <th className="px-6 py-4 font-bold">Reporting Manager</th>
+                      <th className="px-6 py-4 font-bold">JD Status</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-surface-100">
+                    {deptEmployees.map((emp) => {
+                      const config =
+                        STATUS_CONFIG[emp.jd_status] ||
+                        STATUS_CONFIG["Not Submitted"];
+                      return (
+                        <tr
+                          key={emp.employee_id}
+                          className="hover:bg-surface-50/60 transition-colors"
+                        >
+                          <td className="px-6 py-4">
+                            <div className="flex flex-col">
+                              <span className="font-bold text-surface-900">
+                                {emp.name}
+                              </span>
+                              <span className="text-[11px] font-bold text-surface-400">
+                                {emp.employee_id}
+                              </span>
+                            </div>
+                          </td>
+                          <td className="px-6 py-4 text-sm font-medium text-surface-700">
+                            {emp.designation || "—"}
+                          </td>
+                          <td className="px-6 py-4 text-sm font-medium text-surface-700">
+                            {emp.reporting_manager || "—"}
+                          </td>
+                          <td className="px-6 py-4">
+                            <span
+                              className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-black uppercase tracking-widest border ${config.bg} ${config.color}`}
+                            >
+                              <span className="w-1.5 h-1.5 rounded-full bg-current" />
+                              {config.label}
+                            </span>
+                            {emp.last_updated &&
+                              emp.jd_status !== "Not Submitted" && (
+                                <div className="mt-1 text-[10px] font-bold text-surface-400 flex items-center gap-1">
+                                  <Clock className="w-3 h-3" />
+                                  {new Date(
+                                    emp.last_updated,
+                                  ).toLocaleDateString()}
+                                </div>
+                              )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
+
+        {filter !== "departments" && (
+          <div className="space-y-6">
+            <h2 className="text-xl font-bold text-surface-900 flex items-center gap-3 px-2">
+              <span className="w-1.5 h-6 bg-purple-600 rounded-full" />
+              {filter === "all"
+                ? "Enterprise Database"
+                : filter === "my_jds"
+                  ? "Your Personal Documents"
+                  : "Filtered Pipeline Results"}
+            </h2>
+            <JDGrid jds={jds} showEmployee={filter !== "my_jds"} />
+          </div>
+        )}
       </div>
     </div>
   );

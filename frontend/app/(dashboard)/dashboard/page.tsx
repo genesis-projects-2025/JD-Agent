@@ -14,6 +14,8 @@ import {
   Trash2,
   Play,
   Eye,
+  ChevronLeft,
+  Users,
 } from "lucide-react";
 
 import {
@@ -21,6 +23,7 @@ import {
   fetchManagerPendingJDs,
   fetchHRPendingJDs,
   getCurrentUser,
+  fetchDepartmentEmployees,
 } from "@/lib/api";
 import { getOrCreateEmployeeId } from "@/lib/auth";
 import { DeleteModal } from "@/components/ui/delete-modal";
@@ -32,6 +35,15 @@ type JDListItem = {
   version: number;
   updated_at: string | null;
   created_at: string | null;
+};
+
+type DepartmentEmployee = {
+  employee_id: string;
+  name: string;
+  designation: string;
+  reporting_manager: string;
+  jd_status: string;
+  last_updated: string | null;
 };
 
 const STATUS_CONFIG: Record<
@@ -47,6 +59,11 @@ const STATUS_CONFIG: Record<
     label: "Draft",
     color: "text-amber-700",
     bg: "bg-amber-50 border-amber-200",
+  },
+  "Not Submitted": {
+    label: "Not Submitted",
+    color: "text-surface-500",
+    bg: "bg-surface-100 border-surface-200",
   },
   sent_to_manager: {
     label: "Manager Review",
@@ -79,9 +96,17 @@ export default function DashboardPage() {
   const router = useRouter();
   const [jds, setJds] = useState<JDListItem[]>([]);
   const [pendingJDs, setPendingJDs] = useState<JDListItem[]>([]);
+  const [departmentStats, setDepartmentStats] = useState<any[]>([]);
+  // Detailed Dept State
+  const [selectedDepartment, setSelectedDepartment] = useState<string | null>(
+    null,
+  );
+  const [deptEmployees, setDeptEmployees] = useState<DepartmentEmployee[]>([]);
+  const [loadingDept, setLoadingDept] = useState(false);
+
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<
-    "my_jds" | "team_approvals" | "hr_approvals"
+    "my_jds" | "team_approvals" | "hr_approvals" | "departments"
   >("my_jds");
   const [isMounted, setIsMounted] = useState(false);
 
@@ -113,6 +138,18 @@ export default function DashboardPage() {
       } else if (role === "hr") {
         const pending = await fetchHRPendingJDs();
         setPendingJDs(pending || []);
+
+        // Also fetch department stats for HR
+        import("@/lib/api").then((api) => {
+          api
+            .fetchHRDepartmentStats()
+            .then((stats) => {
+              setDepartmentStats(stats || []);
+            })
+            .catch((err) =>
+              console.error("Failed to fetch department stats", err),
+            );
+        });
       }
     } catch (err) {
       console.error("Failed to load JDs:", err);
@@ -146,7 +183,7 @@ export default function DashboardPage() {
       );
 
       if (!response.ok) {
-        throw new Error("Failed to delete JD");
+        console.log("Failed to delete JD");
       }
 
       // Reload Data
@@ -159,6 +196,24 @@ export default function DashboardPage() {
       setIsDeleteModalOpen(false);
       setJdToDelete(null);
     }
+  };
+
+  const handleDepartmentClick = async (deptName: string) => {
+    setSelectedDepartment(deptName);
+    setLoadingDept(true);
+    try {
+      const data = await fetchDepartmentEmployees(deptName, 1, 100);
+      setDeptEmployees(data || []);
+    } catch (error) {
+      console.error("Error fetching department employees:", error);
+    } finally {
+      setLoadingDept(false);
+    }
+  };
+
+  const closeDepartmentDetail = () => {
+    setSelectedDepartment(null);
+    setDeptEmployees([]);
   };
 
   // Aggregate counts based on role.
@@ -315,159 +370,369 @@ export default function DashboardPage() {
               </button>
             )}
             {role === "hr" && (
-              <button
-                onClick={() => setActiveTab("hr_approvals")}
-                className={`whitespace-nowrap px-5 py-2.5 text-sm font-bold rounded-xl transition-all flex items-center gap-2 ${
-                  activeTab === "hr_approvals"
-                    ? "bg-white text-surface-900 shadow-sm"
-                    : "text-surface-500 hover:text-surface-700 hover:bg-surface-200/50"
-                }`}
-              >
-                HR Review Queue
-                {pendingJDs.length > 0 && (
-                  <span className="bg-primary-500 text-white text-[11px] px-2 py-0.5 rounded-full font-black">
-                    {pendingJDs.length}
-                  </span>
-                )}
-              </button>
+              <>
+                <button
+                  onClick={() => setActiveTab("hr_approvals")}
+                  className={`whitespace-nowrap px-5 py-2.5 text-sm font-bold rounded-xl transition-all flex items-center gap-2 ${
+                    activeTab === "hr_approvals"
+                      ? "bg-white text-surface-900 shadow-sm"
+                      : "text-surface-500 hover:text-surface-700 hover:bg-surface-200/50"
+                  }`}
+                >
+                  HR Review Queue
+                  {pendingJDs.length > 0 && (
+                    <span className="bg-primary-500 text-white text-[11px] px-2 py-0.5 rounded-full font-black">
+                      {pendingJDs.length}
+                    </span>
+                  )}
+                </button>
+                <button
+                  onClick={() => setActiveTab("departments")}
+                  className={`whitespace-nowrap px-5 py-2.5 text-sm font-bold rounded-xl transition-all flex items-center gap-2 ${
+                    activeTab === "departments"
+                      ? "bg-white text-surface-900 shadow-sm"
+                      : "text-surface-500 hover:text-surface-700 hover:bg-surface-200/50"
+                  }`}
+                >
+                  Department Overview
+                </button>
+              </>
+            )}
+          </div>
+        )}
+
+        {/* Department Stats View */}
+        {activeTab === "departments" &&
+          role === "hr" &&
+          !selectedDepartment && (
+            <div className="bg-white rounded-3xl border border-surface-200 shadow-premium overflow-hidden mb-8">
+              <div className="px-4 sm:px-8 py-5 sm:py-6 border-b border-surface-100 flex flex-col sm:flex-row sm:items-center justify-between bg-surface-50/50 gap-4">
+                <h2 className="text-lg sm:text-xl font-black text-surface-900 tracking-tight">
+                  Department Overview
+                </h2>
+              </div>
+
+              {loading ? (
+                <div className="p-16 flex flex-col items-center justify-center gap-4">
+                  <Loader2 className="w-8 h-8 text-primary-500 animate-spin" />
+                  <p className="text-surface-500 font-medium">
+                    Loading stats...
+                  </p>
+                </div>
+              ) : departmentStats.length === 0 ? (
+                <div className="p-16 text-center">
+                  <p className="text-surface-500">
+                    No department statistics found.
+                  </p>
+                </div>
+              ) : (
+                <div className="p-6 sm:p-8 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                  {departmentStats.map((stat) => (
+                    <div
+                      key={stat.department}
+                      onClick={() => handleDepartmentClick(stat.department)}
+                      className="border border-surface-200 rounded-2xl p-5 bg-surface-50/30 hover:shadow-md hover:border-primary-300 transition-all cursor-pointer group"
+                    >
+                      <div className="flex justify-between items-start mb-4">
+                        <h3 className="text-lg font-bold text-surface-900 group-hover:text-primary-700 transition-colors">
+                          {stat.department}
+                        </h3>
+                        <div className="bg-white p-1.5 rounded-lg shadow-sm border border-surface-100">
+                          <Users className="w-4 h-4 text-surface-400" />
+                        </div>
+                      </div>
+
+                      <div className="flex justify-between items-center mb-2">
+                        <span className="text-sm font-medium text-surface-500">
+                          Completion ({stat.completed_jds}/
+                          {stat.total_employees})
+                        </span>
+                        <span className="text-sm font-black text-primary-600">
+                          {stat.completion_percentage}%
+                        </span>
+                      </div>
+                      {/* Progress Bar */}
+                      <div className="w-full h-3 bg-surface-200 rounded-full overflow-hidden mb-6">
+                        <div
+                          className="h-full bg-primary-500 rounded-full transition-all duration-1000 ease-out"
+                          style={{ width: `${stat.completion_percentage}%` }}
+                        />
+                      </div>
+
+                      <div className="grid grid-cols-3 gap-3">
+                        <div className="bg-white p-2.5 rounded-xl border border-surface-100 text-center">
+                          <span className="block text-[10px] font-bold text-surface-400 uppercase tracking-wider mb-1">
+                            Submitted
+                          </span>
+                          <span className="text-lg font-black text-surface-800">
+                            {stat.submitted}
+                          </span>
+                        </div>
+                        <div className="bg-white p-2.5 rounded-xl border border-surface-100 text-center">
+                          <span className="block text-[10px] font-bold text-surface-400 uppercase tracking-wider mb-1">
+                            Reviewing
+                          </span>
+                          <span className="text-lg font-black text-purple-600">
+                            {stat.under_review}
+                          </span>
+                        </div>
+                        <div className="bg-white p-2.5 rounded-xl border border-surface-100 text-center">
+                          <span className="block text-[10px] font-bold text-surface-400 uppercase tracking-wider mb-1">
+                            Approved
+                          </span>
+                          <span className="text-lg font-black text-emerald-600">
+                            {stat.approved}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+        {/* Detailed Department Employee List */}
+        {activeTab === "departments" && role === "hr" && selectedDepartment && (
+          <div className="bg-white rounded-3xl border border-surface-200 shadow-premium overflow-hidden mb-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+            <div className="px-4 sm:px-8 py-5 sm:py-6 border-b border-surface-100 flex flex-col sm:flex-row sm:items-center justify-between bg-surface-50/50 gap-4">
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={closeDepartmentDetail}
+                  className="p-2 -ml-2 text-surface-400 hover:text-surface-700 hover:bg-surface-200 rounded-xl transition-colors shrink-0"
+                >
+                  <ChevronLeft className="w-5 h-5" />
+                </button>
+                <h2 className="text-lg sm:text-xl font-black text-surface-900 tracking-tight flex items-center gap-2">
+                  <Users className="w-5 h-5 text-primary-500" />
+                  {selectedDepartment} Directory
+                </h2>
+              </div>
+            </div>
+
+            {loadingDept ? (
+              <div className="p-16 flex flex-col items-center justify-center gap-4">
+                <Loader2 className="w-8 h-8 text-primary-500 animate-spin" />
+                <p className="text-surface-500 font-medium">
+                  Loading employees...
+                </p>
+              </div>
+            ) : deptEmployees.length === 0 ? (
+              <div className="p-16 text-center">
+                <div className="w-20 h-20 bg-surface-50 rounded-3xl flex items-center justify-center mx-auto mb-6 border border-surface-100">
+                  <Users className="w-10 h-10 text-surface-300" />
+                </div>
+                <h3 className="text-lg font-bold text-surface-800 mb-2">
+                  No Employees Found
+                </h3>
+                <p className="text-base text-surface-400 max-w-sm mx-auto">
+                  There are currently no employees assigned to this department
+                  in the Global Directory.
+                </p>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left border-collapse">
+                  <thead>
+                    <tr className="bg-surface-50/80 border-b border-surface-200 text-xs font-bold text-surface-500 uppercase tracking-wider">
+                      <th className="px-6 py-4 font-bold">Employee</th>
+                      <th className="px-6 py-4 font-bold">Designation</th>
+                      <th className="px-6 py-4 font-bold">Reporting Manager</th>
+                      <th className="px-6 py-4 font-bold">JD Status</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-surface-100">
+                    {deptEmployees.map((emp) => {
+                      const config =
+                        STATUS_CONFIG[emp.jd_status] ||
+                        STATUS_CONFIG["Not Submitted"];
+
+                      return (
+                        <tr
+                          key={emp.employee_id}
+                          className="hover:bg-surface-50/60 transition-colors"
+                        >
+                          <td className="px-6 py-4">
+                            <div className="flex flex-col">
+                              <span className="font-bold text-surface-900">
+                                {emp.name}
+                              </span>
+                              <span className="text-[11px] font-bold text-surface-400">
+                                {emp.employee_id}
+                              </span>
+                            </div>
+                          </td>
+                          <td className="px-6 py-4 text-sm font-medium text-surface-700">
+                            {emp.designation || "—"}
+                          </td>
+                          <td className="px-6 py-4 text-sm font-medium text-surface-700">
+                            {emp.reporting_manager || "—"}
+                          </td>
+                          <td className="px-6 py-4">
+                            <span
+                              className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-black uppercase tracking-widest border ${config.bg} ${config.color}`}
+                            >
+                              <span className="w-1.5 h-1.5 rounded-full bg-current" />
+                              {config.label}
+                            </span>
+                            {emp.last_updated &&
+                              emp.jd_status !== "Not Submitted" && (
+                                <div className="mt-1 text-[10px] font-bold text-surface-400 flex items-center gap-1">
+                                  <Clock className="w-3 h-3" />
+                                  {new Date(
+                                    emp.last_updated,
+                                  ).toLocaleDateString()}
+                                </div>
+                              )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
             )}
           </div>
         )}
 
         {/* JD List Area */}
-        <div className="bg-white rounded-3xl border border-surface-200 shadow-premium overflow-hidden mb-8">
-          <div className="px-4 sm:px-8 py-5 sm:py-6 border-b border-surface-100 flex flex-col sm:flex-row sm:items-center justify-between bg-surface-50/50 gap-4">
-            <h2 className="text-lg sm:text-xl font-black text-surface-900 tracking-tight">
-              {activeTab === "my_jds"
-                ? "Your Job Descriptions"
-                : role === "hr"
-                  ? "Documents in your HR Queue"
-                  : "Your Team's Documents"}
-            </h2>
-          </div>
-
-          {loading ? (
-            <div className="p-16 flex flex-col items-center justify-center gap-4">
-              <Loader2 className="w-8 h-8 text-primary-500 animate-spin" />
-              <p className="text-surface-500 font-medium">
-                Loading documents...
-              </p>
-            </div>
-          ) : displayJDs.length === 0 ? (
-            <div className="p-16 text-center">
-              <div className="w-20 h-20 bg-surface-50 rounded-3xl flex items-center justify-center mx-auto mb-6 border border-surface-100">
-                <FileText className="w-10 h-10 text-surface-300" />
-              </div>
-              <h3 className="text-lg font-bold text-surface-800 mb-2">
-                {activeTab === "my_jds" ? "No Documents Yet" : "All Caught Up!"}
-              </h3>
-              <p className="text-base text-surface-400 max-w-sm mx-auto">
+        {activeTab !== "departments" && (
+          <div className="bg-white rounded-3xl border border-surface-200 shadow-premium overflow-hidden mb-8">
+            <div className="px-4 sm:px-8 py-5 sm:py-6 border-b border-surface-100 flex flex-col sm:flex-row sm:items-center justify-between bg-surface-50/50 gap-4">
+              <h2 className="text-lg sm:text-xl font-black text-surface-900 tracking-tight">
                 {activeTab === "my_jds"
-                  ? "Start a new interview by clicking the button above to generate your first document."
-                  : "There are no pending documents waiting for your review."}
-              </p>
+                  ? "Your Job Descriptions"
+                  : role === "hr"
+                    ? "Documents in your HR Queue"
+                    : "Your Team's Documents"}
+              </h2>
             </div>
-          ) : (
-            <div className="divide-y divide-surface-100">
-              {displayJDs.map((jdItem) => {
-                const config =
-                  STATUS_CONFIG[jdItem.status] || STATUS_CONFIG.draft;
 
-                const isDraft =
-                  jdItem.status === "draft" || jdItem.status === "jd_generated";
+            {loading ? (
+              <div className="p-16 flex flex-col items-center justify-center gap-4">
+                <Loader2 className="w-8 h-8 text-primary-500 animate-spin" />
+                <p className="text-surface-500 font-medium">
+                  Loading documents...
+                </p>
+              </div>
+            ) : displayJDs.length === 0 ? (
+              <div className="p-16 text-center">
+                <div className="w-20 h-20 bg-surface-50 rounded-3xl flex items-center justify-center mx-auto mb-6 border border-surface-100">
+                  <FileText className="w-10 h-10 text-surface-300" />
+                </div>
+                <h3 className="text-lg font-bold text-surface-800 mb-2">
+                  {activeTab === "my_jds"
+                    ? "No Documents Yet"
+                    : "All Caught Up!"}
+                </h3>
+                <p className="text-base text-surface-400 max-w-sm mx-auto">
+                  {activeTab === "my_jds"
+                    ? "Start a new interview by clicking the button above to generate your first document."
+                    : "There are no pending documents waiting for your review."}
+                </p>
+              </div>
+            ) : (
+              <div className="divide-y divide-surface-100">
+                {displayJDs.map((jdItem) => {
+                  const config =
+                    STATUS_CONFIG[jdItem.status] || STATUS_CONFIG.draft;
 
-                // Clicking the entire row routes appropriately depending on status
-                const href = isDraft
-                  ? `/questionnaire/${jdItem.id}`
-                  : `/jd/${jdItem.id}`;
+                  const isDraft =
+                    jdItem.status === "draft" ||
+                    jdItem.status === "jd_generated";
 
-                return (
-                  <div
-                    key={jdItem.id}
-                    className="group flex flex-col sm:flex-row sm:items-center justify-between p-6 sm:px-8 hover:bg-surface-50/60 transition-colors cursor-pointer"
-                    onClick={() => router.push(href)}
-                  >
-                    <div className="flex items-center gap-5">
-                      <div className="w-12 h-12 bg-surface-100 rounded-2xl flex items-center justify-center group-hover:bg-white group-hover:shadow-sm transition-all border border-transparent group-hover:border-surface-200 shrink-0">
-                        <Briefcase className="w-6 h-6 text-surface-400 group-hover:text-primary-600 transition-colors" />
-                      </div>
-                      <div>
-                        <h3 className="text-base font-bold text-surface-900 group-hover:text-primary-700 transition-colors">
-                          {jdItem.title || "Untitled JD"}
-                        </h3>
-                        <div className="flex flex-wrap items-center gap-2 sm:gap-3 mt-1.5">
-                          <span
-                            className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-black uppercase tracking-widest border ${config.bg} ${config.color}`}
-                          >
-                            <span className="w-1.5 h-1.5 rounded-full bg-current" />
-                            {config.label}
-                          </span>
-                          <span className="flex items-center gap-1.5 text-[12px] font-bold text-surface-400">
-                            <Clock className="w-3.5 h-3.5" />
-                            {jdItem.updated_at
-                              ? new Date(jdItem.updated_at).toLocaleDateString(
-                                  "en-US",
-                                  {
+                  // Clicking the entire row routes appropriately depending on status
+                  const href = isDraft
+                    ? `/questionnaire/${jdItem.id}`
+                    : `/jd/${jdItem.id}`;
+
+                  return (
+                    <div
+                      key={jdItem.id}
+                      className="group flex flex-col sm:flex-row sm:items-center justify-between p-6 sm:px-8 hover:bg-surface-50/60 transition-colors cursor-pointer"
+                      onClick={() => router.push(href)}
+                    >
+                      <div className="flex items-center gap-5">
+                        <div className="w-12 h-12 bg-surface-100 rounded-2xl flex items-center justify-center group-hover:bg-white group-hover:shadow-sm transition-all border border-transparent group-hover:border-surface-200 shrink-0">
+                          <Briefcase className="w-6 h-6 text-surface-400 group-hover:text-primary-600 transition-colors" />
+                        </div>
+                        <div>
+                          <h3 className="text-base font-bold text-surface-900 group-hover:text-primary-700 transition-colors">
+                            {jdItem.title || "Untitled JD"}
+                          </h3>
+                          <div className="flex flex-wrap items-center gap-2 sm:gap-3 mt-1.5">
+                            <span
+                              className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-black uppercase tracking-widest border ${config.bg} ${config.color}`}
+                            >
+                              <span className="w-1.5 h-1.5 rounded-full bg-current" />
+                              {config.label}
+                            </span>
+                            <span className="flex items-center gap-1.5 text-[12px] font-bold text-surface-400">
+                              <Clock className="w-3.5 h-3.5" />
+                              {jdItem.updated_at
+                                ? new Date(
+                                    jdItem.updated_at,
+                                  ).toLocaleDateString("en-US", {
                                     month: "short",
                                     day: "numeric",
                                     year: "numeric",
-                                  },
-                                )
-                              : "—"}
-                          </span>
-                          <span className="text-[12px] font-bold text-surface-400 bg-surface-100 px-2 py-0.5 rounded-md">
-                            v{jdItem.version}
-                          </span>
+                                  })
+                                : "—"}
+                            </span>
+                            <span className="text-[12px] font-bold text-surface-400 bg-surface-100 px-2 py-0.5 rounded-md">
+                              v{jdItem.version}
+                            </span>
+                          </div>
                         </div>
                       </div>
-                    </div>
 
-                    {/* Actions Column */}
-                    <div
-                      className="flex items-center gap-3 mt-4 sm:mt-0 ml-auto pl-17 sm:pl-0"
-                      onClick={(e) => e.stopPropagation()}
-                    >
-                      {activeTab === "my_jds" && (
-                        <>
-                          <button
-                            onClick={(e) => handleDeleteClick(e, jdItem.id)}
-                            className="p-2 sm:p-2.5 text-surface-400 hover:text-red-500 hover:bg-red-50 rounded-xl transition-colors border border-transparent hover:border-red-100"
-                            title="Delete JD"
-                          >
-                            <Trash2 className="w-4 h-4 sm:w-5 sm:h-5" />
-                          </button>
-                        </>
-                      )}
-
-                      <Link
-                        href={href}
+                      {/* Actions Column */}
+                      <div
+                        className="flex items-center gap-3 mt-4 sm:mt-0 ml-auto pl-17 sm:pl-0"
                         onClick={(e) => e.stopPropagation()}
-                        className={`flex items-center gap-2 px-3 sm:px-4 py-2 sm:py-2.5 rounded-xl font-bold text-sm transition-all ${
-                          isDraft
-                            ? "bg-primary-50 text-primary-700 hover:bg-primary-100 border border-primary-100/50"
-                            : "bg-surface-100 text-surface-700 hover:bg-surface-200 border border-surface-200"
-                        }`}
                       >
-                        {isDraft ? (
+                        {activeTab === "my_jds" && (
                           <>
-                            <Play className="w-4 h-4" />
-                            <span className="hidden sm:inline">Continue</span>
-                          </>
-                        ) : (
-                          <>
-                            <Eye className="w-4 h-4" />
-                            <span className="hidden sm:inline">View</span>
-                            <span className="sm:hidden">View</span>
+                            <button
+                              onClick={(e) => handleDeleteClick(e, jdItem.id)}
+                              className="p-2 sm:p-2.5 text-surface-400 hover:text-red-500 hover:bg-red-50 rounded-xl transition-colors border border-transparent hover:border-red-100"
+                              title="Delete JD"
+                            >
+                              <Trash2 className="w-4 h-4 sm:w-5 sm:h-5" />
+                            </button>
                           </>
                         )}
-                      </Link>
+
+                        <Link
+                          href={href}
+                          onClick={(e) => e.stopPropagation()}
+                          className={`flex items-center gap-2 px-3 sm:px-4 py-2 sm:py-2.5 rounded-xl font-bold text-sm transition-all ${
+                            isDraft
+                              ? "bg-primary-50 text-primary-700 hover:bg-primary-100 border border-primary-100/50"
+                              : "bg-surface-100 text-surface-700 hover:bg-surface-200 border border-surface-200"
+                          }`}
+                        >
+                          {isDraft ? (
+                            <>
+                              <Play className="w-4 h-4" />
+                              <span className="hidden sm:inline">Continue</span>
+                            </>
+                          ) : (
+                            <>
+                              <Eye className="w-4 h-4" />
+                              <span className="hidden sm:inline">View</span>
+                              <span className="sm:hidden">View</span>
+                            </>
+                          )}
+                        </Link>
+                      </div>
                     </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       <DeleteModal

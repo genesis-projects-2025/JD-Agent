@@ -19,4 +19,8 @@ coverage/
 *.tmp
 *.zip
 # Employee data — never commit to git
-backend/organogram_export.csvbackend/seed_aiven.py
+backend/organogram_export.csv
+backend/seed_aiven.py
+backend/enterpirse_organogram.csv
+backend/clear_all.py
+

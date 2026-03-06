@@ -54,7 +54,7 @@ export default function AdminLayout({
   ];
 
   return (
-    <div className="min-h-screen bg-slate-50 flex relative">
+    <div className="h-full bg-slate-50 flex relative">
       {/* Mobile Backdrop */}
       {isMobileOpen && (
         <div
@@ -122,7 +122,7 @@ export default function AdminLayout({
       </aside>
 
       {/* Main Content Area */}
-      <main className="flex-1 flex flex-col min-h-screen w-full md:w-auto overflow-hidden">
+      <main className="flex-1 flex flex-col h-full w-full md:w-auto overflow-hidden">
         <header className="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-4 sm:px-8 z-0 shadow-sm sticky top-0">
           <div className="flex items-center gap-3">
             <button

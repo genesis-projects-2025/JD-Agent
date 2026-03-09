@@ -68,7 +68,7 @@ function SSOSync() {
 
   if (error) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-red-50 text-red-600 font-bold p-8">
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-red-50 text-red-600 font-bold p-8">
         <div className="max-w-md text-center">
           <p className="text-xl mb-4">SSO Authentication Failed</p>
           <p className="text-sm font-normal px-4 py-2 bg-red-100 rounded-md">
@@ -80,7 +80,7 @@ function SSOSync() {
   }
 
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center bg-slate-50">
+    <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-slate-50">
       <Loader2 className="w-12 h-12 text-blue-600 animate-spin mb-4" />
       <h1 className="text-lg font-bold text-slate-800">
         Authenticating via SSO...
@@ -96,7 +96,7 @@ export default function SSOCallbackPage() {
   return (
     <Suspense
       fallback={
-        <div className="min-h-screen flex items-center justify-center">
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
           <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
         </div>
       }

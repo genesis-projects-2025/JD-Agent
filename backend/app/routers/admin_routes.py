@@ -5,11 +5,17 @@ from sqlalchemy import func
 from pydantic import BaseModel
 from typing import List, Optional
 
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from jose import jwt, JWTError
+
 from app.core.database import get_db
+from app.core.config import settings
+from app.core.security import create_access_token
 from app.models.jd_session_model import JDSession
 from app.models.user_model import Employee
 
 router = APIRouter(tags=["Admin"])
+security = HTTPBearer()
 
 class AdminLoginRequest(BaseModel):
     code: str
@@ -25,27 +31,35 @@ class StatCardData(BaseModel):
     approved_jds: int
     rejected_jds: int
 
-class PipelineData(BaseModel):
-    status: str
-    count: int
 
-class UserFilterRequest(BaseModel):
-    role: Optional[str] = None
-    status: Optional[str] = None
-    search: Optional[str] = None
+async def get_current_admin(credentials: HTTPAuthorizationCredentials = Depends(security)):
+    """Dependency to protect routes — verifies the JWT token."""
+    token = credentials.credentials
+    try:
+        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+        role = payload.get("sub")
+        if role != "ADMIN":
+            raise HTTPException(status_code=403, detail="Not authorized as admin")
+        return role
+    except JWTError:
+        raise HTTPException(status_code=401, detail="Invalid or expired admin token")
 
 
 @router.post("/auth/admin-login", response_model=AdminLoginResponse)
 async def admin_login(request: AdminLoginRequest):
-    # Hardcoded admin credentials as requested
-    if request.code == "Mani007" and request.password == "Manideekshith@11":
-        return AdminLoginResponse(token="admin-secret-token", role="ADMIN")
+    # Use config-backed credentials
+    if request.code == settings.ADMIN_CODE and request.password == settings.ADMIN_PASSWORD:
+        token = create_access_token(subject="ADMIN")
+        return AdminLoginResponse(token=token, role="ADMIN")
     
     raise HTTPException(status_code=401, detail="Invalid admin credentials")
 
 
 @router.get("/admin/stats/overview", response_model=StatCardData)
-async def get_admin_overview(db: AsyncSession = Depends(get_db)):
+async def get_admin_overview(
+    db: AsyncSession = Depends(get_db),
+    admin_role: str = Depends(get_current_admin)
+):
     # total employees
     emp_res = await db.execute(select(func.count(Employee.id)))
     total_employees = emp_res.scalar_one()
@@ -76,7 +90,10 @@ async def get_admin_overview(db: AsyncSession = Depends(get_db)):
     )
 
 @router.get("/admin/stats/charts")
-async def get_admin_charts(db: AsyncSession = Depends(get_db)):
+async def get_admin_charts(
+    db: AsyncSession = Depends(get_db),
+    admin_active: str = Depends(get_current_admin)
+):
     # 1. Pipeline Chart (Bar Chart)
     pipeline_res = await db.execute(
         select(JDSession.status, func.count(JDSession.id).label('count')).group_by(JDSession.status)
@@ -122,7 +139,8 @@ async def get_admin_users(
     role: Optional[str] = None, 
     status: Optional[str] = None, 
     search: Optional[str] = None, 
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    admin_active: str = Depends(get_current_admin)
 ):
     query = select(Employee, JDSession).outerjoin(
         JDSession, Employee.id == JDSession.employee_id

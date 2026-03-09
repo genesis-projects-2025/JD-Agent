@@ -127,32 +127,31 @@ export default function DashboardPage() {
       setLoading(true);
       const id = getOrCreateEmployeeId();
 
-      // Load personal JDs
-      const data = await fetchEmployeeJDs(id);
-      setJds(data || []);
+      // Parallelize data fetching to avoid "waterfall" latency
+      const promises: Promise<any>[] = [fetchEmployeeJDs(id)];
 
-      // Load Pending Approval JDs based on role
       if (role === "manager") {
-        const pending = await fetchManagerPendingJDs(id);
-        setPendingJDs(pending || []);
+        promises.push(fetchManagerPendingJDs(id));
       } else if (role === "hr") {
-        const pending = await fetchHRPendingJDs();
-        setPendingJDs(pending || []);
+        promises.push(fetchHRPendingJDs());
+        // For HR, also fetch department stats
+        const api = await import("@/lib/api");
+        promises.push(api.fetchHRDepartmentStats());
+      }
 
-        // Also fetch department stats for HR
-        import("@/lib/api").then((api) => {
-          api
-            .fetchHRDepartmentStats()
-            .then((stats) => {
-              setDepartmentStats(stats || []);
-            })
-            .catch((err) =>
-              console.error("Failed to fetch department stats", err),
-            );
-        });
+      const results = await Promise.all(promises);
+
+      // Map results back to state
+      setJds(results[0] || []);
+
+      if (role === "manager") {
+        setPendingJDs(results[1] || []);
+      } else if (role === "hr") {
+        setPendingJDs(results[1] || []);
+        setDepartmentStats(results[2] || []);
       }
     } catch (err) {
-      console.error("Failed to load JDs:", err);
+      console.error("Failed to load dashboard data:", err);
     } finally {
       setLoading(false);
     }

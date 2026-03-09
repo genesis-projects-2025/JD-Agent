@@ -185,9 +185,8 @@ export default function Sidebar() {
     setIsMobileOpen(false);
   }, [pathname, searchParams]);
 
-  // Hide sidebar if they are not logged in or are on the admin portal
-  if (!isMounted || !isAuthenticated || pathname.startsWith("/admin"))
-    return null;
+  // Hide sidebar if they are not logged in
+  if (!isMounted || !isAuthenticated) return null;
 
   return (
     <>
@@ -195,7 +194,8 @@ export default function Sidebar() {
       {isAuthenticated && !pathname.startsWith("/admin") && (
         <button
           onClick={() => setIsMobileOpen(true)}
-          className="md:hidden fixed top-4 left-4 z-40 p-2.5 bg-neutral-900 text-white rounded-xl shadow-xl hover:bg-neutral-800 transition-colors"
+          aria-label="Open menu"
+          className="md:hidden fixed top-4 left-4 z-40 p-2.5 bg-neutral-900 text-white rounded-xl shadow-xl hover:bg-neutral-800 transition-colors active:scale-95"
         >
           <Menu className="w-5 h-5" />
         </button>
@@ -204,8 +204,9 @@ export default function Sidebar() {
       {/* Mobile Backdrop */}
       {isMobileOpen && (
         <div
-          className="md:hidden fixed inset-0 bg-black/60 z-40 backdrop-blur-sm transition-opacity"
+          className="md:hidden fixed inset-0 bg-black/60 z-40 backdrop-blur-sm animate-in fade-in duration-200"
           onClick={() => setIsMobileOpen(false)}
+          aria-hidden="true"
         />
       )}
 
@@ -214,7 +215,7 @@ export default function Sidebar() {
         fixed inset-y-0 left-0 z-50
         md:relative md:z-auto
         w-72 h-screen bg-gradient-to-b from-neutral-900 via-neutral-900 to-neutral-800 text-white flex flex-col border-r border-neutral-800 shadow-2xl
-        transition-transform duration-300 ease-out
+        transition-transform duration-300 ease-[cubic-bezier(0.4,0,0.2,1)] will-change-transform
         ${isMobileOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0"}
       `}
       >
@@ -235,7 +236,8 @@ export default function Sidebar() {
           </Link>
           <button
             onClick={() => setIsMobileOpen(false)}
-            className="md:hidden p-2 text-neutral-400 hover:text-white bg-neutral-800 rounded-lg"
+            aria-label="Close menu"
+            className="md:hidden p-2 text-neutral-400 hover:text-white bg-neutral-800 rounded-lg transition-colors active:scale-95"
           >
             <X className="w-5 h-5" />
           </button>

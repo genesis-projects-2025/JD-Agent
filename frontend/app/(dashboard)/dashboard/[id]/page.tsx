@@ -1090,14 +1090,14 @@ function HRView({ user }: { user: AuthUser }) {
 
 function LoadingScreen() {
   return (
-    <div className="h-[calc(100vh-8rem)] flex items-center justify-center">
-      <div className="text-center group">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-surface-50">
+      <div className="text-center">
         <div className="relative mb-4">
           <div className="absolute inset-0 bg-primary-100 rounded-full animate-ping opacity-20 scale-150" />
           <Loader2 className="w-10 h-10 text-primary-600 animate-spin mx-auto relative z-10" />
         </div>
-        <p className="text-sm font-bold text-surface-400 uppercase tracking-widest">
-          Fetching Enterprise Records...
+        <p className="text-sm font-semibold text-surface-400">
+          Loading your dashboard...
         </p>
       </div>
     </div>

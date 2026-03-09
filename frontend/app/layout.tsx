@@ -1,8 +1,8 @@
 // frontend/app/layout.tsx
 
 import "./globals.css";
-import Sidebar from "@/components/layout/sidebar";
 import { AuthProvider } from "@/components/providers/auth-provider";
+import { ErrorBoundary } from "@/components/error-boundary";
 import { Suspense } from "react";
 import { Inter, Outfit } from "next/font/google";
 
@@ -18,6 +18,12 @@ const outfit = Outfit({
   display: "swap",
 });
 
+export const metadata = {
+  title: "JD Intelligence — Pulse Pharma",
+  description:
+    "Enterprise job description management and approval system for Pulse Pharma.",
+};
+
 export default function RootLayout({
   children,
 }: {
@@ -25,15 +31,21 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en" className={`${inter.variable} ${outfit.variable} h-full`}>
-      <body className="flex h-full overflow-hidden bg-white selection:bg-primary-100 selection:text-primary-900">
-        <Suspense fallback={null}>
-          <AuthProvider>
-            <Sidebar />
-            <main className="flex-1 relative h-[100dvh] overflow-hidden bg-surface-50">
-              {children}
-            </main>
-          </AuthProvider>
-        </Suspense>
+      <head>
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link
+          rel="preconnect"
+          href="https://fonts.gstatic.com"
+          crossOrigin="anonymous"
+        />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+      </head>
+      <body className="w-full h-full overflow-hidden bg-white selection:bg-primary-100 selection:text-primary-900 flex">
+        <ErrorBoundary>
+          <Suspense fallback={null}>
+            <AuthProvider>{children}</AuthProvider>
+          </Suspense>
+        </ErrorBoundary>
       </body>
     </html>
   );

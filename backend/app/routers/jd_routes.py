@@ -30,33 +30,25 @@ import uuid
 
 router = APIRouter()
 
-# ── In-memory session store ───────────────────────────────────────────────────
-_session_store: dict[str, SessionMemory] = {}
-
+# ── Session Management (Stateless) ───────────────────────────────────────────
 
 def get_or_create_session(session_id: str) -> SessionMemory:
-    if session_id not in _session_store:
-        print(f"🆕 Creating new in-memory session: {session_id}")
-        _session_store[session_id] = SessionMemory()
-    else:
-        print(f"♻️  Reusing in-memory session: {session_id}")
-    return _session_store[session_id]
+    """Creates a temporary SessionMemory object. It won't be stored in memory."""
+    print(f"🆕 Creating transient session object: {session_id}")
+    memory = SessionMemory()
+    memory.id = session_id
+    return memory
 
 
 async def hydrate_session_from_db(session_id: str, db: AsyncSession) -> SessionMemory:
-    memory = _session_store.get(session_id)
-    if memory:
-        print(f"♻️  Hot session found in memory: {session_id}")
-        return memory
-
-    print(f"❄️  Cold start — loading session {session_id} from DB...")
+    """Always loads from DB to ensure statelessness (important for AWS/Scale)."""
+    print(f"💧 Hydrating session {session_id} from DB...")
     record = await get_questionnaire(db, session_id)
     memory = SessionMemory()
 
     if record:
         memory.id = str(record.id)
         memory.employee_id = record.employee_id
-        # Employee name ideally resolved from insight dict
         memory.employee_name = record.insights.get("identity_context", {}).get("employee_name") if record.insights else None
         memory.insights = record.insights or {}
         memory.progress = record.conversation_state or {}
@@ -66,7 +58,6 @@ async def hydrate_session_from_db(session_id: str, db: AsyncSession) -> SessionM
         history = [{"role": t.role, "content": t.content} for t in (record.conversation_turns or [])]
         memory.load_history_from_db(history, llm_limit=6)
 
-    _session_store[session_id] = memory
     return memory
 
 
@@ -128,7 +119,7 @@ async def init_jd(request: InitJDRequest, db: AsyncSession = Depends(get_db)):
             starting_insights["identity_context"] = identity_context
 
     memory.insights = starting_insights
-    _session_store[new_id] = memory
+    # _session_store[new_id] = memory # REMOVED: using stateless session instead
 
     await sync_session_to_db(
         db=db,
@@ -225,14 +216,13 @@ async def generate_jd_endpoint(
 async def save_jd(request: SaveJDRequest, db: AsyncSession = Depends(get_db)):
     session_id = request.id
 
-    session_memory = _session_store.get(session_id)
-    if not session_memory:
-        session_memory = await hydrate_session_from_db(session_id, db)
-        if not session_memory.insights:
-            raise HTTPException(
-                status_code=404,
-                detail="Session not found. Please complete the interview first."
-            )
+    # ALWAYS hydrate from DB to stay stateless
+    session_memory = await hydrate_session_from_db(session_id, db)
+    if not session_memory.insights:
+        raise HTTPException(
+            status_code=404,
+            detail="Session not found. Please complete the interview first."
+        )
 
     db_history = [
         {"role": m["role"], "content": m["content"]}
@@ -418,9 +408,6 @@ async def delete_jd(jd_id: str, employee_id: str, db: AsyncSession = Depends(get
         success = await delete_questionnaire(db=db, jd_id=jd_id, employee_id=employee_id)
         if not success:
             raise HTTPException(status_code=404, detail="JD not found")
-        
-        if jd_id in _session_store:
-            del _session_store[jd_id]
             
         return {"status": "success", "message": "JD deleted successfully."}
     except PermissionError as e:

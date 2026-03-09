@@ -15,13 +15,13 @@ from app.memory.session_memory import SessionMemory
 # ── LLM Instances ──────────────────────────────────────────────────────────────
 interview_llm = ChatGoogleGenerativeAI(
     google_api_key=settings.GEMINI_API_KEY,
-    model="gemini-2.5-pro",
+    model="gemini-1.5-flash",
     temperature=0.2,
 )
 
 jd_llm = ChatGoogleGenerativeAI(
     google_api_key=settings.GEMINI_API_KEY,
-    model="gemini-2.5-pro",
+    model="gemini-1.5-pro",
     temperature=0.1,
 )
 

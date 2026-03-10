@@ -23,6 +23,7 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
+    image: jd-agent-frontend:1.0.0
     container_name: jd-agent-frontend
     ports:
       - "3000:3000"

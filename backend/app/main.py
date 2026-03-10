@@ -2,6 +2,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
+from app.version import VERSION
 from app.core.database import init_db
 from app.models.jd_session_model import JDSession, ConversationTurn, JDVersion
 from app.models.user_model import Employee
@@ -22,7 +23,7 @@ async def lifespan(app: FastAPI):
     # Runs on shutdown (add cleanup here if needed)
 
 
-app = FastAPI(title="JD Agent API", lifespan=lifespan)
+app = FastAPI(title="JD Agent API", version=VERSION, lifespan=lifespan)
 
 origins = [
     "https://jd-agent-kappa.vercel.app",

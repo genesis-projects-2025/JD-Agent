@@ -4,6 +4,7 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
+    image: jd-agent-backend:1.0.0
     container_name: jd-agent-backend
     ports:
       - "8000:8000"

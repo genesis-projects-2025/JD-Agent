@@ -19,7 +19,6 @@ jobs:
 
           script: |
             cd /home/ubuntu/JD-Agent
-            echo"good ec2"
             echo "Pulling latest code..."
             git pull origin master
 

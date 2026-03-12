@@ -46,7 +46,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(jd_router, prefix="/jd")
+app.include_router(jd_router, prefix="/jd",tags=["JD Routes"])
 app.include_router(organogram_router, prefix="/auth")
 app.include_router(admin_router)
 app.include_router(feedback_router)

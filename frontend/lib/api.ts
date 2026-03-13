@@ -422,3 +422,35 @@ export async function markFeedbackRead(commentId: string) {
   if (!res.ok) throw new Error("Failed to mark feedback as read");
   return res.json();
 }
+
+/**
+ * Download a JD as DOCX.
+ * Fetches the file blob from the backend and triggers a browser download.
+ */
+export async function downloadJDDocx(sessionId: string): Promise<void> {
+  const res = await fetch(`${API_URL}/jd/${sessionId}/download`);
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: "Download failed" }));
+    throw new Error(err.detail || "Failed to download JD");
+  }
+
+  const blob = await res.blob();
+
+  // Extract filename from Content-Disposition header, or use fallback
+  const disposition = res.headers.get("Content-Disposition");
+  let filename = "Job Description.docx";
+  if (disposition) {
+    const match = disposition.match(/filename="?([^"]+)"?/);
+    if (match?.[1]) filename = match[1];
+  }
+
+  // Create a temporary download link
+  const url = window.URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  window.URL.revokeObjectURL(url);
+}

@@ -32,3 +32,6 @@ pydantic-settings
 # Auth / Security
 python-jose[cryptography]
 passlib[bcrypt]
+
+# Document Generation
+python-docx

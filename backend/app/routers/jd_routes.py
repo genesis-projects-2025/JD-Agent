@@ -320,6 +320,47 @@ async def mark_read(comment_id: str, db: AsyncSession = Depends(get_db)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to mark feedback: {str(e)}")
 
+# ── Download JD as DOCX ──────────────────────────────────────────────────────
+@router.get("/{jd_id}/download")
+async def download_jd_docx(jd_id: str, db: AsyncSession = Depends(get_db)):
+    """Generate and stream a DOCX file for the given JD."""
+    from fastapi.responses import StreamingResponse
+    from app.services.docx_generator import generate_jd_docx
+    import re
+
+    record = await get_questionnaire(db, jd_id)
+    if not record:
+        raise HTTPException(status_code=404, detail="JD not found")
+
+    if not record.jd_structured:
+        raise HTTPException(
+            status_code=400,
+            detail="No generated JD available for download. Please generate a JD first."
+        )
+
+    # Generate the DOCX
+    docx_buffer = generate_jd_docx(
+        jd_data=record.jd_structured,
+        title=record.title,
+        department=record.department,
+    )
+
+    # Build a safe filename
+    title = record.title or "Job Description"
+    dept = record.department or ""
+    filename = f"{title} - {dept}.docx" if dept else f"{title}.docx"
+    # Sanitize filename (remove chars that are problematic in file names)
+    filename = re.sub(r'[<>:"/\\|?*]', '', filename)
+
+    return StreamingResponse(
+        docx_buffer,
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Access-Control-Expose-Headers": "Content-Disposition",
+        },
+    )
+
 
 # ── Get single JD ─────────────────────────────────────────────────────────────
 @router.get("/{jd_id}")

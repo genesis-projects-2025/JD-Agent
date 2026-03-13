@@ -22,6 +22,7 @@ import {
   Save,
   Plus,
   Trash,
+  Download,
 } from "lucide-react";
 import {
   fetchJD,
@@ -37,6 +38,7 @@ import {
   saveJD,
   createReviewComment,
   fetchReviewComments,
+  downloadJDDocx,
 } from "@/lib/api";
 import { DeleteModal } from "@/components/ui/delete-modal";
 import FeedbackModal from "@/components/feedback/FeedbackModal";
@@ -66,10 +68,9 @@ export default function JDPage() {
   const [editedData, setEditedData] = useState<any>({});
   const [isSavingEdit, setIsSavingEdit] = useState(false);
   const [isApproving, setIsApproving] = useState(false);
-  const [activeTab, setActiveTab] = useState<"markdown" | "structured">(
-    "markdown",
-  );
+  const [activeTab, setActiveTab] = useState<"structured">("structured");
   const [isMounted, setIsMounted] = useState(false);
+  const [isDownloading, setIsDownloading] = useState(false);
 
   useEffect(() => {
     setIsMounted(true);
@@ -310,9 +311,43 @@ export default function JDPage() {
         _last_edited_by: role,
       };
 
+      // Auto-generate rudimentary markdown from the edited structured data 
+      // so the display matches the structured edits.
+      const md = [
+        `# Job Description: ${enrichedData.job_title || enrichedData.title || "Job Description"}`,
+        ``,
+        `**Department:** ${enrichedData.department || "Organization"} | **Location:** ${enrichedData.location || "Office"}`,
+        `**Reports To:** ${enrichedData.reports_to || "Manager"}`,
+        ``,
+        `---`,
+        ``,
+        `## About the Role`,
+        `${enrichedData.role_summary?.summary || enrichedData.role_summary || "Role description."}`,
+        ``,
+        `---`,
+        ``,
+        `## Key Responsibilities`,
+        ...(enrichedData.key_responsibilities || []).map((r: string) => `- ${r}`),
+        ``,
+        `---`,
+        ``,
+        `## Required Skills & Competencies`,
+        ...(enrichedData.required_skills || []).map((s: string) => `- ${s}`),
+        ``,
+        `---`,
+        ``,
+        `## Tools & Technologies`,
+        ...(enrichedData.tools_and_technologies || []).map((t: string) => `- ${t}`),
+        ``,
+        `---`,
+        ``,
+        `## Performance & Success Metrics`,
+        ...(enrichedData.performance_metrics || []).map((m: string) => `- ${m}`),
+      ].join("\\n");
+
       // Create a wrapper payload simulating the AI's internal response framework
       const payload = JSON.stringify({
-        jd_text_format: editedJdText,
+        jd_text_format: md,
         jd_structured_data: enrichedData,
       });
 
@@ -463,6 +498,31 @@ export default function JDPage() {
                 <p className="text-sm font-bold text-surface-500 uppercase tracking-widest">
                   {jd.department}
                 </p>
+              )}
+
+              {/* Download Button — visible to all roles when JD exists */}
+              {jd.jd_structured && (
+                <button
+                  onClick={async () => {
+                    setIsDownloading(true);
+                    try {
+                      await downloadJDDocx(jdId);
+                    } catch (err: any) {
+                      alert(err.message || "Failed to download");
+                    } finally {
+                      setIsDownloading(false);
+                    }
+                  }}
+                  disabled={isDownloading}
+                  className="mt-4 inline-flex items-center gap-2 px-5 py-3 bg-gradient-to-r from-primary-600 to-primary-700 text-white rounded-xl font-bold text-[13px] shadow-md hover:shadow-lg hover:-translate-y-0.5 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {isDownloading ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Download className="w-4 h-4" />
+                  )}
+                  {isDownloading ? "Generating..." : "Download DOCX"}
+                </button>
               )}
             </div>
 
@@ -767,41 +827,7 @@ export default function JDPage() {
         {/* Document block */}
         <div className="bg-white rounded-2xl md:rounded-[40px] p-5 md:p-16 border border-surface-200 shadow-premium relative min-h-[500px] flex flex-col transition-all duration-500">
           {isEditing ? (
-            <div className="flex flex-col flex-1 h-[75vh] max-h-[800px] overflow-hidden">
-              <div className="flex bg-surface-100/80 p-1.5 rounded-xl w-fit mb-6 shadow-inner border border-surface-200/50 flex-shrink-0">
-                <button
-                  onClick={() => setActiveTab("markdown")}
-                  className={`px-6 py-2.5 font-bold text-[13px] rounded-lg transition-all ${
-                    activeTab === "markdown"
-                      ? "bg-white text-primary-700 shadow-sm border border-surface-200"
-                      : "text-surface-500 hover:text-surface-700"
-                  }`}
-                >
-                  Raw Markdown
-                </button>
-                <button
-                  onClick={() => setActiveTab("structured")}
-                  className={`px-6 py-2.5 font-bold text-[13px] rounded-lg transition-all ${
-                    activeTab === "structured"
-                      ? "bg-white text-primary-700 shadow-sm border border-surface-200"
-                      : "text-surface-500 hover:text-surface-700"
-                  }`}
-                >
-                  Structured Data
-                </button>
-              </div>
-
-              {activeTab === "markdown" ? (
-                <div className="flex-1 overflow-y-auto pr-2 custom-scrollbar">
-                  <textarea
-                    value={editedJdText}
-                    onChange={(e) => setEditedJdText(e.target.value)}
-                    className="w-full h-full bg-surface-50 border border-surface-200 rounded-2xl p-8 text-surface-800 text-[15px] font-mono leading-relaxed focus:ring-4 focus:ring-primary-500/10 focus:border-primary-500 outline-none resize-none min-h-[600px] shadow-inner transition-all"
-                    placeholder="Edit Job Description Markdown..."
-                  />
-                </div>
-              ) : (
-                <div className="flex-1 overflow-y-auto pr-2 custom-scrollbar">
+              <div className="flex-1 overflow-y-auto pr-2 custom-scrollbar">
                   <div className="w-full bg-surface-50 border border-surface-200 rounded-2xl p-8 space-y-12 shadow-inner min-h-full">
                     {/* Job Title */}
                     <div className="space-y-4">
@@ -902,8 +928,6 @@ export default function JDPage() {
                     ))}
                   </div>
                 </div>
-              )}
-            </div>
           ) : (
             <div className="flex-1 animate-in fade-in zoom-in-[0.98] duration-500 h-full">
               <div className="bg-white rounded-[32px] p-8 md:p-12 border border-surface-200/60 shadow-[0_8px_30px_rgb(0,0,0,0.04)] ring-1 ring-black/[0.02]">

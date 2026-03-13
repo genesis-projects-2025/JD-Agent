@@ -120,7 +120,7 @@ export default function devLogout() {
 // ── API Fetching Functions ────────────────────────────────────────────────────
 
 export const API_URL =
-  process.env.NEXT_PUBLIC_API_URL || "http://3.104.106.174:8000/";
+  process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 export async function fetchEmployeeJDs(employeeId: string) {
   const res = await fetch(`${API_URL}/jd/employee/${employeeId}`);

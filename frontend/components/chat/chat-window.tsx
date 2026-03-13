@@ -51,7 +51,7 @@ export default function ChatWindow({
               </div>
               <div className="overflow-hidden">
                 <h3 className="text-base sm:text-lg font-bold text-surface-900 tracking-tight leading-none truncate w-full">
-                  Saniya Assistant
+                  Jd Assistant
                 </h3>
                 <p className="text-[9px] sm:text-[11px] font-bold text-primary-600 uppercase tracking-widest mt-1 sm:mt-1.5 flex items-center gap-1 sm:gap-1.5 truncate w-full">
                   <Activity className="w-2.5 h-2.5 sm:w-3 sm:h-3 shrink-0" />
@@ -109,11 +109,10 @@ export default function ChatWindow({
                 <Bot className="w-8 h-8 text-primary-500" />
               </div>
               <h3 className="text-xl font-bold text-surface-900 mb-3 tracking-tight">
-                Welcome to Role Optimization
+                Welcome to JD Assistant
               </h3>
               <p className="text-sm text-surface-500 leading-relaxed font-medium">
-                I'm Saniya. I'll guide you through a precision interview to
-                architect a high-impact Job Description.
+                I'm here to help you create a high-impact Job Description.
               </p>
             </div>
           </div>
@@ -140,7 +139,7 @@ export default function ChatWindow({
                     <div className="flex items-center gap-2 sm:gap-3">
                       <Loader2 className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-primary-500 animate-spin" />
                       <span className="text-[10px] sm:text-[12px] font-bold text-surface-400 uppercase tracking-widest leading-none sm:leading-normal">
-                        Saniya is analyzing...
+                        Agent is analyzing...
                       </span>
                     </div>
                   </div>

@@ -1,6 +1,7 @@
 # main.py
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from contextlib import asynccontextmanager
 from app.version import VERSION
 from app.core.database import init_db
@@ -27,6 +28,7 @@ app = FastAPI(title="JD Agent API", version=VERSION, lifespan=lifespan)
 
 origins = [
     "https://jd-agent-kappa.vercel.app",
+    "https://jd.web3vers.me/",
     "http://localhost:3000",
     "http://localhost:3001",
     "http://localhost:3002",
@@ -45,6 +47,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+app.add_middleware(GZipMiddleware, minimum_size=1000)
 
 app.include_router(jd_router, prefix="/jd",tags=["JD Routes"])
 app.include_router(organogram_router, prefix="/auth")

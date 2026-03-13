@@ -19,7 +19,6 @@ export default function QuestionnaireStart() {
         employee_id: eid,
         employee_name: "Employee " + eid.substring(4, 8).toUpperCase(),
       });
-      // No localStorage — DB is the source of truth
       router.push(`/questionnaire/${data.id}`);
     } catch (error) {
       console.error("Failed to initialize interview:", error);
@@ -31,7 +30,6 @@ export default function QuestionnaireStart() {
 
   return (
     <div className="flex flex-col items-center justify-center min-h-[60vh] px-4">
-      {/* DB-driven continue banner — no localStorage */}
       <ContinueSessionBanner />
 
       <div className="max-w-md w-full p-8 bg-white rounded-2xl shadow-xl border border-neutral-100">

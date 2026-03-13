@@ -9,7 +9,7 @@ class Settings(BaseSettings):
     DATABASE_PASS: str
     DATABASE_HOST: str = "localhost"
     DATABASE_PORT: int = 5432
-    DATABASE_SSL: str = "disable"
+    DATABASE_SSL: str = "require"  # Default to require for security
     GEMINI_API_KEY: str = ""
     # Security info
     SECRET_KEY: str = "super-secret-key-for-admin-auth-12345" # Change in production

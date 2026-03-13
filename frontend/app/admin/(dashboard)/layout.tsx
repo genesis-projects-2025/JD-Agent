@@ -102,7 +102,7 @@ export default function AdminLayout({
 
         <nav className="flex-1 px-6 space-y-2 mt-8 overflow-y-auto custom-scrollbar">
           <div className="text-[10px] font-black text-slate-600 uppercase tracking-[0.2em] mb-4 ml-2">
-            Navigation Control
+            Navigation
           </div>
           {navItems.map((item) => {
             const isActive = pathname.startsWith(item.href);
@@ -159,7 +159,7 @@ export default function AdminLayout({
               <div className="flex items-center gap-2">
                 <div className="w-2 h-2 rounded-full bg-blue-500 animate-pulse"></div>
                 <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
-                  System Status • Optimal
+                  Optimal Status
                 </span>
               </div>
             </div>
@@ -171,7 +171,7 @@ export default function AdminLayout({
                 Administrator
               </span>
               <span className="text-[10px] font-black text-blue-600 bg-blue-50 px-3 py-1 rounded-full border border-blue-100 uppercase tracking-tighter">
-                Superuser Level 4
+                Admin Console
               </span>
             </div>
             <div className="relative group">

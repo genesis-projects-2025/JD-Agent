@@ -136,21 +136,21 @@ export default function Sidebar() {
   // Role-specific links
   if (role === "manager") {
     links.push({
-      name: "Feedback from HR",
+      name: "Feedbacks",
       href: employeeId ? `/feedback/${employeeId}` : "/",
       icon: AlertTriangle,
       description: "HR change requests",
     });
   } else if (role === "hr") {
     links.push({
-      name: "Feedback to Manager",
+      name: "Feedbacks",
       href: employeeId ? `/feedback/${employeeId}` : "/",
       icon: ShieldCheck,
       description: "JDs you rejected",
     });
   } else if (role === "employee") {
     links.push({
-      name: "Feedback Received",
+      name: "Feedbacks",
       href: employeeId ? `/feedback/${employeeId}` : "/",
       icon: AlertTriangle,
       description: "Revision requests",
@@ -228,9 +228,7 @@ export default function Sidebar() {
               <FileText className="w-5 h-5 text-white" />
             </div>
             <div>
-              <h1 className="text-lg font-bold tracking-tight">
-                JD Intelligence
-              </h1>
+              <h1 className="text-lg font-bold tracking-tight">JD</h1>
               <p className="text-xs text-neutral-400">Pulse Pharma</p>
             </div>
           </Link>

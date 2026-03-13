@@ -206,7 +206,7 @@ function JDGrid({
 
             <div className="flex items-center justify-between pt-6 border-t border-surface-50">
               <span className="text-xs font-bold text-primary-600 uppercase tracking-widest group-hover:translate-x-1 transition-transform inline-flex items-center gap-2">
-                View Architecture
+                View JD
                 <ArrowRight className="w-4 h-4" />
               </span>
               <div className="w-10 h-10 bg-surface-50 rounded-xl flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
@@ -766,14 +766,14 @@ function HRView({ user }: { user: AuthUser }) {
               <div className="inline-flex items-center gap-2 mb-4 px-3 py-1.5 bg-white/10 backdrop-blur-md rounded-lg border border-white/20">
                 <ShieldCheck className="w-4 h-4 text-purple-200" />
                 <span className="text-[10px] font-black uppercase tracking-[0.2em] text-purple-100">
-                  HR Command Center
+                  HR Center
                 </span>
               </div>
               <h1 className="text-4xl font-black tracking-tight mb-2">
-                Welcome, {user.name.split(" ")[0]}
+                Welcome, {user?.name}
               </h1>
               <p className="text-indigo-200 font-medium">
-                Enterprise Job Description Governance Pipeline
+                Enterprise Job Description Interview Platform
               </p>
             </div>
 
@@ -784,7 +784,7 @@ function HRView({ user }: { user: AuthUser }) {
                   {counts.all}
                 </p>
                 <p className="text-[10px] font-black uppercase tracking-widest text-indigo-300 line-clamp-1">
-                  Total Active
+                  Total JD's
                 </p>
               </div>
               <div className="text-center px-2 sm:px-4 flex-1">
@@ -804,7 +804,7 @@ function HRView({ user }: { user: AuthUser }) {
           {[
             {
               key: "all",
-              label: "Global Directory",
+              label: "Directory",
               count: counts.all,
               icon: Briefcase,
               color: "text-surface-600",
@@ -819,7 +819,7 @@ function HRView({ user }: { user: AuthUser }) {
             },
             {
               key: "approved",
-              label: "Published Assets",
+              label: "Approved JDs",
               count: counts.approved,
               icon: CheckCircle2,
               color: "text-emerald-600",
@@ -1073,10 +1073,10 @@ function HRView({ user }: { user: AuthUser }) {
             <h2 className="text-xl font-bold text-surface-900 flex items-center gap-3 px-2">
               <span className="w-1.5 h-6 bg-purple-600 rounded-full" />
               {filter === "all"
-                ? "Enterprise Database"
+                ? "All JDs"
                 : filter === "my_jds"
                   ? "Your Personal Documents"
-                  : "Filtered Pipeline Results"}
+                  : "Workflow Results"}
             </h2>
             <JDGrid jds={jds} showEmployee={filter !== "my_jds"} />
           </div>

@@ -67,7 +67,7 @@ export default function MessageInput({
               className="w-full text-surface-900 resize-none px-1 sm:px-2 py-2 sm:py-3 bg-transparent border-none focus:outline-none text-[13px] sm:text-[16px] font-medium placeholder:text-surface-400 disabled:opacity-50 disabled:cursor-not-allowed max-h-24 sm:max-h-32"
               placeholder={
                 disabled
-                  ? "Saniya is processing..."
+                  ? "Agent is processing..."
                   : "Type your detailed response here..."
               }
             />

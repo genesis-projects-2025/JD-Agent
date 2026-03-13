@@ -87,7 +87,7 @@ export default function MessageBubble({
           {isAgent && (
             <div className="flex items-center gap-1 sm:gap-1.5 mb-1.5 sm:mb-2 text-[9px] sm:text-[10px] uppercase tracking-widest font-bold text-primary-600">
               <ShieldCheck className="w-2.5 h-2.5 sm:w-3 sm:h-3" />
-              Saniya • AI HR Specialist
+              Jd Assistant
             </div>
           )}
 
@@ -100,7 +100,7 @@ export default function MessageBubble({
             <div className="mt-6 space-y-5 pt-5 border-t border-surface-100">
               <div className="flex items-center justify-between">
                 <h4 className="text-xs font-bold uppercase tracking-wider text-surface-500">
-                  Core Competencies Identified
+                  Skills Identified
                 </h4>
                 <span className="text-[10px] text-surface-400">
                   {selectedSkills.length} selected
@@ -165,7 +165,7 @@ export default function MessageBubble({
                     className="w-full py-3 sm:py-4 bg-primary-600 text-white rounded-xl sm:rounded-2xl text-[14px] sm:text-[15px] font-bold hover:bg-primary-700 transition-all shadow-xl shadow-primary-500/20 active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 mt-2 sm:mt-0"
                   >
                     <Check className="w-4 h-4 sm:w-5 sm:h-5 font-bold" />
-                    Confirm Competencies
+                    Confirm Skills
                   </button>
                 </div>
               )}
@@ -174,7 +174,7 @@ export default function MessageBubble({
                 <div className="mt-2 flex items-center gap-2.5 text-accent-500 bg-accent-50/50 p-3 rounded-xl border border-accent-50">
                   <Check className="w-4 h-4" />
                   <span className="text-sm font-bold uppercase tracking-wide">
-                    Selection Optimized
+                    Skills Confirmed
                   </span>
                 </div>
               )}
@@ -195,7 +195,7 @@ export default function MessageBubble({
                       className="w-full py-3 sm:py-4.5 bg-gradient-to-br from-primary-600 to-primary-800 text-white rounded-xl sm:rounded-2xl text-[14px] sm:text-[15px] font-bold hover:shadow-2xl transition-all shadow-xl active:scale-[0.98] flex items-center justify-center gap-2 sm:gap-2.5 group"
                     >
                       <Sparkles className="w-4 h-4 sm:w-5 sm:h-5 group-hover:rotate-12 transition-transform" />
-                      Generate Enterprise JD
+                      Generate JD
                     </button>
                     <button
                       onClick={() => {
@@ -205,14 +205,14 @@ export default function MessageBubble({
                       className="w-full py-3 sm:py-4 bg-white text-surface-700 border-2 border-surface-200 rounded-xl sm:rounded-2xl text-[13px] sm:text-[14px] font-bold hover:bg-surface-50 hover:border-surface-300 transition-all active:scale-[0.98] flex items-center justify-center gap-1.5 sm:gap-2"
                     >
                       <ArrowRight className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
-                      Continue Interview
+                      Continue
                     </button>
                   </>
                 ) : (
                   <div className="flex items-center justify-center gap-3 p-4 bg-surface-50 rounded-2xl border border-surface-100">
                     <div className="w-2.5 h-2.5 bg-primary-500 rounded-full animate-pulse" />
                     <span className="text-sm font-bold text-surface-500 uppercase tracking-widest">
-                      Architecting Document...
+                      Generating JD...
                     </span>
                   </div>
                 )}

@@ -256,7 +256,7 @@ export default function DashboardPage() {
               <span className="text-surface-700 font-bold">
                 {user?.name || "Team Member"}
               </span>
-              . Ready to shape the future of your team?
+              . Ready to prepare your JDs?
             </p>
           </div>
         </div>
@@ -276,7 +276,7 @@ export default function DashboardPage() {
                 Start New JD Interview
               </h2>
               <p className="text-primary-100 text-base font-medium mt-1 opacity-90">
-                Answer guided questions to generate a hyper-professional Job
+                Answer guided questions to generate a professional Job
                 Description instantly.
               </p>
             </div>
@@ -414,9 +414,7 @@ export default function DashboardPage() {
               {loading ? (
                 <div className="p-16 flex flex-col items-center justify-center gap-4">
                   <Loader2 className="w-8 h-8 text-primary-500 animate-spin" />
-                  <p className="text-surface-500 font-medium">
-                    Loading stats...
-                  </p>
+                  <p className="text-surface-500 font-medium">Loading...</p>
                 </div>
               ) : departmentStats.length === 0 ? (
                 <div className="p-16 text-center">
@@ -526,7 +524,7 @@ export default function DashboardPage() {
                 </h3>
                 <p className="text-base text-surface-400 max-w-sm mx-auto">
                   There are currently no employees assigned to this department
-                  in the Global Directory.
+                  in the Directory.
                 </p>
               </div>
             ) : (

@@ -166,10 +166,10 @@ export default function JDPreviewPanel({
           </div>
           <div className="text-center">
             <p className="text-sm font-black text-surface-700 uppercase tracking-widest">
-              Architecting Your JD
+              Creating Your JD
             </p>
             <p className="text-xs text-surface-400 mt-2 font-medium">
-              Synthesizing role intelligence into professional format...
+              Generating role intelligence into professional format...
             </p>
           </div>
           <div className="w-full max-w-xs space-y-2">

@@ -31,58 +31,41 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     const authenticate = async () => {
-      // 1. Check URL for `?emp_cd=...`
+      // 1. URL check for `?emp_cd=...` (High priority)
       const urlEmpCode = searchParams.get("emp_cd");
+
+      // 2. Local Cache check (Fast path)
+      const cachedId = sessionStorage.getItem("employee_id");
+      if (cachedId && !urlEmpCode) {
+        setEmployeeId(cachedId);
+        setIsLoading(false); // Immediate interactive state
+      }
 
       if (urlEmpCode) {
         setIsLoading(true);
         setError(null);
         try {
-          // Sync with Postgres organogram
           const res = await loginWithOrganogram(urlEmpCode);
           const emp = res.employee;
 
-          // Cache session carefully in sessionStorage so tabs are isolated
           sessionStorage.setItem("auth_user", JSON.stringify(emp));
           sessionStorage.setItem("employee_id", emp.employee_id);
           setEmployeeId(emp.employee_id);
 
-          // Console Debugger for the user
-          console.group(
-            `%c🚀 AUTHENTICATED: ${emp.employee_id}`,
-            "color: #10b981; font-weight: bold; font-size: 14px",
-          );
-          console.log(
-            "%cEmployee Data:",
-            "color: #3b82f6; font-weight: bold",
-            emp,
-          );
-          console.groupEnd();
-
-          // Clean up the URL parameter natively so they don't share authenticated raw links
+          // Clean URL
           const newUrl = window.location.pathname;
           router.replace(newUrl);
         } catch (err: any) {
-          console.warn(
-            "Auth Failure (Expected if code is invalid):",
-            err.message,
-          );
+          console.error("Auth Failure:", err.message);
           setError("Invalid Employee Code or Unauthorized Access.");
           sessionStorage.removeItem("auth_user");
           sessionStorage.removeItem("employee_id");
         } finally {
           setIsLoading(false);
-          return;
         }
+      } else if (!cachedId) {
+        setIsLoading(false);
       }
-
-      // 2. No URL param — Check Session Storage Cache fallback
-      const cachedId = sessionStorage.getItem("employee_id");
-      if (cachedId) {
-        setEmployeeId(cachedId);
-      }
-
-      setIsLoading(false);
     };
 
     authenticate();
@@ -92,11 +75,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     sessionStorage.removeItem("employee_id");
     sessionStorage.removeItem("auth_user");
     setEmployeeId(null);
-    router.push("/"); // Boot to landing
+    router.push("/");
   };
 
-  // Render blocking state for mid-auth
-  if (isLoading) {
+  // Only block if we are actually waiting for a NEW login from URL
+  const isBlocking = isLoading && searchParams.get("emp_cd");
+
+  if (isBlocking) {
     return (
       <div className="min-h-screen bg-surface-50 flex flex-col items-center justify-center p-6">
         <Loader2 className="w-10 h-10 text-primary-600 animate-spin mb-4" />
@@ -107,7 +92,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     );
   }
 
-  // Hard block for invalid codes
   if (error) {
     return (
       <div className="min-h-screen bg-surface-50 flex items-center justify-center p-6">
@@ -118,16 +102,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           <h2 className="text-2xl font-black text-surface-900 mb-2">
             Access Denied
           </h2>
-          <p className="text-surface-500 font-medium mb-8 leading-relaxed">
-            The employee code provided does not exist within the Pulse Pharma
-            active directory.
+          <p className="text-surface-500 font-medium mb-8 leading-relaxed text-sm">
+            Employee code invalid. Please use a valid Pulse Pharma Code.
           </p>
           <button
             onClick={() => {
               setError(null);
               router.push("/");
             }}
-            className="w-full py-3.5 bg-surface-100 text-surface-700 font-bold rounded-xl hover:bg-surface-200 transition-colors"
+            className="w-full py-3 bg-surface-100 text-surface-700 font-bold rounded-xl hover:bg-surface-200 transition-colors"
           >
             Return to Home
           </button>

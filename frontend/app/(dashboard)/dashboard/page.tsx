@@ -122,6 +122,13 @@ export default function DashboardPage() {
   const user = isMounted ? getCurrentUser() : null;
   const role = user?.role || "employee";
 
+  // Auto-redirect to dynamic dashboard if we have a user
+  useEffect(() => {
+    if (isMounted && user?.employee_id) {
+       router.replace(`/dashboard/${user.employee_id}`);
+    }
+  }, [isMounted, user, router]);
+
   async function loadData() {
     try {
       setLoading(true);

@@ -15,14 +15,16 @@ from app.memory.session_memory import SessionMemory
 # ── LLM Instances ──────────────────────────────────────────────────────────────
 interview_llm = ChatGoogleGenerativeAI(
     google_api_key=settings.GEMINI_API_KEY,
-    model="gemini-2.5-flash",
+    model="gemini-2.5-flash",  # Using stable version
     temperature=0.2,
+    model_kwargs={"response_mime_type": "application/json"}
 )
 
 jd_llm = ChatGoogleGenerativeAI(
     google_api_key=settings.GEMINI_API_KEY,
-    model="gemini-2.5-pro",
+    model="gemini-2.5-pro", 
     temperature=0.1,
+    model_kwargs={"response_mime_type": "application/json"}
 )
 
 # ── Utilities ──────────────────────────────────────────────────────────────────
@@ -162,9 +164,14 @@ def wrap_plain_text_into_json(plain_text: str, session_memory: SessionMemory) ->
                     if "conversation_response" in candidate:
                         print("   ✅ wrap_plain_text_into_json: rescued conversation_response from embedded JSON block")
                         conversation_text = candidate["conversation_response"]
+                        # Preserve progress if not in block
+                        p_block = candidate.get("progress")
+                        if not p_block or not p_block.get("completion_percentage"):
+                            p_block = progress_dict or {"completion_percentage": 0, "missing_insight_areas": [], "status": "collecting"}
+                        
                         wrapped = {
                             "conversation_response": conversation_text,
-                            "progress": candidate.get("progress", progress_dict or {"completion_percentage": 0, "missing_insight_areas": [], "status": "collecting"}),
+                            "progress": p_block,
                             "employee_role_insights": candidate.get("employee_role_insights", insights_dict),
                             "jd_structured_data": candidate.get("jd_structured_data", {}),
                             "jd_text_format": candidate.get("jd_text_format", ""),
@@ -358,7 +365,7 @@ async def handle_jd_generation(session_memory: SessionMemory) -> dict:
     ]
 
     print("\n🤖 CALLING JD LLM...")
-    response = jd_llm.invoke(messages)
+    response = await jd_llm.ainvoke(messages)
     raw = strip_reasoning_tags(response.content)
 
 
@@ -455,7 +462,8 @@ async def handle_conversation(
     msgs = build_context(session_memory, user_message)
 
     try:
-        response = interview_llm.invoke(msgs)
+        # Use ainvoke for true asynchrony and simultaneous user support
+        response = await interview_llm.ainvoke(msgs)
         raw_content = strip_reasoning_tags(response.content)
     except Exception as e:
         error_str = str(e).lower()
@@ -476,9 +484,15 @@ async def handle_conversation(
         merged_insights = deep_merge(existing_insights, llm_insights)
         session_memory.insights = merged_insights
 
-        # Update progress
-        session_memory.progress = validated.progress.model_dump()
-        current_status = validated.progress.status
+        # Update progress carefully — don't overwrite with 0 if LLM failed to return progress
+        if validated.progress.completion_percentage > 0 or not session_memory.progress:
+            session_memory.progress = validated.progress.model_dump()
+        else:
+            # Merge just in case or keep old
+            print("   ⚠️ LLM returned 0 progress — keeping previous session progress.")
+            parsed_json["progress"] = session_memory.progress
+        
+        current_status = session_memory.progress.get("status", "collecting")
 
 
         # ── SAFETY GUARD: Ensure conversation_response is clean human-readable text

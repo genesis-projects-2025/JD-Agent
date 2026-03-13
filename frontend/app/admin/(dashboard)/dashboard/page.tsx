@@ -16,6 +16,7 @@ import {
   Eye,
 } from "lucide-react";
 import Link from "next/link";
+import { getCookie, deleteCookie, cookieKeys } from "@/lib/cookies";
 import {
   BarChart,
   Bar,
@@ -31,7 +32,7 @@ import {
 } from "recharts";
 
 const PIE_COLORS = ["#10b981", "#f59e0b"];
-const BAR_COLORS = ["#3b82f6", "#8b5cf6", "#10b981", "#f59e0b", "#ef4444"];
+const BAR_COLORS = ["#3b82f6", "#8b5cf6", "#f59e0b", "#10b981", "#ef4444"];
 
 /** Human-readable status labels */
 function formatStatus(raw: string | null | undefined): string {
@@ -85,7 +86,7 @@ export default function AdminDashboard() {
   const [activeTab, setActiveTab] = useState("All Users");
 
   useEffect(() => {
-    const token = localStorage.getItem("admin_token");
+    const token = getCookie(cookieKeys.ADMIN_TOKEN);
     if (!token) {
       router.push("/admin/login");
       return;
@@ -96,7 +97,7 @@ export default function AdminDashboard() {
   const fetchDashboardData = async () => {
     try {
       setLoading(true);
-      const token = localStorage.getItem("admin_token");
+      const token = getCookie(cookieKeys.ADMIN_TOKEN);
       const headers = {
         "Content-Type": "application/json",
         Authorization: `Bearer ${token}`,
@@ -110,7 +111,7 @@ export default function AdminDashboard() {
       ]);
 
       if (statsRes.status === 401 || statsRes.status === 403) {
-        localStorage.removeItem("admin_token");
+        deleteCookie(cookieKeys.ADMIN_TOKEN);
         router.push("/admin/login");
         return;
       }

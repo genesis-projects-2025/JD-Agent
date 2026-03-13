@@ -1,8 +1,9 @@
 /**
  * Authentication helper.
- * Dev mode: stores identity in sessionStorage.
- * Prod SSO: swap getCurrentUser() to parse your JWT/session token.
+ * Enterprise mode: stores identity in persistent Secure Cookies.
  */
+
+import { getCookie, setCookie, deleteCookie, cookieKeys } from "@/lib/cookies";
 
 export type UserRole = "employee" | "manager" | "hr" | "admin";
 
@@ -26,32 +27,30 @@ export function getOrCreateEmployeeId(): string {
   const user = getCurrentUser();
   if (user?.employee_id) return user.employee_id;
 
-  // Fallback: anonymous dev ID (your original logic — unchanged)
-  let id = sessionStorage.getItem("employee_id");
+  // Fallback: anonymous dev ID
+  let id = getCookie(cookieKeys.EMPLOYEE_ID);
   if (!id) {
     id =
       "emp_" +
       Math.random().toString(36).substring(2, 11) +
       Date.now().toString(36);
-    sessionStorage.setItem("employee_id", id);
-  } else {
+    setCookie(cookieKeys.EMPLOYEE_ID, id);
   }
   return id;
 }
 
 export function getEmployeeId(): string | null {
   if (typeof window === "undefined") return null;
-  const id = sessionStorage.getItem("employee_id");
-  return id;
+  return getCookie(cookieKeys.EMPLOYEE_ID);
 }
 
 // ── Current logged-in user ────────────────────────────────────────────────────
-// DEV:  reads from sessionStorage (set by devLogin below)
+// Enterprise: reads from secure cookies (set by SSO or login)
 // PROD: replace body with → parse JWT from cookie or call /api/me
 
 export function getCurrentUser(): AuthUser | null {
   if (typeof window === "undefined") return null;
-  const raw = sessionStorage.getItem("auth_user");
+  const raw = getCookie(cookieKeys.AUTH_USER);
   if (!raw) return null;
   try {
     return JSON.parse(raw) as AuthUser;
@@ -73,7 +72,7 @@ export const canApprove = (u: AuthUser | null) => isManager(u) || isHR(u);
 
 export function devLogin(role: UserRole): AuthUser {
   const empId =
-    sessionStorage.getItem("employee_id") ||
+    getCookie(cookieKeys.EMPLOYEE_ID) ||
     "emp_" +
       Math.random().toString(36).substring(2, 11) +
       Date.now().toString(36);
@@ -98,23 +97,25 @@ export function devLogin(role: UserRole): AuthUser {
       name: "Test HR",
       email: "hr@company.com",
       role: "hr",
+      department: "HR",
     },
     admin: {
       employee_id: "admin_001",
       name: "Admin",
       email: "admin@company.com",
       role: "admin",
+      department: "Internal",
     },
   };
 
   const user = users[role];
-  sessionStorage.setItem("auth_user", JSON.stringify(user));
-  sessionStorage.setItem("employee_id", user.employee_id);
+  setCookie(cookieKeys.AUTH_USER, JSON.stringify(user));
+  setCookie(cookieKeys.EMPLOYEE_ID, user.employee_id);
   return user;
 }
 
 export default function devLogout() {
-  sessionStorage.removeItem("auth_user");
+  deleteCookie(cookieKeys.AUTH_USER);
 }
 
 // ── API Fetching Functions ────────────────────────────────────────────────────

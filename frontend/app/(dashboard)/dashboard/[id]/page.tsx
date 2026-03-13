@@ -1118,8 +1118,9 @@ export default function DynamicDashboardPage() {
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
-    // 1. Get raw session from sessionStorage
-    const sessionStr = sessionStorage.getItem("auth_user");
+    // 1. Get raw session from cookies
+    const { getCookie, cookieKeys } = require("@/lib/cookies");
+    const sessionStr = getCookie(cookieKeys.AUTH_USER);
     if (!sessionStr) {
       router.replace("/");
       return;

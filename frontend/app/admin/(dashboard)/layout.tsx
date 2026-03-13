@@ -13,6 +13,7 @@ import {
   Activity,
 } from "lucide-react";
 import { useEffect, useState } from "react";
+import { getCookie, deleteCookie, cookieKeys } from "@/lib/cookies";
 
 export default function AdminLayout({
   children,
@@ -28,8 +29,8 @@ export default function AdminLayout({
   useEffect(() => {
     setMounted(true);
     // Protect routes
-    const token = localStorage.getItem("admin_token");
-    const role = localStorage.getItem("user_role");
+    const token = getCookie(cookieKeys.ADMIN_TOKEN);
+    const role = getCookie(cookieKeys.USER_ROLE);
 
     if (!token || role !== "ADMIN") {
       router.push("/admin/login");
@@ -44,8 +45,8 @@ export default function AdminLayout({
   }, [pathname]);
 
   const handleLogout = () => {
-    localStorage.removeItem("admin_token");
-    localStorage.removeItem("user_role");
+    deleteCookie(cookieKeys.ADMIN_TOKEN);
+    deleteCookie(cookieKeys.USER_ROLE);
     setIsAuthenticated(false);
     router.push("/admin/login");
   };

@@ -49,7 +49,7 @@ export default function FeedbackPage() {
           return;
         }
 
-        // getCurrentUser has basic info from sessionStorage
+        // getCurrentUser has basic info from secure cookies
         // If we needed deep DB details we'd fetch from an /api/users endpoint.
         // For this page, AuthUser has enough context (employee_id, role)
         setCurrentUser(u);

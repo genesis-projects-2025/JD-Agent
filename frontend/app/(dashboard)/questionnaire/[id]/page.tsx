@@ -5,6 +5,7 @@
 
 import { useParams, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
+import { getCookie, cookieKeys } from "@/lib/cookies";
 import ChatWindow from "@/components/chat/chat-window";
 import MessageInput from "@/components/chat/message-input";
 import JDPreviewPanel from "@/components/jd/jd-preview-panel";
@@ -75,7 +76,7 @@ export default function QuestionnairePage() {
   const handleConfirmDelete = async () => {
     setIsDeleting(true);
     try {
-      const employeeId = sessionStorage.getItem("employee_id");
+      const employeeId = getCookie(cookieKeys.EMPLOYEE_ID);
       if (!employeeId) throw new Error("Missing employee identification.");
       await deleteJD(sessionId, employeeId);
       router.push(`/dashboard/${employeeId}`);
@@ -93,7 +94,11 @@ export default function QuestionnairePage() {
         <button
           onClick={() => {
             const u = getCurrentUser();
-            router.push(u ? `/dashboard/${u.employee_id}` : "/dashboard");
+            if (u?.employee_id) {
+              router.push(`/dashboard/${u.employee_id}`);
+            } else {
+              router.push("/");
+            }
           }}
           className="flex items-center gap-1.5 sm:gap-2 text-surface-400 hover:text-primary-600 transition-colors text-[10px] sm:text-[11px] font-black uppercase tracking-widest group whitespace-nowrap shrink-0"
         >

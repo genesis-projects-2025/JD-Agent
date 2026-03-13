@@ -4,6 +4,7 @@ import React, { createContext, useContext, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Loader2, ShieldAlert } from "lucide-react";
 import { loginWithOrganogram } from "@/lib/api";
+import { getCookie, setCookie, deleteCookie, cookieKeys } from "@/lib/cookies";
 
 interface AuthContextType {
   employeeId: string | null;
@@ -34,8 +35,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       // 1. URL check for `?emp_cd=...` (High priority)
       const urlEmpCode = searchParams.get("emp_cd");
 
-      // 2. Local Cache check (Fast path)
-      const cachedId = sessionStorage.getItem("employee_id");
+      // 2. Local Cache check (Fast path - using Cookies)
+      const cachedId = getCookie(cookieKeys.EMPLOYEE_ID);
       if (cachedId && !urlEmpCode) {
         setEmployeeId(cachedId);
         setIsLoading(false); // Immediate interactive state
@@ -48,8 +49,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           const res = await loginWithOrganogram(urlEmpCode);
           const emp = res.employee;
 
-          sessionStorage.setItem("auth_user", JSON.stringify(emp));
-          sessionStorage.setItem("employee_id", emp.employee_id);
+          setCookie(cookieKeys.AUTH_USER, JSON.stringify(emp));
+          setCookie(cookieKeys.EMPLOYEE_ID, emp.employee_id);
           setEmployeeId(emp.employee_id);
 
           // Clean URL
@@ -58,8 +59,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         } catch (err: any) {
           console.error("Auth Failure:", err.message);
           setError("Invalid Employee Code or Unauthorized Access.");
-          sessionStorage.removeItem("auth_user");
-          sessionStorage.removeItem("employee_id");
+          deleteCookie(cookieKeys.AUTH_USER);
+          deleteCookie(cookieKeys.EMPLOYEE_ID);
         } finally {
           setIsLoading(false);
         }
@@ -72,8 +73,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [searchParams, router]);
 
   const logout = () => {
-    sessionStorage.removeItem("employee_id");
-    sessionStorage.removeItem("auth_user");
+    deleteCookie(cookieKeys.EMPLOYEE_ID);
+    deleteCookie(cookieKeys.AUTH_USER);
     setEmployeeId(null);
     router.push("/");
   };

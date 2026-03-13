@@ -217,10 +217,10 @@ export default function JDPage() {
         <button
           onClick={() => {
             const u = getCurrentUser();
-            if (u) {
+            if (u?.employee_id) {
               router.push(`/dashboard/${u.employee_id}`);
             } else {
-              router.push("/dashboard");
+              router.push("/");
             }
           }}
           className="px-6 py-3 bg-surface-100 text-surface-700 rounded-xl font-bold hover:bg-surface-200 transition-colors"
@@ -412,8 +412,8 @@ export default function JDPage() {
         <button
           onClick={() => {
             const u = getCurrentUser();
-            if (!u) {
-              router.push("/dashboard");
+            if (!u?.employee_id) {
+              router.push("/");
               return;
             }
 
@@ -469,7 +469,7 @@ export default function JDPage() {
             {(role === "manager" || role === "hr") && (
               <div className="flex flex-col gap-3 min-w-[240px] order-last md:order-none">
                 {role === "manager" && jd.status === "sent_to_manager" && (
-                  <div className="flex flex-col sm:flex-row gap-3 w-full">
+                  <div className="flex flex-col sm:flex-row flex-wrap gap-3 w-full">
                     <button
                       onClick={handleManagerSendToHR}
                       disabled={sendingToManager || isEditing || isApproving}
@@ -499,7 +499,7 @@ export default function JDPage() {
                     <button
                       onClick={handleManagerReject}
                       disabled={sendingToManager || isEditing}
-                      className="px-5 py-3.5 bg-red-50 text-red-600 border border-red-100 rounded-xl font-bold flex flex-center items-center justify-center gap-2 shadow-sm hover:bg-red-100 text-[14px] transition-all disabled:opacity-50 whitespace-nowrap"
+                      className="flex-1 px-5 py-3.5 bg-red-50 text-red-600 border border-red-100 rounded-xl font-bold flex flex-center items-center justify-center gap-2 shadow-sm hover:bg-red-100 text-[14px] transition-all disabled:opacity-50 whitespace-nowrap"
                     >
                       <XCircle className="w-4 h-4" /> Reject
                     </button>
@@ -511,17 +511,17 @@ export default function JDPage() {
                   ["draft", "jd_generated", "hr_rejected"].includes(
                     jd.status,
                   ) && (
-                    <div className="flex flex-col sm:flex-row gap-3 w-full">
+                    <div className="flex flex-col sm:flex-row flex-wrap gap-3 w-full">
                       <button
                         onClick={() => router.push(`/questionnaire/${jdId}`)}
-                        className="px-5 py-3.5 bg-white text-surface-700 border border-surface-200 rounded-xl font-bold hover:bg-surface-50 transition-all shadow-sm flex items-center justify-center gap-2 text-[14px]"
+                        className="flex-1 px-5 py-3.5 bg-white text-surface-700 border border-surface-200 rounded-xl font-bold hover:bg-surface-50 transition-all shadow-sm flex items-center justify-center gap-2 text-[14px]"
                       >
                         <Edit3 className="w-4 h-4" /> Refine in Chat
                       </button>
                       <button
                         onClick={handleEditToggle}
                         disabled={isSavingEdit || sendingToManager}
-                        className="px-5 py-3.5 bg-white text-primary-700 border border-primary-200 rounded-xl font-bold hover:bg-primary-50 transition-all shadow-sm flex items-center justify-center gap-2 text-[14px] disabled:opacity-50"
+                        className="flex-1 px-5 py-3.5 bg-white text-primary-700 border border-primary-200 rounded-xl font-bold hover:bg-primary-50 transition-all shadow-sm flex items-center justify-center gap-2 text-[14px] disabled:opacity-50"
                       >
                         {isSavingEdit ? (
                           <Loader2 className="w-4 h-4 animate-spin" />
@@ -558,7 +558,7 @@ export default function JDPage() {
                     </button>
                   )}
                 {role === "hr" && jd.status === "sent_to_hr" && (
-                  <div className="flex flex-col sm:flex-row gap-3 w-full">
+                  <div className="flex flex-col sm:flex-row flex-wrap gap-3 w-full">
                     <button
                       onClick={handleHRApprove}
                       disabled={sendingToManager || isEditing}
@@ -583,7 +583,7 @@ export default function JDPage() {
                     <button
                       onClick={handleHRReject}
                       disabled={sendingToManager || isEditing}
-                      className="px-5 py-3.5 bg-red-50 text-red-600 border border-red-100 rounded-xl font-bold flex flex-center items-center justify-center gap-2 shadow-sm hover:bg-red-100 text-[14px] transition-all disabled:opacity-50 whitespace-nowrap"
+                      className="flex-1 px-5 py-3.5 bg-red-50 text-red-600 border border-red-100 rounded-xl font-bold flex flex-center items-center justify-center gap-2 shadow-sm hover:bg-red-100 text-[14px] transition-all disabled:opacity-50 whitespace-nowrap"
                     >
                       <XCircle className="w-4 h-4" /> Reject
                     </button>

@@ -15,6 +15,7 @@ import {
   Link as LinkIcon,
 } from "lucide-react";
 import Link from "next/link";
+import { getCookie, cookieKeys } from "@/lib/cookies";
 
 interface FeedbackItem {
   id: string;
@@ -44,7 +45,7 @@ export default function AdminFeedbackInbox() {
   const fetchFeedbacks = async () => {
     try {
       setLoading(true);
-      const token = localStorage.getItem("admin_token");
+      const token = getCookie(cookieKeys.ADMIN_TOKEN);
       const res = await fetch(`${API_URL}/admin/feedback`, {
         headers: { Authorization: `Bearer ${token}` },
       });
@@ -62,7 +63,7 @@ export default function AdminFeedbackInbox() {
 
   const updateStatus = async (id: string, newStatus: string) => {
     try {
-      const token = localStorage.getItem("admin_token");
+      const token = getCookie(cookieKeys.ADMIN_TOKEN);
       const res = await fetch(`${API_URL}/admin/feedback/${id}/status`, {
         method: "PATCH",
         headers: {

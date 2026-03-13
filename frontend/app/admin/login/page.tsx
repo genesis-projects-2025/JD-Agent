@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { API_URL } from "@/lib/api";
 import { Lock, User, Loader2, Eye, EyeOff } from "lucide-react";
+import { setCookie, cookieKeys } from "@/lib/cookies";
 
 export default function AdminLoginPage() {
   const router = useRouter();
@@ -31,9 +32,9 @@ export default function AdminLoginPage() {
 
       const data = await res.json();
 
-      // Store admin token
-      localStorage.setItem("admin_token", data.token);
-      localStorage.setItem("user_role", data.role);
+      // Store admin token and role using enterprise cookies
+      setCookie(cookieKeys.ADMIN_TOKEN, data.token);
+      setCookie(cookieKeys.USER_ROLE, data.role);
 
       router.push("/admin/dashboard");
     } catch (err: any) {

@@ -2,7 +2,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { initQuestionnaire } from "@/lib/api";
+import { initQuestionnaire, getCurrentUser } from "@/lib/api";
 import { getOrCreateEmployeeId } from "@/lib/auth";
 import { useState } from "react";
 import ContinueSessionBanner from "@/components/session/ContinuesessionBanner";
@@ -15,9 +15,11 @@ export default function QuestionnaireStart() {
     setLoading(true);
     try {
       const eid = getOrCreateEmployeeId();
+      const user = getCurrentUser();
+      const employeeName = user?.name || ("Employee " + eid.substring(0, 8).toUpperCase());
       const data = await initQuestionnaire({
         employee_id: eid,
-        employee_name: "Employee " + eid.substring(4, 8).toUpperCase(),
+        employee_name: employeeName,
       });
       router.push(`/questionnaire/${data.id}`);
     } catch (error) {

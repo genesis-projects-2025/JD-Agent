@@ -14,7 +14,6 @@ from app.crud.jd_crud import (
     get_questionnaire,
     list_questionnaires,
     update_questionnaire_jd,
-    update_questionnaire_jd,
     update_questionnaire_status,
     list_questionnaires_by_employee,
     list_manager_pending_jds,

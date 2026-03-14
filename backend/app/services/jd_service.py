@@ -17,14 +17,14 @@ interview_llm = ChatGoogleGenerativeAI(
     google_api_key=settings.GEMINI_API_KEY,
     model="gemini-2.5-flash",  # Using stable version
     temperature=0.2,
-    model_kwargs={"response_mime_type": "application/json"}
+    response_mime_type="application/json"
 )
 
 jd_llm = ChatGoogleGenerativeAI(
     google_api_key=settings.GEMINI_API_KEY,
     model="gemini-2.5-pro", 
     temperature=0.1,
-    model_kwargs={"response_mime_type": "application/json"}
+    response_mime_type="application/json"
 )
 
 # ── Utilities ──────────────────────────────────────────────────────────────────

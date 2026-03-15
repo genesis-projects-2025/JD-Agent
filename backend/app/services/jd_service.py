@@ -1,13 +1,18 @@
 # app/services/jd_service.py
 from fastapi import HTTPException
-from sqlalchemy.ext.asyncio import AsyncSession
 import json
 import re
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.messages import HumanMessage, SystemMessage
 from app.core.config import settings
-from app.prompts.jd_prompts import SYSTEM_PROMPT, JD_GENERATION_PROMPT
-from app.schemas.jd_schema import ChatResponse, Progress, Approval, Analytics, EmployeeRoleInsights
+from app.prompts.jd_prompts import JD_GENERATION_PROMPT
+from app.schemas.jd_schema import (
+    ChatResponse,
+    Progress,
+    Approval,
+    Analytics,
+    EmployeeRoleInsights,
+)
 from app.utils.text_utils import strip_reasoning_tags
 from app.services.context_builder import build_context
 from app.memory.session_memory import SessionMemory
@@ -17,17 +22,18 @@ interview_llm = ChatGoogleGenerativeAI(
     google_api_key=settings.GEMINI_API_KEY,
     model="gemini-2.5-flash",  # Using stable version
     temperature=0.2,
-    response_mime_type="application/json"
+    response_mime_type="application/json",
 )
 
 jd_llm = ChatGoogleGenerativeAI(
     google_api_key=settings.GEMINI_API_KEY,
-    model="gemini-2.5-pro", 
+    model="gemini-2.5-pro",
     temperature=0.1,
-    response_mime_type="application/json"
+    response_mime_type="application/json",
 )
 
 # ── Utilities ──────────────────────────────────────────────────────────────────
+
 
 def remove_think_tags(text: str) -> str:
     cleaned = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL)
@@ -50,7 +56,7 @@ def extract_json_block(text: str) -> str:
     start = text.find("{")
     end = text.rfind("}")
     if start != -1 and end != -1 and end > start:
-        return text[start:end + 1]
+        return text[start : end + 1]
     return ""
 
 
@@ -68,7 +74,12 @@ def deep_merge(base: dict, incoming: dict) -> dict:
     result = dict(base)
     for key, new_val in incoming.items():
         existing_val = result.get(key)
-        if existing_val is None or existing_val == {} or existing_val == [] or existing_val == "":
+        if (
+            existing_val is None
+            or existing_val == {}
+            or existing_val == []
+            or existing_val == ""
+        ):
             result[key] = new_val
         elif isinstance(new_val, dict) and isinstance(existing_val, dict):
             result[key] = deep_merge(existing_val, new_val)
@@ -96,7 +107,9 @@ def build_fallback_response(session_memory: SessionMemory) -> str:
         fallback = ChatResponse(
             conversation_response="I encountered an issue. Could you please repeat your last message?",
             progress=Progress(**progress_dict) if progress_dict else Progress(),
-            employee_role_insights=EmployeeRoleInsights(**insights_dict) if insights_dict else EmployeeRoleInsights(),
+            employee_role_insights=EmployeeRoleInsights(**insights_dict)
+            if insights_dict
+            else EmployeeRoleInsights(),
             jd_structured_data=None,
             jd_text_format="",
             suggested_skills=[],
@@ -105,19 +118,33 @@ def build_fallback_response(session_memory: SessionMemory) -> str:
         )
         return fallback.model_dump_json()
     except Exception:
-        return json.dumps({
-            "conversation_response": "I encountered an issue. Could you please repeat your last message?",
-            "progress": progress_dict or {"completion_percentage": 0, "missing_insight_areas": [], "status": "collecting"},
-            "employee_role_insights": insights_dict or {},
-            "jd_structured_data": {},
-            "jd_text_format": "",
-            "suggested_skills": [],
-            "analytics": {"questions_asked": 0, "questions_answered": 0, "insights_collected": 0, "estimated_completion_time_minutes": 0},
-            "approval": {"approval_required": False, "approval_status": "pending"}
-        })
+        return json.dumps(
+            {
+                "conversation_response": "I encountered an issue. Could you please repeat your last message?",
+                "progress": progress_dict
+                or {
+                    "completion_percentage": 0,
+                    "missing_insight_areas": [],
+                    "status": "collecting",
+                },
+                "employee_role_insights": insights_dict or {},
+                "jd_structured_data": {},
+                "jd_text_format": "",
+                "suggested_skills": [],
+                "analytics": {
+                    "questions_asked": 0,
+                    "questions_answered": 0,
+                    "insights_collected": 0,
+                    "estimated_completion_time_minutes": 0,
+                },
+                "approval": {"approval_required": False, "approval_status": "pending"},
+            }
+        )
 
 
-def wrap_plain_text_into_json(plain_text: str, session_memory: SessionMemory) -> tuple[dict, str]:
+def wrap_plain_text_into_json(
+    plain_text: str, session_memory: SessionMemory
+) -> tuple[dict, str]:
     insights_dict = safe_to_dict(session_memory.insights)
     progress_dict = safe_to_dict(session_memory.progress)
 
@@ -125,7 +152,7 @@ def wrap_plain_text_into_json(plain_text: str, session_memory: SessionMemory) ->
     # try one more time to extract conversation_response from it before wrapping as text.
     # This prevents the raw JSON from leaking into the conversation_response field.
     stripped = plain_text.strip()
-    
+
     # FIX: Check if LLM output JSON properties but omitted the outer braces {}
     if not stripped.startswith("{") and '"conversation_response"' in stripped:
         stripped = stripped.rstrip(", \r\n\t")
@@ -135,23 +162,45 @@ def wrap_plain_text_into_json(plain_text: str, session_memory: SessionMemory) ->
         try:
             candidate = json.loads(stripped)
             if "conversation_response" in candidate:
-                print("   ✅ wrap_plain_text_into_json: rescued conversation_response from raw JSON blob")
+                print(
+                    "   ✅ wrap_plain_text_into_json: rescued conversation_response from raw JSON blob"
+                )
                 conversation_text = candidate["conversation_response"]
                 # Merge insights if present
-                if "employee_role_insights" in candidate and isinstance(candidate["employee_role_insights"], dict):
-                    insights_dict = deep_merge(insights_dict, candidate["employee_role_insights"])
+                if "employee_role_insights" in candidate and isinstance(
+                    candidate["employee_role_insights"], dict
+                ):
+                    insights_dict = deep_merge(
+                        insights_dict, candidate["employee_role_insights"]
+                    )
                 if "progress" in candidate and isinstance(candidate["progress"], dict):
                     progress_dict = deep_merge(progress_dict, candidate["progress"])
                 # Rebuild properly
                 wrapped = {
                     "conversation_response": conversation_text,
-                    "progress": progress_dict or {"completion_percentage": 0, "missing_insight_areas": [], "status": "collecting"},
+                    "progress": progress_dict
+                    or {
+                        "completion_percentage": 0,
+                        "missing_insight_areas": [],
+                        "status": "collecting",
+                    },
                     "employee_role_insights": insights_dict,
                     "jd_structured_data": candidate.get("jd_structured_data", {}),
                     "jd_text_format": candidate.get("jd_text_format", ""),
                     "suggested_skills": candidate.get("suggested_skills", []),
-                    "analytics": candidate.get("analytics", {"questions_asked": 0, "questions_answered": 0, "insights_collected": 0, "estimated_completion_time_minutes": 10}),
-                    "approval": candidate.get("approval", {"approval_required": False, "approval_status": "pending"})
+                    "analytics": candidate.get(
+                        "analytics",
+                        {
+                            "questions_asked": 0,
+                            "questions_answered": 0,
+                            "insights_collected": 0,
+                            "estimated_completion_time_minutes": 10,
+                        },
+                    ),
+                    "approval": candidate.get(
+                        "approval",
+                        {"approval_required": False, "approval_status": "pending"},
+                    ),
                 }
                 wrapped_str = json.dumps(wrapped, indent=2)
                 return wrapped, wrapped_str
@@ -162,22 +211,46 @@ def wrap_plain_text_into_json(plain_text: str, session_memory: SessionMemory) ->
                 try:
                     candidate = json.loads(block)
                     if "conversation_response" in candidate:
-                        print("   ✅ wrap_plain_text_into_json: rescued conversation_response from embedded JSON block")
+                        print(
+                            "   ✅ wrap_plain_text_into_json: rescued conversation_response from embedded JSON block"
+                        )
                         conversation_text = candidate["conversation_response"]
                         # Preserve progress if not in block
                         p_block = candidate.get("progress")
                         if not p_block or not p_block.get("completion_percentage"):
-                            p_block = progress_dict or {"completion_percentage": 0, "missing_insight_areas": [], "status": "collecting"}
-                        
+                            p_block = progress_dict or {
+                                "completion_percentage": 0,
+                                "missing_insight_areas": [],
+                                "status": "collecting",
+                            }
+
                         wrapped = {
                             "conversation_response": conversation_text,
                             "progress": p_block,
-                            "employee_role_insights": candidate.get("employee_role_insights", insights_dict),
-                            "jd_structured_data": candidate.get("jd_structured_data", {}),
+                            "employee_role_insights": candidate.get(
+                                "employee_role_insights", insights_dict
+                            ),
+                            "jd_structured_data": candidate.get(
+                                "jd_structured_data", {}
+                            ),
                             "jd_text_format": candidate.get("jd_text_format", ""),
                             "suggested_skills": candidate.get("suggested_skills", []),
-                            "analytics": candidate.get("analytics", {"questions_asked": 0, "questions_answered": 0, "insights_collected": 0, "estimated_completion_time_minutes": 10}),
-                            "approval": candidate.get("approval", {"approval_required": False, "approval_status": "pending"})
+                            "analytics": candidate.get(
+                                "analytics",
+                                {
+                                    "questions_asked": 0,
+                                    "questions_answered": 0,
+                                    "insights_collected": 0,
+                                    "estimated_completion_time_minutes": 10,
+                                },
+                            ),
+                            "approval": candidate.get(
+                                "approval",
+                                {
+                                    "approval_required": False,
+                                    "approval_status": "pending",
+                                },
+                            ),
                         }
                         wrapped_str = json.dumps(wrapped, indent=2)
                         return wrapped, wrapped_str
@@ -187,32 +260,45 @@ def wrap_plain_text_into_json(plain_text: str, session_memory: SessionMemory) ->
     sanitized_text = plain_text.strip("{} \n\t\r")
     wrapped = {
         "conversation_response": sanitized_text.strip(),
-        "progress": progress_dict if progress_dict else {
+        "progress": progress_dict
+        if progress_dict
+        else {
             "completion_percentage": 0,
             "missing_insight_areas": [],
-            "status": "collecting"
+            "status": "collecting",
         },
-        "employee_role_insights": insights_dict if insights_dict else {
-            "identity_context": {}, "daily_activities": [], "execution_processes": [],
-            "tools_and_platforms": [], "team_collaboration": {}, "stakeholder_interactions": {},
-            "decision_authority": {}, "performance_metrics": [], "work_environment": {},
-            "special_contributions": []
+        "employee_role_insights": insights_dict
+        if insights_dict
+        else {
+            "identity_context": {},
+            "daily_activities": [],
+            "execution_processes": [],
+            "tools_and_platforms": [],
+            "team_collaboration": {},
+            "stakeholder_interactions": {},
+            "decision_authority": {},
+            "performance_metrics": [],
+            "work_environment": {},
+            "special_contributions": [],
         },
         "jd_structured_data": {},
         "jd_text_format": "",
         "suggested_skills": [],
         "analytics": {
-            "questions_asked": 0, "questions_answered": 0,
+            "questions_asked": 0,
+            "questions_answered": 0,
             "insights_collected": len([v for v in insights_dict.values() if v]),
-            "estimated_completion_time_minutes": 10
+            "estimated_completion_time_minutes": 10,
         },
-        "approval": {"approval_required": False, "approval_status": "pending"}
+        "approval": {"approval_required": False, "approval_status": "pending"},
     }
     wrapped_str = json.dumps(wrapped, indent=2)
     return wrapped, wrapped_str
 
 
-def parse_llm_response(raw_content: str, session_memory: SessionMemory = None) -> tuple[dict, str]:
+def parse_llm_response(
+    raw_content: str, session_memory: SessionMemory = None
+) -> tuple[dict, str]:
     # Strategy 1: clean markdown fences + think tags, parse directly
     cleaned = clean_json_string(raw_content)
     if cleaned:
@@ -256,7 +342,10 @@ def parse_llm_response(raw_content: str, session_memory: SessionMemory = None) -
             for end_idx in range(len(attempt), idx, -1):
                 try:
                     candidate = json.loads(attempt[idx:end_idx])
-                    if isinstance(candidate, dict) and "conversation_response" in candidate:
+                    if (
+                        isinstance(candidate, dict)
+                        and "conversation_response" in candidate
+                    ):
                         candidate_str = json.dumps(candidate)
                         return candidate, candidate_str
                 except json.JSONDecodeError:
@@ -266,7 +355,9 @@ def parse_llm_response(raw_content: str, session_memory: SessionMemory = None) -
     # Strategy 5: fallback — wrap whatever text we have
     plain_text = remove_think_tags(raw_content).strip()
     if plain_text and session_memory is not None:
-        print(f"   ⚠️ parse_llm_response falling back to wrap_plain_text — first 100 chars: {plain_text[:100]}")
+        print(
+            f"   ⚠️ parse_llm_response falling back to wrap_plain_text — first 100 chars: {plain_text[:100]}"
+        )
         return wrap_plain_text_into_json(plain_text, session_memory)
 
     raise ValueError(f"All JSON extraction strategies failed. Raw: {raw_content[:200]}")
@@ -278,7 +369,9 @@ def _build_markdown_from_structured(s: dict, insights: dict) -> str:
     """Safety net — reconstruct markdown when jd_text_format is missing."""
     emp = s.get("employee_information", {})
     title = (
-        emp.get("job_title") or emp.get("title") or emp.get("role_title")
+        emp.get("job_title")
+        or emp.get("title")
+        or emp.get("role_title")
         or insights.get("identity_context", {}).get("title", "Role")
     )
     lines = [f"# Job Description: {title}\n"]
@@ -287,7 +380,9 @@ def _build_markdown_from_structured(s: dict, insights: dict) -> str:
     work_type = emp.get("work_type", "")
     reports_to = emp.get("reports_to", "")
     if dept or location:
-        lines.append(f"**Department:** {dept} | **Location:** {location} | **Work Type:** {work_type}")
+        lines.append(
+            f"**Department:** {dept} | **Location:** {location} | **Work Type:** {work_type}"
+        )
     if reports_to:
         lines.append(f"**Reports To:** {reports_to}")
     lines.append("\n---\n")
@@ -329,6 +424,7 @@ def _build_markdown_from_structured(s: dict, insights: dict) -> str:
     lines.append("*Generated from structured employee role intelligence interview.*")
     return "\n".join(lines)
 
+
 # This is where the jd is generated to save in the database
 async def handle_jd_generation(session_memory: SessionMemory) -> dict:
     """
@@ -348,26 +444,27 @@ async def handle_jd_generation(session_memory: SessionMemory) -> dict:
     # ── Call JD LLM ────────────────────────────────────────────────────────────
     messages = [
         SystemMessage(content=JD_GENERATION_PROMPT),
-        HumanMessage(content=(
-            "Generate a complete Job Description using the employee role insights below.\n\n"
-            "STRICT OUTPUT RULES:\n"
-            "1. Return ONLY a single valid JSON object — no text or markdown fences before/after.\n"
-            "2. The JSON must have EXACTLY two top-level keys:\n"
-            "   'jd_structured_data' — fully populated object with ALL schema fields\n"
-            "   'jd_text_format'     — complete JD as a clean markdown string\n"
-            "3. jd_structured_data must NOT be empty {} — populate every field.\n"
-            "4. jd_text_format must be clean markdown starting with '# Job Description:'\n"
-            "   IMPORTANT: You must escape all newlines as \\n within the JSON string. Do NOT use literal (raw) newlines inside the JSON values!\n"
-            "   It must NOT be a JSON dump or contain raw field names.\n\n"
-            "Employee Role Intelligence:\n"
-            f"{json.dumps(insights_dict, indent=2)}"
-        ))
+        HumanMessage(
+            content=(
+                "Generate a complete Job Description using the employee role insights below.\n\n"
+                "STRICT OUTPUT RULES:\n"
+                "1. Return ONLY a single valid JSON object — no text or markdown fences before/after.\n"
+                "2. The JSON must have EXACTLY two top-level keys:\n"
+                "   'jd_structured_data' — fully populated object with ALL schema fields\n"
+                "   'jd_text_format'     — complete JD as a clean markdown string\n"
+                "3. jd_structured_data must NOT be empty {} — populate every field.\n"
+                "4. jd_text_format must be clean markdown starting with '# Job Description:'\n"
+                "   IMPORTANT: You must escape all newlines as \\n within the JSON string. Do NOT use literal (raw) newlines inside the JSON values!\n"
+                "   It must NOT be a JSON dump or contain raw field names.\n\n"
+                "Employee Role Intelligence:\n"
+                f"{json.dumps(insights_dict, indent=2)}"
+            )
+        ),
     ]
 
     print("\n🤖 CALLING JD LLM...")
     response = await jd_llm.ainvoke(messages)
     raw = strip_reasoning_tags(response.content)
-
 
     # ── Parse response ─────────────────────────────────────────────────────────
     structured = {}
@@ -388,21 +485,35 @@ async def handle_jd_generation(session_memory: SessionMemory) -> dict:
             # If LLM returned structured fields at top level (no nesting)
             if not structured:
                 jd_keys = {
-                    "employee_information", "role_summary", "key_responsibilities",
-                    "required_skills", "tools_and_technologies", "team_structure",
-                    "stakeholder_interactions", "performance_metrics",
-                    "work_environment", "additional_details"
+                    "employee_information",
+                    "role_summary",
+                    "key_responsibilities",
+                    "required_skills",
+                    "tools_and_technologies",
+                    "team_structure",
+                    "stakeholder_interactions",
+                    "performance_metrics",
+                    "work_environment",
+                    "additional_details",
                 }
                 if any(k in parsed for k in jd_keys):
                     structured = {k: parsed[k] for k in jd_keys if k in parsed}
-                    print(f"   ⚠️  Collected top-level structured fields: {list(structured.keys())}")
+                    print(
+                        f"   ⚠️  Collected top-level structured fields: {list(structured.keys())}"
+                    )
 
             # Extract jd_text_format
             jd_text = parsed.get("jd_text_format", "")
 
             # Try fallback keys
             if not jd_text:
-                for key in ("jd_text", "job_description", "markdown", "content", "text"):
+                for key in (
+                    "jd_text",
+                    "job_description",
+                    "markdown",
+                    "content",
+                    "text",
+                ):
                     if parsed.get(key) and isinstance(parsed[key], str):
                         jd_text = parsed[key]
                         print(f"   ⚠️  Found jd_text_format under key '{key}'")
@@ -411,7 +522,7 @@ async def handle_jd_generation(session_memory: SessionMemory) -> dict:
             # Discard if jd_text is a data dump
             garbage_starts = ("jd_structured_data", "employee_information name")
             if jd_text and any(jd_text.strip().startswith(g) for g in garbage_starts):
-                print(f"   ⚠️  jd_text_format looks like a data dump — discarding")
+                print("   ⚠️  jd_text_format looks like a data dump — discarding")
                 jd_text = ""
 
         except json.JSONDecodeError as e:
@@ -429,10 +540,14 @@ async def handle_jd_generation(session_memory: SessionMemory) -> dict:
         print("\n🔧 PARSING STRATEGY 3 — Reconstructing markdown from structured data")
         jd_text = _build_markdown_from_structured(structured, insights_dict)
 
-    print(f"[JD Generation] 📋 FINAL RESULT | structured keys: {len(list(structured.keys()))} | text length: {len(jd_text)}")
+    print(
+        f"[JD Generation] 📋 FINAL RESULT | structured keys: {len(list(structured.keys()))} | text length: {len(jd_text)}"
+    )
 
     if not jd_text and not structured:
-        raise ValueError("JD generation produced no output. Check LLM response in logs above.")
+        raise ValueError(
+            "JD generation produced no output. Check LLM response in logs above."
+        )
 
     # ── Store in session memory ────────────────────────────────────────────────
     if jd_text:
@@ -452,10 +567,9 @@ async def handle_jd_generation(session_memory: SessionMemory) -> dict:
 
 # ── Main Interview Handler ─────────────────────────────────────────────────────
 
+
 async def handle_conversation(
-    history: list,
-    user_message: str,
-    session_memory: SessionMemory
+    history: list, user_message: str, session_memory: SessionMemory
 ):
     print("\n[Interview] 🚀 TURN STARTED")
 
@@ -491,26 +605,30 @@ async def handle_conversation(
             # Merge just in case or keep old
             print("   ⚠️ LLM returned 0 progress — keeping previous session progress.")
             parsed_json["progress"] = session_memory.progress
-        
-        current_status = session_memory.progress.get("status", "collecting")
 
+        session_memory.progress.get("status", "collecting")
 
         # ── SAFETY GUARD: Ensure conversation_response is clean human-readable text
         # If it somehow contains JSON structure, extract the inner text
         conv_resp = parsed_json.get("conversation_response", "")
-        if conv_resp and (conv_resp.strip().startswith("{") or "conversation_response" in conv_resp):
+        if conv_resp and (
+            conv_resp.strip().startswith("{") or "conversation_response" in conv_resp
+        ):
             try:
                 inner = json.loads(conv_resp)
                 if "conversation_response" in inner:
-                    parsed_json["conversation_response"] = inner["conversation_response"]
+                    parsed_json["conversation_response"] = inner[
+                        "conversation_response"
+                    ]
             except (json.JSONDecodeError, TypeError):
                 pass
 
         # Store plain conversation text in history only
         assistant_text = validated.conversation_response.strip()
         import re
-        assistant_text = re.sub(r'\n{3,}', '\n\n', assistant_text)
-        
+
+        assistant_text = re.sub(r"\n{3,}", "\n\n", assistant_text)
+
         assistant_history_entry = json.dumps({"conversation_response": assistant_text})
         session_memory.update_recent("user", user_message)
         session_memory.update_recent("assistant", assistant_history_entry)
@@ -529,6 +647,7 @@ async def handle_conversation(
     except Exception as e:
         print(f"⚠️ PROCESSING ERROR: {e}")
         import traceback
+
         traceback.print_exc()
         reply_content = build_fallback_response(session_memory)
         history.append({"role": "user", "content": user_message})

@@ -6,7 +6,7 @@ Produces a professionally formatted .docx file matching Pulse Pharma's official 
 
 from io import BytesIO
 from docx import Document
-from docx.shared import Inches, Pt, RGBColor
+from docx.shared import Pt, RGBColor
 from docx.enum.table import WD_TABLE_ALIGNMENT
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.oxml.ns import qn
@@ -35,7 +35,9 @@ def _set_cell_content(cell, text: str, bold: bool = False, size: int = 10):
     run.bold = bold
 
 
-def _add_section_table(doc, header: str, rows: list[tuple[str, str]], header_color: str = "1F4E79"):
+def _add_section_table(
+    doc, header: str, rows: list[tuple[str, str]], header_color: str = "1F4E79"
+):
     """
     Adds a styled two-column table (Label | Value) with a merged header row.
     `rows` is a list of (label, value) tuples.
@@ -86,15 +88,17 @@ def _dict_list_to_text(items) -> str:
     return str(items) if items else ""
 
 
-def generate_jd_docx(jd_data: dict, title: str = None, department: str = None) -> BytesIO:
+def generate_jd_docx(
+    jd_data: dict, title: str = None, department: str = None
+) -> BytesIO:
     """
     Generate a DOCX file from JD structured data.
-    
+
     Args:
         jd_data: The jd_structured JSON data from the database.
         title: JD title (fallback if not in jd_data).
         department: Department (fallback if not in jd_data).
-        
+
     Returns:
         BytesIO stream containing the DOCX file.
     """
@@ -165,15 +169,19 @@ def generate_jd_docx(jd_data: dict, title: str = None, department: str = None) -
         resp_text = _list_to_text(key_responsibilities)
         purpose_text = f"{role_summary}\n\nKey Responsibilities:\n{resp_text}"
 
-    _add_section_table(doc, "Job / Role Information", [
-        ("Designation", designation),
-        ("Band & Band Name", emp_info.get("band", "")),
-        ("Grade", emp_info.get("grade", "")),
-        ("Function", dept),
-        ("Location", location),
-        ("Work Type", work_type),
-        ("Purpose of the Job / Role", purpose_text),
-    ])
+    _add_section_table(
+        doc,
+        "Job / Role Information",
+        [
+            ("Designation", designation),
+            ("Band & Band Name", emp_info.get("band", "")),
+            ("Grade", emp_info.get("grade", "")),
+            ("Function", dept),
+            ("Location", location),
+            ("Work Type", work_type),
+            ("Purpose of the Job / Role", purpose_text),
+        ],
+    )
 
     # ── Table 2: Working Relationships ────────────────────────────────────
     team_text = ""
@@ -181,7 +189,11 @@ def generate_jd_docx(jd_data: dict, title: str = None, department: str = None) -
         team_text = f"Team Size: {team['team_size']}"
     if team.get("collaborates_with"):
         collab = _dict_list_to_text(team["collaborates_with"])
-        team_text += f"\nCollaborates with: {collab}" if team_text else f"Collaborates with: {collab}"
+        team_text += (
+            f"\nCollaborates with: {collab}"
+            if team_text
+            else f"Collaborates with: {collab}"
+        )
     if team.get("direct_reports"):
         team_text += f"\nDirect Reports: {team['direct_reports']}"
     if team.get("mentoring"):
@@ -190,12 +202,17 @@ def generate_jd_docx(jd_data: dict, title: str = None, department: str = None) -
     internal = _dict_list_to_text(stakeholders.get("internal", []))
     external = _dict_list_to_text(stakeholders.get("external", []))
 
-    _add_section_table(doc, "Working Relationships", [
-        ("Reporting to", reports_to),
-        ("Team", team_text or "-"),
-        ("Internal Stakeholders", internal or "-"),
-        ("External Stakeholders", external or "-"),
-    ], header_color="2E75B6")
+    _add_section_table(
+        doc,
+        "Working Relationships",
+        [
+            ("Reporting to", reports_to),
+            ("Team", team_text or "-"),
+            ("Internal Stakeholders", internal or "-"),
+            ("External Stakeholders", external or "-"),
+        ],
+        header_color="2E75B6",
+    )
 
     # ── Table 3: Skills / Competencies ────────────────────────────────────
     all_skills = []
@@ -204,18 +221,36 @@ def generate_jd_docx(jd_data: dict, title: str = None, department: str = None) -
     if isinstance(tools, list):
         all_skills.extend([f"{t} (Tool/Platform)" for t in tools])
 
-    skills_text = _list_to_text(all_skills) if all_skills else "To be confirmed with line manager."
+    skills_text = (
+        _list_to_text(all_skills)
+        if all_skills
+        else "To be confirmed with line manager."
+    )
 
-    _add_section_table(doc, "Skills / Competencies Required", [
-        ("Skills", skills_text),
-    ], header_color="548235")
+    _add_section_table(
+        doc,
+        "Skills / Competencies Required",
+        [
+            ("Skills", skills_text),
+        ],
+        header_color="548235",
+    )
 
     # ── Table 4: Performance & Success Metrics ────────────────────────────
-    metrics_text = _list_to_text(performance_metrics) if performance_metrics else "To be confirmed with line manager."
+    metrics_text = (
+        _list_to_text(performance_metrics)
+        if performance_metrics
+        else "To be confirmed with line manager."
+    )
 
-    _add_section_table(doc, "Performance & Success Metrics", [
-        ("Key Performance Indicators", metrics_text),
-    ], header_color="BF8F00")
+    _add_section_table(
+        doc,
+        "Performance & Success Metrics",
+        [
+            ("Key Performance Indicators", metrics_text),
+        ],
+        header_color="BF8F00",
+    )
 
     # ── Table 5: Work Environment & Additional ────────────────────────────
     env_parts = []
@@ -241,10 +276,15 @@ def generate_jd_docx(jd_data: dict, title: str = None, department: str = None) -
     if growth:
         additional_text += f"\nGrowth Opportunities: {growth}"
 
-    _add_section_table(doc, "Work Environment & Additional Details", [
-        ("Work Environment", env_text),
-        ("Special Contributions", additional_text.strip() or "-"),
-    ], header_color="7030A0")
+    _add_section_table(
+        doc,
+        "Work Environment & Additional Details",
+        [
+            ("Work Environment", env_text),
+            ("Special Contributions", additional_text.strip() or "-"),
+        ],
+        header_color="7030A0",
+    )
 
     # ── Footer Disclaimer ─────────────────────────────────────────────────
     doc.add_paragraph("")

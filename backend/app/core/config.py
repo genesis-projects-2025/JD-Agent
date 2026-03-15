@@ -1,6 +1,7 @@
 # app/core/config.py
-from pydantic_settings import BaseSettings
 from urllib.parse import quote_plus
+from pydantic_settings import BaseSettings
+
 
 
 class Settings(BaseSettings):
@@ -22,6 +23,16 @@ class Settings(BaseSettings):
     
     PINECONE_API_KEY: str = ""
 
+    # CORS
+    CORS_ORIGINS: str = ""
+
+    @property
+    def cors_origins_list(self) -> list[str]:
+        """Parse comma-separated CORS_ORIGINS into a list."""
+        if not self.CORS_ORIGINS:
+            return ["*"]
+        return [origin.strip() for origin in self.CORS_ORIGINS.split(",") if origin.strip()]
+
     @property
     def DATABASE_URL(self) -> str:
         encoded_pass = quote_plus(self.DATABASE_PASS)
@@ -36,4 +47,5 @@ class Settings(BaseSettings):
         env_file = ".env"
 
 
-settings = Settings()
+# type: ignore is needed because pydantic-settings populates these from the environment, but static checkers don't know that
+settings = Settings() # type: ignore

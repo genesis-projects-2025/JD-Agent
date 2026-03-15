@@ -3,17 +3,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, delete
 from sqlalchemy.orm import selectinload
 from app.models.jd_session_model import JDSession, ConversationTurn, JDVersion
-from typing import Optional, List
+from typing import Optional
 import datetime
 import json
 import uuid
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.dialects.postgresql import insert
-from sqlalchemy import text
 from app.models.taxonomy_model import Skill, JDSessionSkill, EmployeeSkill
 
 
 # ── JSONB Safety Helpers ──────────────────────────────────────────────────────
+
 
 def _safe_jsonb(value) -> dict:
     if value is None:
@@ -33,10 +32,11 @@ def _safe_jsonb(value) -> dict:
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
+
 def _extract_title(jd_structured: dict) -> Optional[str]:
     if not isinstance(jd_structured, dict):
         return None
-    
+
     title = (
         jd_structured.get("job_title")
         or jd_structured.get("title")
@@ -45,7 +45,7 @@ def _extract_title(jd_structured: dict) -> Optional[str]:
     )
     if title and isinstance(title, str) and len(title) < 200:
         return title.strip()
-        
+
     emp_info = jd_structured.get("employee_information", {})
     if isinstance(emp_info, dict):
         title = (
@@ -80,7 +80,9 @@ def _safe_uuid(val: str) -> uuid.UUID:
     return uuid.UUID(val)
 
 
-async def _harvest_organic_skills(db: AsyncSession, jd_structured: dict, session_id: str, employee_id: str):
+async def _harvest_organic_skills(
+    db: AsyncSession, jd_structured: dict, session_id: str, employee_id: str
+):
     """
     Harvests verified skills & tools from the structured JD and saves them
     into the fully relational Skill, JDSessionSkill, and EmployeeSkill tables.
@@ -90,13 +92,13 @@ async def _harvest_organic_skills(db: AsyncSession, jd_structured: dict, session
 
     req_skills = jd_structured.get("required_skills", [])
     tools = jd_structured.get("tools_and_technologies", [])
-    
+
     # Combine and normalize
     all_skills = set()
-    for s in (req_skills + tools):
+    for s in req_skills + tools:
         if isinstance(s, str) and s.strip():
             all_skills.add(s.strip())
-            
+
     if not all_skills:
         return
 
@@ -106,37 +108,40 @@ async def _harvest_organic_skills(db: AsyncSession, jd_structured: dict, session
         # 1. Upsert into Master Skill Table
         skill_stmt = insert(Skill).values(name=skill_name)
         skill_stmt = skill_stmt.on_conflict_do_update(
-            index_elements=['name'],
-            set_=dict(name=skill_name) # Dummy update to return the ID
+            index_elements=["name"],
+            set_=dict(name=skill_name),  # Dummy update to return the ID
         ).returning(Skill.id)
-        
+
         result = await db.execute(skill_stmt)
         skill_id = result.scalar()
-        
+
         # Fallback if returning didn't work (e.g. some dialects on conflict do nothing)
         if not skill_id:
             res = await db.execute(select(Skill.id).where(Skill.name == skill_name))
             skill_id = res.scalar()
-            
+
         if not skill_id:
             continue
-            
+
         # 2. Upsert into JDSessionSkill
-        sess_stmt = insert(JDSessionSkill).values(
-            session_id=session_uuid,
-            skill_id=skill_id
-        ).on_conflict_do_nothing()
+        sess_stmt = (
+            insert(JDSessionSkill)
+            .values(session_id=session_uuid, skill_id=skill_id)
+            .on_conflict_do_nothing()
+        )
         await db.execute(sess_stmt)
-        
+
         # 3. Upsert into EmployeeSkill
-        emp_stmt = insert(EmployeeSkill).values(
-            employee_id=employee_id,
-            skill_id=skill_id,
-            source="jd_interview"
-        ).on_conflict_do_nothing()
+        emp_stmt = (
+            insert(EmployeeSkill)
+            .values(employee_id=employee_id, skill_id=skill_id, source="jd_interview")
+            .on_conflict_do_nothing()
+        )
         await db.execute(emp_stmt)
 
+
 # ── Core Upsert ───────────────────────────────────────────────────────────────
+
 
 async def save_questionnaire_jd(
     db: AsyncSession,
@@ -149,7 +154,7 @@ async def save_questionnaire_jd(
     conversation_history: Optional[list] = None,
     status: Optional[str] = None,
 ) -> JDSession:
-    
+
     session_uuid = _safe_uuid(session_id)
     result = await db.execute(
         select(JDSession)
@@ -164,14 +169,19 @@ async def save_questionnaire_jd(
 
     title = _extract_title(safe_structured)
     department = _extract_department(safe_structured)
-    
+
     # 1. Update Employee Name if found in insights (and currently "Unknown" or random)
-    emp_name_from_insights = safe_insights.get("identity_context", {}).get("employee_name")
+    emp_name_from_insights = safe_insights.get("identity_context", {}).get(
+        "employee_name"
+    )
     if emp_name_from_insights:
         from app.models.user_model import Employee
+
         emp_res = await db.execute(select(Employee).where(Employee.id == employee_id))
         emp = emp_res.scalar_one_or_none()
-        if emp and (not emp.name or emp.name == "Unknown Employee" or "Employee AI" in emp.name):
+        if emp and (
+            not emp.name or emp.name == "Unknown Employee" or "Employee AI" in emp.name
+        ):
             emp.name = emp_name_from_insights
 
     if record:
@@ -183,7 +193,7 @@ async def save_questionnaire_jd(
                     version=record.version or 1,
                     jd_text=record.jd_text,
                     jd_structured=record.jd_structured,
-                    created_by=record.employee_id
+                    created_by=record.employee_id,
                 )
                 db.add(old_version)
                 record.version = (record.version or 1) + 1
@@ -198,7 +208,11 @@ async def save_questionnaire_jd(
         if status:
             # ONLY update status if the record is brand new, draft, or generated.
             # If it's already in review or rejected, keep that state so edits don't kick it out of the queue.
-            if not record.status or record.status in ["draft", "collecting", "jd_generated"]:
+            if not record.status or record.status in [
+                "draft",
+                "collecting",
+                "jd_generated",
+            ]:
                 record.status = status
 
         if title:
@@ -220,23 +234,25 @@ async def save_questionnaire_jd(
         )
         db.add(record)
 
-    await db.flush() # ensure record is attached and flushed
+    await db.flush()  # ensure record is attached and flushed
 
     # Replace conversation turns if provided
     if conversation_history is not None:
-        await db.execute(delete(ConversationTurn).where(ConversationTurn.session_id == session_uuid))
+        await db.execute(
+            delete(ConversationTurn).where(ConversationTurn.session_id == session_uuid)
+        )
         for idx, turn in enumerate(conversation_history):
             new_turn = ConversationTurn(
                 session_id=session_uuid,
                 turn_index=idx,
                 role=turn.get("role", "unknown"),
-                content=turn.get("content", "")
+                content=turn.get("content", ""),
             )
             db.add(new_turn)
 
     await db.commit()
-    await db.refresh(record, ['conversation_turns', 'employee'])
-    
+    await db.refresh(record, ["conversation_turns", "employee"])
+
     # Organically harvest the confirmed skills
     try:
         if safe_structured:
@@ -244,10 +260,13 @@ async def save_questionnaire_jd(
             await db.commit()
     except Exception as e:
         import traceback
+
         traceback.print_exc()
         print(f"Failed to harvest skills: {e}")
-        
-    print(f"✅ JD saved — id={record.id}, employee={record.employee_id}, title={record.title}")
+
+    print(
+        f"✅ JD saved — id={record.id}, employee={record.employee_id}, title={record.title}"
+    )
     return record
 
 
@@ -258,24 +277,21 @@ async def append_conversation_turn(
     content: str,
 ) -> Optional[JDSession]:
     session_uuid = _safe_uuid(session_id)
-    result = await db.execute(
-        select(JDSession).where(JDSession.id == session_uuid)
-    )
+    result = await db.execute(select(JDSession).where(JDSession.id == session_uuid))
     record = result.scalar_one_or_none()
     if not record:
         return None
 
     # Find the next index
     turns_count_res = await db.execute(
-        select(func.count(ConversationTurn.id)).where(ConversationTurn.session_id == session_uuid)
+        select(func.count(ConversationTurn.id)).where(
+            ConversationTurn.session_id == session_uuid
+        )
     )
     next_index = turns_count_res.scalar() or 0
 
     new_turn = ConversationTurn(
-        session_id=session_uuid,
-        turn_index=next_index,
-        role=role,
-        content=content
+        session_id=session_uuid, turn_index=next_index, role=role, content=content
     )
     db.add(new_turn)
     # the trigger takes care of setting updated_at on jd_sessions
@@ -290,16 +306,16 @@ async def sync_session_to_db(
     progress: dict,
     conversation_history: list,
     employee_id: str,
-    employee_name: Optional[str] = None, # Left for backward compatibility in signature, name is handled via Employee logic now
+    employee_name: Optional[
+        str
+    ] = None,  # Left for backward compatibility in signature, name is handled via Employee logic now
     generated_jd: Optional[str] = None,
     jd_structured: Optional[dict] = None,
     status: Optional[str] = None,
 ) -> JDSession:
-    
+
     session_uuid = _safe_uuid(session_id)
-    result = await db.execute(
-        select(JDSession).where(JDSession.id == session_uuid)
-    )
+    result = await db.execute(select(JDSession).where(JDSession.id == session_uuid))
     record = result.scalar_one_or_none()
 
     safe_insights = _safe_jsonb(insights)
@@ -307,12 +323,17 @@ async def sync_session_to_db(
     safe_structured = _safe_jsonb(jd_structured) if jd_structured else None
 
     # Update Employee Name from insights during sync so dashboard updates instantly
-    emp_name_from_insights = safe_insights.get("identity_context", {}).get("employee_name")
+    emp_name_from_insights = safe_insights.get("identity_context", {}).get(
+        "employee_name"
+    )
     if emp_name_from_insights:
         from app.models.user_model import Employee
+
         emp_res = await db.execute(select(Employee).where(Employee.id == employee_id))
         emp = emp_res.scalar_one_or_none()
-        if emp and (not emp.name or emp.name == "Unknown Employee" or "Employee AI" in emp.name):
+        if emp and (
+            not emp.name or emp.name == "Unknown Employee" or "Employee AI" in emp.name
+        ):
             emp.name = emp_name_from_insights
 
     if record:
@@ -340,7 +361,9 @@ async def sync_session_to_db(
             jd_text=generated_jd,
             jd_structured=safe_structured,
             title=_extract_title(safe_structured) if safe_structured else None,
-            department=_extract_department(safe_structured) if safe_structured else None
+            department=_extract_department(safe_structured)
+            if safe_structured
+            else None,
         )
         db.add(record)
 
@@ -348,18 +371,20 @@ async def sync_session_to_db(
 
     # Rebuilding conversation turns
     if conversation_history is not None:
-        await db.execute(delete(ConversationTurn).where(ConversationTurn.session_id == session_uuid))
+        await db.execute(
+            delete(ConversationTurn).where(ConversationTurn.session_id == session_uuid)
+        )
         for idx, turn in enumerate(conversation_history):
             new_turn = ConversationTurn(
                 session_id=session_uuid,
                 turn_index=idx,
                 role=turn.get("role", "unknown"),
-                content=turn.get("content", "")
+                content=turn.get("content", ""),
             )
             db.add(new_turn)
 
     await db.commit()
-    await db.refresh(record, ['conversation_turns'])
+    await db.refresh(record, ["conversation_turns"])
 
     # Organically harvest the confirmed skills
     try:
@@ -368,6 +393,7 @@ async def sync_session_to_db(
             await db.commit()
     except Exception as e:
         import traceback
+
         traceback.print_exc()
         print(f"Failed to harvest skills: {e}")
 
@@ -382,24 +408,34 @@ async def update_questionnaire_jd(
     employee_id: str,
 ) -> Optional[JDSession]:
     session_uuid = _safe_uuid(jd_id)
-    result = await db.execute(
-        select(JDSession).where(JDSession.id == session_uuid)
-    )
+    result = await db.execute(select(JDSession).where(JDSession.id == session_uuid))
     record = result.scalar_one_or_none()
     if not record:
         return None
     if record.employee_id != employee_id:
         from app.models.user_model import Employee
-        editor_res = await db.execute(select(Employee).where(Employee.id == employee_id))
+
+        editor_res = await db.execute(
+            select(Employee).where(Employee.id == employee_id)
+        )
         editor = editor_res.scalar_one_or_none()
-        creator_res = await db.execute(select(Employee).where(Employee.id == record.employee_id))
+        creator_res = await db.execute(
+            select(Employee).where(Employee.id == record.employee_id)
+        )
         creator = creator_res.scalar_one_or_none()
-        
-        is_manager = editor and creator and editor.role == "manager" and creator.reporting_manager_code == editor.id
+
+        is_manager = (
+            editor
+            and creator
+            and editor.role == "manager"
+            and creator.reporting_manager_code == editor.id
+        )
         is_hr = editor and editor.role == "hr"
-        
+
         if not is_manager and not is_hr:
-            raise PermissionError("You can only edit your own JDs, or JDs submitted to you.")
+            raise PermissionError(
+                "You can only edit your own JDs, or JDs submitted to you."
+            )
 
     safe_structured = _safe_jsonb(jd_structured)
 
@@ -410,7 +446,7 @@ async def update_questionnaire_jd(
             version=record.version,
             jd_text=record.jd_text,
             jd_structured=record.jd_structured,
-            created_by=employee_id
+            created_by=employee_id,
         )
         db.add(old_version)
 
@@ -438,27 +474,37 @@ async def update_questionnaire_status(
     employee_id: str,
 ) -> Optional[JDSession]:
     session_uuid = _safe_uuid(jd_id)
-    result = await db.execute(
-        select(JDSession).where(JDSession.id == session_uuid)
-    )
+    result = await db.execute(select(JDSession).where(JDSession.id == session_uuid))
     record = result.scalar_one_or_none()
     if not record:
         return None
     if record.employee_id != employee_id:
         from app.models.user_model import Employee
-        editor_res = await db.execute(select(Employee).where(Employee.id == employee_id))
+
+        editor_res = await db.execute(
+            select(Employee).where(Employee.id == employee_id)
+        )
         editor = editor_res.scalar_one_or_none()
-        creator_res = await db.execute(select(Employee).where(Employee.id == record.employee_id))
+        creator_res = await db.execute(
+            select(Employee).where(Employee.id == record.employee_id)
+        )
         creator = creator_res.scalar_one_or_none()
-        
-        is_manager = editor and creator and editor.role == "manager" and creator.reporting_manager_code == editor.id
+
+        is_manager = (
+            editor
+            and creator
+            and editor.role == "manager"
+            and creator.reporting_manager_code == editor.id
+        )
         is_hr = editor and editor.role == "hr"
-        
+
         # Exception: employee submitting their own form
-        is_owner_submitting = (record.employee_id == employee_id)
-        
+        is_owner_submitting = record.employee_id == employee_id
+
         if not is_manager and not is_hr and not is_owner_submitting:
-            raise PermissionError("You can only update status of your own JDs, or JDs submitted to you.")
+            raise PermissionError(
+                "You can only update status of your own JDs, or JDs submitted to you."
+            )
 
     record.status = new_status
     await db.commit()
@@ -469,10 +515,8 @@ async def update_questionnaire_status(
 
 # ── Read Queries ──────────────────────────────────────────────────────────────
 
-async def get_questionnaire(
-    db: AsyncSession,
-    session_id: str
-) -> Optional[JDSession]:
+
+async def get_questionnaire(db: AsyncSession, session_id: str) -> Optional[JDSession]:
     session_uuid = _safe_uuid(session_id)
     result = await db.execute(
         select(JDSession)
@@ -483,9 +527,7 @@ async def get_questionnaire(
 
 
 async def list_questionnaires(db: AsyncSession) -> list[JDSession]:
-    result = await db.execute(
-        select(JDSession).order_by(JDSession.updated_at.desc())
-    )
+    result = await db.execute(select(JDSession).order_by(JDSession.updated_at.desc()))
     return list(result.scalars().all())
 
 
@@ -495,16 +537,16 @@ async def approve_questionnaire(
     reviewed_by: str = "HR Manager",
 ) -> Optional[JDSession]:
     session_uuid = _safe_uuid(jd_id)
-    result = await db.execute(
-        select(JDSession).where(JDSession.id == session_uuid)
-    )
+    result = await db.execute(select(JDSession).where(JDSession.id == session_uuid))
     record = result.scalar_one_or_none()
     if not record:
         return None
 
     record.status = "approved"
     record.reviewed_by = reviewed_by
-    record.reviewed_at = _now().replace(tzinfo=None) # Keep without tz if db wants naive
+    record.reviewed_at = _now().replace(
+        tzinfo=None
+    )  # Keep without tz if db wants naive
     record.reviewer_comment = None
 
     await db.commit()
@@ -519,18 +561,16 @@ async def reject_questionnaire(
     reviewed_by: str = "HR Manager",
 ) -> Optional[JDSession]:
     session_uuid = _safe_uuid(jd_id)
-    result = await db.execute(
-        select(JDSession).where(JDSession.id == session_uuid)
-    )
+    result = await db.execute(select(JDSession).where(JDSession.id == session_uuid))
     record = result.scalar_one_or_none()
     if not record:
         return None
-    
+
     record.status = "rejected"
     record.reviewed_by = reviewed_by
     record.reviewed_at = _now().replace(tzinfo=None)
     record.reviewer_comment = comment
-    
+
     await db.commit()
     await db.refresh(record)
     return record
@@ -547,26 +587,35 @@ async def list_questionnaires_by_employee(
     )
     return list(result.scalars().all())
 
-async def list_manager_pending_jds(db: AsyncSession, manager_id: str) -> list[JDSession]:
+
+async def list_manager_pending_jds(
+    db: AsyncSession, manager_id: str
+) -> list[JDSession]:
     # Managers see all JDs from their reports that are beyond the initial drafting stage
     from app.models.user_model import Employee
+
     result = await db.execute(
         select(JDSession)
         .join(Employee, JDSession.employee_id == Employee.id)
         .where(
-            (Employee.reporting_manager_code == manager_id) &
-            (JDSession.status.in_([
-                "sent_to_manager", 
-                "manager_rejected", 
-                "sent_to_hr", 
-                "hr_rejected", 
-                "approved"
-            ]))
+            (Employee.reporting_manager_code == manager_id)
+            & (
+                JDSession.status.in_(
+                    [
+                        "sent_to_manager",
+                        "manager_rejected",
+                        "sent_to_hr",
+                        "hr_rejected",
+                        "approved",
+                    ]
+                )
+            )
         )
         .order_by(JDSession.updated_at.desc())
     )
     records = list(result.scalars().all())
     return records
+
 
 async def list_hr_pending_jds(db: AsyncSession) -> list[JDSession]:
     # HR sees all 'sent_to_hr', 'hr_rejected', and 'approved' JDs
@@ -584,9 +633,7 @@ async def delete_questionnaire(
     employee_id: str,
 ) -> bool:
     session_uuid = _safe_uuid(jd_id)
-    result = await db.execute(
-        select(JDSession).where(JDSession.id == session_uuid)
-    )
+    result = await db.execute(select(JDSession).where(JDSession.id == session_uuid))
     record = result.scalar_one_or_none()
     if not record:
         return False
@@ -601,6 +648,7 @@ async def delete_questionnaire(
 
 # ── Review Comment CRUD ───────────────────────────────────────────────────────
 
+
 async def create_review_comment(
     db: AsyncSession,
     jd_session_id: str,
@@ -608,7 +656,7 @@ async def create_review_comment(
     target_role: str,
     action: str,
     comment: Optional[str] = None,
-) -> "JDReviewComment":
+) -> "JDReviewComment":  # noqa: F821
     from app.models.review_comment_model import JDReviewComment
 
     session_uuid = _safe_uuid(jd_session_id)
@@ -623,9 +671,7 @@ async def create_review_comment(
     db.add(review)
 
     # Also update the JD session's reviewer_comment for backward compatibility
-    result = await db.execute(
-        select(JDSession).where(JDSession.id == session_uuid)
-    )
+    result = await db.execute(select(JDSession).where(JDSession.id == session_uuid))
     record = result.scalar_one_or_none()
     if record:
         record.reviewed_by = reviewer_id
@@ -636,7 +682,10 @@ async def create_review_comment(
         if action == "rejected":
             # Determine the correct rejection status from the reviewer's role
             from app.models.user_model import Employee
-            reviewer_res = await db.execute(select(Employee).where(Employee.id == reviewer_id))
+
+            reviewer_res = await db.execute(
+                select(Employee).where(Employee.id == reviewer_id)
+            )
             reviewer = reviewer_res.scalar_one_or_none()
 
             if reviewer and reviewer.role == "hr":
@@ -648,7 +697,9 @@ async def create_review_comment(
 
     await db.commit()
     await db.refresh(review)
-    print(f"📝 Review comment created — jd={jd_session_id}, action={action}, target={target_role}")
+    print(
+        f"📝 Review comment created — jd={jd_session_id}, action={action}, target={target_role}"
+    )
     return review
 
 
@@ -670,20 +721,24 @@ async def get_review_comments_for_jd(
     # Eagerly load reviewer names
     serialized = []
     for c in comments:
-        reviewer_res = await db.execute(select(Employee).where(Employee.id == c.reviewer_id))
+        reviewer_res = await db.execute(
+            select(Employee).where(Employee.id == c.reviewer_id)
+        )
         reviewer = reviewer_res.scalar_one_or_none()
-        serialized.append({
-            "id": str(c.id),
-            "jd_session_id": str(c.jd_session_id),
-            "reviewer_id": c.reviewer_id,
-            "reviewer_name": reviewer.name if reviewer else "Unknown",
-            "reviewer_role": reviewer.role if reviewer else "unknown",
-            "target_role": c.target_role,
-            "action": c.action,
-            "comment": c.comment,
-            "is_read": c.is_read,
-            "created_at": c.created_at.isoformat() if c.created_at else None,
-        })
+        serialized.append(
+            {
+                "id": str(c.id),
+                "jd_session_id": str(c.jd_session_id),
+                "reviewer_id": c.reviewer_id,
+                "reviewer_name": reviewer.name if reviewer else "Unknown",
+                "reviewer_role": reviewer.role if reviewer else "unknown",
+                "target_role": c.target_role,
+                "action": c.action,
+                "comment": c.comment,
+                "is_read": c.is_read,
+                "created_at": c.created_at.isoformat() if c.created_at else None,
+            }
+        )
     return serialized
 
 
@@ -705,9 +760,9 @@ async def get_unread_feedback_for_user(
             select(JDReviewComment)
             .join(JDSession, JDReviewComment.jd_session_id == JDSession.id)
             .where(
-                (JDSession.employee_id == employee_id) &
-                (JDReviewComment.target_role == "employee") &
-                (JDReviewComment.is_read == False)
+                (JDSession.employee_id == employee_id)
+                & (JDReviewComment.target_role == "employee")
+                & (JDReviewComment.is_read == False)
             )
             .order_by(JDReviewComment.created_at.desc())
         )
@@ -717,9 +772,12 @@ async def get_unread_feedback_for_user(
             .join(JDSession, JDReviewComment.jd_session_id == JDSession.id)
             .join(Employee, JDSession.employee_id == Employee.id)
             .where(
-                (JDReviewComment.target_role == "manager") &
-                ((Employee.reporting_manager_code == employee_id) | (JDSession.employee_id == employee_id)) &
-                (JDReviewComment.is_read == False)
+                (JDReviewComment.target_role == "manager")
+                & (
+                    (Employee.reporting_manager_code == employee_id)
+                    | (JDSession.employee_id == employee_id)
+                )
+                & (JDReviewComment.is_read == False)
             )
             .order_by(JDReviewComment.created_at.desc())
         )
@@ -730,21 +788,27 @@ async def get_unread_feedback_for_user(
     serialized = []
     for c in comments:
         # Get JD title
-        jd_res = await db.execute(select(JDSession).where(JDSession.id == c.jd_session_id))
+        jd_res = await db.execute(
+            select(JDSession).where(JDSession.id == c.jd_session_id)
+        )
         jd = jd_res.scalar_one_or_none()
-        reviewer_res = await db.execute(select(Employee).where(Employee.id == c.reviewer_id))
+        reviewer_res = await db.execute(
+            select(Employee).where(Employee.id == c.reviewer_id)
+        )
         reviewer = reviewer_res.scalar_one_or_none()
-        serialized.append({
-            "id": str(c.id),
-            "jd_session_id": str(c.jd_session_id),
-            "jd_title": jd.title if jd else "Untitled JD",
-            "reviewer_name": reviewer.name if reviewer else "Unknown",
-            "reviewer_role": reviewer.role if reviewer else "unknown",
-            "action": c.action,
-            "comment": c.comment,
-            "is_read": c.is_read,
-            "created_at": c.created_at.isoformat() if c.created_at else None,
-        })
+        serialized.append(
+            {
+                "id": str(c.id),
+                "jd_session_id": str(c.jd_session_id),
+                "jd_title": jd.title if jd else "Untitled JD",
+                "reviewer_name": reviewer.name if reviewer else "Unknown",
+                "reviewer_role": reviewer.role if reviewer else "unknown",
+                "action": c.action,
+                "comment": c.comment,
+                "is_read": c.is_read,
+                "created_at": c.created_at.isoformat() if c.created_at else None,
+            }
+        )
     return serialized
 
 
@@ -767,8 +831,8 @@ async def get_all_feedback_for_user(
             select(JDReviewComment)
             .join(JDSession, JDReviewComment.jd_session_id == JDSession.id)
             .where(
-                (JDSession.employee_id == employee_id) &
-                (JDReviewComment.target_role == "employee")
+                (JDSession.employee_id == employee_id)
+                & (JDReviewComment.target_role == "employee")
             )
             .order_by(JDReviewComment.created_at.desc())
         )
@@ -778,8 +842,11 @@ async def get_all_feedback_for_user(
             .join(JDSession, JDReviewComment.jd_session_id == JDSession.id)
             .join(Employee, JDSession.employee_id == Employee.id)
             .where(
-                (JDReviewComment.target_role == "manager") &
-                ((Employee.reporting_manager_code == employee_id) | (JDSession.employee_id == employee_id))
+                (JDReviewComment.target_role == "manager")
+                & (
+                    (Employee.reporting_manager_code == employee_id)
+                    | (JDSession.employee_id == employee_id)
+                )
             )
             .order_by(JDReviewComment.created_at.desc())
         )
@@ -795,38 +862,46 @@ async def get_all_feedback_for_user(
     comments = list(result.scalars().all())
     serialized = []
     for c in comments:
-        jd_res = await db.execute(select(JDSession).where(JDSession.id == c.jd_session_id))
+        jd_res = await db.execute(
+            select(JDSession).where(JDSession.id == c.jd_session_id)
+        )
         jd = jd_res.scalar_one_or_none()
-        reviewer_res = await db.execute(select(Employee).where(Employee.id == c.reviewer_id))
+        reviewer_res = await db.execute(
+            select(Employee).where(Employee.id == c.reviewer_id)
+        )
         reviewer = reviewer_res.scalar_one_or_none()
-        
+
         # Determine employee metadata for the JD
         emp_name = "Unknown"
         emp_dept = ""
         jd_status = "unknown"
         if jd:
             jd_status = jd.status
-            emp_res = await db.execute(select(Employee).where(Employee.id == jd.employee_id))
+            emp_res = await db.execute(
+                select(Employee).where(Employee.id == jd.employee_id)
+            )
             emp = emp_res.scalar_one_or_none()
             if emp:
                 emp_name = emp.name
                 emp_dept = emp.department
 
-        serialized.append({
-            "id": str(c.id),
-            "jd_session_id": str(c.jd_session_id),
-            "jd_title": jd.title if jd else "Untitled JD",
-            "jd_status": jd_status,
-            "jd_employee_name": emp_name,
-            "jd_department": emp_dept,
-            "reviewer_name": reviewer.name if reviewer else "Unknown User",
-            "reviewer_role": reviewer.role if reviewer else "unknown",
-            "target_role": c.target_role,
-            "action": c.action,
-            "comment": c.comment,
-            "is_read": c.is_read,
-            "created_at": c.created_at.isoformat() if c.created_at else None,
-        })
+        serialized.append(
+            {
+                "id": str(c.id),
+                "jd_session_id": str(c.jd_session_id),
+                "jd_title": jd.title if jd else "Untitled JD",
+                "jd_status": jd_status,
+                "jd_employee_name": emp_name,
+                "jd_department": emp_dept,
+                "reviewer_name": reviewer.name if reviewer else "Unknown User",
+                "reviewer_role": reviewer.role if reviewer else "unknown",
+                "target_role": c.target_role,
+                "action": c.action,
+                "comment": c.comment,
+                "is_read": c.is_read,
+                "created_at": c.created_at.isoformat() if c.created_at else None,
+            }
+        )
     return serialized
 
 

@@ -67,10 +67,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       } else if (!cachedId) {
         setIsLoading(false);
       }
+      authenticate();
     };
 
     authenticate();
   }, [searchParams, router]);
+
+  // 3. One-time cleanup of legacy localStorage/sessionStorage
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      try {
+        localStorage.clear();
+        sessionStorage.clear();
+        console.log("%c🧹 Legacy storage cleared", "color: #3b82f6; font-weight: bold");
+      } catch (e) {
+        console.error("Cleanup failed:", e);
+      }
+    }
+  }, []);
 
   const logout = () => {
     deleteCookie(cookieKeys.EMPLOYEE_ID);

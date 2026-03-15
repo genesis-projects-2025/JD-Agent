@@ -7,7 +7,6 @@ import uuid
 
 from app.core.database import Base
 
-
 class JDReviewComment(Base):
     __tablename__ = "jd_review_comments"
 

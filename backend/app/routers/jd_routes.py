@@ -2,8 +2,13 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.schemas.jd_schema import (
-    ChatRequest, JDRequest, InitJDRequest, InitJDResponse,
-    SaveJDRequest, UpdateJDRequest, UpdateStatusRequest, GenerateJDRequest,
+    ChatRequest,
+    InitJDRequest,
+    InitJDResponse,
+    SaveJDRequest,
+    UpdateJDRequest,
+    UpdateStatusRequest,
+    GenerateJDRequest,
 )
 from app.services.jd_service import handle_conversation, handle_jd_generation
 from app.memory.session_memory import SessionMemory
@@ -31,6 +36,7 @@ router = APIRouter()
 
 # ── Session Management (Stateless) ───────────────────────────────────────────
 
+
 def get_or_create_session(session_id: str) -> SessionMemory:
     """Creates a temporary SessionMemory object. It won't be stored in memory."""
     print(f"🆕 Creating transient session object: {session_id}")
@@ -48,13 +54,20 @@ async def hydrate_session_from_db(session_id: str, db: AsyncSession) -> SessionM
     if record:
         memory.id = str(record.id)
         memory.employee_id = record.employee_id
-        memory.employee_name = record.insights.get("identity_context", {}).get("employee_name") if record.insights else None
+        memory.employee_name = (
+            record.insights.get("identity_context", {}).get("employee_name")
+            if record.insights
+            else None
+        )
         memory.insights = record.insights or {}
         memory.progress = record.conversation_state or {}
         memory.generated_jd = record.jd_text
         memory.jd_structured = record.jd_structured
 
-        history = [{"role": t.role, "content": t.content} for t in (record.conversation_turns or [])]
+        history = [
+            {"role": t.role, "content": t.content}
+            for t in (record.conversation_turns or [])
+        ]
         memory.load_history_from_db(history, llm_limit=6)
 
     return memory
@@ -66,10 +79,15 @@ async def init_jd(request: InitJDRequest, db: AsyncSession = Depends(get_db)):
     # Local Dev fix: Auto-create employee if doesn't exist to prevent Foreign Key Error
     from sqlalchemy.future import select
     from app.models.user_model import Employee
-    emp_result = await db.execute(select(Employee).filter(Employee.id == request.employee_id))
+
+    emp_result = await db.execute(
+        select(Employee).filter(Employee.id == request.employee_id)
+    )
     emp = emp_result.scalars().first()
     if not emp:
-        emp = Employee(id=request.employee_id, name=request.employee_name or "Unknown Employee")
+        emp = Employee(
+            id=request.employee_id, name=request.employee_name or "Unknown Employee"
+        )
         db.add(emp)
         await db.commit()
 
@@ -78,7 +96,7 @@ async def init_jd(request: InitJDRequest, db: AsyncSession = Depends(get_db)):
     memory.id = new_id
     memory.employee_id = request.employee_id
     memory.employee_name = request.employee_name
-    
+
     # --- Context Injection: Pre-fill Organogram Data ---
     starting_insights = {}
     if emp:
@@ -88,14 +106,17 @@ async def init_jd(request: InitJDRequest, db: AsyncSession = Depends(get_db)):
         if emp.department:
             identity_context["department"] = emp.department
         if emp.reporting_manager:
-            identity_context["reports_to"] = f"{emp.reporting_manager} ({emp.reporting_manager_code})"
+            identity_context["reports_to"] = (
+                f"{emp.reporting_manager} ({emp.reporting_manager_code})"
+            )
         if emp.email:
             identity_context["email"] = emp.email
         if emp.phone_mobile:
             identity_context["phone"] = emp.phone_mobile
-            
+
         # Fetch actual Job Title, Location, and DOJ from Organogram table
         from sqlalchemy import text
+
         org_query = text("""
             SELECT designation, location, date_of_joining 
             FROM organogram 
@@ -113,7 +134,7 @@ async def init_jd(request: InitJDRequest, db: AsyncSession = Depends(get_db)):
         elif emp.role:
             # Fallback
             identity_context["title"] = emp.role
-            
+
         if identity_context:
             starting_insights["identity_context"] = identity_context
 
@@ -124,7 +145,11 @@ async def init_jd(request: InitJDRequest, db: AsyncSession = Depends(get_db)):
         db=db,
         session_id=new_id,
         insights=starting_insights,
-        progress={"completion_percentage": 5, "status": "collecting", "missing_insight_areas": []},
+        progress={
+            "completion_percentage": 5,
+            "status": "collecting",
+            "missing_insight_areas": [],
+        },
         conversation_history=[],
         employee_id=request.employee_id,
         employee_name=request.employee_name,
@@ -145,7 +170,7 @@ async def chat(request: ChatRequest, db: AsyncSession = Depends(get_db)):
     reply, updated_history = await handle_conversation(
         history=request.history,
         user_message=request.message,
-        session_memory=session_memory
+        session_memory=session_memory,
     )
 
     await sync_session_to_db(
@@ -167,8 +192,7 @@ async def chat(request: ChatRequest, db: AsyncSession = Depends(get_db)):
 # ── Generate JD ───────────────────────────────────────────────────────────────
 @router.post("/generate")
 async def generate_jd_endpoint(
-    request: GenerateJDRequest,
-    db: AsyncSession = Depends(get_db)
+    request: GenerateJDRequest, db: AsyncSession = Depends(get_db)
 ):
     session_id = request.id
     if not session_id:
@@ -179,7 +203,7 @@ async def generate_jd_endpoint(
     if not session_memory.insights:
         raise HTTPException(
             status_code=400,
-            detail="No insights collected yet. Complete the interview first."
+            detail="No insights collected yet. Complete the interview first.",
         )
 
     try:
@@ -188,6 +212,7 @@ async def generate_jd_endpoint(
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
         import traceback
+
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"JD generation failed: {str(e)}")
 
@@ -220,7 +245,7 @@ async def save_jd(request: SaveJDRequest, db: AsyncSession = Depends(get_db)):
     if not session_memory.insights:
         raise HTTPException(
             status_code=404,
-            detail="Session not found. Please complete the interview first."
+            detail="Session not found. Please complete the interview first.",
         )
 
     db_history = [
@@ -238,7 +263,9 @@ async def save_jd(request: SaveJDRequest, db: AsyncSession = Depends(get_db)):
             progress=session_memory.progress,
             employee_id=request.employee_id or session_memory.employee_id,
             conversation_history=db_history,
-            status=session_memory.progress.get("status") if isinstance(session_memory.progress, dict) else None,
+            status=session_memory.progress.get("status")
+            if isinstance(session_memory.progress, dict)
+            else None,
         )
 
         return {
@@ -246,12 +273,15 @@ async def save_jd(request: SaveJDRequest, db: AsyncSession = Depends(get_db)):
             "id": str(record.id),
             "employee_id": record.employee_id,
             "title": record.title,
-            "message": "JD saved successfully to database."
+            "message": "JD saved successfully to database.",
         }
     except Exception as e:
         import traceback
+
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Failed to save JD: {str(e)}")
+
+
 @router.get("/")
 def health_check():
     return {"status": "ok"}
@@ -277,6 +307,7 @@ async def get_manager_pending_jds(manager_id: str, db: AsyncSession = Depends(ge
     records = await list_manager_pending_jds(db, manager_id)
     return [_serialize_list_item(r) for r in records]
 
+
 # ── List pending for HR ───────────────────────────────────────────────────────
 @router.get("/hr/pending")
 async def get_hr_pending_jds(db: AsyncSession = Depends(get_db)):
@@ -286,24 +317,33 @@ async def get_hr_pending_jds(db: AsyncSession = Depends(get_db)):
 
 # ── Feedback (must be before /{jd_id} to avoid route conflict) ────────────────
 
+
 @router.get("/feedback/{employee_id}")
-async def get_user_feedback(employee_id: str, role: str = "employee", db: AsyncSession = Depends(get_db)):
+async def get_user_feedback(
+    employee_id: str, role: str = "employee", db: AsyncSession = Depends(get_db)
+):
     """Get unread feedback for a specific user (for sidebar notification)."""
     try:
         feedback = await get_unread_feedback_for_user(db, employee_id, role)
         return feedback
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to fetch feedback: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to fetch feedback: {str(e)}"
+        )
 
 
 @router.get("/feedback/all/{employee_id}")
-async def get_all_user_feedback(employee_id: str, role: str = "employee", db: AsyncSession = Depends(get_db)):
+async def get_all_user_feedback(
+    employee_id: str, role: str = "employee", db: AsyncSession = Depends(get_db)
+):
     """Get all feedback (read and unread) for a specific user (for the dedicated feedback page)."""
     try:
         feedback = await get_all_feedback_for_user(db, employee_id, role)
         return feedback
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to fetch all feedback: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to fetch all feedback: {str(e)}"
+        )
 
 
 @router.patch("/feedback/{comment_id}/read")
@@ -317,7 +357,10 @@ async def mark_read(comment_id: str, db: AsyncSession = Depends(get_db)):
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to mark feedback: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to mark feedback: {str(e)}"
+        )
+
 
 # ── Download JD as DOCX ──────────────────────────────────────────────────────
 @router.get("/{jd_id}/download")
@@ -334,7 +377,7 @@ async def download_jd_docx(jd_id: str, db: AsyncSession = Depends(get_db)):
     if not record.jd_structured:
         raise HTTPException(
             status_code=400,
-            detail="No generated JD available for download. Please generate a JD first."
+            detail="No generated JD available for download. Please generate a JD first.",
         )
 
     # Generate the DOCX
@@ -349,7 +392,7 @@ async def download_jd_docx(jd_id: str, db: AsyncSession = Depends(get_db)):
     dept = record.department or ""
     filename = f"{title} - {dept}.docx" if dept else f"{title}.docx"
     # Sanitize filename (remove chars that are problematic in file names)
-    filename = re.sub(r'[<>:"/\\|?*]', '', filename)
+    filename = re.sub(r'[<>:"/\\|?*]', "", filename)
 
     return StreamingResponse(
         docx_buffer,
@@ -367,7 +410,10 @@ async def get_jd(jd_id: str, db: AsyncSession = Depends(get_db)):
     record = await get_questionnaire(db, jd_id)
     if not record:
         raise HTTPException(status_code=404, detail="JD not found")
-    history = [{"role": t.role, "content": t.content} for t in (record.conversation_turns or [])]
+    history = [
+        {"role": t.role, "content": t.content}
+        for t in (record.conversation_turns or [])
+    ]
     return {
         "id": str(record.id),
         "employee_id": record.employee_id,
@@ -383,13 +429,17 @@ async def get_jd(jd_id: str, db: AsyncSession = Depends(get_db)):
         "updated_at": record.updated_at,
     }
 
+
 # ── Conversation history only ─────────────────────────────────────────────────
 @router.get("/{jd_id}/conversation")
 async def get_jd_conversation(jd_id: str, db: AsyncSession = Depends(get_db)):
     record = await get_questionnaire(db, jd_id)
     if not record:
         raise HTTPException(status_code=404, detail="JD not found")
-    history = [{"role": t.role, "content": t.content} for t in (record.conversation_turns or [])]
+    history = [
+        {"role": t.role, "content": t.content}
+        for t in (record.conversation_turns or [])
+    ]
     return {
         "id": str(record.id),
         "title": record.title,
@@ -401,18 +451,26 @@ async def get_jd_conversation(jd_id: str, db: AsyncSession = Depends(get_db)):
 
 # ── Update JD content ─────────────────────────────────────────────────────────
 @router.put("/{jd_id}")
-async def update_jd(jd_id: str, request: UpdateJDRequest, db: AsyncSession = Depends(get_db)):
+async def update_jd(
+    jd_id: str, request: UpdateJDRequest, db: AsyncSession = Depends(get_db)
+):
     try:
         record = await update_questionnaire_jd(
-            db=db, jd_id=jd_id,
+            db=db,
+            jd_id=jd_id,
             jd_text=request.jd_text,
             jd_structured=request.jd_structured,
             employee_id=request.employee_id,
         )
         if not record:
             raise HTTPException(status_code=404, detail="JD not found")
-        return {"status": "success", "id": str(record.id), "version": record.version,
-                "updated_at": record.updated_at, "message": "JD updated successfully."}
+        return {
+            "status": "success",
+            "id": str(record.id),
+            "version": record.version,
+            "updated_at": record.updated_at,
+            "message": "JD updated successfully.",
+        }
     except PermissionError as e:
         raise HTTPException(status_code=403, detail=str(e))
     except Exception as e:
@@ -421,34 +479,55 @@ async def update_jd(jd_id: str, request: UpdateJDRequest, db: AsyncSession = Dep
 
 # ── Update status ─────────────────────────────────────────────────────────────
 @router.patch("/{jd_id}/status")
-async def update_jd_status(jd_id: str, request: UpdateStatusRequest, db: AsyncSession = Depends(get_db)):
-    valid_statuses = ["draft", "sent_to_manager", "manager_rejected", "sent_to_hr", "hr_rejected", "approved", "jd_generated"]
+async def update_jd_status(
+    jd_id: str, request: UpdateStatusRequest, db: AsyncSession = Depends(get_db)
+):
+    valid_statuses = [
+        "draft",
+        "sent_to_manager",
+        "manager_rejected",
+        "sent_to_hr",
+        "hr_rejected",
+        "approved",
+        "jd_generated",
+    ]
     if request.status not in valid_statuses:
-        raise HTTPException(status_code=400, detail=f"Invalid status. Must be one of: {valid_statuses}")
+        raise HTTPException(
+            status_code=400, detail=f"Invalid status. Must be one of: {valid_statuses}"
+        )
     try:
         record = await update_questionnaire_status(
-            db=db, jd_id=jd_id,
+            db=db,
+            jd_id=jd_id,
             new_status=request.status,
             employee_id=request.employee_id,
         )
         if not record:
             raise HTTPException(status_code=404, detail="JD not found")
-        return {"status": "success", "id": str(record.id), "new_status": record.status,
-                "message": f"Status updated to '{record.status}'"}
+        return {
+            "status": "success",
+            "id": str(record.id),
+            "new_status": record.status,
+            "message": f"Status updated to '{record.status}'",
+        }
     except PermissionError as e:
         raise HTTPException(status_code=403, detail=str(e))
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to update status: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to update status: {str(e)}"
+        )
 
 
 # ── Delete JD ─────────────────────────────────────────────────────────────────
 @router.delete("/{jd_id}")
 async def delete_jd(jd_id: str, employee_id: str, db: AsyncSession = Depends(get_db)):
     try:
-        success = await delete_questionnaire(db=db, jd_id=jd_id, employee_id=employee_id)
+        success = await delete_questionnaire(
+            db=db, jd_id=jd_id, employee_id=employee_id
+        )
         if not success:
             raise HTTPException(status_code=404, detail="JD not found")
-            
+
         return {"status": "success", "message": "JD deleted successfully."}
     except PermissionError as e:
         raise HTTPException(status_code=403, detail=str(e))
@@ -457,6 +536,7 @@ async def delete_jd(jd_id: str, employee_id: str, db: AsyncSession = Depends(get
 
 
 # ── Review / Feedback ─────────────────────────────────────────────────────────
+
 
 @router.post("/{jd_id}/review")
 async def submit_review(jd_id: str, request: dict, db: AsyncSession = Depends(get_db)):
@@ -467,11 +547,15 @@ async def submit_review(jd_id: str, request: dict, db: AsyncSession = Depends(ge
     reviewer_id = request.get("reviewer_id")
 
     if not action or not reviewer_id:
-        raise HTTPException(status_code=400, detail="action and reviewer_id are required")
+        raise HTTPException(
+            status_code=400, detail="action and reviewer_id are required"
+        )
 
     valid_actions = ["rejected", "approved", "revision_requested"]
     if action not in valid_actions:
-        raise HTTPException(status_code=400, detail=f"Invalid action. Must be one of: {valid_actions}")
+        raise HTTPException(
+            status_code=400, detail=f"Invalid action. Must be one of: {valid_actions}"
+        )
 
     try:
         review = await create_review_comment(
@@ -489,8 +573,11 @@ async def submit_review(jd_id: str, request: dict, db: AsyncSession = Depends(ge
         }
     except Exception as e:
         import traceback
+
         traceback.print_exc()
-        raise HTTPException(status_code=500, detail=f"Failed to create review: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to create review: {str(e)}"
+        )
 
 
 @router.get("/{jd_id}/reviews")
@@ -500,10 +587,9 @@ async def get_reviews(jd_id: str, db: AsyncSession = Depends(get_db)):
         comments = await get_review_comments_for_jd(db, jd_id)
         return comments
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to fetch reviews: {str(e)}")
-
-
-
+        raise HTTPException(
+            status_code=500, detail=f"Failed to fetch reviews: {str(e)}"
+        )
 
 
 # ── Serializer ────────────────────────────────────────────────────────────────

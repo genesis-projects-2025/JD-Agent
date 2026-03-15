@@ -8,8 +8,8 @@ engine = create_async_engine(
     settings.DATABASE_URL,
     echo=False,
     pool_pre_ping=True,
-    pool_size=10,        # Increase pool size per worker
-    max_overflow=20,    # Allow more temporary connections
+    pool_size=10,  # Increase pool size per worker
+    max_overflow=20,  # Allow more temporary connections
     pool_recycle=3600,  # Recycle connections hourly
 )
 
@@ -33,24 +33,28 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
             await session.close()
 
 
-from sqlalchemy import text
+from sqlalchemy import text  # noqa: E402
+
 
 async def init_db():
     """Create all tables on startup if they don't exist, and setup triggers."""
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
-        
+
         # Add trigger function for updated_at
-        await conn.execute(text("""
+        await conn.execute(
+            text("""
             CREATE OR REPLACE FUNCTION touch_updated_at()
             RETURNS TRIGGER AS $$
             BEGIN NEW.updated_at = now(); RETURN NEW; END;
             $$ LANGUAGE plpgsql;
-        """))
-        
+        """)
+        )
+
         # Add trigger specifically to jd_sessions
         # Using DO block to avoid error if trigger already exists
-        await conn.execute(text("""
+        await conn.execute(
+            text("""
             DO $$
             BEGIN
                 IF NOT EXISTS (
@@ -63,6 +67,7 @@ async def init_db():
                 END IF;
             END
             $$;
-        """))
-        
+        """)
+        )
+
     print("✅ Database tables and triggers ready")

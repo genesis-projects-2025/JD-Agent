@@ -546,8 +546,13 @@ async def get_questionnaire(db: AsyncSession, session_id: str) -> Optional[JDSes
     return result.scalar_one_or_none()
 
 
-async def list_questionnaires(db: AsyncSession) -> list[JDSession]:
-    result = await db.execute(select(JDSession).order_by(JDSession.updated_at.desc()))
+async def list_questionnaires(
+    db: AsyncSession, status_in: Optional[list[str]] = None
+) -> list[JDSession]:
+    query = select(JDSession)
+    if status_in:
+        query = query.where(JDSession.status.in_(status_in))
+    result = await db.execute(query.order_by(JDSession.updated_at.desc()))
     return list(result.scalars().all())
 
 

@@ -76,21 +76,31 @@ async def get_department_employees(
     department_name: str, 
     page: int = 1, 
     limit: int = 50, 
+    only_submitted: bool = False,
     db: AsyncSession = Depends(get_db)
 ):
     """
     Fetches all employees for a given department along with their current JD status.
     Drafts are marked as 'Not Submitted'. Support pagination.
+    If only_submitted is True, filters out employees without a submitted JD.
     """
     try:
         offset = (page - 1) * limit
         
-        # We query the organogram to get EVERY employee in this department
-        # We join on jd_sessions to get the status. If they have multiple, we get the latest based on updated_at
+        # We query the organogram to get employees in this department
+        # We join on jd_sessions to get the status. 
+        # If only_submitted is True, we use an INNER JOIN to filter out those without JDs,
+        # and we further filter the JD status to excluding drafts.
         
-        query = text("""
+        join_type = "JOIN" if only_submitted else "LEFT JOIN"
+        status_filter = ""
+        if only_submitted:
+            status_filter = "AND lj.status IN ('sent_to_manager', 'manager_rejected', 'sent_to_hr', 'hr_rejected', 'approved', 'rejected', 'revision_requested')"
+
+        query = text(f"""
             WITH LatestJDs AS (
                 SELECT 
+                    id as jd_id,
                     employee_id, 
                     status,
                     updated_at,
@@ -102,10 +112,11 @@ async def get_department_employees(
                 o.employee_name as name,
                 o.designation as designation,
                 o.reporting_manager as reporting_manager,
+                lj.jd_id as jd_session_id,
                 lj.status as jd_status,
                 lj.updated_at as last_updated
             FROM organogram o
-            LEFT JOIN LatestJDs lj ON o.code = lj.employee_id AND lj.rn = 1
+            {join_type} LatestJDs lj ON o.code = lj.employee_id AND lj.rn = 1 {status_filter}
             WHERE o.department = :dept
             ORDER BY o.employee_name ASC
             LIMIT :limit OFFSET :offset

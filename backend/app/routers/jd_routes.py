@@ -328,8 +328,15 @@ def health_check():
 
 # ── List all (admin) ──────────────────────────────────────────────────────────
 @router.get("/list")
-async def list_jds(db: AsyncSession = Depends(get_db)):
-    records = await list_questionnaires(db)
+async def list_jds(
+    submitted_only: bool = False, db: AsyncSession = Depends(get_db)
+):
+    status_filter = (
+        ["sent_to_manager", "manager_rejected", "sent_to_hr", "hr_rejected", "approved"]
+        if submitted_only
+        else None
+    )
+    records = await list_questionnaires(db, status_in=status_filter)
     return [_serialize_list_item(r) for r in records]
 
 

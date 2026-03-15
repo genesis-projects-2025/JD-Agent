@@ -155,10 +155,11 @@ export async function fetchDepartmentEmployees(
   departmentName: string,
   page: number = 1,
   limit: number = 50,
+  submittedOnly: boolean = false,
 ) {
   const encodedName = encodeURIComponent(departmentName);
   const res = await fetch(
-    `${API_URL}/api/hr/departments/${encodedName}/employees?page=${page}&limit=${limit}`,
+    `${API_URL}/api/hr/departments/${encodedName}/employees?page=${page}&limit=${limit}&only_submitted=${submittedOnly}`,
   );
   if (res.status === 404) return [];
   if (!res.ok) throw new Error("Failed to fetch department employees");
@@ -242,8 +243,12 @@ export async function deleteJD(jdId: string, employeeId: string) {
   return res.json();
 }
 
-export async function getJDs(params?: { status?: string }) {
-  const res = await fetch(`${API_URL}/jd/list`);
+export async function getJDs(params?: { submitted_only?: boolean }) {
+  let url = `${API_URL}/jd/list`;
+  if (params?.submitted_only) {
+    url += `?submitted_only=true`;
+  }
+  const res = await fetch(url);
   if (res.status === 404) return [];
   if (!res.ok) throw new Error("Failed to fetch all JDs");
   return res.json();

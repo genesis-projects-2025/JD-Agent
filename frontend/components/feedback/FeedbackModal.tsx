@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { createPortal } from "react-dom";
 import { API_URL } from "@/lib/api";
 import { X, Star, Send, Loader2, MessageSquare } from "lucide-react";
 import { useAuth } from "@/components/providers/auth-provider";
@@ -28,7 +29,10 @@ export default function FeedbackModal({
   const [success, setSuccess] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  if (!isOpen) return null;
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+
+  if (!isOpen || !mounted) return null;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -83,7 +87,7 @@ export default function FeedbackModal({
     }
   };
 
-  return (
+  return createPortal(
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 sm:p-6 bg-slate-900/40 backdrop-blur-sm animate-in fade-in duration-200">
       <div
         className="bg-white rounded-2xl w-full max-w-md shadow-2xl border border-slate-200 overflow-hidden flex flex-col animate-in zoom-in-95 duration-200"
@@ -211,6 +215,7 @@ export default function FeedbackModal({
           </>
         )}
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }

@@ -1,4 +1,5 @@
-import React from "react";
+import React, { useState, useEffect } from "react";
+import { createPortal } from "react-dom";
 import { AlertTriangle, Trash2, X, Loader2 } from "lucide-react";
 
 interface DeleteModalProps {
@@ -18,9 +19,12 @@ export function DeleteModal({
   title = "Delete Job Description",
   description = "Are you sure you want to completely delete this JD and its conversation history? This action cannot be undone.",
 }: DeleteModalProps) {
-  if (!isOpen) return null;
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
 
-  return (
+  if (!isOpen || !mounted) return null;
+
+  return createPortal(
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm animate-in fade-in duration-200">
       <div
         className="bg-white w-[90%] sm:w-full max-w-md rounded-[20px] sm:rounded-[24px] p-5 sm:p-6 shadow-2xl animate-in zoom-in-95 duration-300 m-4"
@@ -65,6 +69,7 @@ export function DeleteModal({
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }

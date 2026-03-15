@@ -156,7 +156,7 @@ export default function JDPage() {
 
         // --- Pulse Pharma Schema Alignment (Inflight Migration) ---
         if (pStruct && typeof pStruct === "object") {
-          // Map legacy keys to new keys if they exist and new keys are empty
+          // Map legacy/LLM keys to new keys if they exist and new keys are empty
           if (pStruct.key_responsibilities && !pStruct.responsibilities) {
             pStruct.responsibilities = pStruct.key_responsibilities;
           }
@@ -169,6 +169,15 @@ export default function JDPage() {
           if (pStruct.role_summary && !pStruct.purpose) {
             pStruct.purpose = pStruct.role_summary;
           }
+          if (pStruct.performance_metrics && !pStruct.metrics) {
+            pStruct.metrics = pStruct.performance_metrics;
+          }
+           if (pStruct.stakeholder_interactions && !pStruct.stakeholders) {
+            pStruct.stakeholders = pStruct.stakeholder_interactions;
+          }
+          if (pStruct.additional_details && !pStruct.additional) {
+            pStruct.additional = pStruct.additional_details;
+          }
         }
 
         // Final Failsafe for missing keys
@@ -179,6 +188,11 @@ export default function JDPage() {
         pStruct.purpose = pStruct.purpose || "";
         pStruct.education = pStruct.education || "";
         pStruct.experience = pStruct.experience || "";
+        pStruct.metrics = pStruct.metrics || [];
+        pStruct.stakeholders = pStruct.stakeholders || {};
+        pStruct.additional = pStruct.additional || {};
+        pStruct.team_structure = pStruct.team_structure || {};
+        pStruct.work_environment = pStruct.work_environment || {};
 
         console.log("JD Edit Loader -> Final extracted pStruct:", pStruct);
         setEditedData(pStruct);
@@ -957,21 +971,7 @@ export default function JDPage() {
                   </h1>
                 </div>
 
-                <div
-                  className="prose prose-slate prose-lg max-w-none 
-                  prose-headings:font-semibold prose-headings:tracking-normal prose-headings:text-surface-800
-                  prose-h2:text-xl prose-h2:mt-10 prose-h2:mb-4 prose-h2:pb-2 prose-h2:border-b prose-h2:border-surface-200
-                  prose-h3:text-lg prose-h3:text-surface-700
-                  prose-p:text-surface-700 prose-p:leading-relaxed prose-p:text-[15px]
-                  prose-li:text-surface-700 prose-li:text-[15px] prose-li:leading-relaxed
-                  prose-strong:text-surface-900 prose-strong:font-semibold
-                  prose-ul:list-disc prose-ul:pl-5 prose-ul:marker:text-surface-400
-                  prose-blockquote:border-l-4 prose-blockquote:border-surface-300 prose-blockquote:bg-surface-50 prose-blockquote:py-3 prose-blockquote:px-5 prose-blockquote:rounded-r-lg prose-blockquote:italic prose-blockquote:text-surface-600"
-                >
-                  <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                    {displayJDContent}
-                  </ReactMarkdown>
-                </div>
+                <JDDocumentView data={editedData} />
               </div>
             </div>
           )}
@@ -992,6 +992,135 @@ export default function JDPage() {
           jdTitle={jd?.title || ""}
         />
       </div>
+    </div>
+  );
+}
+// ── Structured Document View ──────────────────────────────────────────────────
+
+function JDDocumentView({ data }: { data: any }) {
+  const Section = ({ title, children }: { title: string; children: React.ReactNode }) => (
+    <div className="py-8 border-b border-surface-100 last:border-0">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div className="md:col-span-1">
+          <h3 className="text-[11px] font-black text-surface-400 uppercase tracking-[0.2em] sticky top-4">
+            {title}
+          </h3>
+        </div>
+        <div className="md:col-span-2 space-y-4">
+          {children}
+        </div>
+      </div>
+    </div>
+  );
+
+  const ListItem = ({ children }: { children: React.ReactNode }) => (
+    <div className="flex gap-3 group">
+      <div className="w-1.5 h-1.5 rounded-full bg-primary-400 mt-2.5 flex-shrink-0 group-hover:scale-125 transition-transform" />
+      <p className="text-[15px] leading-relaxed text-surface-700 font-medium">
+        {children}
+      </p>
+    </div>
+  );
+
+  return (
+    <div className="space-y-2">
+      {/* Purpose */}
+      <Section title="Role Summary">
+        <p className="text-[17px] leading-relaxed text-surface-800 font-medium whitespace-pre-wrap">
+          {data.purpose || "Strategic role overview to be confirmed."}
+        </p>
+      </Section>
+
+      {/* Responsibilities */}
+      {data.responsibilities && data.responsibilities.length > 0 && (
+        <Section title="Key Responsibilities">
+          <div className="space-y-4">
+            {data.responsibilities.map((r: string, i: number) => (
+              <ListItem key={i}>{r}</ListItem>
+            ))}
+          </div>
+        </Section>
+      )}
+
+      {/* Skills */}
+      {(data.skills?.length > 0 || data.tools?.length > 0) && (
+        <Section title="Expertise & Tools">
+          <div className="flex flex-wrap gap-2">
+            {[...(data.skills || []), ...(data.tools || [])].map((s: string, i: number) => (
+              <span key={i} className="px-3 py-1 bg-surface-50 text-surface-700 border border-surface-200 rounded-lg text-xs font-bold shadow-sm">
+                {s}
+              </span>
+            ))}
+          </div>
+        </Section>
+      )}
+
+      {/* Team & Environment */}
+      <Section title="Environment & Team">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-8">
+          {data.team_structure && (
+            <div className="space-y-4">
+              <h4 className="text-[10px] font-bold text-surface-400 uppercase tracking-wider">Team Structure</h4>
+              <div className="space-y-2">
+                {data.team_structure.team_size && (
+                  <p className="text-sm text-surface-700 font-medium">Team Size: <span className="text-surface-900 font-bold">{data.team_structure.team_size}</span></p>
+                )}
+                {data.team_structure.collaborates_with && (
+                  <p className="text-sm text-surface-700 font-medium">Collaborates with: <span className="text-surface-900 font-bold">{Array.isArray(data.team_structure.collaborates_with) ? data.team_structure.collaborates_with.join(", ") : data.team_structure.collaborates_with}</span></p>
+                )}
+              </div>
+            </div>
+          )}
+          {data.work_environment && (
+            <div className="space-y-4">
+              <h4 className="text-[10px] font-bold text-surface-400 uppercase tracking-wider">Culture & Style</h4>
+              <div className="space-y-2">
+                <p className="text-sm text-surface-700 font-medium leading-relaxed italic border-l-2 border-primary-200 pl-4 py-1 bg-primary-50/30 rounded-r-lg">
+                  {data.work_environment.culture || "Highly collaborative environment Focused on results."}
+                </p>
+              </div>
+            </div>
+          )}
+        </div>
+      </Section>
+
+      {/* Metrics */}
+      {data.metrics && data.metrics.length > 0 && (
+        <Section title="Performance Metrics">
+          <div className="grid grid-cols-1 gap-4">
+            {data.metrics.map((m: string, i: number) => (
+              <div key={i} className="p-4 bg-emerald-50/50 border border-emerald-100 rounded-2xl flex items-center gap-4">
+                <div className="w-8 h-8 bg-emerald-100 rounded-xl flex items-center justify-center text-emerald-600 font-black text-xs">
+                  {i + 1}
+                </div>
+                <p className="text-sm font-bold text-emerald-900 leading-tight">
+                  {m}
+                </p>
+              </div>
+            ))}
+          </div>
+        </Section>
+      )}
+
+      {/* Additional Details */}
+      {data.additional && (data.additional.special_projects?.length > 0 || data.additional.unique_contributions) && (
+        <Section title="Special Projects">
+          {data.additional.special_projects?.length > 0 && (
+            <div className="flex flex-wrap gap-2 mb-4">
+              {data.additional.special_projects.map((p: string, i: number) => (
+                <span key={i} className="px-3 py-1 bg-amber-50 text-amber-700 border border-amber-200 rounded-lg text-xs font-black shadow-sm uppercase tracking-tighter">
+                  {p}
+                </span>
+              ))}
+            </div>
+          )}
+          {data.additional.unique_contributions && (
+            <p className="text-sm text-surface-600 font-medium leading-relaxed italic">
+              Contribution Insights: {data.additional.unique_contributions}
+            </p>
+          )}
+        </Section>
+      )}
     </div>
   );
 }

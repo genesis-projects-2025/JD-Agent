@@ -489,34 +489,16 @@ export async function markFeedbackRead(commentId: string) {
   return res.json();
 }
 
-/**
- * Download a JD as DOCX.
- * Fetches the file blob from the backend and triggers a browser download.
- */
-export async function downloadJDDocx(sessionId: string): Promise<void> {
-  const res = await fetch(`${API_URL}/jd/${sessionId}/download`);
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ detail: "Download failed" }));
-    throw new Error(err.detail || "Failed to download JD");
-  }
-
-  const blob = await res.blob();
-
-  // Extract filename from Content-Disposition header, or use fallback
-  const disposition = res.headers.get("Content-Disposition");
-  let filename = "Job Description.docx";
-  if (disposition) {
-    const match = disposition.match(/filename="?([^"]+)"?/);
-    if (match?.[1]) filename = match[1];
-  }
-
-  // Create a temporary download link
-  const url = window.URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  window.URL.revokeObjectURL(url);
+export function downloadJDDocx(sessionId: string): void {
+  // Use path-based filename for maximum reliability
+  const cleanFilename = "Pulse_Pharma_Job_Description.docx";
+  const downloadUrl = `${API_URL}/jd/${sessionId}/download/docx/${cleanFilename}`;
+  window.location.assign(downloadUrl);
+}
+export function downloadJDPdf(sessionId: string): void {
+  // Use path-based filename for maximum reliability
+  // This ensures the browser sees the .pdf extension as part of the location
+  const cleanFilename = "Pulse_Pharma_Job_Description.pdf";
+  const downloadUrl = `${API_URL}/jd/${sessionId}/download/pdf/${cleanFilename}`;
+  window.location.assign(downloadUrl);
 }

@@ -23,6 +23,8 @@ import {
   Plus,
   Trash,
   Download,
+  ChevronDown,
+  FileDown,
 } from "lucide-react";
 import {
   fetchJD,
@@ -39,6 +41,7 @@ import {
   createReviewComment,
   fetchReviewComments,
   downloadJDDocx,
+  downloadJDPdf,
 } from "@/lib/api";
 import { DeleteModal } from "@/components/ui/delete-modal";
 import FeedbackModal from "@/components/feedback/FeedbackModal";
@@ -58,6 +61,8 @@ export default function JDPage() {
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [showFeedbackPrompt, setShowFeedbackPrompt] = useState(false);
+  const [showDownloadDropdown, setShowDownloadDropdown] = useState(false);
+  const [isDownloadingPdf, setIsDownloadingPdf] = useState(false);
   const [showRejectModal, setShowRejectModal] = useState(false);
   const [rejectingAs, setRejectingAs] = useState<"manager" | "hr">("manager");
   const [reviewComments, setReviewComments] = useState<any[]>([]);
@@ -230,7 +235,15 @@ export default function JDPage() {
     }
   }, [jdId, isMounted]);
 
-  if (!isMounted || loading) {
+  if (!isMounted) { // Hydration fix: Only render the main UI once mounted
+    return (
+      <div className="min-h-screen bg-white flex items-center justify-center">
+        <Loader2 className="w-8 h-8 animate-spin text-primary-600" />
+      </div>
+    );
+  }
+
+  if (loading) {
     return (
       <div className="h-[calc(100vh-8rem)] flex items-center justify-center">
         <Loader2 className="w-8 h-8 text-primary-600 animate-spin" />
@@ -467,8 +480,8 @@ export default function JDPage() {
         </button>
 
         {/* Header card */}
-        <div className="bg-white rounded-2xl md:rounded-[40px] p-5 md:p-12 border border-surface-200 shadow-premium relative overflow-hidden">
-          <div className="absolute top-0 right-0 w-[500px] h-[500px] bg-gradient-to-br from-primary-50 via-white to-transparent opacity-50 rounded-full blur-3xl -translate-y-1/2 translate-x-1/3 pointer-events-none"></div>
+        <div className="bg-white rounded-2xl md:rounded-[40px] p-5 md:p-12 border border-surface-200 shadow-premium relative">
+          <div className="absolute top-0 right-0 w-[500px] h-[500px] bg-gradient-to-br from-primary-50 via-white to-transparent opacity-50 rounded-full blur-3xl -translate-y-1/2 translate-x-1/3 pointer-events-none overflow-hidden"></div>
           <div className="relative z-10 flex flex-col md:flex-row md:items-start justify-between gap-8">
             <div>
               <div className="flex flex-wrap items-center gap-3 mb-6">
@@ -498,27 +511,70 @@ export default function JDPage() {
 
               {/* Download Button — visible to all roles when JD exists */}
               {jd.jd_structured && (
-                <button
-                  onClick={async () => {
-                    setIsDownloading(true);
-                    try {
-                      await downloadJDDocx(jdId);
-                    } catch (err: any) {
-                      alert(err.message || "Failed to download");
-                    } finally {
-                      setIsDownloading(false);
-                    }
-                  }}
-                  disabled={isDownloading}
-                  className="mt-4 inline-flex items-center gap-2 px-5 py-3 bg-gradient-to-r from-primary-600 to-primary-700 text-white rounded-xl font-bold text-[13px] shadow-md hover:shadow-lg hover:-translate-y-0.5 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                <div 
+                  className="relative mt-4 inline-block"
+                  onMouseEnter={() => setShowDownloadDropdown(true)}
+                  onMouseLeave={() => setShowDownloadDropdown(false)}
                 >
-                  {isDownloading ? (
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                  ) : (
-                    <Download className="w-4 h-4" />
+                  <button
+                    onClick={() => setShowDownloadDropdown(!showDownloadDropdown)}
+                    className="inline-flex items-center gap-2 px-5 py-3 bg-gradient-to-r from-primary-600 to-primary-700 text-white rounded-xl font-bold text-[13px] shadow-md hover:shadow-lg hover:-translate-y-0.5 transition-all disabled:opacity-50 disabled:cursor-not-allowed group"
+                  >
+                    <Download className="w-4 h-4 group-hover:scale-110 transition-transform" />
+                    Download JD
+                    <ChevronDown className={`w-4 h-4 transition-transform duration-200 ${showDownloadDropdown ? 'rotate-180' : ''}`} />
+                  </button>
+
+                  {showDownloadDropdown && (
+                    <div 
+                      className="absolute left-0 mt-1 w-56 bg-white border border-surface-200 rounded-2xl shadow-2xl z-[100] overflow-hidden animate-in fade-in slide-in-from-top-2 duration-200"
+                    >
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setShowDownloadDropdown(false);
+                          downloadJDDocx(jdId);
+                        }}
+                        disabled={isDownloading}
+                        className="w-full flex items-center gap-3 px-4 py-3.5 text-[13px] font-bold text-surface-700 hover:bg-primary-50 hover:text-primary-700 transition-colors border-b border-surface-50 disabled:opacity-50 group/item"
+                      >
+                        <div className="w-8 h-8 rounded-lg bg-blue-50 flex items-center justify-center group-hover/item:bg-blue-100 transition-colors">
+                          {isDownloading ? (
+                            <Loader2 className="w-4 h-4 animate-spin text-blue-600" />
+                          ) : (
+                            <FileText className="w-4 h-4 text-blue-600" />
+                          )}
+                        </div>
+                        <div className="flex flex-col items-start px-1">
+                          <span>Microsoft Word</span>
+                          <span className="text-[10px] text-surface-400 font-medium">Editable .docx format</span>
+                        </div>
+                      </button>
+                      
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setShowDownloadDropdown(false);
+                          downloadJDPdf(jdId);
+                        }}
+                        disabled={isDownloadingPdf}
+                        className="w-full flex items-center gap-3 px-4 py-3.5 text-[13px] font-bold text-surface-700 hover:bg-primary-50 hover:text-primary-700 transition-colors disabled:opacity-50 group/item"
+                      >
+                        <div className="w-8 h-8 rounded-lg bg-red-50 flex items-center justify-center group-hover/item:bg-red-100 transition-colors">
+                          {isDownloadingPdf ? (
+                            <Loader2 className="w-4 h-4 animate-spin text-red-600" />
+                          ) : (
+                            <FileDown className="w-4 h-4 text-red-600" />
+                          )}
+                        </div>
+                        <div className="flex flex-col items-start px-1">
+                          <span>Professional PDF</span>
+                          <span className="text-[10px] text-surface-400 font-medium">Ready to print .pdf</span>
+                        </div>
+                      </button>
+                    </div>
                   )}
-                  {isDownloading ? "Generating..." : "Download DOCX"}
-                </button>
+                </div>
               )}
             </div>
 

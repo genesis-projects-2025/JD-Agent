@@ -36,6 +36,7 @@ passlib[bcrypt]
 
 # Document Generation
 python-docx
+fpdf2
 
 # Caching — Redis async client
 # Falls back gracefully if Redis is not running (see app/core/cache.py)

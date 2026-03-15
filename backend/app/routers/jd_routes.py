@@ -1,7 +1,10 @@
-# app/routers/jd_routes.py
-from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.ext.asyncio import AsyncSession
+from fastapi import APIRouter, Depends, HTTPException, Response
 from fastapi.responses import StreamingResponse
+from sqlalchemy.ext.asyncio import AsyncSession
+import re
+import json
+from app.services.docx_generator import generate_jd_docx
+from app.services.pdf_generator import generate_jd_pdf
 from app.schemas.jd_schema import (
     ChatRequest,
     InitJDRequest,
@@ -222,7 +225,6 @@ async def chat_stream(request: ChatRequest, db: AsyncSession = Depends(get_db)):
                 status=session_memory.progress.get("status"),
             )
         except Exception as e:
-            import json
             yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
@@ -409,12 +411,10 @@ async def mark_read(comment_id: str, db: AsyncSession = Depends(get_db)):
 
 
 # ── Download JD as DOCX ──────────────────────────────────────────────────────
-@router.get("/{jd_id}/download")
-async def download_jd_docx(jd_id: str, db: AsyncSession = Depends(get_db)):
+@router.get("/{jd_id}/download/docx/{filename}")
+@router.get("/{jd_id}/download")  # Legacy support
+async def download_jd_docx(jd_id: str, filename: str = None, db: AsyncSession = Depends(get_db)):
     """Generate and stream a DOCX file for the given JD."""
-    from fastapi.responses import StreamingResponse
-    from app.services.docx_generator import generate_jd_docx
-    import re
 
     record = await get_questionnaire(db, jd_id)
     if not record:
@@ -445,6 +445,53 @@ async def download_jd_docx(jd_id: str, db: AsyncSession = Depends(get_db)):
         media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         headers={
             "Content-Disposition": f'attachment; filename="{filename}"',
+            "Access-Control-Expose-Headers": "Content-Disposition",
+        },
+    )
+
+
+# ── Download JD as PDF ───────────────────────────────────────────────────────
+@router.get("/{jd_id}/download/pdf/{filename}")
+@router.get("/{jd_id}/download/pdf") # Legacy support
+async def download_jd_pdf(jd_id: str, filename: str = None, db: AsyncSession = Depends(get_db)):
+    """Generate and stream a professional PDF file for the given JD."""
+
+    record = await get_questionnaire(db, jd_id)
+    if not record:
+        raise HTTPException(status_code=404, detail="JD not found")
+
+    if not record.jd_structured:
+        raise HTTPException(
+            status_code=400,
+            detail="No generated JD available for download. Please generate a JD first.",
+        )
+
+    # Generate the PDF
+    pdf_buffer = generate_jd_pdf(
+        jd_data=record.jd_structured,
+        title=record.title,
+        department=record.department,
+    )
+
+    # Build a professional safe filename
+    safe_title = re.sub(r'[<>:"/\\|?* ]', "_", (record.title or "Strategic_Role")).strip("_")
+    safe_dept = re.sub(r'[<>:"/\\|?* ]', "_", (record.department or "Organization")).strip("_")
+    
+    # Format: Pulse_Pharma_JD_Role_Dept.pdf
+    filename = f"Pulse_Pharma_JD_{safe_title}_{safe_dept}.pdf"
+    # Ensure no double underscores
+    while "__" in filename:
+        filename = filename.replace("__", "_")
+
+    # Return as standard Response with length (more reliable for some browsers/proxies)
+    content = pdf_buffer.getvalue()
+    
+    return Response(
+        content=content,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Content-Length": str(len(content)),
             "Access-Control-Expose-Headers": "Content-Disposition",
         },
     )

@@ -440,12 +440,17 @@ async def download_jd_docx(jd_id: str, filename: str = None, db: AsyncSession = 
     # Sanitize filename (remove chars that are problematic in file names)
     filename = re.sub(r'[<>:"/\\|?*]', "", filename)
 
-    return StreamingResponse(
-        docx_buffer,
+    # Return as standard Response to avoid streaming corruption
+    content = docx_buffer.getvalue()
+    
+    return Response(
+        content=content,
         media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         headers={
             "Content-Disposition": f'attachment; filename="{filename}"',
+            "Content-Length": str(len(content)),
             "Access-Control-Expose-Headers": "Content-Disposition",
+            "Content-Encoding": "identity",
         },
     )
 
@@ -493,6 +498,7 @@ async def download_jd_pdf(jd_id: str, filename: str = None, db: AsyncSession = D
             "Content-Disposition": f'attachment; filename="{filename}"',
             "Content-Length": str(len(content)),
             "Access-Control-Expose-Headers": "Content-Disposition",
+            "Content-Encoding": "identity",
         },
     )
 

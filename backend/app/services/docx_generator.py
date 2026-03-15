@@ -142,19 +142,22 @@ def generate_jd_docx(
     work_type = emp_info.get("work_type", "")
 
     # Section 1: Job / Role Info
-    purpose = jd_data.get("purpose", "")
-    responsibilities = jd_data.get("responsibilities", [])
+    purpose = jd_data.get("purpose") or jd_data.get("role_summary", "")
+    if isinstance(purpose, dict):
+        purpose = purpose.get("summary", str(purpose))
+        
+    responsibilities = jd_data.get("responsibilities") or jd_data.get("key_responsibilities", [])
     
     # Section 2: Working Relationships
-    relationships = jd_data.get("working_relationships", {})
-    team_info = relationships.get("team_size", "-")
-    internal_stakeholders = relationships.get("internal_stakeholders", "-")
-    external_stakeholders = relationships.get("external_stakeholders", "-")
-    reports_to = relationships.get("reporting_to", reports_to) # keep fallback for initial info
+    relationships = jd_data.get("stakeholders") or jd_data.get("working_relationships") or jd_data.get("stakeholder_interactions") or {}
+    team_info = team.get("team_size") or relationships.get("team_size", "-")
+    internal_stakeholders = relationships.get("internal") or relationships.get("internal_stakeholders", "-")
+    external_stakeholders = relationships.get("external") or relationships.get("external_stakeholders", "-")
+    reports_to = team.get("reports_to") or relationships.get("reporting_to", reports_to) # keep fallback for initial info
 
     # Section 3: Skills / Competencies
-    skills = jd_data.get("skills", [])
-    tools_list = jd_data.get("tools", [])
+    skills = jd_data.get("skills") or jd_data.get("required_skills", [])
+    tools_list = jd_data.get("tools") or jd_data.get("tools_and_technologies", [])
     
     # Section 4: Education & Experience
     education = jd_data.get("education", "")

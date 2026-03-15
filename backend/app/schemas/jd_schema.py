@@ -1,32 +1,29 @@
 from pydantic import BaseModel, Field
-from typing import List, Dict, Optional, Literal, Union
+from typing import List, Dict, Optional, Literal
 
 
-from typing import Any
+
 
 class EmployeeRoleInsights(BaseModel):
     identity_context: Dict = Field(default_factory=dict)
-    daily_activities: Union[List[Any], Dict, str] = Field(default_factory=list)
-    execution_processes: Union[List[Any], Dict, str] = Field(default_factory=list)
-    tools_and_platforms: Union[List[Any], Dict, str] = Field(default_factory=list)
-    team_collaboration: Dict = Field(default_factory=dict)
-    stakeholder_interactions: Dict = Field(default_factory=dict)
-    decision_authority: Dict = Field(default_factory=dict)
-    performance_metrics: Union[List[Any], Dict, str] = Field(default_factory=list)
-    work_environment: Dict = Field(default_factory=dict)
-    special_contributions: Union[List[Any], Dict, str] = Field(default_factory=list)
+    purpose: str = Field(default="")
+    responsibilities: List[str] = Field(default_factory=list)
+    working_relationships: Dict = Field(default_factory=dict)
+    skills: List[str] = Field(default_factory=list)
+    tools: List[str] = Field(default_factory=list)
+    education: str = Field(default="")
+    experience: str = Field(default="")
 
 
 class JDStructuredData(BaseModel):
     employee_information: Dict = Field(default_factory=dict)
-    role_summary: Union[str, Dict] = Field(default="")
-    key_responsibilities: List[str] = Field(default_factory=list)
-    required_skills: List[str] = Field(default_factory=list)
-    tools_and_technologies: List[str] = Field(default_factory=list)
-    team_structure: Dict = Field(default_factory=dict)
-    stakeholder_interactions: Dict = Field(default_factory=dict)
-    performance_metrics: List[str] = Field(default_factory=list)
-    work_environment: Dict = Field(default_factory=dict)
+    purpose: str = Field(default="")
+    responsibilities: List[str] = Field(default_factory=list)
+    working_relationships: Dict = Field(default_factory=dict)
+    skills: List[str] = Field(default_factory=list)
+    tools: List[str] = Field(default_factory=list)
+    education: str = Field(default="")
+    experience: str = Field(default="")
     additional_details: Dict = Field(default_factory=dict)
 
 
@@ -107,13 +104,13 @@ class JDRequest(BaseModel):
 
 class SaveJDRequest(BaseModel):
     id: str
-    jd_text: str
+    jd_text: Optional[str] = None
     jd_structured: Dict
     employee_id: Optional[str] = None
 
 
 class UpdateJDRequest(BaseModel):
-    jd_text: str
+    jd_text: Optional[str] = None
     jd_structured: Dict
     employee_id: str
 

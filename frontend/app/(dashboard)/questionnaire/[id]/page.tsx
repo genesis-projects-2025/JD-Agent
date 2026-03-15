@@ -47,6 +47,7 @@ export default function QuestionnairePage() {
     isRateLimited,
     retryTimer,
     updateJd,
+    updateStructuredData,
   } = useChat(() => {
     // Component stays on page; the JDPreviewPanel handles UI view
   }, true);
@@ -218,9 +219,10 @@ export default function QuestionnairePage() {
                 }
               }}
               onEdit={async () => {
-                // Future edit module logic; currently handled by interview
+                // Handled internally by JDPreviewPanel's isEditing state
               }}
               updateJd={updateJd}
+              updateStructuredData={updateStructuredData}
               onClose={() => setShowPanel(false)}
               sessionId={sessionId}
             />

@@ -350,5 +350,6 @@ export function useChat(onSaveSuccess?: () => void, autoInit: boolean = true) {
     retryTimer,
     hydrated, // ✅ NEW — use this in the chat page to show a loading skeleton
     updateJd: setJd,
+    updateStructuredData: setStructuredData,
   };
 }

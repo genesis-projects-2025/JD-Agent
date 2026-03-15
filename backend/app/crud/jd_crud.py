@@ -47,6 +47,7 @@ def _extract_title(jd_structured: dict) -> Optional[str]:
         or jd_structured.get("title")
         or jd_structured.get("role_title")
         or jd_structured.get("position")
+        or jd_structured.get("designation") # New Pulse Pharma key
     )
     if title and isinstance(title, str) and len(title) < 200:
         return title.strip()
@@ -65,9 +66,20 @@ def _extract_title(jd_structured: dict) -> Optional[str]:
 def _extract_department(jd_structured: dict) -> Optional[str]:
     if not isinstance(jd_structured, dict):
         return None
+    dept = (
+        jd_structured.get("department")
+        or jd_structured.get("function")
+        or jd_structured.get("dept")
+    )
+    if dept and isinstance(dept, str) and len(dept) < 200:
+        return dept.strip()
     emp_info = jd_structured.get("employee_information", {})
     if isinstance(emp_info, dict):
-        dept = emp_info.get("department")
+        dept = (
+            emp_info.get("department")
+            or emp_info.get("function")
+            or emp_info.get("dept")
+        )
         if dept and isinstance(dept, str) and len(dept) < 200:
             return dept.strip()
     return None
@@ -90,9 +102,24 @@ async def _harvest_organic_skills(
         return
 
     req_skills = jd_structured.get("required_skills", [])
+    if not isinstance(req_skills, list):
+        req_skills = []
+    
     tools = jd_structured.get("tools_and_technologies", [])
+    if not isinstance(tools, list):
+        tools = []
+    
+    # New Pulse Pharma keys
+    new_skills = jd_structured.get("skills", [])
+    if not isinstance(new_skills, list):
+        new_skills = []
+    
+    new_tools = jd_structured.get("tools", [])
+    if not isinstance(new_tools, list):
+        new_tools = []
+
     all_skills = set()
-    for s in req_skills + tools:
+    for s in req_skills + tools + new_skills + new_tools:
         if isinstance(s, str) and s.strip():
             all_skills.add(s.strip())
 
@@ -420,7 +447,14 @@ async def update_questionnaire_jd(
                 "You can only edit your own JDs, or JDs submitted to you."
             )
 
+    from app.services.jd_service import build_markdown_from_structured
+
     safe_structured = _safe_jsonb(jd_structured)
+    
+    # If jd_text is empty or not provided, reconstruct it from structured data
+    # This keeps the 'View' and 'Edit' modes in sync.
+    if not jd_text:
+        jd_text = build_markdown_from_structured(safe_structured)
 
     if record.jd_text:
         old_version = JDVersion(

@@ -142,24 +142,43 @@ export default function JDPage() {
         if (
           !pStruct ||
           Object.keys(pStruct).length === 0 ||
-          !pStruct.key_responsibilities
+          (!pStruct.responsibilities && !pStruct.key_responsibilities)
         ) {
           try {
             const p = safeParseObject(data.generated_jd);
             if (p.jd_structured_data) {
               pStruct = p.jd_structured_data;
-            } else if (p.role_summary || p.key_responsibilities) {
+            } else if (p.role_summary || p.key_responsibilities || p.responsibilities) {
               pStruct = p;
             }
           } catch (e) {}
         }
 
+        // --- Pulse Pharma Schema Alignment (Inflight Migration) ---
+        if (pStruct && typeof pStruct === "object") {
+          // Map legacy keys to new keys if they exist and new keys are empty
+          if (pStruct.key_responsibilities && !pStruct.responsibilities) {
+            pStruct.responsibilities = pStruct.key_responsibilities;
+          }
+          if (pStruct.required_skills && !pStruct.skills) {
+            pStruct.skills = pStruct.required_skills;
+          }
+          if (pStruct.tools_and_technologies && !pStruct.tools) {
+            pStruct.tools = pStruct.tools_and_technologies;
+          }
+          if (pStruct.role_summary && !pStruct.purpose) {
+            pStruct.purpose = pStruct.role_summary;
+          }
+        }
+
         // Final Failsafe for missing keys
         if (!pStruct || typeof pStruct !== "object") pStruct = {};
-        pStruct.key_responsibilities = pStruct.key_responsibilities || [];
-        pStruct.required_skills = pStruct.required_skills || [];
-        pStruct.tools_and_technologies = pStruct.tools_and_technologies || [];
-        pStruct.performance_metrics = pStruct.performance_metrics || [];
+        pStruct.responsibilities = pStruct.responsibilities || [];
+        pStruct.skills = pStruct.skills || [];
+        pStruct.tools = pStruct.tools || [];
+        pStruct.purpose = pStruct.purpose || "";
+        pStruct.education = pStruct.education || "";
+        pStruct.experience = pStruct.experience || "";
 
         console.log("JD Edit Loader -> Final extracted pStruct:", pStruct);
         setEditedData(pStruct);
@@ -311,49 +330,12 @@ export default function JDPage() {
         _last_edited_by: role,
       };
 
-      // Auto-generate rudimentary markdown from the edited structured data 
-      // so the display matches the structured edits.
-      const md = [
-        `# Job Description: ${enrichedData.job_title || enrichedData.title || "Job Description"}`,
-        ``,
-        `**Department:** ${enrichedData.department || "Organization"} | **Location:** ${enrichedData.location || "Office"}`,
-        `**Reports To:** ${enrichedData.reports_to || "Manager"}`,
-        ``,
-        `---`,
-        ``,
-        `## About the Role`,
-        `${enrichedData.role_summary?.summary || enrichedData.role_summary || "Role description."}`,
-        ``,
-        `---`,
-        ``,
-        `## Key Responsibilities`,
-        ...(enrichedData.key_responsibilities || []).map((r: string) => `- ${r}`),
-        ``,
-        `---`,
-        ``,
-        `## Required Skills & Competencies`,
-        ...(enrichedData.required_skills || []).map((s: string) => `- ${s}`),
-        ``,
-        `---`,
-        ``,
-        `## Tools & Technologies`,
-        ...(enrichedData.tools_and_technologies || []).map((t: string) => `- ${t}`),
-        ``,
-        `---`,
-        ``,
-        `## Performance & Success Metrics`,
-        ...(enrichedData.performance_metrics || []).map((m: string) => `- ${m}`),
-      ].join("\\n");
-
-      // Create a wrapper payload simulating the AI's internal response framework
-      const payload = JSON.stringify({
-        jd_text_format: md,
-        jd_structured_data: enrichedData,
-      });
-
+      // We no longer manually build MD in the frontend.
+      // The backend now has a standardized logic to regenerate jd_text
+      // from jd_structured, ensuring the view and edit modes are always in sync.
       await saveJD({
         id: jd.id,
-        jd_text: payload,
+        jd_text: "", // Let backend regenerate
         jd_structured: enrichedData,
         employee_id: jd.employee_id,
       });
@@ -850,15 +832,15 @@ export default function JDPage() {
                       />
                     </div>
 
-                    {/* Role Summary */}
+                    {/* Purpose of the Job */}
                     <div className="space-y-4">
                       <label className="text-[11px] font-black text-surface-500 uppercase tracking-widest px-1">
-                        Role Summary
+                        Purpose of the Job
                       </label>
                       <textarea
-                        value={editedData.role_summary || ""}
+                        value={editedData.purpose || ""}
                         onChange={(e) =>
-                          handleTextChange("role_summary", e.target.value)
+                          handleTextChange("purpose", e.target.value)
                         }
                         className="w-full bg-white border border-surface-200 rounded-2xl p-6 text-[15px] font-medium text-surface-800 leading-relaxed focus:ring-4 focus:ring-primary-500/10 focus:border-primary-500 outline-none resize-none min-h-[160px] shadow-sm transition-all"
                         placeholder="Brief overview of the role's purpose..."
@@ -868,17 +850,13 @@ export default function JDPage() {
                     {/* Array fields */}
                     {[
                       {
-                        key: "key_responsibilities",
-                        label: "Key Responsibilities",
+                        key: "responsibilities",
+                        label: "Job Responsibilities",
                       },
-                      { key: "required_skills", label: "Required Skills" },
+                      { key: "skills", label: "Skills / Competencies" },
                       {
-                        key: "tools_and_technologies",
+                        key: "tools",
                         label: "Tools & Technologies",
-                      },
-                      {
-                        key: "performance_metrics",
-                        label: "Performance Metrics",
                       },
                     ].map((field) => (
                       <div key={field.key} className="space-y-5">
@@ -926,6 +904,34 @@ export default function JDPage() {
                         </div>
                       </div>
                     ))}
+
+                    {/* Education and Experience */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                      <div className="space-y-4">
+                        <label className="text-[11px] font-black text-surface-500 uppercase tracking-widest px-1">
+                          Education Requested
+                        </label>
+                        <textarea
+                          value={editedData.education || ""}
+                          onChange={(e) =>
+                            handleTextChange("education", e.target.value)
+                          }
+                          className="w-full bg-white border border-surface-200 rounded-2xl p-6 text-[14px] font-medium text-surface-800 leading-relaxed focus:ring-4 focus:ring-primary-500/10 focus:border-primary-500 outline-none resize-none min-h-[100px] shadow-sm transition-all"
+                        />
+                      </div>
+                      <div className="space-y-4">
+                        <label className="text-[11px] font-black text-surface-500 uppercase tracking-widest px-1">
+                          Experience Requested
+                        </label>
+                        <textarea
+                          value={editedData.experience || ""}
+                          onChange={(e) =>
+                            handleTextChange("experience", e.target.value)
+                          }
+                          className="w-full bg-white border border-surface-200 rounded-2xl p-6 text-[14px] font-medium text-surface-800 leading-relaxed focus:ring-4 focus:ring-primary-500/10 focus:border-primary-500 outline-none resize-none min-h-[100px] shadow-sm transition-all"
+                        />
+                      </div>
+                    </div>
                   </div>
                 </div>
           ) : (

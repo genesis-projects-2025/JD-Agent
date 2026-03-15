@@ -54,6 +54,10 @@ async def get_current_admin(
 
 @router.post("/auth/admin-login", response_model=AdminLoginResponse)
 async def admin_login(request: AdminLoginRequest):
+    # DEBUG LOG — REMOVE AFTER FIX
+    print(f"DEBUG: Trial login with Code: '{request.code}' vs Expected: '{settings.ADMIN_CODE}'")
+    print(f"DEBUG: Password match: {request.password == settings.ADMIN_PASSWORD}")
+    
     # Use config-backed credentials
     if (
         request.code == settings.ADMIN_CODE

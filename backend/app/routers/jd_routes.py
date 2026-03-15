@@ -1,6 +1,7 @@
 # app/routers/jd_routes.py
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
+from fastapi.responses import StreamingResponse
 from app.schemas.jd_schema import (
     ChatRequest,
     InitJDRequest,
@@ -10,7 +11,7 @@ from app.schemas.jd_schema import (
     UpdateStatusRequest,
     GenerateJDRequest,
 )
-from app.services.jd_service import handle_conversation, handle_jd_generation
+from app.services.jd_service import handle_conversation, handle_conversation_stream, handle_jd_generation
 from app.memory.session_memory import SessionMemory
 from app.core.database import get_db
 from app.crud.jd_crud import (
@@ -187,6 +188,44 @@ async def chat(request: ChatRequest, db: AsyncSession = Depends(get_db)):
     )
 
     return {"reply": reply, "history": updated_history}
+
+
+@router.post("/chat/stream")
+async def chat_stream(request: ChatRequest, db: AsyncSession = Depends(get_db)):
+    session_id = request.id
+    if not session_id:
+        raise HTTPException(status_code=400, detail="Missing session id")
+
+    session_memory = await hydrate_session_from_db(session_id, db)
+
+    async def event_generator():
+        try:
+            # Yield events from the service
+            async for chunk in handle_conversation_stream(
+                history=request.history,
+                user_message=request.message,
+                session_memory=session_memory,
+            ):
+                yield chunk
+
+            # After yielding completes, sync updated memory to the database
+            await sync_session_to_db(
+                db=db,
+                session_id=session_id,
+                insights=session_memory.insights,
+                progress=session_memory.progress,
+                conversation_history=session_memory.full_history,
+                employee_id=session_memory.employee_id,
+                employee_name=session_memory.employee_name,
+                generated_jd=session_memory.generated_jd,
+                jd_structured=session_memory.jd_structured,
+                status=session_memory.progress.get("status"),
+            )
+        except Exception as e:
+            import json
+            yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
+
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
 
 
 # ── Generate JD ───────────────────────────────────────────────────────────────

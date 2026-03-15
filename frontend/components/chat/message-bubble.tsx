@@ -1,6 +1,6 @@
 // components/chat/message-bubble.tsx - ENTERPRISE REDESIGN
 
-import { useState } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import { Message } from "../../types/message";
 import {
   Bot,
@@ -33,6 +33,36 @@ export default function MessageBubble({
   const [newSkill, setNewSkill] = useState("");
   const [isConfirmed, setIsConfirmed] = useState(false);
   const [isReadyActionTaken, setIsReadyActionTaken] = useState(false);
+
+  // Typewriter effect state
+  const [displayText, setDisplayText] = useState(() => 
+    !message.isStreaming ? message.text : ""
+  );
+  const [isTyping, setIsTyping] = useState(false);
+  const fullText = message.text;
+  const EFFECT_SPEED = 20; // ms per character
+
+  useEffect(() => {
+    if (displayText.length < fullText.length) {
+      setIsTyping(true);
+      const timeout = setTimeout(() => {
+        // Take a slice to catch up faster if the gap is large
+        const gap = fullText.length - displayText.length;
+        const charsToAdd = gap > 20 ? 5 : 1; 
+        setDisplayText(fullText.substring(0, displayText.length + charsToAdd));
+      }, EFFECT_SPEED);
+      return () => clearTimeout(timeout);
+    } else {
+      setIsTyping(false);
+    }
+  }, [displayText, fullText]);
+
+  // Handle case where message is NOT streaming but has full text (initial load or manual update)
+  useEffect(() => {
+    if (!message.isStreaming && displayText.length === 0 && fullText.length > 0) {
+      setDisplayText(fullText);
+    }
+  }, [message.isStreaming, fullText]);
 
   const toggleSkill = (skill: string) => {
     if (isConfirmed) return;
@@ -91,9 +121,24 @@ export default function MessageBubble({
             </div>
           )}
 
-          <p className="text-[14px] sm:text-[15px] leading-[1.5] sm:leading-[1.6] whitespace-pre-wrap">
-            {message.text.trim().replace(/\n{3,}/g, "\n\n")}
-          </p>
+          <div className="text-[14px] sm:text-[15px] leading-[1.5] sm:leading-[1.6] whitespace-pre-wrap min-h-[1.5em] flex flex-col">
+            {displayText ? (
+              displayText.trim().replace(/\n{3,}/g, "\n\n")
+            ) : message.isStreaming ? (
+              <div className="flex items-center gap-2 text-surface-400 py-1">
+                <div className="flex gap-1">
+                  <span className="w-1.5 h-1.5 bg-primary-400 rounded-full animate-bounce [animation-delay:-0.3s]" />
+                  <span className="w-1.5 h-1.5 bg-primary-400 rounded-full animate-bounce [animation-delay:-0.15s]" />
+                  <span className="w-1.5 h-1.5 bg-primary-400 rounded-full animate-bounce" />
+                </div>
+                <span className="text-[10px] font-bold uppercase tracking-widest ml-1">Thinking...</span>
+              </div>
+            ) : null}
+            
+            {message.isStreaming && displayText.length > 0 && isTyping && (
+               <span className="inline-block w-1.5 h-4 bg-primary-500 animate-pulse ml-1 align-middle" />
+            )}
+          </div>
 
           {/* Skill Selection UI */}
           {message.isSkillSelection && (

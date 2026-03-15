@@ -1,6 +1,7 @@
 # app/services/jd_service.py
 from fastapi import HTTPException
 import json
+import asyncio
 import re
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.messages import HumanMessage, SystemMessage
@@ -57,6 +58,18 @@ def extract_json_block(text: str) -> str:
     end = text.rfind("}")
     if start != -1 and end != -1 and end > start:
         return text[start : end + 1]
+    return ""
+
+
+def extract_streaming_text(raw_json: str) -> str:
+    """Extracts the value of conversation_response from a potentially incomplete JSON string."""
+    match = re.search(r'"conversation_response"\s*:\s*"((?:[^"\\]|\\.)*)', raw_json)
+    if match:
+        extracted = match.group(1)
+        try:
+            return json.loads(f'"{extracted}"')
+        except json.JSONDecodeError:
+            return extracted.replace('\\"', '"').replace('\\n', '\n')
     return ""
 
 
@@ -673,3 +686,90 @@ async def handle_conversation(
     print("[Interview] ✅ TURN COMPLETED\n")
 
     return reply_content, history
+
+
+async def handle_conversation_stream(
+    history: list, user_message: str, session_memory: SessionMemory
+):
+    print("\n[Interview Stream] 🚀 TURN STARTED")
+
+    msgs = build_context(session_memory, user_message)
+
+    try:
+        raw_content = ""
+        last_extracted_text = ""
+
+        async for chunk in interview_llm.astream(msgs):
+            if chunk.content:
+                raw_content += chunk.content
+                # Strip think tags before trying to extract to ensure we get actual response
+                no_think_raw = remove_think_tags(raw_content)
+                current_text = extract_streaming_text(no_think_raw)
+                
+                # Yield text delta
+                if current_text and current_text != last_extracted_text:
+                    yield f"data: {json.dumps({'type': 'chunk', 'content': current_text})}\n\n"
+                    last_extracted_text = current_text
+                    # Small sleep to provide a steady stream for the frontend typewriter to catch up to
+                    await asyncio.sleep(0.03)
+
+        # ── Parsing the fully accumulated string ──────────────────────────────────
+        raw_content = strip_reasoning_tags(raw_content)
+        parsed_json, _ = parse_llm_response(raw_content, session_memory)
+        validated = ChatResponse(**parsed_json)
+
+        llm_insights = validated.employee_role_insights.model_dump()
+        existing_insights = safe_to_dict(session_memory.insights)
+        merged_insights = deep_merge(existing_insights, llm_insights)
+        session_memory.insights = merged_insights
+
+        current_percentage = session_memory.progress.get("completion_percentage", 0)
+        new_percentage = validated.progress.completion_percentage
+        
+        if new_percentage > current_percentage or not session_memory.progress:
+            session_memory.progress = validated.progress.model_dump()
+        else:
+            session_memory.progress["status"] = validated.progress.status
+            session_memory.progress["missing_insight_areas"] = validated.progress.missing_insight_areas
+            parsed_json["progress"] = session_memory.progress
+
+        session_memory.progress.get("status", "collecting")
+
+        conv_resp = parsed_json.get("conversation_response", "")
+        if conv_resp and (conv_resp.strip().startswith("{") or "conversation_response" in conv_resp):
+            try:
+                inner = json.loads(conv_resp)
+                if "conversation_response" in inner:
+                    parsed_json["conversation_response"] = inner["conversation_response"]
+            except (json.JSONDecodeError, TypeError):
+                pass
+
+        assistant_text = validated.conversation_response.strip()
+        assistant_text = re.sub(r"\n{3,}", "\n\n", assistant_text)
+
+        assistant_history_entry = json.dumps({"conversation_response": assistant_text})
+        session_memory.update_recent("user", user_message)
+        session_memory.update_recent("assistant", assistant_history_entry)
+        update_summary(session_memory)
+
+        parsed_json["employee_role_insights"] = merged_insights
+        parsed_json["jd_structured_data"] = {}
+        parsed_json["jd_text_format"] = ""
+
+        # Yield final completed JSON for frontend to finalize state
+        yield f"data: {json.dumps({'type': 'done', 'parsed': parsed_json})}\n\n"
+        
+        history.append({"role": "user", "content": user_message})
+        history.append({"role": "assistant", "content": json.dumps(parsed_json, indent=2)})
+
+    except Exception as e:
+        print(f"⚠️ STREAM PROCESSING ERROR: {e}")
+        import traceback
+        traceback.print_exc()
+        try:
+            fallback = json.loads(build_fallback_response(session_memory))
+            yield f"data: {json.dumps({'type': 'error', 'parsed': fallback})}\n\n"
+        except Exception:
+             yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
+
+    print("[Interview Stream] ✅ TURN COMPLETED\n")

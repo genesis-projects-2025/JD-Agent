@@ -338,6 +338,67 @@ export async function sendMessage(
   return res.json();
 }
 
+export async function sendMessageStream(
+  message: string,
+  history: any[],
+  sessionId: string | undefined,
+  onChunk: (chunk: string) => void,
+  onDone: (data: any) => void,
+  onError: (error: any) => void
+) {
+  try {
+    const res = await fetch(`${API_URL}/jd/chat/stream`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "text/event-stream",
+      },
+      body: JSON.stringify({ message, history, id: sessionId }),
+    });
+
+    if (!res.ok) throw new Error("Failed to start message stream");
+
+    const reader = res.body?.getReader();
+    const decoder = new TextDecoder("utf-8");
+
+    if (!reader) throw new Error("No readable stream");
+
+    let buffer = "";
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n\n");
+      // Keep the last partial event in the buffer
+      buffer = lines.pop() || "";
+
+      for (const line of lines) {
+        if (line.startsWith("data: ")) {
+          const dataStr = line.slice(6).trim();
+          if (!dataStr) continue;
+          
+          try {
+            const parsed = JSON.parse(dataStr);
+            if (parsed.type === "chunk" && parsed.content) {
+              onChunk(parsed.content);
+            } else if (parsed.type === "done") {
+              onDone(parsed.parsed);
+            } else if (parsed.type === "error") {
+              onError(parsed.message || parsed.parsed || "Stream error");
+            }
+          } catch (e) {
+            console.error("Failed to parse stream data", dataStr, e);
+          }
+        }
+      }
+    }
+  } catch (err) {
+    onError(err);
+  }
+}
+
 export async function generateJD(data: { id: string }) {
   const res = await fetch(`${API_URL}/jd/generate`, {
     method: "POST",

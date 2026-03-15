@@ -19,7 +19,10 @@ import {
   AlertTriangle,
   Users,
   ChevronLeft,
+  Trash2,
 } from "lucide-react";
+
+import { DeleteModal } from "@/components/ui/delete-modal";
 
 import {
   AuthUser,
@@ -140,9 +143,36 @@ function JDGrid({
     );
   }
 
+  const router = useRouter();
+  const [isDeleting, setIsDeleting] = useState<string | null>(null);
+  const [jdToDelete, setJdToDelete] = useState<JDListItem | null>(null);
+
+  const handleDelete = async (jd: JDListItem, e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setJdToDelete(jd);
+  };
+
+  const confirmDelete = async () => {
+    if (!jdToDelete) return;
+    setIsDeleting(jdToDelete.id);
+    try {
+      const { deleteJD } = require("@/lib/api");
+      const employeeId = getOrCreateEmployeeId();
+      await deleteJD(jdToDelete.id, employeeId);
+      // Fast refresh by just reloading the page or we could pass a callback
+      window.location.reload();
+    } catch (err: any) {
+      alert(err?.message || "Failed to delete JD");
+      setIsDeleting(null);
+      setJdToDelete(null);
+    }
+  };
+
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-      {jds.map((jd) => {
+    <>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        {jds.map((jd) => {
         const config = STATUS_CONFIG[jd.status] || STATUS_CONFIG.draft;
         const href = [
           "draft",
@@ -209,14 +239,40 @@ function JDGrid({
                 View JD
                 <ArrowRight className="w-4 h-4" />
               </span>
-              <div className="w-10 h-10 bg-surface-50 rounded-xl flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                <FileText className="w-5 h-5 text-surface-400" />
+              <div className="flex gap-2">
+                {/* Delete button only shown if the current user is the owner (in employee view) and status is a deletable one */}
+                {!showEmployee && ["collecting", "draft", "manager_rejected", "hr_rejected", "jd_generated"].includes(jd.status) && (
+                  <button
+                    onClick={(e) => handleDelete(jd, e)}
+                    disabled={isDeleting === jd.id}
+                    className="w-10 h-10 bg-red-50 text-red-500 hover:bg-red-100 hover:text-red-600 rounded-xl flex flex-shrink-0 items-center justify-center transition-colors disabled:opacity-50"
+                  >
+                    {isDeleting === jd.id ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <Trash2 className="w-4 h-4" />
+                    )}
+                  </button>
+                )}
+                <div className="w-10 h-10 bg-surface-50 rounded-xl flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                  <FileText className="w-5 h-5 text-surface-400" />
+                </div>
               </div>
             </div>
           </Link>
         );
       })}
-    </div>
+      </div>
+      
+      <DeleteModal
+        isOpen={!!jdToDelete}
+        onClose={() => !isDeleting && setJdToDelete(null)}
+        onConfirm={confirmDelete}
+        isDeleting={!!isDeleting}
+        title="Delete Job Description"
+        description={`Are you sure you want to delete "${jdToDelete?.title || 'Untitled Strategic Role'}"? This action cannot be undone.`}
+      />
+    </>
   );
 }
 

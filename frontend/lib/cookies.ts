@@ -1,7 +1,7 @@
 /**
  * Enterprise Cookie Utility
  * Standardized way to handle auth data with security best practices.
- **/
+ */
 
 export const setCookie = (name: string, value: string, days: number = 7) => {
   const expires = new Date();

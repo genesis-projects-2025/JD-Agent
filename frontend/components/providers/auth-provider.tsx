@@ -67,7 +67,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       } else if (!cachedId) {
         setIsLoading(false);
       }
-      authenticate();
     };
 
     authenticate();

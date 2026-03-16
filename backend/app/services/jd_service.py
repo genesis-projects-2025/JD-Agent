@@ -1,6 +1,7 @@
 # app/services/jd_service.py
 from fastapi import HTTPException
 import json
+import asyncio
 import re
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.messages import HumanMessage, SystemMessage
@@ -57,6 +58,18 @@ def extract_json_block(text: str) -> str:
     end = text.rfind("}")
     if start != -1 and end != -1 and end > start:
         return text[start : end + 1]
+    return ""
+
+
+def extract_streaming_text(raw_json: str) -> str:
+    """Extracts the value of conversation_response from a potentially incomplete JSON string."""
+    match = re.search(r'"conversation_response"\s*:\s*"((?:[^"\\]|\\.)*)', raw_json)
+    if match:
+        extracted = match.group(1)
+        try:
+            return json.loads(f'"{extracted}"')
+        except json.JSONDecodeError:
+            return extracted.replace('\\"', '"').replace('\\n', '\n')
     return ""
 
 
@@ -267,19 +280,15 @@ def wrap_plain_text_into_json(
             "missing_insight_areas": [],
             "status": "collecting",
         },
-        "employee_role_insights": insights_dict
-        if insights_dict
-        else {
+        "employee_role_insights": insights_dict or {
             "identity_context": {},
-            "daily_activities": [],
-            "execution_processes": [],
-            "tools_and_platforms": [],
-            "team_collaboration": {},
-            "stakeholder_interactions": {},
-            "decision_authority": {},
-            "performance_metrics": [],
-            "work_environment": {},
-            "special_contributions": [],
+            "purpose": "",
+            "responsibilities": [],
+            "working_relationships": {},
+            "skills": [],
+            "tools": [],
+            "education": "",
+            "experience": "",
         },
         "jd_structured_data": {},
         "jd_text_format": "",
@@ -365,14 +374,14 @@ def parse_llm_response(
 
 # ── JD Generation ──────────────────────────────────────────────────────────────
 # getting the structed data of the employee whole conversation
-def _build_markdown_from_structured(s: dict, insights: dict) -> str:
-    """Safety net — reconstruct markdown when jd_text_format is missing."""
-    emp = s.get("employee_information", {})
+def build_markdown_from_structured(structured: dict) -> str:
+    """Standardized markdown generator for Pulse Pharma template."""
+    emp = structured.get("employee_information", {})
     title = (
         emp.get("job_title")
         or emp.get("title")
         or emp.get("role_title")
-        or insights.get("identity_context", {}).get("title", "Role")
+        or "New Role"
     )
     lines = [f"# Job Description: {title}\n"]
     dept = emp.get("department", "")
@@ -388,38 +397,52 @@ def _build_markdown_from_structured(s: dict, insights: dict) -> str:
     lines.append("\n---\n")
 
     for section, key in [
-        ("## About the Role", "role_summary"),
+        ("## Purpose of the Job / Role", "purpose"),
+        ("## Job Responsibilities", "responsibilities"),
     ]:
-        val = s.get(key, "")
+        val = structured.get(key)
         if val:
             lines.append(section)
-            lines.append(val if isinstance(val, str) else json.dumps(val))
+            if isinstance(val, list):
+                for item in val:
+                    lines.append(f"- {item}")
+            else:
+                lines.append(str(val))
             lines.append("\n---\n")
 
+    wr = structured.get("working_relationships", {})
+    if wr:
+        lines.append("## Working Relationships\n")
+        lines.append("| | |")
+        lines.append("|---|---|")
+        if wr.get("reporting_to"):
+            lines.append(f"| **Reporting to** | {wr['reporting_to']} |")
+        if wr.get("team_size"):
+            lines.append(f"| **Team** | {wr['team_size']} |")
+        if wr.get("internal_stakeholders"):
+            lines.append(f"| **Internal Stakeholders** | {wr['internal_stakeholders']} |")
+        if wr.get("external_stakeholders"):
+            lines.append(f"| **External Stakeholders** | {wr['external_stakeholders']} |")
+        lines.append("\n---\n")
+
     for section, key in [
-        ("## Key Responsibilities", "key_responsibilities"),
-        ("## Required Skills", "required_skills"),
-        ("## Tools & Technologies", "tools_and_technologies"),
-        ("## Performance Metrics", "performance_metrics"),
+        ("## Skills / Competencies Required", "skills"),
+        ("## Tools & Technologies", "tools"),
     ]:
-        items = s.get(key, [])
+        items = structured.get(key, [])
         if items:
             lines.append(section)
             for item in items:
                 lines.append(f"- {item}")
             lines.append("\n---\n")
 
-    for section, key in [
-        ("## Team Structure", "team_structure"),
-        ("## Work Environment", "work_environment"),
-    ]:
-        data = s.get(key, {})
-        if data:
-            lines.append(section)
-            for k, v in data.items():
-                val = ", ".join(str(i) for i in v) if isinstance(v, list) else str(v)
-                lines.append(f"**{k.replace('_', ' ').title()}:** {val}")
-            lines.append("\n---\n")
+    if structured.get("education") or structured.get("experience"):
+        lines.append("## Academic Qualifications & Experience Required")
+        if structured.get("education"):
+            lines.append(str(structured["education"]))
+        if structured.get("experience"):
+            lines.append(str(structured["experience"]))
+        lines.append("\n---\n")
 
     lines.append("*Generated from structured employee role intelligence interview.*")
     return "\n".join(lines)
@@ -486,14 +509,13 @@ async def handle_jd_generation(session_memory: SessionMemory) -> dict:
             if not structured:
                 jd_keys = {
                     "employee_information",
-                    "role_summary",
-                    "key_responsibilities",
-                    "required_skills",
-                    "tools_and_technologies",
-                    "team_structure",
-                    "stakeholder_interactions",
-                    "performance_metrics",
-                    "work_environment",
+                    "purpose",
+                    "responsibilities",
+                    "working_relationships",
+                    "skills",
+                    "tools",
+                    "education",
+                    "experience",
                     "additional_details",
                 }
                 if any(k in parsed for k in jd_keys):
@@ -537,8 +559,9 @@ async def handle_jd_generation(session_memory: SessionMemory) -> dict:
 
     # Strategy 3: reconstruct markdown from structured
     if structured and not jd_text:
-        print("\n🔧 PARSING STRATEGY 3 — Reconstructing markdown from structured data")
-        jd_text = _build_markdown_from_structured(structured, insights_dict)
+        print("\n🔧 PARSING STRATEGY 3 — Reconstructing markdown")        # Build markdown for UI
+        md = build_markdown_from_structured(structured)
+        jd_text = md
 
     print(
         f"[JD Generation] 📋 FINAL RESULT | structured keys: {len(list(structured.keys()))} | text length: {len(jd_text)}"
@@ -599,11 +622,18 @@ async def handle_conversation(
         session_memory.insights = merged_insights
 
         # Update progress carefully — don't overwrite with 0 if LLM failed to return progress
-        if validated.progress.completion_percentage > 0 or not session_memory.progress:
+        current_percentage = session_memory.progress.get("completion_percentage", 0)
+        new_percentage = validated.progress.completion_percentage
+        
+        # Only update progress if it's an improvement or we have no progress yet
+        if new_percentage > current_percentage or not session_memory.progress:
             session_memory.progress = validated.progress.model_dump()
         else:
-            # Merge just in case or keep old
-            print("   ⚠️ LLM returned 0 progress — keeping previous session progress.")
+            print(f"   ⚠️ LLM returned lower or equal progress ({new_percentage}%) than current ({current_percentage}%) — ignoring drop.")
+            # IMPORTANT: We still want to allow STATUS changes even if percentage hasn't moved!
+            # e.g. shifting from 'collecting' at 100% to 'ready_for_generation' at 100%
+            session_memory.progress["status"] = validated.progress.status
+            session_memory.progress["missing_insight_areas"] = validated.progress.missing_insight_areas
             parsed_json["progress"] = session_memory.progress
 
         session_memory.progress.get("status", "collecting")
@@ -656,3 +686,90 @@ async def handle_conversation(
     print("[Interview] ✅ TURN COMPLETED\n")
 
     return reply_content, history
+
+
+async def handle_conversation_stream(
+    history: list, user_message: str, session_memory: SessionMemory
+):
+    print("\n[Interview Stream] 🚀 TURN STARTED")
+
+    msgs = build_context(session_memory, user_message)
+
+    try:
+        raw_content = ""
+        last_extracted_text = ""
+
+        async for chunk in interview_llm.astream(msgs):
+            if chunk.content:
+                raw_content += chunk.content
+                # Strip think tags before trying to extract to ensure we get actual response
+                no_think_raw = remove_think_tags(raw_content)
+                current_text = extract_streaming_text(no_think_raw)
+                
+                # Yield text delta
+                if current_text and current_text != last_extracted_text:
+                    yield f"data: {json.dumps({'type': 'chunk', 'content': current_text})}\n\n"
+                    last_extracted_text = current_text
+                    # Small sleep to provide a steady stream for the frontend typewriter to catch up to
+                    await asyncio.sleep(0.03)
+
+        # ── Parsing the fully accumulated string ──────────────────────────────────
+        raw_content = strip_reasoning_tags(raw_content)
+        parsed_json, _ = parse_llm_response(raw_content, session_memory)
+        validated = ChatResponse(**parsed_json)
+
+        llm_insights = validated.employee_role_insights.model_dump()
+        existing_insights = safe_to_dict(session_memory.insights)
+        merged_insights = deep_merge(existing_insights, llm_insights)
+        session_memory.insights = merged_insights
+
+        current_percentage = session_memory.progress.get("completion_percentage", 0)
+        new_percentage = validated.progress.completion_percentage
+        
+        if new_percentage > current_percentage or not session_memory.progress:
+            session_memory.progress = validated.progress.model_dump()
+        else:
+            session_memory.progress["status"] = validated.progress.status
+            session_memory.progress["missing_insight_areas"] = validated.progress.missing_insight_areas
+            parsed_json["progress"] = session_memory.progress
+
+        session_memory.progress.get("status", "collecting")
+
+        conv_resp = parsed_json.get("conversation_response", "")
+        if conv_resp and (conv_resp.strip().startswith("{") or "conversation_response" in conv_resp):
+            try:
+                inner = json.loads(conv_resp)
+                if "conversation_response" in inner:
+                    parsed_json["conversation_response"] = inner["conversation_response"]
+            except (json.JSONDecodeError, TypeError):
+                pass
+
+        assistant_text = validated.conversation_response.strip()
+        assistant_text = re.sub(r"\n{3,}", "\n\n", assistant_text)
+
+        assistant_history_entry = json.dumps({"conversation_response": assistant_text})
+        session_memory.update_recent("user", user_message)
+        session_memory.update_recent("assistant", assistant_history_entry)
+        update_summary(session_memory)
+
+        parsed_json["employee_role_insights"] = merged_insights
+        parsed_json["jd_structured_data"] = {}
+        parsed_json["jd_text_format"] = ""
+
+        # Yield final completed JSON for frontend to finalize state
+        yield f"data: {json.dumps({'type': 'done', 'parsed': parsed_json})}\n\n"
+        
+        history.append({"role": "user", "content": user_message})
+        history.append({"role": "assistant", "content": json.dumps(parsed_json, indent=2)})
+
+    except Exception as e:
+        print(f"⚠️ STREAM PROCESSING ERROR: {e}")
+        import traceback
+        traceback.print_exc()
+        try:
+            fallback = json.loads(build_fallback_response(session_memory))
+            yield f"data: {json.dumps({'type': 'error', 'parsed': fallback})}\n\n"
+        except Exception:
+             yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
+
+    print("[Interview Stream] ✅ TURN COMPLETED\n")

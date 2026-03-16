@@ -155,10 +155,11 @@ export async function fetchDepartmentEmployees(
   departmentName: string,
   page: number = 1,
   limit: number = 50,
+  submittedOnly: boolean = false,
 ) {
   const encodedName = encodeURIComponent(departmentName);
   const res = await fetch(
-    `${API_URL}/api/hr/departments/${encodedName}/employees?page=${page}&limit=${limit}`,
+    `${API_URL}/api/hr/departments/${encodedName}/employees?page=${page}&limit=${limit}&only_submitted=${submittedOnly}`,
   );
   if (res.status === 404) return [];
   if (!res.ok) throw new Error("Failed to fetch department employees");
@@ -242,8 +243,12 @@ export async function deleteJD(jdId: string, employeeId: string) {
   return res.json();
 }
 
-export async function getJDs(params?: { status?: string }) {
-  const res = await fetch(`${API_URL}/jd/list`);
+export async function getJDs(params?: { submitted_only?: boolean }) {
+  let url = `${API_URL}/jd/list`;
+  if (params?.submitted_only) {
+    url += `?submitted_only=true`;
+  }
+  const res = await fetch(url);
   if (res.status === 404) return [];
   if (!res.ok) throw new Error("Failed to fetch all JDs");
   return res.json();
@@ -338,6 +343,67 @@ export async function sendMessage(
   return res.json();
 }
 
+export async function sendMessageStream(
+  message: string,
+  history: any[],
+  sessionId: string | undefined,
+  onChunk: (chunk: string) => void,
+  onDone: (data: any) => void,
+  onError: (error: any) => void
+) {
+  try {
+    const res = await fetch(`${API_URL}/jd/chat/stream`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "text/event-stream",
+      },
+      body: JSON.stringify({ message, history, id: sessionId }),
+    });
+
+    if (!res.ok) throw new Error("Failed to start message stream");
+
+    const reader = res.body?.getReader();
+    const decoder = new TextDecoder("utf-8");
+
+    if (!reader) throw new Error("No readable stream");
+
+    let buffer = "";
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n\n");
+      // Keep the last partial event in the buffer
+      buffer = lines.pop() || "";
+
+      for (const line of lines) {
+        if (line.startsWith("data: ")) {
+          const dataStr = line.slice(6).trim();
+          if (!dataStr) continue;
+          
+          try {
+            const parsed = JSON.parse(dataStr);
+            if (parsed.type === "chunk" && parsed.content) {
+              onChunk(parsed.content);
+            } else if (parsed.type === "done") {
+              onDone(parsed.parsed);
+            } else if (parsed.type === "error") {
+              onError(parsed.message || parsed.parsed || "Stream error");
+            }
+          } catch (e) {
+            console.error("Failed to parse stream data", dataStr, e);
+          }
+        }
+      }
+    }
+  } catch (err) {
+    onError(err);
+  }
+}
+
 export async function generateJD(data: { id: string }) {
   const res = await fetch(`${API_URL}/jd/generate`, {
     method: "POST",
@@ -423,34 +489,16 @@ export async function markFeedbackRead(commentId: string) {
   return res.json();
 }
 
-/**
- * Download a JD as DOCX.
- * Fetches the file blob from the backend and triggers a browser download.
- */
-export async function downloadJDDocx(sessionId: string): Promise<void> {
-  const res = await fetch(`${API_URL}/jd/${sessionId}/download`);
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ detail: "Download failed" }));
-    throw new Error(err.detail || "Failed to download JD");
-  }
-
-  const blob = await res.blob();
-
-  // Extract filename from Content-Disposition header, or use fallback
-  const disposition = res.headers.get("Content-Disposition");
-  let filename = "Job Description.docx";
-  if (disposition) {
-    const match = disposition.match(/filename="?([^"]+)"?/);
-    if (match?.[1]) filename = match[1];
-  }
-
-  // Create a temporary download link
-  const url = window.URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  window.URL.revokeObjectURL(url);
+export function downloadJDDocx(sessionId: string): void {
+  // Use path-based filename for maximum reliability
+  const cleanFilename = "Pulse_Pharma_Job_Description.docx";
+  const downloadUrl = `${API_URL}/jd/${sessionId}/download/docx/${cleanFilename}`;
+  window.location.assign(downloadUrl);
+}
+export function downloadJDPdf(sessionId: string): void {
+  // Use path-based filename for maximum reliability
+  // This ensures the browser sees the .pdf extension as part of the location
+  const cleanFilename = "Pulse_Pharma_Job_Description.pdf";
+  const downloadUrl = `${API_URL}/jd/${sessionId}/download/pdf/${cleanFilename}`;
+  window.location.assign(downloadUrl);
 }

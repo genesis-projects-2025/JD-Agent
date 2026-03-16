@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { Message } from "../types/message";
 import {
   sendMessage as apiSendMessage,
+  sendMessageStream as apiSendMessageStream,
   saveJD as apiSaveJD,
   fetchJD,
   generateJD as apiGenerateJD,
@@ -81,6 +82,26 @@ export function useChat(onSaveSuccess?: () => void, autoInit: boolean = true) {
           isReadySelection: newStatus === "ready_for_generation",
         },
       ]);
+    } else {
+      // ✅ Update the LAST message instead of appending (used for finalizing stream)
+      setMessages((prev) => {
+        const newMessages = [...prev];
+        const lastIdx = newMessages.length - 1;
+        if (lastIdx >= 0 && newMessages[lastIdx].sender === "agent") {
+          newMessages[lastIdx] = {
+            ...newMessages[lastIdx],
+            text: parsed.conversation_response,
+            skills: suggestedSkills,
+            isStreaming: false, // ✅ Stream finished
+            isSkillSelection:
+              newStatus === "ready_for_generation" &&
+              !!suggestedSkills &&
+              suggestedSkills.length > 0,
+            isReadySelection: newStatus === "ready_for_generation",
+          };
+        }
+        return newMessages;
+      });
     }
 
     setHistory(updatedHistory);
@@ -206,9 +227,57 @@ export function useChat(onSaveSuccess?: () => void, autoInit: boolean = true) {
 
     try {
       const id = window.location.pathname.split("/").pop();
-      const data = await apiSendMessage(text, history, id);
-      processResponse(data.reply, data.history);
-      setLastMessageText(null);
+      
+      // Add the initial empty agent message with isStreaming: true
+      setMessages((prev) => [
+        ...prev,
+        { sender: "agent", text: "", isStreaming: true },
+      ]);
+
+      await apiSendMessageStream(
+        text,
+        history,
+        id,
+        (chunk) => {
+          setMessages((prev) => {
+            const newMessages = [...prev];
+            const lastIdx = newMessages.length - 1;
+            if (lastIdx >= 0 && newMessages[lastIdx].sender === "agent") {
+              // Create a new object to ensure React detects the change
+              newMessages[lastIdx] = {
+                ...newMessages[lastIdx],
+                text: chunk,
+                isStreaming: true
+              };
+            }
+            return newMessages;
+          });
+        },
+        (parsedData) => {
+          // Instead of removing and re-adding, we just finalize the last message
+          const rawReply = JSON.stringify(parsedData);
+          const newHistory = [
+            ...history, 
+            { role: "user", content: text }, 
+            { role: "assistant", content: rawReply }
+          ];
+          
+          processResponse(rawReply, newHistory, false); // false = don't append, update last
+          setLastMessageText(null);
+        },
+        (error: any) => {
+          // Optional: handle error visually in the last message
+          setMessages((prev) => {
+            const newMessages = [...prev];
+            const lastIdx = newMessages.length - 1;
+            if (lastIdx >= 0 && newMessages[lastIdx].sender === "agent" && !newMessages[lastIdx].text) {
+              return prev.slice(0, -1); // remove if no text streamed
+            }
+            return newMessages;
+          });
+          throw error;
+        }
+      );
     } catch (error: any) {
       console.error("Error sending message:", error);
 
@@ -350,5 +419,6 @@ export function useChat(onSaveSuccess?: () => void, autoInit: boolean = true) {
     retryTimer,
     hydrated, // ✅ NEW — use this in the chat page to show a loading skeleton
     updateJd: setJd,
+    updateStructuredData: setStructuredData,
   };
 }

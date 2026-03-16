@@ -23,6 +23,8 @@ import {
   Plus,
   Trash,
   Download,
+  ChevronDown,
+  FileDown,
 } from "lucide-react";
 import {
   fetchJD,
@@ -39,6 +41,7 @@ import {
   createReviewComment,
   fetchReviewComments,
   downloadJDDocx,
+  downloadJDPdf,
 } from "@/lib/api";
 import { DeleteModal } from "@/components/ui/delete-modal";
 import FeedbackModal from "@/components/feedback/FeedbackModal";
@@ -58,6 +61,8 @@ export default function JDPage() {
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [showFeedbackPrompt, setShowFeedbackPrompt] = useState(false);
+  const [showDownloadDropdown, setShowDownloadDropdown] = useState(false);
+  const [isDownloadingPdf, setIsDownloadingPdf] = useState(false);
   const [showRejectModal, setShowRejectModal] = useState(false);
   const [rejectingAs, setRejectingAs] = useState<"manager" | "hr">("manager");
   const [reviewComments, setReviewComments] = useState<any[]>([]);
@@ -142,24 +147,57 @@ export default function JDPage() {
         if (
           !pStruct ||
           Object.keys(pStruct).length === 0 ||
-          !pStruct.key_responsibilities
+          (!pStruct.responsibilities && !pStruct.key_responsibilities)
         ) {
           try {
             const p = safeParseObject(data.generated_jd);
             if (p.jd_structured_data) {
               pStruct = p.jd_structured_data;
-            } else if (p.role_summary || p.key_responsibilities) {
+            } else if (p.role_summary || p.key_responsibilities || p.responsibilities) {
               pStruct = p;
             }
           } catch (e) {}
         }
 
+        // --- Pulse Pharma Schema Alignment (Inflight Migration) ---
+        if (pStruct && typeof pStruct === "object") {
+          // Map legacy/LLM keys to new keys if they exist and new keys are empty
+          if (pStruct.key_responsibilities && !pStruct.responsibilities) {
+            pStruct.responsibilities = pStruct.key_responsibilities;
+          }
+          if (pStruct.required_skills && !pStruct.skills) {
+            pStruct.skills = pStruct.required_skills;
+          }
+          if (pStruct.tools_and_technologies && !pStruct.tools) {
+            pStruct.tools = pStruct.tools_and_technologies;
+          }
+          if (pStruct.role_summary && !pStruct.purpose) {
+            pStruct.purpose = pStruct.role_summary;
+          }
+          if (pStruct.performance_metrics && !pStruct.metrics) {
+            pStruct.metrics = pStruct.performance_metrics;
+          }
+           if (pStruct.stakeholder_interactions && !pStruct.stakeholders) {
+            pStruct.stakeholders = pStruct.stakeholder_interactions;
+          }
+          if (pStruct.additional_details && !pStruct.additional) {
+            pStruct.additional = pStruct.additional_details;
+          }
+        }
+
         // Final Failsafe for missing keys
         if (!pStruct || typeof pStruct !== "object") pStruct = {};
-        pStruct.key_responsibilities = pStruct.key_responsibilities || [];
-        pStruct.required_skills = pStruct.required_skills || [];
-        pStruct.tools_and_technologies = pStruct.tools_and_technologies || [];
-        pStruct.performance_metrics = pStruct.performance_metrics || [];
+        pStruct.responsibilities = pStruct.responsibilities || [];
+        pStruct.skills = pStruct.skills || [];
+        pStruct.tools = pStruct.tools || [];
+        pStruct.purpose = pStruct.purpose || "";
+        pStruct.education = pStruct.education || "";
+        pStruct.experience = pStruct.experience || "";
+        pStruct.metrics = pStruct.metrics || [];
+        pStruct.stakeholders = pStruct.stakeholders || {};
+        pStruct.additional = pStruct.additional || {};
+        pStruct.team_structure = pStruct.team_structure || {};
+        pStruct.work_environment = pStruct.work_environment || {};
 
         console.log("JD Edit Loader -> Final extracted pStruct:", pStruct);
         setEditedData(pStruct);
@@ -197,7 +235,15 @@ export default function JDPage() {
     }
   }, [jdId, isMounted]);
 
-  if (!isMounted || loading) {
+  if (!isMounted) { // Hydration fix: Only render the main UI once mounted
+    return (
+      <div className="min-h-screen bg-white flex items-center justify-center">
+        <Loader2 className="w-8 h-8 animate-spin text-primary-600" />
+      </div>
+    );
+  }
+
+  if (loading) {
     return (
       <div className="h-[calc(100vh-8rem)] flex items-center justify-center">
         <Loader2 className="w-8 h-8 text-primary-600 animate-spin" />
@@ -311,49 +357,12 @@ export default function JDPage() {
         _last_edited_by: role,
       };
 
-      // Auto-generate rudimentary markdown from the edited structured data 
-      // so the display matches the structured edits.
-      const md = [
-        `# Job Description: ${enrichedData.job_title || enrichedData.title || "Job Description"}`,
-        ``,
-        `**Department:** ${enrichedData.department || "Organization"} | **Location:** ${enrichedData.location || "Office"}`,
-        `**Reports To:** ${enrichedData.reports_to || "Manager"}`,
-        ``,
-        `---`,
-        ``,
-        `## About the Role`,
-        `${enrichedData.role_summary?.summary || enrichedData.role_summary || "Role description."}`,
-        ``,
-        `---`,
-        ``,
-        `## Key Responsibilities`,
-        ...(enrichedData.key_responsibilities || []).map((r: string) => `- ${r}`),
-        ``,
-        `---`,
-        ``,
-        `## Required Skills & Competencies`,
-        ...(enrichedData.required_skills || []).map((s: string) => `- ${s}`),
-        ``,
-        `---`,
-        ``,
-        `## Tools & Technologies`,
-        ...(enrichedData.tools_and_technologies || []).map((t: string) => `- ${t}`),
-        ``,
-        `---`,
-        ``,
-        `## Performance & Success Metrics`,
-        ...(enrichedData.performance_metrics || []).map((m: string) => `- ${m}`),
-      ].join("\\n");
-
-      // Create a wrapper payload simulating the AI's internal response framework
-      const payload = JSON.stringify({
-        jd_text_format: md,
-        jd_structured_data: enrichedData,
-      });
-
+      // We no longer manually build MD in the frontend.
+      // The backend now has a standardized logic to regenerate jd_text
+      // from jd_structured, ensuring the view and edit modes are always in sync.
       await saveJD({
         id: jd.id,
-        jd_text: payload,
+        jd_text: "", // Let backend regenerate
         jd_structured: enrichedData,
         employee_id: jd.employee_id,
       });
@@ -471,8 +480,8 @@ export default function JDPage() {
         </button>
 
         {/* Header card */}
-        <div className="bg-white rounded-2xl md:rounded-[40px] p-5 md:p-12 border border-surface-200 shadow-premium relative overflow-hidden">
-          <div className="absolute top-0 right-0 w-[500px] h-[500px] bg-gradient-to-br from-primary-50 via-white to-transparent opacity-50 rounded-full blur-3xl -translate-y-1/2 translate-x-1/3 pointer-events-none"></div>
+        <div className="bg-white rounded-2xl md:rounded-[40px] p-5 md:p-12 border border-surface-200 shadow-premium relative">
+          <div className="absolute top-0 right-0 w-[500px] h-[500px] bg-gradient-to-br from-primary-50 via-white to-transparent opacity-50 rounded-full blur-3xl -translate-y-1/2 translate-x-1/3 pointer-events-none overflow-hidden"></div>
           <div className="relative z-10 flex flex-col md:flex-row md:items-start justify-between gap-8">
             <div>
               <div className="flex flex-wrap items-center gap-3 mb-6">
@@ -502,27 +511,70 @@ export default function JDPage() {
 
               {/* Download Button — visible to all roles when JD exists */}
               {jd.jd_structured && (
-                <button
-                  onClick={async () => {
-                    setIsDownloading(true);
-                    try {
-                      await downloadJDDocx(jdId);
-                    } catch (err: any) {
-                      alert(err.message || "Failed to download");
-                    } finally {
-                      setIsDownloading(false);
-                    }
-                  }}
-                  disabled={isDownloading}
-                  className="mt-4 inline-flex items-center gap-2 px-5 py-3 bg-gradient-to-r from-primary-600 to-primary-700 text-white rounded-xl font-bold text-[13px] shadow-md hover:shadow-lg hover:-translate-y-0.5 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                <div 
+                  className="relative mt-4 inline-block"
+                  onMouseEnter={() => setShowDownloadDropdown(true)}
+                  onMouseLeave={() => setShowDownloadDropdown(false)}
                 >
-                  {isDownloading ? (
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                  ) : (
-                    <Download className="w-4 h-4" />
+                  <button
+                    onClick={() => setShowDownloadDropdown(!showDownloadDropdown)}
+                    className="inline-flex items-center gap-2 px-5 py-3 bg-gradient-to-r from-primary-600 to-primary-700 text-white rounded-xl font-bold text-[13px] shadow-md hover:shadow-lg hover:-translate-y-0.5 transition-all disabled:opacity-50 disabled:cursor-not-allowed group"
+                  >
+                    <Download className="w-4 h-4 group-hover:scale-110 transition-transform" />
+                    Download JD
+                    <ChevronDown className={`w-4 h-4 transition-transform duration-200 ${showDownloadDropdown ? 'rotate-180' : ''}`} />
+                  </button>
+
+                  {showDownloadDropdown && (
+                    <div 
+                      className="absolute left-0 mt-1 w-56 bg-white border border-surface-200 rounded-2xl shadow-2xl z-[100] overflow-hidden animate-in fade-in slide-in-from-top-2 duration-200"
+                    >
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setShowDownloadDropdown(false);
+                          downloadJDDocx(jdId);
+                        }}
+                        disabled={isDownloading}
+                        className="w-full flex items-center gap-3 px-4 py-3.5 text-[13px] font-bold text-surface-700 hover:bg-primary-50 hover:text-primary-700 transition-colors border-b border-surface-50 disabled:opacity-50 group/item"
+                      >
+                        <div className="w-8 h-8 rounded-lg bg-blue-50 flex items-center justify-center group-hover/item:bg-blue-100 transition-colors">
+                          {isDownloading ? (
+                            <Loader2 className="w-4 h-4 animate-spin text-blue-600" />
+                          ) : (
+                            <FileText className="w-4 h-4 text-blue-600" />
+                          )}
+                        </div>
+                        <div className="flex flex-col items-start px-1">
+                          <span>Microsoft Word</span>
+                          <span className="text-[10px] text-surface-400 font-medium">Editable .docx format</span>
+                        </div>
+                      </button>
+                      
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setShowDownloadDropdown(false);
+                          downloadJDPdf(jdId);
+                        }}
+                        disabled={isDownloadingPdf}
+                        className="w-full flex items-center gap-3 px-4 py-3.5 text-[13px] font-bold text-surface-700 hover:bg-primary-50 hover:text-primary-700 transition-colors disabled:opacity-50 group/item"
+                      >
+                        <div className="w-8 h-8 rounded-lg bg-red-50 flex items-center justify-center group-hover/item:bg-red-100 transition-colors">
+                          {isDownloadingPdf ? (
+                            <Loader2 className="w-4 h-4 animate-spin text-red-600" />
+                          ) : (
+                            <FileDown className="w-4 h-4 text-red-600" />
+                          )}
+                        </div>
+                        <div className="flex flex-col items-start px-1">
+                          <span>Professional PDF</span>
+                          <span className="text-[10px] text-surface-400 font-medium">Ready to print .pdf</span>
+                        </div>
+                      </button>
+                    </div>
                   )}
-                  {isDownloading ? "Generating..." : "Download DOCX"}
-                </button>
+                </div>
               )}
             </div>
 
@@ -850,15 +902,15 @@ export default function JDPage() {
                       />
                     </div>
 
-                    {/* Role Summary */}
+                    {/* Purpose of the Job */}
                     <div className="space-y-4">
                       <label className="text-[11px] font-black text-surface-500 uppercase tracking-widest px-1">
-                        Role Summary
+                        Purpose of the Job
                       </label>
                       <textarea
-                        value={editedData.role_summary || ""}
+                        value={editedData.purpose || ""}
                         onChange={(e) =>
-                          handleTextChange("role_summary", e.target.value)
+                          handleTextChange("purpose", e.target.value)
                         }
                         className="w-full bg-white border border-surface-200 rounded-2xl p-6 text-[15px] font-medium text-surface-800 leading-relaxed focus:ring-4 focus:ring-primary-500/10 focus:border-primary-500 outline-none resize-none min-h-[160px] shadow-sm transition-all"
                         placeholder="Brief overview of the role's purpose..."
@@ -868,17 +920,13 @@ export default function JDPage() {
                     {/* Array fields */}
                     {[
                       {
-                        key: "key_responsibilities",
-                        label: "Key Responsibilities",
+                        key: "responsibilities",
+                        label: "Job Responsibilities",
                       },
-                      { key: "required_skills", label: "Required Skills" },
+                      { key: "skills", label: "Skills / Competencies" },
                       {
-                        key: "tools_and_technologies",
+                        key: "tools",
                         label: "Tools & Technologies",
-                      },
-                      {
-                        key: "performance_metrics",
-                        label: "Performance Metrics",
                       },
                     ].map((field) => (
                       <div key={field.key} className="space-y-5">
@@ -926,6 +974,34 @@ export default function JDPage() {
                         </div>
                       </div>
                     ))}
+
+                    {/* Education and Experience */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                      <div className="space-y-4">
+                        <label className="text-[11px] font-black text-surface-500 uppercase tracking-widest px-1">
+                          Education Requested
+                        </label>
+                        <textarea
+                          value={editedData.education || ""}
+                          onChange={(e) =>
+                            handleTextChange("education", e.target.value)
+                          }
+                          className="w-full bg-white border border-surface-200 rounded-2xl p-6 text-[14px] font-medium text-surface-800 leading-relaxed focus:ring-4 focus:ring-primary-500/10 focus:border-primary-500 outline-none resize-none min-h-[100px] shadow-sm transition-all"
+                        />
+                      </div>
+                      <div className="space-y-4">
+                        <label className="text-[11px] font-black text-surface-500 uppercase tracking-widest px-1">
+                          Experience Requested
+                        </label>
+                        <textarea
+                          value={editedData.experience || ""}
+                          onChange={(e) =>
+                            handleTextChange("experience", e.target.value)
+                          }
+                          className="w-full bg-white border border-surface-200 rounded-2xl p-6 text-[14px] font-medium text-surface-800 leading-relaxed focus:ring-4 focus:ring-primary-500/10 focus:border-primary-500 outline-none resize-none min-h-[100px] shadow-sm transition-all"
+                        />
+                      </div>
+                    </div>
                   </div>
                 </div>
           ) : (
@@ -951,21 +1027,7 @@ export default function JDPage() {
                   </h1>
                 </div>
 
-                <div
-                  className="prose prose-slate prose-lg max-w-none 
-                  prose-headings:font-semibold prose-headings:tracking-normal prose-headings:text-surface-800
-                  prose-h2:text-xl prose-h2:mt-10 prose-h2:mb-4 prose-h2:pb-2 prose-h2:border-b prose-h2:border-surface-200
-                  prose-h3:text-lg prose-h3:text-surface-700
-                  prose-p:text-surface-700 prose-p:leading-relaxed prose-p:text-[15px]
-                  prose-li:text-surface-700 prose-li:text-[15px] prose-li:leading-relaxed
-                  prose-strong:text-surface-900 prose-strong:font-semibold
-                  prose-ul:list-disc prose-ul:pl-5 prose-ul:marker:text-surface-400
-                  prose-blockquote:border-l-4 prose-blockquote:border-surface-300 prose-blockquote:bg-surface-50 prose-blockquote:py-3 prose-blockquote:px-5 prose-blockquote:rounded-r-lg prose-blockquote:italic prose-blockquote:text-surface-600"
-                >
-                  <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                    {displayJDContent}
-                  </ReactMarkdown>
-                </div>
+                <JDDocumentView data={editedData} />
               </div>
             </div>
           )}
@@ -986,6 +1048,135 @@ export default function JDPage() {
           jdTitle={jd?.title || ""}
         />
       </div>
+    </div>
+  );
+}
+// ── Structured Document View ──────────────────────────────────────────────────
+
+function JDDocumentView({ data }: { data: any }) {
+  const Section = ({ title, children }: { title: string; children: React.ReactNode }) => (
+    <div className="py-8 border-b border-surface-100 last:border-0">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div className="md:col-span-1">
+          <h3 className="text-[11px] font-black text-surface-400 uppercase tracking-[0.2em] sticky top-4">
+            {title}
+          </h3>
+        </div>
+        <div className="md:col-span-2 space-y-4">
+          {children}
+        </div>
+      </div>
+    </div>
+  );
+
+  const ListItem = ({ children }: { children: React.ReactNode }) => (
+    <div className="flex gap-3 group">
+      <div className="w-1.5 h-1.5 rounded-full bg-primary-400 mt-2.5 flex-shrink-0 group-hover:scale-125 transition-transform" />
+      <p className="text-[15px] leading-relaxed text-surface-700 font-medium">
+        {children}
+      </p>
+    </div>
+  );
+
+  return (
+    <div className="space-y-2">
+      {/* Purpose */}
+      <Section title="Role Summary">
+        <p className="text-[17px] leading-relaxed text-surface-800 font-medium whitespace-pre-wrap">
+          {data.purpose || "Strategic role overview to be confirmed."}
+        </p>
+      </Section>
+
+      {/* Responsibilities */}
+      {data.responsibilities && data.responsibilities.length > 0 && (
+        <Section title="Key Responsibilities">
+          <div className="space-y-4">
+            {data.responsibilities.map((r: string, i: number) => (
+              <ListItem key={i}>{r}</ListItem>
+            ))}
+          </div>
+        </Section>
+      )}
+
+      {/* Skills */}
+      {(data.skills?.length > 0 || data.tools?.length > 0) && (
+        <Section title="Expertise & Tools">
+          <div className="flex flex-wrap gap-2">
+            {[...(data.skills || []), ...(data.tools || [])].map((s: string, i: number) => (
+              <span key={i} className="px-3 py-1 bg-surface-50 text-surface-700 border border-surface-200 rounded-lg text-xs font-bold shadow-sm">
+                {s}
+              </span>
+            ))}
+          </div>
+        </Section>
+      )}
+
+      {/* Team & Environment */}
+      <Section title="Environment & Team">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-8">
+          {data.team_structure && (
+            <div className="space-y-4">
+              <h4 className="text-[10px] font-bold text-surface-400 uppercase tracking-wider">Team Structure</h4>
+              <div className="space-y-2">
+                {data.team_structure.team_size && (
+                  <p className="text-sm text-surface-700 font-medium">Team Size: <span className="text-surface-900 font-bold">{data.team_structure.team_size}</span></p>
+                )}
+                {data.team_structure.collaborates_with && (
+                  <p className="text-sm text-surface-700 font-medium">Collaborates with: <span className="text-surface-900 font-bold">{Array.isArray(data.team_structure.collaborates_with) ? data.team_structure.collaborates_with.join(", ") : data.team_structure.collaborates_with}</span></p>
+                )}
+              </div>
+            </div>
+          )}
+          {data.work_environment && (
+            <div className="space-y-4">
+              <h4 className="text-[10px] font-bold text-surface-400 uppercase tracking-wider">Culture & Style</h4>
+              <div className="space-y-2">
+                <p className="text-sm text-surface-700 font-medium leading-relaxed italic border-l-2 border-primary-200 pl-4 py-1 bg-primary-50/30 rounded-r-lg">
+                  {data.work_environment.culture || "Highly collaborative environment Focused on results."}
+                </p>
+              </div>
+            </div>
+          )}
+        </div>
+      </Section>
+
+      {/* Metrics */}
+      {data.metrics && data.metrics.length > 0 && (
+        <Section title="Performance Metrics">
+          <div className="grid grid-cols-1 gap-4">
+            {data.metrics.map((m: string, i: number) => (
+              <div key={i} className="p-4 bg-emerald-50/50 border border-emerald-100 rounded-2xl flex items-center gap-4">
+                <div className="w-8 h-8 bg-emerald-100 rounded-xl flex items-center justify-center text-emerald-600 font-black text-xs">
+                  {i + 1}
+                </div>
+                <p className="text-sm font-bold text-emerald-900 leading-tight">
+                  {m}
+                </p>
+              </div>
+            ))}
+          </div>
+        </Section>
+      )}
+
+      {/* Additional Details */}
+      {data.additional && (data.additional.special_projects?.length > 0 || data.additional.unique_contributions) && (
+        <Section title="Special Projects">
+          {data.additional.special_projects?.length > 0 && (
+            <div className="flex flex-wrap gap-2 mb-4">
+              {data.additional.special_projects.map((p: string, i: number) => (
+                <span key={i} className="px-3 py-1 bg-amber-50 text-amber-700 border border-amber-200 rounded-lg text-xs font-black shadow-sm uppercase tracking-tighter">
+                  {p}
+                </span>
+              ))}
+            </div>
+          )}
+          {data.additional.unique_contributions && (
+            <p className="text-sm text-surface-600 font-medium leading-relaxed italic">
+              Contribution Insights: {data.additional.unique_contributions}
+            </p>
+          )}
+        </Section>
+      )}
     </div>
   );
 }

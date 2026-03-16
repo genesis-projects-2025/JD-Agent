@@ -5,4 +5,5 @@ export type Message = {
   isSkillSelection?: boolean;
   isReadySelection?: boolean;
   isRateLimitError?: boolean;
+  isStreaming?: boolean;
 };

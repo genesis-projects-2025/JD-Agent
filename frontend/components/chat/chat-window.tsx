@@ -127,25 +127,8 @@ export default function ChatWindow({
                 onContinue={onContinue}
               />
             ))}
-            {isGenerating && (
-              <div className="flex gap-2 sm:gap-4 justify-start mb-6 animate-in fade-in slide-in-from-bottom-3 duration-500 w-full pr-8">
-                <div className="flex-shrink-0 mt-1">
-                  <div className="w-8 h-8 sm:w-11 sm:h-11 bg-primary-600 rounded-xl sm:rounded-2xl flex items-center justify-center shadow-premium ring-2 sm:ring-4 ring-primary-50">
-                    <Bot className="w-4 h-4 sm:w-6 sm:h-6 text-white" />
-                  </div>
-                </div>
-                <div className="max-w-[85%] sm:max-w-[80%]">
-                  <div className="relative px-4 sm:px-6 py-3 sm:py-4 rounded-2xl sm:rounded-3xl shadow-sm bg-white text-surface-900 rounded-tl-none border border-surface-200">
-                    <div className="flex items-center gap-2 sm:gap-3">
-                      <Loader2 className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-primary-500 animate-spin" />
-                      <span className="text-[10px] sm:text-[12px] font-bold text-surface-400 uppercase tracking-widest leading-none sm:leading-normal">
-                        Agent is analyzing...
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
+            {/* Separate isGenerating spinner removed in favor of integrated bubble loading */}
+            <div className="h-4 sm:h-8" />
             <div className="h-4 sm:h-8" />
           </>
         )}

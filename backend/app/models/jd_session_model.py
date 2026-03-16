@@ -1,4 +1,17 @@
-from sqlalchemy import Column, String, Text, DateTime, Integer, Index, ForeignKey, BigInteger, UniqueConstraint
+# app/models/jd_session_model.py
+# PERFORMANCE: Added composite indexes on hot query columns
+
+from sqlalchemy import (
+    Column,
+    String,
+    Text,
+    DateTime,
+    Integer,
+    Index,
+    ForeignKey,
+    BigInteger,
+    UniqueConstraint,
+)
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
@@ -10,7 +23,9 @@ class JDSession(Base):
     __tablename__ = "jd_sessions"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    employee_id = Column(String(255), ForeignKey("employees.id"), nullable=False, index=True)
+    employee_id = Column(
+        String(255), ForeignKey("employees.id"), nullable=False, index=True
+    )
 
     title = Column(Text, nullable=True)
     department = Column(Text, nullable=True)
@@ -32,16 +47,41 @@ class JDSession(Base):
 
     # Relationships
     employee = relationship("Employee", back_populates="jd_sessions")
-    conversation_turns = relationship("ConversationTurn", back_populates="session", cascade="all, delete-orphan", order_by="ConversationTurn.turn_index")
-    versions = relationship("JDVersion", back_populates="session", cascade="all, delete-orphan")
-    review_comments = relationship("JDReviewComment", back_populates="jd_session", cascade="all, delete-orphan", order_by="JDReviewComment.created_at.desc()")
+    conversation_turns = relationship(
+        "ConversationTurn",
+        back_populates="session",
+        cascade="all, delete-orphan",
+        order_by="ConversationTurn.turn_index",
+    )
+    versions = relationship(
+        "JDVersion", back_populates="session", cascade="all, delete-orphan"
+    )
+    review_comments = relationship(
+        "JDReviewComment",
+        back_populates="jd_session",
+        cascade="all, delete-orphan",
+        order_by="JDReviewComment.created_at.desc()",
+    )
+
+    __table_args__ = (
+        # Sidebar query: employee's JDs ordered by date
+        Index("idx_jd_employee_updated", "employee_id", "updated_at"),
+        # HR / Manager queue filters
+        Index("idx_jd_status_updated", "status", "updated_at"),
+        # Manager view: reports + status filter
+        Index("idx_jd_employee_status", "employee_id", "status"),
+    )
 
 
 class ConversationTurn(Base):
     __tablename__ = "conversation_turns"
 
     id = Column(BigInteger, primary_key=True, autoincrement=True)
-    session_id = Column(UUID(as_uuid=True), ForeignKey("jd_sessions.id", ondelete="CASCADE"), nullable=False)
+    session_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("jd_sessions.id", ondelete="CASCADE"),
+        nullable=False,
+    )
     turn_index = Column(Integer, nullable=False)
     role = Column(Text, nullable=False)
     content = Column(Text, nullable=False)
@@ -50,8 +90,8 @@ class ConversationTurn(Base):
     session = relationship("JDSession", back_populates="conversation_turns")
 
     __table_args__ = (
-        UniqueConstraint('session_id', 'turn_index', name='uq_session_turn'),
-        Index('idx_turns_session', 'session_id', 'turn_index'),
+        UniqueConstraint("session_id", "turn_index", name="uq_session_turn"),
+        Index("idx_turns_session", "session_id", "turn_index"),
     )
 
 
@@ -59,7 +99,11 @@ class JDVersion(Base):
     __tablename__ = "jd_versions"
 
     id = Column(BigInteger, primary_key=True, autoincrement=True)
-    session_id = Column(UUID(as_uuid=True), ForeignKey("jd_sessions.id", ondelete="CASCADE"), nullable=False)
+    session_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("jd_sessions.id", ondelete="CASCADE"),
+        nullable=False,
+    )
     version = Column(Integer, nullable=False)
     jd_text = Column(Text, nullable=False)
     jd_structured = Column(JSONB, nullable=True)

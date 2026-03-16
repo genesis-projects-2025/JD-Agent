@@ -19,7 +19,10 @@ import {
   AlertTriangle,
   Users,
   ChevronLeft,
+  Trash2,
 } from "lucide-react";
+
+import { DeleteModal } from "@/components/ui/delete-modal";
 
 import {
   AuthUser,
@@ -140,21 +143,44 @@ function JDGrid({
     );
   }
 
+  const router = useRouter();
+  const [isDeleting, setIsDeleting] = useState<string | null>(null);
+  const [jdToDelete, setJdToDelete] = useState<JDListItem | null>(null);
+
+  const handleDelete = async (jd: JDListItem, e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setJdToDelete(jd);
+  };
+
+  const confirmDelete = async () => {
+    if (!jdToDelete) return;
+    setIsDeleting(jdToDelete.id);
+    try {
+      const { deleteJD } = require("@/lib/api");
+      const employeeId = getOrCreateEmployeeId();
+      await deleteJD(jdToDelete.id, employeeId);
+      // Fast refresh by just reloading the page or we could pass a callback
+      window.location.reload();
+    } catch (err: any) {
+      alert(err?.message || "Failed to delete JD");
+      setIsDeleting(null);
+      setJdToDelete(null);
+    }
+  };
+
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-      {jds.map((jd) => {
+    <>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        {jds.map((jd) => {
         const config = STATUS_CONFIG[jd.status] || STATUS_CONFIG.draft;
-        const href = [
-          "draft",
-          "jd_generated",
-          "sent_to_manager",
-          "manager_rejected",
-          "sent_to_hr",
-          "hr_rejected",
-          "approved",
-        ].includes(jd.status)
-          ? `/jd/${jd.id}`
-          : `/questionnaire/${jd.id}`;
+        const isOwnJD = !showEmployee;
+        const href = (isOwnJD && [
+          "collecting",
+          "jd_session_init",
+        ].includes(jd.status))
+          ? `/questionnaire/${jd.id}`
+          : `/jd/${jd.id}`;
 
         return (
           <Link
@@ -209,14 +235,40 @@ function JDGrid({
                 View JD
                 <ArrowRight className="w-4 h-4" />
               </span>
-              <div className="w-10 h-10 bg-surface-50 rounded-xl flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                <FileText className="w-5 h-5 text-surface-400" />
+              <div className="flex gap-2">
+                {/* Delete button only shown if the current user is the owner (in employee view) and status is a deletable one */}
+                {!showEmployee && ["collecting", "draft", "manager_rejected", "hr_rejected", "jd_generated"].includes(jd.status) && (
+                  <button
+                    onClick={(e) => handleDelete(jd, e)}
+                    disabled={isDeleting === jd.id}
+                    className="w-10 h-10 bg-red-50 text-red-500 hover:bg-red-100 hover:text-red-600 rounded-xl flex flex-shrink-0 items-center justify-center transition-colors disabled:opacity-50"
+                  >
+                    {isDeleting === jd.id ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <Trash2 className="w-4 h-4" />
+                    )}
+                  </button>
+                )}
+                <div className="w-10 h-10 bg-surface-50 rounded-xl flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                  <FileText className="w-5 h-5 text-surface-400" />
+                </div>
               </div>
             </div>
           </Link>
         );
       })}
-    </div>
+      </div>
+      
+      <DeleteModal
+        isOpen={!!jdToDelete}
+        onClose={() => !isDeleting && setJdToDelete(null)}
+        onConfirm={confirmDelete}
+        isDeleting={!!isDeleting}
+        title="Delete Job Description"
+        description={`Are you sure you want to delete "${jdToDelete?.title || 'Untitled Strategic Role'}"? This action cannot be undone.`}
+      />
+    </>
   );
 }
 
@@ -661,6 +713,7 @@ function ManagerView({ user }: { user: AuthUser }) {
 // ── HR view ───────────────────────────────────────────────────────────────────
 
 function HRView({ user }: { user: AuthUser }) {
+  const router = useRouter();
   const [jds, setJds] = useState<JDListItem[]>([]);
   const [allJds, setAllJds] = useState<JDListItem[]>([]);
   const [myJds, setMyJds] = useState<JDListItem[]>([]);
@@ -671,6 +724,7 @@ function HRView({ user }: { user: AuthUser }) {
   );
   const [deptEmployees, setDeptEmployees] = useState<any[]>([]);
   const [loadingDept, setLoadingDept] = useState(false);
+  const [onlySubmitted, setOnlySubmitted] = useState(true);
 
   const [loading, setLoading] = useState(true);
 
@@ -685,7 +739,7 @@ function HRView({ user }: { user: AuthUser }) {
     async function load() {
       try {
         const [allData, personalData, statsData] = await Promise.all([
-          getJDs(),
+          getJDs({ submitted_only: true }),
           fetchEmployeeJDs(user.employee_id),
           fetchHRDepartmentStats().catch(() => []),
         ]);
@@ -703,16 +757,23 @@ function HRView({ user }: { user: AuthUser }) {
     load();
   }, [user.employee_id]);
 
-  const handleDepartmentClick = async (deptName: string) => {
+  const handleDepartmentClick = async (deptName: string, submittedOnly: boolean = onlySubmitted) => {
     setSelectedDepartment(deptName);
     setLoadingDept(true);
     try {
-      const data = await fetchDepartmentEmployees(deptName, 1, 100);
+      const data = await fetchDepartmentEmployees(deptName, 1, 100, submittedOnly);
       setDeptEmployees(data || []);
     } catch (error) {
       console.error("Error fetching department employees:", error);
     } finally {
       setLoadingDept(false);
+    }
+  };
+
+  const handleToggleSubmitted = async (val: boolean) => {
+    setOnlySubmitted(val);
+    if (selectedDepartment) {
+      await handleDepartmentClick(selectedDepartment, val);
     }
   };
 
@@ -729,16 +790,16 @@ function HRView({ user }: { user: AuthUser }) {
       setJds(allJds);
     } else {
       setJds(
-        allJds.filter((j) =>
-          filter === "in_progress"
-            ? [
-                "collecting",
-                "draft",
-                "jd_generated",
-                "sent_to_manager",
-              ].includes(j.status)
-            : j.status === filter,
-        ),
+        allJds.filter((j) => {
+          // Strict HR policy: Never show drafts in the global directory
+          const isDraft = ["collecting", "draft", "jd_generated"].includes(j.status);
+          if (isDraft) return false;
+
+          if (filter === "in_progress") {
+            return ["sent_to_manager"].includes(j.status);
+          }
+          return j.status === filter;
+        })
       );
     }
   }, [filter, allJds, myJds]);
@@ -982,6 +1043,28 @@ function HRView({ user }: { user: AuthUser }) {
                   {selectedDepartment} Directory
                 </h2>
               </div>
+              <div className="flex items-center gap-2 bg-surface-200/50 p-1.5 rounded-2xl">
+                <button
+                  onClick={() => handleToggleSubmitted(true)}
+                  className={`px-4 py-2 text-[11px] font-black uppercase tracking-widest rounded-xl transition-all ${
+                    onlySubmitted
+                      ? "bg-white text-primary-600 shadow-sm"
+                      : "text-surface-500 hover:text-surface-700"
+                  }`}
+                >
+                  Submitted
+                </button>
+                <button
+                  onClick={() => handleToggleSubmitted(false)}
+                  className={`px-4 py-2 text-[11px] font-black uppercase tracking-widest rounded-xl transition-all ${
+                    !onlySubmitted
+                      ? "bg-white text-surface-900 shadow-sm"
+                      : "text-surface-500 hover:text-surface-700"
+                  }`}
+                >
+                  Show All
+                </button>
+              </div>
             </div>
 
             {loadingDept ? (
@@ -1023,11 +1106,16 @@ function HRView({ user }: { user: AuthUser }) {
                       return (
                         <tr
                           key={emp.employee_id}
-                          className="hover:bg-surface-50/60 transition-colors"
+                          onClick={() => emp.jd_session_id && router.push(`/jd/${emp.jd_session_id}`)}
+                          className={`group/row transition-all duration-300 ${
+                            emp.jd_session_id 
+                              ? "cursor-pointer hover:bg-primary-50/50" 
+                              : "hover:bg-surface-50/60"
+                          }`}
                         >
                           <td className="px-6 py-4">
                             <div className="flex flex-col">
-                              <span className="font-bold text-surface-900">
+                              <span className={`font-bold transition-colors ${emp.jd_session_id ? "group-hover/row:text-primary-600 text-surface-900" : "text-surface-900"}`}>
                                 {emp.name}
                               </span>
                               <span className="text-[11px] font-bold text-surface-400">
@@ -1042,21 +1130,28 @@ function HRView({ user }: { user: AuthUser }) {
                             {emp.reporting_manager || "—"}
                           </td>
                           <td className="px-6 py-4">
-                            <span
-                              className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-black uppercase tracking-widest border ${config.bg} ${config.color}`}
-                            >
-                              <span className="w-1.5 h-1.5 rounded-full bg-current" />
-                              {config.label}
-                            </span>
-                            {emp.last_updated &&
-                              emp.jd_status !== "Not Submitted" && (
-                                <div className="mt-1 text-[10px] font-bold text-surface-400 flex items-center gap-1">
-                                  <Clock className="w-3 h-3" />
-                                  {new Date(
-                                    emp.last_updated,
-                                  ).toLocaleDateString()}
-                                </div>
+                            <div className="flex items-center justify-between">
+                              <div>
+                                <span
+                                  className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-black uppercase tracking-widest border ${config.bg} ${config.color}`}
+                                >
+                                  <span className="w-1.5 h-1.5 rounded-full bg-current" />
+                                  {config.label}
+                                </span>
+                                {emp.last_updated &&
+                                  emp.jd_status !== "Not Submitted" && (
+                                    <div className="mt-1 text-[10px] font-bold text-surface-400 flex items-center gap-1">
+                                      <Clock className="w-3 h-3" />
+                                      {new Date(
+                                        emp.last_updated,
+                                      ).toLocaleDateString()}
+                                    </div>
+                                  )}
+                              </div>
+                              {emp.jd_session_id && (
+                                <ArrowRight className="w-4 h-4 text-primary-400 opacity-0 group-hover/row:opacity-100 group-hover/row:translate-x-1 transition-all" />
                               )}
+                            </div>
                           </td>
                         </tr>
                       );

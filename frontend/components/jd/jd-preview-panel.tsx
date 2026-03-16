@@ -23,6 +23,9 @@ import {
   Sparkles,
   ExternalLink,
   Edit,
+  Plus,
+  Trash,
+  GraduationCap,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 
@@ -35,6 +38,7 @@ type Props = {
   onSave: () => void;
   onEdit: () => void;
   updateJd: (newJd: string) => void;
+  updateStructuredData: (newData: any) => void;
   onClose: () => void;
   sessionId: string;
 };
@@ -97,6 +101,7 @@ export default function JDPreviewPanel({
   onSave,
   onEdit,
   updateJd,
+  updateStructuredData,
   onClose,
   sessionId,
 }: Props) {
@@ -105,9 +110,22 @@ export default function JDPreviewPanel({
     "structured",
   );
   const [isEditing, setIsEditing] = useState(false);
+  const [editedData, setEditedData] = useState<any>(null);
 
   const s = structuredData || {};
-  const empInfo = s.employee_information || {};
+
+  // For migration/fallback: map legacy keys if needed
+  const getSafeData = () => {
+    const d = { ...s };
+    if (d.key_responsibilities && !d.responsibilities) d.responsibilities = d.key_responsibilities;
+    if (d.required_skills && !d.skills) d.skills = d.required_skills;
+    if (d.tools_and_technologies && !d.tools) d.tools = d.tools_and_technologies;
+    if (d.role_summary && !d.purpose) d.purpose = d.role_summary;
+    return d;
+  };
+
+  const safeData = getSafeData();
+  const empInfo = safeData.employee_information || {};
   const title =
     empInfo.job_title ||
     empInfo.title ||
@@ -120,6 +138,46 @@ export default function JDPreviewPanel({
 
   const hasStructured =
     structuredData && Object.keys(structuredData).length > 0;
+
+  const handleEditToggle = () => {
+    if (!isEditing) {
+      setEditedData(JSON.parse(JSON.stringify(safeData)));
+      setActiveTab("structured");
+    } else {
+      // Done editing
+      updateStructuredData(editedData);
+      // We don't updateJd here because the backend will regenerate md from structured on save.
+      // But for local UI sync, we could clear it or wait for save.
+    }
+    setIsEditing(!isEditing);
+  };
+
+  const handleTextChange = (key: string, val: string) => {
+    setEditedData((prev: any) => ({ ...prev, [key]: val }));
+  };
+
+  const handleArrayChange = (key: string, idx: number, val: string) => {
+    setEditedData((prev: any) => {
+      const arr = [...(prev[key] || [])];
+      arr[idx] = val;
+      return { ...prev, [key]: arr };
+    });
+  };
+
+  const handleAddArrayItem = (key: string) => {
+    setEditedData((prev: any) => ({
+      ...prev,
+      [key]: [...(prev[key] || []), ""],
+    }));
+  };
+
+  const handleRemoveArrayItem = (key: string, idx: number) => {
+    setEditedData((prev: any) => {
+      const arr = [...(prev[key] || [])];
+      arr.splice(idx, 1);
+      return { ...prev, [key]: arr };
+    });
+  };
 
   return (
     <div className="flex flex-col h-full bg-white border-l border-surface-200 w-full">
@@ -215,131 +273,213 @@ export default function JDPreviewPanel({
 
           {/* Content */}
           <div className="flex-1 overflow-y-auto">
-            {/* STRUCTURED VIEW */}
-            {activeTab === "structured" && hasStructured ? (
+            {/* STRUCTURED VIEW */}            {activeTab === "structured" && hasStructured ? (
               <div className="p-4 sm:p-6 space-y-1">
-                {/* Role meta */}
-                {reportsTo && (
-                  <div className="mb-4 sm:mb-6 px-3 sm:px-4 py-2 sm:py-3 bg-surface-50 rounded-xl border border-surface-100 flex items-center gap-2 sm:gap-3 text-[11px] sm:text-[12px] text-surface-600">
-                    <Users className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-surface-400 shrink-0" />
-                    <span className="truncate">
-                      <span className="font-bold text-surface-900">
-                        Reports to:
-                      </span>{" "}
-                      {reportsTo}
-                    </span>
+                {isEditing ? (
+                  /* STRUCTURED EDIT FORM */
+                  <div className="space-y-8 animate-in fade-in slide-in-from-right-4 duration-500">
+                    {/* Purpose */}
+                    <div className="space-y-3">
+                      <label className="text-[10px] font-black text-surface-400 uppercase tracking-widest px-1">
+                        Purpose of the Job
+                      </label>
+                      <textarea
+                        value={editedData.purpose || ""}
+                        onChange={(e) => handleTextChange("purpose", e.target.value)}
+                        className="w-full bg-surface-50 border border-surface-200 rounded-xl p-4 text-[13px] font-medium text-surface-800 leading-relaxed focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 outline-none resize-none min-h-[120px] transition-all"
+                        placeholder="Brief overview of the role's purpose..."
+                      />
+                    </div>
+
+                    {/* Arrays: Responsibilities, Skills, Tools */}
+                    {[
+                      { key: ["responsibilities", "key_responsibilities"], label: "Job Responsibilities" },
+                      { key: ["skills", "required_skills"], label: "Skills / Competencies" },
+                      { key: ["tools", "tools_and_technologies"], label: "Tools & Technologies" },
+                    ].map((field) => {
+                      const currentKey = Array.isArray(field.key) ? field.key.find(k => editedData[k]?.length > 0) || field.key[0] : field.key;
+                      return (
+                      <div key={currentKey} className="space-y-4">
+                        <div className="flex items-center justify-between px-1">
+                          <label className="text-[10px] font-black text-surface-400 uppercase tracking-widest">
+                            {field.label}
+                          </label>
+                          <button
+                            onClick={() => handleAddArrayItem(currentKey)}
+                            className="flex items-center gap-1.5 text-[9px] font-black uppercase tracking-widest text-primary-600 hover:text-primary-700 bg-primary-50 px-3 py-1.5 rounded-lg transition-all"
+                          >
+                            <Plus className="w-3 h-3" /> Add
+                          </button>
+                        </div>
+                        <div className="space-y-2.5">
+                          {(editedData[currentKey] || []).map((item: string, idx: number) => (
+                            <div key={idx} className="flex items-start gap-2 group">
+                              <textarea
+                                value={item}
+                                onChange={(e) => handleArrayChange(currentKey, idx, e.target.value)}
+                                className="flex-1 bg-surface-50 border border-surface-200 rounded-xl p-3 text-[12px] font-medium text-surface-800 leading-relaxed focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 outline-none resize-none min-h-[60px] transition-all"
+                              />
+                              <button
+                                onClick={() => handleRemoveArrayItem(currentKey, idx)}
+                                className="mt-1 w-8 h-8 flex items-center justify-center rounded-lg text-surface-300 hover:text-red-500 hover:bg-red-50 transition-all opacity-0 group-hover:opacity-100"
+                              >
+                                <Trash className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )})}
+
+                    {/* Education & Experience */}
+                    <div className="space-y-6 pt-4">
+                      <div className="space-y-3">
+                        <label className="text-[10px] font-black text-surface-400 uppercase tracking-widest px-1">
+                          Education Requested
+                        </label>
+                        <textarea
+                          value={editedData.education || ""}
+                          onChange={(e) => handleTextChange("education", e.target.value)}
+                          className="w-full bg-surface-50 border border-surface-200 rounded-xl p-4 text-[12px] font-medium text-surface-800 focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 outline-none resize-none min-h-[80px]"
+                        />
+                      </div>
+                      <div className="space-y-3">
+                        <label className="text-[10px] font-black text-surface-400 uppercase tracking-widest px-1">
+                          Experience Requested
+                        </label>
+                        <textarea
+                          value={editedData.experience || ""}
+                          onChange={(e) => handleTextChange("experience", e.target.value)}
+                          className="w-full bg-surface-50 border border-surface-200 rounded-xl p-4 text-[12px] font-medium text-surface-800 focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 outline-none resize-none min-h-[80px]"
+                        />
+                      </div>
+                    </div>
                   </div>
-                )}
+                ) : (
+                  /* STRUCTURED READ-ONLY VIEW */
+                  <>
+                    {/* Role meta */}
+                    {reportsTo && (
+                      <div className="mb-4 sm:mb-6 px-3 sm:px-4 py-2 sm:py-3 bg-surface-50 rounded-xl border border-surface-100 flex items-center gap-2 sm:gap-3 text-[11px] sm:text-[12px] text-surface-600">
+                        <Users className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-surface-400 shrink-0" />
+                        <span className="truncate">
+                          <span className="font-bold text-surface-900">
+                            Reports to:
+                          </span>{" "}
+                          {reportsTo}
+                        </span>
+                      </div>
+                    )}
 
-                {/* Role Summary */}
-                {s.role_summary && (
-                  <SectionBlock icon={FileText} title="Role Summary">
-                    <p className="text-[13px] text-surface-700 leading-relaxed">
-                      {typeof s.role_summary === "string"
-                        ? s.role_summary
-                        : s.role_summary?.description ||
-                          JSON.stringify(s.role_summary)}
-                    </p>
-                  </SectionBlock>
-                )}
+                    {/* Purpose of the Job */}
+                    {safeData.purpose && (
+                      <SectionBlock icon={FileText} title="Purpose of the Job">
+                        <p className="text-[13px] text-surface-700 leading-relaxed">
+                          {typeof safeData.purpose === "string"
+                            ? safeData.purpose
+                            : safeData.purpose?.description ||
+                              JSON.stringify(safeData.purpose)}
+                        </p>
+                      </SectionBlock>
+                    )}
 
-                {/* Key Responsibilities */}
-                {s.key_responsibilities?.length > 0 && (
-                  <SectionBlock icon={Target} title="Key Responsibilities">
-                    <BulletList items={s.key_responsibilities} />
-                  </SectionBlock>
-                )}
+                    {/* Job Responsibilities */}
+                    {(safeData.responsibilities?.length > 0 || safeData.key_responsibilities?.length > 0) && (
+                      <SectionBlock icon={Target} title="Job Responsibilities">
+                        <BulletList items={safeData.responsibilities || safeData.key_responsibilities} />
+                      </SectionBlock>
+                    )}
 
-                {/* Required Skills */}
-                {s.required_skills?.length > 0 && (
-                  <SectionBlock icon={Briefcase} title="Required Skills">
-                    <div className="flex flex-wrap gap-2">
-                      {s.required_skills.map((skill: string, i: number) => (
-                        <SkillTag key={i} label={skill} />
-                      ))}
-                    </div>
-                  </SectionBlock>
-                )}
+                    {/* Required Skills */}
+                    {(safeData.skills?.length > 0 || safeData.required_skills?.length > 0) && (
+                      <SectionBlock icon={Briefcase} title="Skills / Competencies">
+                        <div className="flex flex-wrap gap-2">
+                          {(safeData.skills || safeData.required_skills).map((skill: string, i: number) => (
+                            <SkillTag key={i} label={skill} />
+                          ))}
+                        </div>
+                      </SectionBlock>
+                    )}
 
-                {/* Tools & Technologies */}
-                {s.tools_and_technologies?.length > 0 && (
-                  <SectionBlock icon={Wrench} title="Tools & Technologies">
-                    <div className="flex flex-wrap gap-2">
-                      {s.tools_and_technologies.map(
-                        (tool: string, i: number) => (
-                          <span
-                            key={i}
-                            className="inline-flex items-center px-3 py-1.5 rounded-lg text-[11px] font-bold bg-surface-50 text-surface-700 border border-surface-200 tracking-wide"
-                          >
-                            {tool}
-                          </span>
-                        ),
+                    {/* Tools & Technologies */}
+                    {(safeData.tools?.length > 0 || safeData.tools_and_technologies?.length > 0) && (
+                      <SectionBlock icon={Wrench} title="Tools & Technologies">
+                        <div className="flex flex-wrap gap-2">
+                          {(safeData.tools || safeData.tools_and_technologies).map(
+                            (tool: string, i: number) => (
+                              <span
+                                key={i}
+                                className="inline-flex items-center px-3 py-1.5 rounded-lg text-[11px] font-bold bg-surface-50 text-surface-700 border border-surface-200 tracking-wide"
+                              >
+                                {tool}
+                              </span>
+                            ),
+                          )}
+                        </div>
+                      </SectionBlock>
+                    )}
+
+                    {/* Education & Experience */}
+                    {(safeData.education || safeData.experience) && (
+                      <SectionBlock icon={GraduationCap} title="Qualifications & Experience">
+                        <div className="space-y-4">
+                          {safeData.education && (
+                            <div>
+                                <h4 className="text-[10px] font-bold text-surface-400 uppercase mb-1">Education</h4>
+                                <p className="text-[13px] text-surface-700">{safeData.education}</p>
+                            </div>
+                          )}
+                          {safeData.experience && (
+                            <div>
+                                <h4 className="text-[10px] font-bold text-surface-400 uppercase mb-1">Experience</h4>
+                                <p className="text-[13px] text-surface-700">{safeData.experience}</p>
+                            </div>
+                          )}
+                        </div>
+                      </SectionBlock>
+                    )}
+
+                    {/* Working Relationships */}
+                    {safeData.working_relationships &&
+                      Object.keys(safeData.working_relationships).length > 0 && (
+                        <SectionBlock icon={Users} title="Working Relationships">
+                          <div className="space-y-2">
+                            {Object.entries(safeData.working_relationships).map(([k, v]) => (
+                              <div
+                                key={k}
+                                className="flex items-start justify-between gap-4 py-2 border-b border-surface-50 last:border-0"
+                              >
+                                <span className="text-[11px] font-bold text-surface-400 uppercase tracking-wider">
+                                  {k.replace(/_/g, " ")}
+                                </span>
+                                <span className="text-[12px] text-surface-700 font-semibold text-right">
+                                  {Array.isArray(v) ? v.join(", ") : String(v)}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        </SectionBlock>
                       )}
-                    </div>
-                  </SectionBlock>
+                  </>
                 )}
-
-                {/* Performance Metrics */}
-                {s.performance_metrics?.length > 0 && (
-                  <SectionBlock icon={BarChart3} title="Performance Metrics">
-                    <BulletList items={s.performance_metrics} />
-                  </SectionBlock>
-                )}
-
-                {/* Team Structure */}
-                {s.team_structure &&
-                  Object.keys(s.team_structure).length > 0 && (
-                    <SectionBlock icon={Users} title="Team Structure">
-                      <div className="space-y-2">
-                        {Object.entries(s.team_structure).map(([k, v]) => (
-                          <div
-                            key={k}
-                            className="flex items-start justify-between gap-4 py-2 border-b border-surface-50 last:border-0"
-                          >
-                            <span className="text-[11px] font-bold text-surface-400 uppercase tracking-wider">
-                              {k.replace(/_/g, " ")}
-                            </span>
-                            <span className="text-[12px] text-surface-700 font-semibold text-right">
-                              {Array.isArray(v) ? v.join(", ") : String(v)}
-                            </span>
-                          </div>
-                        ))}
-                      </div>
-                    </SectionBlock>
-                  )}
-
-                {/* Work Environment */}
-                {s.work_environment &&
-                  Object.keys(s.work_environment).length > 0 && (
-                    <SectionBlock icon={Clock} title="Work Environment">
-                      <div className="space-y-2">
-                        {Object.entries(s.work_environment).map(([k, v]) => (
-                          <div
-                            key={k}
-                            className="flex items-start justify-between gap-4 py-2 border-b border-surface-50 last:border-0"
-                          >
-                            <span className="text-[11px] font-bold text-surface-400 uppercase tracking-wider">
-                              {k.replace(/_/g, " ")}
-                            </span>
-                            <span className="text-[12px] text-surface-700 font-semibold text-right">
-                              {Array.isArray(v) ? v.join(", ") : String(v)}
-                            </span>
-                          </div>
-                        ))}
-                      </div>
-                    </SectionBlock>
-                  )}
               </div>
             ) : (
               /* MARKDOWN VIEW */
               <div className="p-4 sm:p-6 h-full flex flex-col min-h-[400px]">
                 {isEditing ? (
-                  <textarea
-                    value={jd || ""}
-                    onChange={(e) => updateJd(e.target.value)}
-                    className="flex-1 w-full bg-surface-50 border border-surface-200 rounded-xl p-3 sm:p-4 text-surface-800 text-[12px] sm:text-[13px] font-mono leading-relaxed focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none resize-none"
-                    placeholder="Type markdown job description here..."
-                  />
+                  <div className="flex-1 flex flex-col items-center justify-center text-center p-8 bg-surface-50 rounded-xl border border-dashed border-surface-200">
+                    <Edit className="w-8 h-8 text-surface-300 mb-4" />
+                    <h4 className="text-sm font-bold text-surface-700">Document Edition Disabled</h4>
+                    <p className="text-xs text-surface-500 mt-2 max-w-[200px]">
+                      Please use the <strong>Structured View</strong> tab to edit the JD fields.
+                    </p>
+                    <button 
+                        onClick={() => setActiveTab('structured')}
+                        className="mt-6 text-[11px] font-black uppercase tracking-widest text-primary-600 hover:text-primary-700"
+                    >
+                        Switch to Structured View
+                    </button>
+                  </div>
                 ) : (
                   <div className="prose prose-sm prose-neutral max-w-none prose-headings:font-bold prose-headings:text-surface-900 prose-h1:text-lg sm:prose-h1:text-xl prose-h2:text-sm sm:prose-h2:text-base prose-h2:mt-4 sm:prose-h2:mt-6 prose-p:text-surface-700 prose-li:text-surface-700 prose-strong:text-primary-700 text-sm">
                     <ReactMarkdown remarkPlugins={[remarkGfm]}>
@@ -355,7 +495,7 @@ export default function JDPreviewPanel({
           <div className="flex-shrink-0 p-4 border-t border-surface-100 bg-surface-50 space-y-2">
             <button
               onClick={onSave}
-              disabled={isSaving || saveSuccess}
+              disabled={isSaving || saveSuccess || isEditing}
               className={`w-full py-3.5 text-white rounded-xl font-bold text-[13px] transition-all shadow-lg active:scale-[0.98] flex items-center justify-center gap-2 ${
                 saveSuccess
                   ? "bg-emerald-600 hover:bg-emerald-700 shadow-emerald-500/20 disabled:opacity-100"
@@ -373,16 +513,13 @@ export default function JDPreviewPanel({
                 ? "Saving to Database..."
                 : saveSuccess
                   ? "Saved Successfully!"
-                  : "Save JD to Database"}
+                  : isEditing 
+                    ? "Finish Editing to Save"
+                    : "Save JD to Database"}
             </button>
             <div className="flex gap-2">
               <button
-                onClick={() => {
-                  if (!isEditing) {
-                    setActiveTab("markdown");
-                  }
-                  setIsEditing(!isEditing);
-                }}
+                onClick={handleEditToggle}
                 disabled={isSaving}
                 className={`w-full py-3 hover:bg-surface-50 border border-surface-200 rounded-xl font-bold text-[12px] transition-all active:scale-[0.98] flex items-center justify-center gap-2 shadow-sm ${
                   isEditing

@@ -141,10 +141,27 @@ def generate_jd_docx(
     reports_to = emp_info.get("reports_to", "")
     work_type = emp_info.get("work_type", "")
 
-    key_responsibilities = jd_data.get("key_responsibilities", [])
-    required_skills = jd_data.get("required_skills", [])
-    tools = jd_data.get("tools_and_technologies", [])
-    performance_metrics = jd_data.get("performance_metrics", [])
+    # Section 1: Job / Role Info
+    purpose = jd_data.get("purpose") or jd_data.get("role_summary", "")
+    if isinstance(purpose, dict):
+        purpose = purpose.get("summary", str(purpose))
+        
+    responsibilities = jd_data.get("responsibilities") or jd_data.get("key_responsibilities", [])
+    
+    # Section 2: Working Relationships
+    relationships = jd_data.get("stakeholders") or jd_data.get("working_relationships") or jd_data.get("stakeholder_interactions") or {}
+    team_info = team.get("team_size") or relationships.get("team_size", "-")
+    internal_stakeholders = relationships.get("internal") or relationships.get("internal_stakeholders", "-")
+    external_stakeholders = relationships.get("external") or relationships.get("external_stakeholders", "-")
+    reports_to = team.get("reports_to") or relationships.get("reporting_to", reports_to) # keep fallback for initial info
+
+    # Section 3: Skills / Competencies
+    skills = jd_data.get("skills") or jd_data.get("required_skills", [])
+    tools_list = jd_data.get("tools") or jd_data.get("tools_and_technologies", [])
+    
+    # Section 4: Education & Experience
+    education = jd_data.get("education", "")
+    experience = jd_data.get("experience", "")
 
     # ── Company Header ────────────────────────────────────────────────────
     header_para = doc.add_paragraph()
@@ -164,10 +181,8 @@ def generate_jd_docx(
     doc.add_paragraph("")
 
     # ── Table 1: Job / Role Information ───────────────────────────────────
-    purpose_text = role_summary
-    if key_responsibilities:
-        resp_text = _list_to_text(key_responsibilities)
-        purpose_text = f"{role_summary}\n\nKey Responsibilities:\n{resp_text}"
+    resp_text = _list_to_text(responsibilities)
+    full_purpose = f"{purpose}\n\nKey Responsibilities:\n{resp_text}" if resp_text else purpose
 
     _add_section_table(
         doc,
@@ -179,47 +194,29 @@ def generate_jd_docx(
             ("Function", dept),
             ("Location", location),
             ("Work Type", work_type),
-            ("Purpose of the Job / Role", purpose_text),
+            ("Purpose of the Job / Role", full_purpose),
         ],
     )
 
     # ── Table 2: Working Relationships ────────────────────────────────────
-    team_text = ""
-    if team.get("team_size"):
-        team_text = f"Team Size: {team['team_size']}"
-    if team.get("collaborates_with"):
-        collab = _dict_list_to_text(team["collaborates_with"])
-        team_text += (
-            f"\nCollaborates with: {collab}"
-            if team_text
-            else f"Collaborates with: {collab}"
-        )
-    if team.get("direct_reports"):
-        team_text += f"\nDirect Reports: {team['direct_reports']}"
-    if team.get("mentoring"):
-        team_text += f"\nMentoring: {team['mentoring']}"
-
-    internal = _dict_list_to_text(stakeholders.get("internal", []))
-    external = _dict_list_to_text(stakeholders.get("external", []))
-
     _add_section_table(
         doc,
         "Working Relationships",
         [
             ("Reporting to", reports_to),
-            ("Team", team_text or "-"),
-            ("Internal Stakeholders", internal or "-"),
-            ("External Stakeholders", external or "-"),
+            ("Team", team_info),
+            ("Internal Stakeholders", _dict_list_to_text(internal_stakeholders)),
+            ("External Stakeholders", _dict_list_to_text(external_stakeholders)),
         ],
         header_color="2E75B6",
     )
 
     # ── Table 3: Skills / Competencies ────────────────────────────────────
     all_skills = []
-    if isinstance(required_skills, list):
-        all_skills.extend(required_skills)
-    if isinstance(tools, list):
-        all_skills.extend([f"{t} (Tool/Platform)" for t in tools])
+    if isinstance(skills, list):
+        all_skills.extend(skills)
+    if isinstance(tools_list, list):
+        all_skills.extend([f"{t} (Tool/Platform)" for t in tools_list])
 
     skills_text = (
         _list_to_text(all_skills)
@@ -236,18 +233,13 @@ def generate_jd_docx(
         header_color="548235",
     )
 
-    # ── Table 4: Performance & Success Metrics ────────────────────────────
-    metrics_text = (
-        _list_to_text(performance_metrics)
-        if performance_metrics
-        else "To be confirmed with line manager."
-    )
-
+    # ── Table 4: Academic Qualifications & Experience Required ──────────
     _add_section_table(
         doc,
-        "Performance & Success Metrics",
+        "Academic Qualifications & Experience Required",
         [
-            ("Key Performance Indicators", metrics_text),
+            ("Education", education or "-"),
+            ("Experience", experience or "-"),
         ],
         header_color="BF8F00",
     )

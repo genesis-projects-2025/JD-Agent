@@ -103,6 +103,7 @@ export default function DashboardPage() {
   );
   const [deptEmployees, setDeptEmployees] = useState<DepartmentEmployee[]>([]);
   const [loadingDept, setLoadingDept] = useState(false);
+  const [onlySubmitted, setOnlySubmitted] = useState(true);
 
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<
@@ -204,16 +205,23 @@ export default function DashboardPage() {
     }
   };
 
-  const handleDepartmentClick = async (deptName: string) => {
+  const handleDepartmentClick = async (deptName: string, submittedOnly: boolean = onlySubmitted) => {
     setSelectedDepartment(deptName);
     setLoadingDept(true);
     try {
-      const data = await fetchDepartmentEmployees(deptName, 1, 100);
+      const data = await fetchDepartmentEmployees(deptName, 1, 100, submittedOnly);
       setDeptEmployees(data || []);
     } catch (error) {
       console.error("Error fetching department employees:", error);
     } finally {
       setLoadingDept(false);
+    }
+  };
+
+  const handleToggleSubmitted = async (val: boolean) => {
+    setOnlySubmitted(val);
+    if (selectedDepartment) {
+      await handleDepartmentClick(selectedDepartment, val);
     }
   };
 
@@ -511,6 +519,28 @@ export default function DashboardPage() {
                   <Users className="w-5 h-5 text-primary-500" />
                   {selectedDepartment} Directory
                 </h2>
+              </div>
+              <div className="flex items-center gap-2 bg-surface-200/50 p-1 rounded-xl">
+                <button
+                  onClick={() => handleToggleSubmitted(true)}
+                  className={`px-3 py-1.5 text-[11px] font-black uppercase tracking-widest rounded-lg transition-all ${
+                    onlySubmitted
+                      ? "bg-white text-primary-600 shadow-sm"
+                      : "text-surface-500 hover:text-surface-700"
+                  }`}
+                >
+                  Submitted
+                </button>
+                <button
+                  onClick={() => handleToggleSubmitted(false)}
+                  className={`px-3 py-1.5 text-[11px] font-black uppercase tracking-widest rounded-lg transition-all ${
+                    !onlySubmitted
+                      ? "bg-white text-surface-900 shadow-sm"
+                      : "text-surface-500 hover:text-surface-700"
+                  }`}
+                >
+                  Show All
+                </button>
               </div>
             </div>
 

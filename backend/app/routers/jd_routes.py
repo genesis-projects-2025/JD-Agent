@@ -35,6 +35,7 @@ from app.crud.jd_crud import (
     mark_feedback_read,
 )
 import uuid
+from app.core.cache import cached_response, invalidate_pattern
 
 router = APIRouter()
 
@@ -159,6 +160,11 @@ async def init_jd(request: InitJDRequest, db: AsyncSession = Depends(get_db)):
         employee_name=request.employee_name,
     )
 
+    # Invalidate caches
+    await invalidate_pattern("cache:jd_list:*")
+    await invalidate_pattern("cache:dept_stats:*")
+    await invalidate_pattern("cache:dept_employees:*")
+
     return {"id": new_id, "status": "collecting", "employee_id": request.employee_id}
 
 
@@ -189,6 +195,9 @@ async def chat(request: ChatRequest, db: AsyncSession = Depends(get_db)):
         jd_structured=session_memory.jd_structured,
         status=session_memory.progress.get("status"),
     )
+
+    # Invalidate detail cache for this session
+    await invalidate_pattern(f"cache:jd_detail:*{session_id}*")
 
     return {"reply": reply, "history": updated_history}
 
@@ -224,6 +233,8 @@ async def chat_stream(request: ChatRequest, db: AsyncSession = Depends(get_db)):
                 jd_structured=session_memory.jd_structured,
                 status=session_memory.progress.get("status"),
             )
+            # Invalidate detail cache for this session
+            await invalidate_pattern(f"cache:jd_detail:*{session_id}*")
         except Exception as e:
             yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
 
@@ -268,6 +279,9 @@ async def generate_jd_endpoint(
         status="jd_generated",
     )
 
+    # Invalidate detail cache
+    await invalidate_pattern(f"cache:jd_detail:*{session_id}*")
+
     return {
         "id": session_id,
         "jd_text": result["jd_text"],
@@ -309,6 +323,13 @@ async def save_jd(request: SaveJDRequest, db: AsyncSession = Depends(get_db)):
             else None,
         )
 
+        # Invalidate lists and detail
+        await invalidate_pattern("cache:jd_list:*")
+        await invalidate_pattern("cache:manager_pending:*")
+        await invalidate_pattern("cache:hr_pending:*")
+        await invalidate_pattern("cache:dept_stats:*")
+        await invalidate_pattern(f"cache:jd_detail:*{session_id}*")
+
         return {
             "status": "success",
             "id": str(record.id),
@@ -330,6 +351,7 @@ def health_check():
 
 # ── List all (admin) ──────────────────────────────────────────────────────────
 @router.get("/list")
+@cached_response("jd_list", ttl=300)
 async def list_jds(
     submitted_only: bool = False, db: AsyncSession = Depends(get_db)
 ):
@@ -351,6 +373,7 @@ async def get_employee_jds(employee_id: str, db: AsyncSession = Depends(get_db))
 
 # ── List pending for Manager ──────────────────────────────────────────────────
 @router.get("/manager/{manager_id}/pending")
+@cached_response("manager_pending", ttl=300)
 async def get_manager_pending_jds(manager_id: str, db: AsyncSession = Depends(get_db)):
     records = await list_manager_pending_jds(db, manager_id)
     return [_serialize_list_item(r) for r in records]
@@ -358,6 +381,7 @@ async def get_manager_pending_jds(manager_id: str, db: AsyncSession = Depends(ge
 
 # ── List pending for HR ───────────────────────────────────────────────────────
 @router.get("/hr/pending")
+@cached_response("hr_pending", ttl=300)
 async def get_hr_pending_jds(db: AsyncSession = Depends(get_db)):
     records = await list_hr_pending_jds(db)
     return [_serialize_list_item(r) for r in records]
@@ -505,6 +529,7 @@ async def download_jd_pdf(jd_id: str, filename: str = None, db: AsyncSession = D
 
 # ── Get single JD ─────────────────────────────────────────────────────────────
 @router.get("/{jd_id}")
+@cached_response("jd_detail", ttl=600)
 async def get_jd(jd_id: str, db: AsyncSession = Depends(get_db)):
     record = await get_questionnaire(db, jd_id)
     if not record:
@@ -563,6 +588,10 @@ async def update_jd(
         )
         if not record:
             raise HTTPException(status_code=404, detail="JD not found")
+        
+        # Invalidate cache
+        await invalidate_pattern(f"cache:jd_detail:*{jd_id}*")
+
         return {
             "status": "success",
             "id": str(record.id),
@@ -603,6 +632,14 @@ async def update_jd_status(
         )
         if not record:
             raise HTTPException(status_code=404, detail="JD not found")
+        
+        # Invalidate all relevant caches
+        await invalidate_pattern("cache:jd_list:*")
+        await invalidate_pattern("cache:manager_pending:*")
+        await invalidate_pattern("cache:hr_pending:*")
+        await invalidate_pattern("cache:dept_stats:*")
+        await invalidate_pattern(f"cache:jd_detail:*{jd_id}*")
+
         return {
             "status": "success",
             "id": str(record.id),
@@ -626,6 +663,13 @@ async def delete_jd(jd_id: str, employee_id: str, db: AsyncSession = Depends(get
         )
         if not success:
             raise HTTPException(status_code=404, detail="JD not found")
+
+        # Invalidate lists and detail
+        await invalidate_pattern("cache:jd_list:*")
+        await invalidate_pattern("cache:manager_pending:*")
+        await invalidate_pattern("cache:hr_pending:*")
+        await invalidate_pattern("cache:dept_stats:*")
+        await invalidate_pattern(f"cache:jd_detail:*{jd_id}*")
 
         return {"status": "success", "message": "JD deleted successfully."}
     except PermissionError as e:
@@ -665,6 +709,14 @@ async def submit_review(jd_id: str, request: dict, db: AsyncSession = Depends(ge
             action=action,
             comment=comment,
         )
+
+        # Invalidate relevant caches
+        await invalidate_pattern("cache:jd_list:*")
+        await invalidate_pattern("cache:manager_pending:*")
+        await invalidate_pattern("cache:hr_pending:*")
+        await invalidate_pattern("cache:dept_stats:*")
+        await invalidate_pattern(f"cache:jd_detail:*{jd_id}*")
+
         return {
             "status": "success",
             "id": str(review.id),

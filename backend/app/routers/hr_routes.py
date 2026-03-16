@@ -3,10 +3,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import text
 
 from app.core.database import get_db
+from app.core.cache import cached_response
 
 router = APIRouter()
 
 @router.get("/department-stats")
+@cached_response("dept_stats", ttl=300)
 async def get_department_stats(db: AsyncSession = Depends(get_db)):
     """
     Fetches the total number of employees per department directly from the organogram table,
@@ -72,6 +74,7 @@ async def get_department_stats(db: AsyncSession = Depends(get_db)):
 
 
 @router.get("/departments/{department_name}/employees")
+@cached_response("dept_employees", ttl=300)
 async def get_department_employees(
     department_name: str, 
     page: int = 1, 

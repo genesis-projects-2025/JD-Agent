@@ -23,6 +23,9 @@ class Settings(BaseSettings):
     
     PINECONE_API_KEY: str = ""
 
+    # Redis configuration
+    REDIS_URL: str = "redis://localhost:6379"
+
     # CORS
     CORS_ORIGINS: str = ""
 

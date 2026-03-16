@@ -762,7 +762,7 @@ async def get_unread_feedback_for_user(
             .where(
                 (JDSession.employee_id == employee_id)
                 & (JDReviewComment.target_role == "employee")
-                & (JDReviewComment.is_read == False)
+                & (not JDReviewComment.is_read)
             )
             .order_by(JDReviewComment.created_at.desc())
         )
@@ -777,7 +777,7 @@ async def get_unread_feedback_for_user(
                     (Employee.reporting_manager_code == employee_id)
                     | (JDSession.employee_id == employee_id)
                 )
-                & (JDReviewComment.is_read == False)
+                & (not JDReviewComment.is_read)
             )
             .order_by(JDReviewComment.created_at.desc())
         )

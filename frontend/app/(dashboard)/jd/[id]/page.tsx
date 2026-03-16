@@ -5,6 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { downloadJDPdfClient } from "@/lib/download-jd-pdf";
 import {
   FileText,
   Clock,
@@ -75,7 +76,7 @@ export default function JDPage() {
   const [isApproving, setIsApproving] = useState(false);
   const [activeTab, setActiveTab] = useState<"structured">("structured");
   const [isMounted, setIsMounted] = useState(false);
-  const [isDownloading, setIsDownloading] = useState(false);
+
 
   useEffect(() => {
     setIsMounted(true);
@@ -533,21 +534,21 @@ export default function JDPage() {
                         onClick={(e) => {
                           e.stopPropagation();
                           setShowDownloadDropdown(false);
-                          downloadJDDocx(jdId);
+                          // Use the client-side branded template instead of server PDF
+                          downloadJDPdfClient(
+                            jd.jd_structured,
+                            jd.title || undefined,
+                            jd.department || undefined
+                          );
                         }}
-                        disabled={isDownloading}
-                        className="w-full flex items-center gap-3 px-4 py-3.5 text-[13px] font-bold text-surface-700 hover:bg-primary-50 hover:text-primary-700 transition-colors border-b border-surface-50 disabled:opacity-50 group/item"
+                        className="w-full flex items-center gap-3 px-4 py-3.5 text-[13px] font-bold text-surface-700 hover:bg-primary-50 hover:text-primary-700 transition-colors group/item"
                       >
-                        <div className="w-8 h-8 rounded-lg bg-blue-50 flex items-center justify-center group-hover/item:bg-blue-100 transition-colors">
-                          {isDownloading ? (
-                            <Loader2 className="w-4 h-4 animate-spin text-blue-600" />
-                          ) : (
-                            <FileText className="w-4 h-4 text-blue-600" />
-                          )}
+                        <div className="w-8 h-8 rounded-lg bg-red-50 flex items-center justify-center group-hover/item:bg-red-100 transition-colors">
+                          <FileDown className="w-4 h-4 text-red-600" />
                         </div>
                         <div className="flex flex-col items-start px-1">
-                          <span>Microsoft Word</span>
-                          <span className="text-[10px] text-surface-400 font-medium">Editable .docx format</span>
+                          <span>Professional PDF</span>
+                          <span className="text-[10px] text-surface-400 font-medium">Branded Pulse Pharma template</span>
                         </div>
                       </button>
                       

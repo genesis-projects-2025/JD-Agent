@@ -35,6 +35,27 @@ jd_llm = ChatGoogleGenerativeAI(
 
 # ── Utilities ──────────────────────────────────────────────────────────────────
 
+SOFT_SKILLS = {
+    "communication", "leadership", "teamwork", "problem solving", "time management",
+    "adaptability", "team player", "interpersonal skills", "critical thinking",
+    "collaboration", "work ethic", "attention to detail", "creative thinking",
+}
+
+def sanitise_skills(skills: list) -> list:
+    """Strip out common soft-skill hallucinations to keep the JD technical."""
+    if not skills:
+        return []
+    # Deduplicate and filter soft skills
+    seen = set()
+    clean = []
+    for s in skills:
+        if not s: continue
+        s_clean = s.strip()
+        s_lower = s_clean.lower()
+        if s_lower not in SOFT_SKILLS and s_lower not in seen:
+            clean.append(s_clean)
+            seen.add(s_lower)
+    return clean
 
 def remove_think_tags(text: str) -> str:
     cleaned = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL)
@@ -618,6 +639,8 @@ async def handle_conversation(
     msgs = build_context(session_memory, user_message)
 
     try:
+        # Set temperature to 0.4 for more natural flow during interview
+        interview_llm.temperature = 0.4
         # Use ainvoke for true asynchrony and simultaneous user support
         response = await interview_llm.ainvoke(msgs)
         raw_content = strip_reasoning_tags(response.content)
@@ -636,6 +659,13 @@ async def handle_conversation(
 
         # Deep merge insights
         llm_insights = validated.employee_role_insights.model_dump()
+        
+        # ✅ Sanitise skills before merging
+        if "skills" in llm_insights:
+            llm_insights["skills"] = sanitise_skills(llm_insights["skills"])
+        if "technical_skills" in llm_insights:
+            llm_insights["technical_skills"] = sanitise_skills(llm_insights["technical_skills"])
+            
         existing_insights = safe_to_dict(session_memory.insights)
         merged_insights = deep_merge(existing_insights, llm_insights)
         session_memory.insights = merged_insights

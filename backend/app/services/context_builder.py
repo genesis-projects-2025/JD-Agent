@@ -1,15 +1,6 @@
-# backend/app/services/context_builder.py
-#
-# WHAT CHANGED:
-#  - Uses the new flat insight fields: purpose, responsibilities,
-#    working_relationships, skills, tools, education, experience
-#  - KPIs / performance_metrics removed from status check and context
-#  - Collection order in STATUS NOTE mirrors SYSTEM_PROMPT Step 1-12
-
 from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
 from app.prompts.jd_prompts import SYSTEM_PROMPT
 import json
-
 
 def _strip_empty(d):
     """Remove null / empty values to keep the context lean."""
@@ -19,155 +10,51 @@ def _strip_empty(d):
         return [_strip_empty(i) for i in d if i not in (None, {}, [], "")]
     return d
 
-
 def build_context(session_memory, user_message: str) -> list:
+    """Prepares the optimized LangChain message list for the LLM."""
     messages = []
-
-    # ── 1. System prompt ──────────────────────────────────────────────────────
+    
+    # 1. System Prompt
     messages.append(SystemMessage(content=SYSTEM_PROMPT))
 
-    # ── 2. Accumulated data block ─────────────────────────────────────────────
-    raw_insights = (
-        session_memory.insights if isinstance(session_memory.insights, dict) else {}
-    )
-    progress = (
-        session_memory.progress if isinstance(session_memory.progress, dict) else {}
-    )
+    # 2. Accumulated Data (Insights & Progress)
+    raw_insights = session_memory.insights or {}
     insights = _strip_empty(raw_insights)
+    progress = session_memory.progress or {}
+    
+    # Identify missing areas for the agent
+    missing = progress.get("missing_insight_areas", [])
+    status = progress.get("status", "collecting")
+    
+    next_action = "Continue the interview."
+    if status == "ready_for_generation":
+        next_action = "The interview is complete. Ask the user if you should generate the JD now."
+    elif missing:
+        next_action = f"Focus on collecting the following missing information: {', '.join(missing)}."
 
-    # Working relationships sub-dict (handle both flat and nested)
-    wr = insights.get("working_relationships", {})
-    if not isinstance(wr, dict):
-        wr = {}
-
-    # ── Honest FILLED / MISSING check (mirrors RULE 8 scoring) ───────────────
-    def _filled(label: str, value) -> tuple:
-        ok = bool(value) and value not in ("", [], {})
-        return (label, ok)
-
-    checks = [
-        _filled("purpose", insights.get("purpose")),
-        _filled(
-            "responsibilities (need 8+)",
-            len(insights.get("responsibilities", [])) >= 8
-            if isinstance(insights.get("responsibilities"), list)
-            else False,
-        ),
-        _filled("reporting_to", wr.get("reporting_to")),
-        _filled("team_size", wr.get("team_size")),
-        _filled("internal_stakeholders", wr.get("internal_stakeholders")),
-        _filled("external_stakeholders", wr.get("external_stakeholders")),
-        _filled(
-            "skills (need 4+)",
-            len(insights.get("skills", [])) >= 4
-            if isinstance(insights.get("skills"), list)
-            else False,
-        ),
-        _filled("tools", insights.get("tools")),
-        _filled("education", insights.get("education")),
-        _filled("experience", insights.get("experience")),
-    ]
-
-    filled = [label for label, ok in checks if ok]
-    missing = [label for label, ok in checks if not ok]
-
-    current_status = progress.get("status", "collecting")
-
-    if current_status == "ready_for_generation":
-        next_action = (
-            "ALL fields are collected. Status is ready_for_generation.\n"
-            "DO NOT ask any more questions.\n"
-            "Ask the employee to confirm JD generation: "
-            "'I now have everything I need. Shall I generate your Job Description?'\n"
-            "Set suggested_skills to the full list of skills from employee_role_insights.skills + tools.\n"
-            "Keep status = ready_for_generation."
-        )
-    elif not missing:
-        # Detect if user has already confirmed skills in history OR is confirming right now
-        history_text = " ".join([m.get("content", "") for m in session_memory.full_history if m.get("role") == "user"]).lower()
-        full_check_text = f"{history_text} {user_message.lower()}"
-        
-        # Robust check: either keyword match OR status is already set to ready_for_generation
-        is_ready_status = session_memory.progress.get("status") == "ready_for_generation"
-        skills_confirmed = "confirm these required skills" in full_check_text or "confirm" in full_check_text or is_ready_status
-
-        if not skills_confirmed:
-            next_action = (
-                "All fields are now filled. In your next response:\n"
-                "1. Set status = ready_for_generation\n"
-                "2. Provide the full list of suggested_skills extracted from the conversation (skills + tools)\n"
-                "3. Ask the employee to confirm if these skills are correct."
-            )
-        else:
-            next_action = (
-                "All fields are filled and skills have been confirmed. In your next response:\n"
-                "1. Set status = ready_for_generation\n"
-                "2. Do NOT provide suggested_skills anymore (they are already confirmed)\n"
-                "3. Ask the employee to confirm if you should generate the final Job Description."
-            )
-    else:
-        next_action = (
-            "Look at MISSING above. Ask ONE question about the FIRST missing item.\n"
-            "Do NOT ask about anything already in FILLED.\n"
-            "Your response employee_role_insights MUST contain every field from "
-            "ACCUMULATED DATA — never drop or blank a field that already has a value."
-        )
-
-    status_note = (
-        f"FILLED  ({len(filled)}/10): {', '.join(filled) or 'nothing yet'}\n"
-        f"MISSING ({len(missing)}/10): {', '.join(missing) or 'all done!'}\n"
-        f"CURRENT STATUS: {current_status}"
+    data_context = (
+        "### CURRENT INTERVIEW STATE\n"
+        f"Insights: {json.dumps(insights, separators=(',', ':'))}\n"
+        f"Status: {status}\n"
+        f"Next Goal: {next_action}"
     )
+    messages.append(SystemMessage(content=data_context))
 
-    messages.append(
-        SystemMessage(
-            content=(
-                "=== ACCUMULATED DATA (copy ALL of this into employee_role_insights) ===\n"
-                + json.dumps(insights, separators=(",", ":"))
-                + "\n\n=== PROGRESS ===\n"
-                + json.dumps(progress, separators=(",", ":"))
-                + "\n\n=== COLLECTION STATUS ===\n"
-                + status_note
-                + "\n\n=== YOUR NEXT ACTION ===\n"
-                + next_action
-            )
-        )
-    )
-
-    # ── 3. Session summary (if exists) ────────────────────────────────────────
-    if session_memory.summary:
-        messages.append(
-            SystemMessage(
-                content=f"CONVERSATION SUMMARY (older turns): {session_memory.summary}"
-            )
-        )
-
-    # ── 4. Recent conversation turns (text only — no raw JSON blobs) ──────────
-    # ── 4. Recent conversation turns ──────────────────────────────────────────
-    for msg in session_memory.recent_messages:
+    # 3. Optimized History
+    # We only send the last N turns. Assistant messages are stripped of heavy JSON.
+    for msg in session_memory.full_history:
         if msg["role"] == "user":
             messages.append(HumanMessage(content=msg["content"]))
         else:
-            # Send the assistant's conversation_response as the visible text
-            # BUT also include progress/status so LLM knows what it already collected
             try:
-                parsed = json.loads(msg["content"])
-                text = parsed.get("conversation_response", "")
-                status_in_turn = parsed.get("progress", {}).get("status", "")
-                pct = parsed.get("progress", {}).get("completion_percentage", 0)
-                # Append a compact status reminder so LLM doesn't re-ask
-                if text and status_in_turn:
-                    text = (
-                        f"{text}\n"
-                        f"[turn_meta: status={status_in_turn}, "
-                        f"completion={pct}%]"
-                    )
-            except Exception:
-                text = msg["content"]
-            if text:
-                messages.append(AIMessage(content=text))
+                # Extract only the conversation response to save tokens
+                data = json.loads(msg["content"])
+                content = data.get("conversation_response", msg["content"])
+                messages.append(AIMessage(content=content))
+            except:
+                messages.append(AIMessage(content=msg["content"]))
 
-    # ── 5. Current user message ───────────────────────────────────────────────
+    # 4. Current User Message
     messages.append(HumanMessage(content=user_message))
 
     return messages

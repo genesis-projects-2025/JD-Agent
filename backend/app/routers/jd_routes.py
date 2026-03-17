@@ -75,7 +75,7 @@ async def hydrate_session_from_db(session_id: str, db: AsyncSession) -> SessionM
             {"role": t.role, "content": t.content}
             for t in (record.conversation_turns or [])
         ]
-        memory.load_history_from_db(history, llm_limit=6)
+        memory.load_history_from_db(history, llm_limit=10)
 
     return memory
 

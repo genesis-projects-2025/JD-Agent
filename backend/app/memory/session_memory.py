@@ -2,11 +2,11 @@
 
 
 class SessionMemory:
-    def __init__(self):
-        self.id = None
-        self.employee_id = None
-        self.employee_name = None  # persisted from /init and LLM insights
+    def __init__(self, session_id: str, llm_limit: int = 10):
+        self.session_id = session_id
+        self.llm_limit = llm_limit
         self.insights = {}
+        self.working_relationships = {}
         self.progress = {
             "completion_percentage": 0,
             "missing_insight_areas": [],

@@ -441,7 +441,7 @@ export default function JDPage() {
   } catch (e) { }
 
   return (
-    <div className="min-h-screen bg-surface-50 pt-16 pb-24 px-4 md:pt-6 md:px-6">
+    <div className="h-full bg-surface-50 overflow-y-auto custom-scrollbar pt-6 pb-24 px-4 md:px-6">
       <div className="max-w-7xl mx-auto space-y-4 md:space-y-6 animate-in fade-in duration-500">
         <button
           onClick={() => {
@@ -470,9 +470,9 @@ export default function JDPage() {
         </button>
 
         {/* Header card */}
-        <div className="bg-white rounded-2xl md:rounded-[32px] p-5 sm:p-6 md:p-10 border border-surface-200 shadow-premium relative overflow-hidden">
+        <div className="bg-white rounded-2xl md:rounded-[32px] p-5 sm:p-6 md:p-8 border border-surface-200 shadow-premium relative overflow-hidden">
           <div className="absolute top-0 right-0 w-[500px] h-[500px] bg-gradient-to-br from-primary-50 via-white to-transparent opacity-50 rounded-full blur-3xl -translate-y-1/2 translate-x-1/3 pointer-events-none overflow-hidden"></div>
-          <div className="relative z-10 flex flex-col lg:flex-row lg:items-start justify-between gap-6 md:gap-8">
+          <div className="relative z-20 flex flex-col lg:flex-row lg:items-start justify-between gap-6">
             <div>
               <div className="flex flex-wrap items-center gap-3 mb-6">
                 <span className="px-4 py-1.5 bg-surface-100 text-surface-600 rounded-xl text-[11px] font-black uppercase tracking-widest flex items-center gap-1.5 border border-surface-200/50 shadow-sm">
@@ -503,8 +503,6 @@ export default function JDPage() {
               {jd.jd_structured && (
                 <div
                   className="relative mt-4 inline-block"
-                  onMouseEnter={() => setShowDownloadDropdown(true)}
-                  onMouseLeave={() => setShowDownloadDropdown(false)}
                 >
                   <button
                     onClick={() => setShowDownloadDropdown(!showDownloadDropdown)}
@@ -517,7 +515,7 @@ export default function JDPage() {
 
                   {showDownloadDropdown && (
                     <div
-                      className="absolute left-0 mt-1 w-56 bg-white border border-surface-200 rounded-2xl shadow-2xl z-[100] overflow-hidden animate-in fade-in slide-in-from-top-2 duration-200"
+                      className="absolute left-0 mt-2 w-56 bg-white border border-surface-200 rounded-2xl shadow-2xl z-[100] overflow-hidden animate-in fade-in slide-in-from-top-2 duration-200"
                     >
                       <button
                         onClick={(e) => {
@@ -859,10 +857,10 @@ export default function JDPage() {
           </div>
         )}
 
-        {/* Document block */}
-        <div className="bg-white rounded-2xl md:rounded-[32px] p-5 md:p-10 border border-surface-200 shadow-premium relative min-h-[500px] flex flex-col transition-all duration-500">
+        {/* Main Content Area */}
+        <div className="bg-white rounded-2xl md:rounded-[32px] border border-surface-200 shadow-premium overflow-hidden transition-all duration-500">
           {isEditing ? (
-            <div className="flex-1 overflow-y-auto pr-2 custom-scrollbar">
+            <div className="overflow-y-auto custom-scrollbar max-h-[70vh]">
               <div className="w-full bg-surface-50 border border-surface-200 rounded-2xl p-5 sm:p-8 space-y-8 sm:space-y-12 shadow-inner min-h-full">
                 {/* Job Title */}
                 <div className="space-y-4">
@@ -988,8 +986,8 @@ export default function JDPage() {
               </div>
             </div>
           ) : (
-            <div className="flex-1 animate-in fade-in zoom-in-[0.98] duration-500 h-full">
-              <div className="bg-white rounded-2xl md:rounded-[32px] p-6 sm:p-8 md:p-12 border border-surface-200/60 shadow-[0_8px_30px_rgb(0,0,0,0.04)] ring-1 ring-black/[0.02]">
+            <div className="animate-in fade-in zoom-in-[0.98] duration-500">
+              <div className="p-6 sm:p-8 md:p-12">
                 <div className="border-b border-surface-200/60 pb-6 sm:pb-8 mb-6 sm:mb-10">
                   <div className="flex items-center gap-3 mb-4 sm:mb-6">
                     <div className="h-10 w-10 bg-primary-50 rounded-xl flex items-center justify-center border border-primary-100">
@@ -1005,7 +1003,7 @@ export default function JDPage() {
                       </p>
                     </div>
                   </div>
-                  <h1 className="text-4xl md:text-5xl font-black text-surface-900 tracking-tight leading-[1.1]">
+                  <h1 className="text-3xl md:text-5xl font-black text-surface-900 tracking-tight leading-[1.1]">
                     {jd.title || "Job Description"}
                   </h1>
                 </div>
@@ -1038,14 +1036,14 @@ export default function JDPage() {
 
 function JDDocumentView({ data }: { data: any }) {
   const Section = ({ title, children }: { title: string; children: React.ReactNode }) => (
-    <div className="py-6 sm:py-8 border-b border-surface-100 last:border-0">
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 lg:gap-8">
+    <div className="py-4 sm:py-6 border-b border-surface-100 last:border-0">
+      <div className="grid grid-cols-1 lg:grid-cols-4 gap-2 lg:gap-8">
         <div className="lg:col-span-1">
-          <h3 className="text-[10px] sm:text-[11px] font-black text-surface-400 uppercase tracking-[0.2em] lg:sticky lg:top-8 mb-2 lg:mb-0">
+          <h3 className="text-[10px] sm:text-[11px] font-black text-surface-400 uppercase tracking-[0.2em] mb-2 lg:mb-0">
             {title}
           </h3>
         </div>
-        <div className="lg:col-span-2 space-y-4">
+        <div className="lg:col-span-3 space-y-3">
           {children}
         </div>
       </div>
@@ -1053,9 +1051,9 @@ function JDDocumentView({ data }: { data: any }) {
   );
 
   const ListItem = ({ children }: { children: React.ReactNode }) => (
-    <div className="flex gap-3 group">
-      <div className="w-1.5 h-1.5 rounded-full bg-primary-400 mt-2.5 flex-shrink-0 group-hover:scale-125 transition-transform" />
-      <p className="text-[15px] leading-relaxed text-surface-700 font-medium">
+    <div className="flex gap-3 group items-start">
+      <div className="w-1.5 h-1.5 rounded-full bg-primary-400 mt-2 flex-shrink-0 group-hover:scale-150 transition-transform duration-300" />
+      <p className="text-[14px] sm:text-[15px] leading-relaxed text-surface-700 font-medium">
         {children}
       </p>
     </div>

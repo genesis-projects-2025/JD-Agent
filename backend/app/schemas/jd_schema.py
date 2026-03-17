@@ -128,3 +128,7 @@ class CreateReviewRequest(BaseModel):
     target_role: Literal["employee", "manager"]
     comment: Optional[str] = None
     reviewer_id: str
+
+
+class ConfirmSkillsRequest(BaseModel):
+    skills: List[str]

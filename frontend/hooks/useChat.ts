@@ -5,7 +5,9 @@ import {
   sendMessageStream as apiSendMessageStream,
   saveJD as apiSaveJD,
   fetchJD,
+  updateJDStatus,
   generateJD as apiGenerateJD,
+  confirmSkills as apiConfirmSkills,
 } from "../lib/api";
 import { JDAgentResponse } from "../types/jd-agent";
 import { getOrCreateEmployeeId } from "@/lib/auth";
@@ -293,6 +295,7 @@ export function useChat(onSaveSuccess?: () => void, autoInit: boolean = true) {
       const statusCode = error.status || error.response?.status;
       const isRateLimit =
         statusCode === 429 ||
+        error.isRateLimit ||
         error.message?.toLowerCase().includes("rate limit");
 
       if (isRateLimit) {
@@ -404,6 +407,34 @@ export function useChat(onSaveSuccess?: () => void, autoInit: boolean = true) {
 
   const handleApproveJD = () => sendMessage("I approve this Job Description.");
 
+  const confirmSkillsAction = async (skills: string[]) => {
+    const id = window.location.pathname.split("/").pop();
+    if (!id) return;
+    
+    await apiConfirmSkills(id, skills);
+    
+    setMessages((prev) => {
+      const newMessages = [...prev];
+      // Find the last assistant message with skill selection
+      for (let i = newMessages.length - 1; i >= 0; i--) {
+        if (newMessages[i].sender === "agent" && newMessages[i].isSkillSelection) {
+          newMessages[i] = {
+            ...newMessages[i],
+            isSkillSelection: false,
+            isReadySelection: true,
+            text: newMessages[i].text + "\n\n✅ Skills confirmed. Ready to generate your Job Description.",
+            skills: skills // Update with finalized selection
+          };
+          break;
+        }
+      }
+      return newMessages;
+    });
+    
+    // Also update the local status so other UI parts know we are ready
+    setStatus("ready_for_generation");
+  };
+
   const handleRetry = () => {
     if (lastMessageText) sendMessage(lastMessageText);
   };
@@ -428,5 +459,6 @@ export function useChat(onSaveSuccess?: () => void, autoInit: boolean = true) {
     hydrated, // ✅ NEW — use this in the chat page to show a loading skeleton
     updateJd: setJd,
     updateStructuredData: setStructuredData,
+    confirmSkillsAction,
   };
 }

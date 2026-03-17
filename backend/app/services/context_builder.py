@@ -83,10 +83,28 @@ def build_context(session_memory, user_message: str) -> list:
             "Keep status = ready_for_generation."
         )
     elif not missing:
-        next_action = (
-            "All fields are now filled. Set status = ready_for_generation in your next response.\n"
-            "Ask the employee to confirm before generating."
-        )
+        # Detect if user has already confirmed skills in history OR is confirming right now
+        history_text = " ".join([m.get("content", "") for m in session_memory.full_history if m.get("role") == "user"]).lower()
+        full_check_text = f"{history_text} {user_message.lower()}"
+        
+        # Robust check: either keyword match OR status is already set to ready_for_generation
+        is_ready_status = session_memory.progress.get("status") == "ready_for_generation"
+        skills_confirmed = "confirm these required skills" in full_check_text or "confirm" in full_check_text or is_ready_status
+
+        if not skills_confirmed:
+            next_action = (
+                "All fields are now filled. In your next response:\n"
+                "1. Set status = ready_for_generation\n"
+                "2. Provide the full list of suggested_skills extracted from the conversation (skills + tools)\n"
+                "3. Ask the employee to confirm if these skills are correct."
+            )
+        else:
+            next_action = (
+                "All fields are filled and skills have been confirmed. In your next response:\n"
+                "1. Set status = ready_for_generation\n"
+                "2. Do NOT provide suggested_skills anymore (they are already confirmed)\n"
+                "3. Ask the employee to confirm if you should generate the final Job Description."
+            )
     else:
         next_action = (
             "Look at MISSING above. Ask ONE question about the FIRST missing item.\n"

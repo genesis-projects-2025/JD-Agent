@@ -48,6 +48,7 @@ export default function QuestionnairePage() {
     retryTimer,
     updateJd,
     updateStructuredData,
+    confirmSkillsAction,
   } = useChat(() => {
     // Component stays on page; the JDPreviewPanel handles UI view
   }, true);
@@ -67,7 +68,7 @@ export default function QuestionnairePage() {
   }, [isGeneratingJD]);
 
   const handleSkillSelect = (skills: string[]) => {
-    sendMessage(`I confirm these required skills: ${skills.join(", ")}.`);
+    confirmSkillsAction(skills);
   };
 
   const handleContinue = () => {

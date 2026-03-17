@@ -12,6 +12,7 @@ from app.schemas.jd_schema import (
     UpdateJDRequest,
     UpdateStatusRequest,
     GenerateJDRequest,
+    ConfirmSkillsRequest,
 )
 from app.services.jd_service import (
     handle_conversation,
@@ -338,6 +339,33 @@ async def save_jd(request: SaveJDRequest, db: AsyncSession = Depends(get_db)):
 
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Failed to save JD: {str(e)}")
+
+
+@router.post("/{jd_id}/confirm-skills")
+async def confirm_skills(
+    jd_id: str, request: ConfirmSkillsRequest, db: AsyncSession = Depends(get_db)
+):
+    session_memory = await hydrate_session_from_db(jd_id, db)
+    if not session_memory.insights:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    # Update insights with confirmed skills
+    session_memory.insights["skills"] = request.skills
+    
+    # Update status to ready_for_generation
+    session_memory.progress["status"] = "ready_for_generation"
+    
+    await sync_session_to_db(
+        db=db,
+        session_id=jd_id,
+        insights=session_memory.insights,
+        progress=session_memory.progress,
+        conversation_history=session_memory.full_history,
+        employee_id=session_memory.employee_id,
+        status="ready_for_generation"
+    )
+
+    return {"status": "success", "message": "Skills confirmed and stored."}
 
 
 @router.get("/")

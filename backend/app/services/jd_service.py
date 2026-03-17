@@ -315,6 +315,14 @@ def parse_llm_response(
         try:
             parsed = json.loads(cleaned)
             if "conversation_response" in parsed:
+                # ✅ NEW Strategy: Check for skills in insights if top-level suggested_skills is missing
+                if not parsed.get("suggested_skills") and "employee_role_insights" in parsed:
+                    insights = parsed["employee_role_insights"]
+                    if isinstance(insights, dict):
+                        skills = insights.get("skills", [])
+                        tools = insights.get("tools", [])
+                        if isinstance(skills, list) and isinstance(tools, list):
+                            parsed["suggested_skills"] = list(set(skills + tools))
                 return parsed, cleaned
         except json.JSONDecodeError:
             pass
@@ -488,7 +496,14 @@ async def handle_jd_generation(session_memory: SessionMemory) -> dict:
     ]
 
     print("\n🤖 CALLING JD LLM...")
-    response = await jd_llm.ainvoke(messages)
+    try:
+        response = await jd_llm.ainvoke(messages)
+    except Exception as e:
+        err_msg = str(e)
+        if "429" in err_msg or "quota" in err_msg.lower() or "resource_exhausted" in err_msg.lower():
+            raise HTTPException(status_code=429, detail="Gemini API Quota Exceeded. Please try again in 30 seconds.")
+        raise e
+
     raw = strip_reasoning_tags(response.content)
 
     # ── Parse response ─────────────────────────────────────────────────────────
@@ -838,6 +853,23 @@ async def handle_conversation_stream(
         parsed_json["employee_role_insights"] = merged_insights
         parsed_json["jd_structured_data"] = {}
         parsed_json["jd_text_format"] = ""
+        # ── Final Fallback: Ensure skills are present ONLY if not already confirmed ──
+        history_text = " ".join([m.get("content", "") for m in session_memory.full_history if m.get("role") == "user"]).lower()
+        full_check_text = f"{history_text} {user_message.lower()}"
+        is_ready_status = session_memory.progress.get("status") == "ready_for_generation"
+        skills_confirmed = "confirm these required skills" in full_check_text or "confirm" in full_check_text or is_ready_status
+        
+        if (
+            session_memory.progress.get("status") == "ready_for_generation"
+            and not parsed_json.get("suggested_skills")
+            and not skills_confirmed
+        ):
+            # If the LLM didn't provide them in this turn's JSON, pull from accumulated memory
+            mem_skills = merged_insights.get("skills", [])
+            mem_tools = merged_insights.get("tools", [])
+            if isinstance(mem_skills, list) and isinstance(mem_tools, list):
+                parsed_json["suggested_skills"] = list(set(mem_skills + mem_tools))
+
         # DO NOT wipe suggested_skills — frontend needs it for skill chips
 
         # Yield final completed JSON for frontend to finalize state
@@ -849,14 +881,24 @@ async def handle_conversation_stream(
         )
 
     except Exception as e:
-        print(f"⚠️ STREAM PROCESSING ERROR: {e}")
+        error_msg = str(e)
+        print(f"⚠️ STREAM PROCESSING ERROR: {error_msg}")
         import traceback
-
         traceback.print_exc()
+
+        # Detect Rate Limit / Quota issues (Gemini 429)
+        is_rate_limit = "429" in error_msg or "quota" in error_msg.lower() or "resource_exhausted" in error_msg.lower()
+
         try:
             fallback = json.loads(build_fallback_response(session_memory))
-            yield f"data: {json.dumps({'type': 'error', 'parsed': fallback})}\n\n"
+            payload = {"type": "error", "parsed": fallback}
+            if is_rate_limit:
+                payload["is_rate_limit"] = True
+            yield f"data: {json.dumps(payload)}\n\n"
         except Exception:
-            yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
+            payload = {"type": "error", "message": error_msg}
+            if is_rate_limit:
+                payload["is_rate_limit"] = True
+            yield f"data: {json.dumps(payload)}\n\n"
 
     print("[Interview Stream] ✅ TURN COMPLETED\n")

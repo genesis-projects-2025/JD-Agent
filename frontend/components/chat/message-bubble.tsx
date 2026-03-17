@@ -10,6 +10,7 @@ import {
   Sparkles,
   ArrowRight,
   ShieldCheck,
+  Loader2,
 } from "lucide-react";
 
 export default function MessageBubble({
@@ -32,6 +33,7 @@ export default function MessageBubble({
   );
   const [newSkill, setNewSkill] = useState("");
   const [isConfirmed, setIsConfirmed] = useState(false);
+  const [isConfirming, setIsConfirming] = useState(false);
   const [isReadyActionTaken, setIsReadyActionTaken] = useState(false);
 
   // Typewriter effect state
@@ -64,6 +66,14 @@ export default function MessageBubble({
     }
   }, [message.isStreaming, fullText]);
 
+  // ✅ Fix: Sync local skill state when the message.skills prop updates (e.g., after stream ends)
+  useEffect(() => {
+    if (message.skills && message.skills.length > 0) {
+      setAvailableSkills(message.skills);
+      setSelectedSkills(message.skills);
+    }
+  }, [message.skills]);
+
   const toggleSkill = (skill: string) => {
     if (isConfirmed) return;
     setSelectedSkills((prev) =>
@@ -81,10 +91,18 @@ export default function MessageBubble({
     setNewSkill("");
   };
 
-  const handleConfirm = () => {
-    setIsConfirmed(true);
-    if (onSkillSelect) {
-      onSkillSelect(selectedSkills);
+  const handleConfirm = async () => {
+    setIsConfirming(true);
+    try {
+      if (onSkillSelect) {
+        await onSkillSelect(selectedSkills);
+      }
+      setIsConfirmed(true);
+    } catch (e) {
+      console.error(e);
+      // alert is fine for now but could be a toast
+    } finally {
+      setIsConfirming(false);
     }
   };
 
@@ -206,11 +224,15 @@ export default function MessageBubble({
 
                   <button
                     onClick={handleConfirm}
-                    disabled={selectedSkills.length === 0}
+                    disabled={selectedSkills.length === 0 || isConfirming}
                     className="w-full py-3 sm:py-4 bg-primary-600 text-white rounded-xl sm:rounded-2xl text-[14px] sm:text-[15px] font-bold hover:bg-primary-700 transition-all shadow-xl shadow-primary-500/20 active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 mt-2 sm:mt-0"
                   >
-                    <Check className="w-4 h-4 sm:w-5 sm:h-5 font-bold" />
-                    Confirm Skills
+                    {isConfirming ? (
+                      <Loader2 className="w-4 h-4 sm:w-5 sm:h-5 animate-spin" />
+                    ) : (
+                      <Check className="w-4 h-4 sm:w-5 sm:h-5 font-bold" />
+                    )}
+                    {isConfirming ? "Updating Skills..." : "Confirm Skills"}
                   </button>
                 </div>
               )}
@@ -226,10 +248,9 @@ export default function MessageBubble({
             </div>
           )}
 
-          {/* Ready to Generate JD UI */}
-          {message.isReadySelection &&
-            (!message.isSkillSelection || isConfirmed) && (
-              <div className="mt-6 space-y-3 pt-6 border-t border-surface-100">
+          {/* Ready to Generate JD UI — ONLY if not also showing skills */}
+          {message.isReadySelection && !message.isSkillSelection && (
+            <div className="mt-6 space-y-3 pt-6 border-t border-surface-100">
                 {!isReadyActionTaken ? (
                   <>
                     <button

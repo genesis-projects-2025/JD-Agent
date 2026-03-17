@@ -212,6 +212,15 @@ export async function initQuestionnaire({
   if (!res.ok) throw new Error("Failed to init questionnaire");
   return res.json();
 }
+export async function confirmSkills(jdId: string, skills: string[]) {
+  const res = await fetch(`${API_URL}/jd/${jdId}/confirm-skills`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ skills }),
+  });
+  if (!res.ok) throw new Error("Failed to confirm skills");
+  return res.json();
+}
 
 export async function fetchJD(jdId: string) {
   const res = await fetch(`${API_URL}/jd/${jdId}`);
@@ -397,7 +406,9 @@ export async function sendMessageStream(
             onDone(parsed.parsed);
             return; // clean exit
           } else if (parsed.type === "error") {
-            onError(new Error(parsed.message || "Stream error"));
+            const error = new Error(parsed.message || "Stream error") as any;
+            if (parsed.is_rate_limit) error.isRateLimit = true;
+            onError(error);
             return;
           }
         } catch {

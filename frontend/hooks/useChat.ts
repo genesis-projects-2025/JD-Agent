@@ -5,7 +5,6 @@ import {
   sendMessageStream as apiSendMessageStream,
   saveJD as apiSaveJD,
   fetchJD,
-  updateJDStatus,
   generateJD as apiGenerateJD,
   confirmSkills as apiConfirmSkills,
 } from "../lib/api";

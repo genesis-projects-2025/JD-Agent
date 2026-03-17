@@ -1,8 +1,6 @@
 # gunicorn.conf.py
 # TUNED for 2 GB RAM EC2 + Aiven PostgreSQL (remote DB, ~5-15 ms latency)
 
-import multiprocessing
-import os
 
 # ── Network ──────────────────────────────────────────────────────────────────
 bind = "0.0.0.0:8000"

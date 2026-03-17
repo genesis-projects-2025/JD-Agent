@@ -10,7 +10,6 @@ import ChatWindow from "@/components/chat/chat-window";
 import MessageInput from "@/components/chat/message-input";
 import JDPreviewPanel from "@/components/jd/jd-preview-panel";
 import { useChat } from "@/hooks/useChat";
-import { exportJDToPDF } from "@/lib/pdf-export";
 import { deleteJD, getCurrentUser } from "@/lib/api";
 import { DeleteModal } from "@/components/ui/delete-modal";
 import {
@@ -162,11 +161,10 @@ export default function QuestionnairePage() {
       <div className="flex-1 flex flex-col md:flex-row min-h-0 relative">
         {/* Chat column — hidden on mobile when JD panel is open */}
         <div
-          className={`flex flex-col min-h-0 transition-all duration-500 ease-out bg-surface-50 w-full ${
-            showPanel
+          className={`flex flex-col min-h-0 transition-all duration-500 ease-out bg-surface-50 w-full ${showPanel
               ? "hidden md:flex md:h-auto md:w-1/2 md:border-r border-surface-200"
               : "h-full"
-          }`}
+            }`}
         >
           <ChatWindow
             messages={messages}

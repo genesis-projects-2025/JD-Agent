@@ -7,7 +7,6 @@ import { Sparkles, Activity, Bot, Loader2 } from "lucide-react";
 
 export default function ChatWindow({
   messages,
-  isGenerating,
   progress = 0,
   onSkillSelect,
   onGenerateJD,

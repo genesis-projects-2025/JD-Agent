@@ -3,16 +3,11 @@
 
 import { useParams, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
 import { downloadJDPdfClient } from "@/lib/download-jd-pdf";
 import {
   FileText,
-  Clock,
   ArrowLeft,
   Loader2,
-  Building2,
-  TrendingUp,
   ShieldCheck,
   CheckCircle2,
   XCircle,
@@ -30,21 +25,15 @@ import {
 import {
   fetchJD,
   getCurrentUser,
-  isManager,
-  isEmployee,
   approveJD,
-  rejectJDHR,
-  rejectJDManager,
   sendToHR,
-  submitToManager,
   submitJD,
   saveJD,
   createReviewComment,
   fetchReviewComments,
   downloadJDDocx,
-
 } from "@/lib/api";
-import { DeleteModal } from "@/components/ui/delete-modal";
+
 import FeedbackModal from "@/components/feedback/FeedbackModal";
 import { ReviewRejectModal } from "@/components/ui/review-reject-modal";
 

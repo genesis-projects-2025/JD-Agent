@@ -1,6 +1,6 @@
 // components/chat/message-bubble.tsx - ENTERPRISE REDESIGN
 
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useState } from "react";
 import { Message } from "../../types/message";
 import {
   Bot,
@@ -37,7 +37,7 @@ export default function MessageBubble({
   const [isReadyActionTaken, setIsReadyActionTaken] = useState(false);
 
   // Typewriter effect state
-  const [displayText, setDisplayText] = useState(() => 
+  const [displayText, setDisplayText] = useState(() =>
     !message.isStreaming ? message.text : ""
   );
   const [isTyping, setIsTyping] = useState(false);
@@ -50,7 +50,7 @@ export default function MessageBubble({
       const timeout = setTimeout(() => {
         // Take a slice to catch up faster if the gap is large
         const gap = fullText.length - displayText.length;
-        const charsToAdd = gap > 20 ? 5 : 1; 
+        const charsToAdd = gap > 20 ? 5 : 1;
         setDisplayText(fullText.substring(0, displayText.length + charsToAdd));
       }, EFFECT_SPEED);
       return () => clearTimeout(timeout);
@@ -125,11 +125,10 @@ export default function MessageBubble({
       >
         {/* Message Bubble Overlay */}
         <div
-          className={`relative px-4 sm:px-6 py-3 sm:py-5 rounded-2xl sm:rounded-3xl shadow-sm ${
-            isAgent
+          className={`relative px-4 sm:px-6 py-3 sm:py-5 rounded-2xl sm:rounded-3xl shadow-sm ${isAgent
               ? "bg-white text-surface-900 rounded-tl-none border border-surface-200"
               : "bg-surface-900 text-white rounded-tr-none shadow-premium font-medium"
-          }`}
+            }`}
         >
           {/* Saniya Persona indicator */}
           {isAgent && (
@@ -152,9 +151,9 @@ export default function MessageBubble({
                 <span className="text-[10px] font-bold uppercase tracking-widest ml-1">Thinking...</span>
               </div>
             ) : null}
-            
+
             {message.isStreaming && displayText.length > 0 && isTyping && (
-               <span className="inline-block w-1.5 h-4 bg-primary-500 animate-pulse ml-1 align-middle" />
+              <span className="inline-block w-1.5 h-4 bg-primary-500 animate-pulse ml-1 align-middle" />
             )}
           </div>
 
@@ -182,10 +181,9 @@ export default function MessageBubble({
                       className={`
                         group relative px-3 sm:px-5 py-2 sm:py-3 rounded-xl sm:rounded-2xl text-[13px] sm:text-sm font-semibold
                         transition-all duration-300 
-                        ${
-                          isSelected
-                            ? "bg-primary-600 text-white shadow-lg shadow-primary-500/20 scale-[1.03]"
-                            : "bg-surface-50 text-surface-700 hover:bg-surface-100 border border-surface-200"
+                        ${isSelected
+                          ? "bg-primary-600 text-white shadow-lg shadow-primary-500/20 scale-[1.03]"
+                          : "bg-surface-50 text-surface-700 hover:bg-surface-100 border border-surface-200"
                         }
                         ${isConfirmed ? "opacity-60 cursor-not-allowed" : "active:scale-95"}
                       `}
@@ -251,39 +249,39 @@ export default function MessageBubble({
           {/* Ready to Generate JD UI — ONLY if not also showing skills */}
           {message.isReadySelection && !message.isSkillSelection && (
             <div className="mt-6 space-y-3 pt-6 border-t border-surface-100">
-                {!isReadyActionTaken ? (
-                  <>
-                    <button
-                      onClick={() => {
-                        setIsReadyActionTaken(true);
-                        onGenerateJD?.();
-                      }}
-                      className="w-full py-3 sm:py-4.5 bg-gradient-to-br from-primary-600 to-primary-800 text-white rounded-xl sm:rounded-2xl text-[14px] sm:text-[15px] font-bold hover:shadow-2xl transition-all shadow-xl active:scale-[0.98] flex items-center justify-center gap-2 sm:gap-2.5 group"
-                    >
-                      <Sparkles className="w-4 h-4 sm:w-5 sm:h-5 group-hover:rotate-12 transition-transform" />
-                      Generate JD
-                    </button>
-                    <button
-                      onClick={() => {
-                        setIsReadyActionTaken(true);
-                        onContinue?.();
-                      }}
-                      className="w-full py-3 sm:py-4 bg-white text-surface-700 border-2 border-surface-200 rounded-xl sm:rounded-2xl text-[13px] sm:text-[14px] font-bold hover:bg-surface-50 hover:border-surface-300 transition-all active:scale-[0.98] flex items-center justify-center gap-1.5 sm:gap-2"
-                    >
-                      <ArrowRight className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
-                      Continue
-                    </button>
-                  </>
-                ) : (
-                  <div className="flex items-center justify-center gap-3 p-4 bg-surface-50 rounded-2xl border border-surface-100">
-                    <div className="w-2.5 h-2.5 bg-primary-500 rounded-full animate-pulse" />
-                    <span className="text-sm font-bold text-surface-500 uppercase tracking-widest">
-                      Generating JD...
-                    </span>
-                  </div>
-                )}
-              </div>
-            )}
+              {!isReadyActionTaken ? (
+                <>
+                  <button
+                    onClick={() => {
+                      setIsReadyActionTaken(true);
+                      onGenerateJD?.();
+                    }}
+                    className="w-full py-3 sm:py-4.5 bg-gradient-to-br from-primary-600 to-primary-800 text-white rounded-xl sm:rounded-2xl text-[14px] sm:text-[15px] font-bold hover:shadow-2xl transition-all shadow-xl active:scale-[0.98] flex items-center justify-center gap-2 sm:gap-2.5 group"
+                  >
+                    <Sparkles className="w-4 h-4 sm:w-5 sm:h-5 group-hover:rotate-12 transition-transform" />
+                    Generate JD
+                  </button>
+                  <button
+                    onClick={() => {
+                      setIsReadyActionTaken(true);
+                      onContinue?.();
+                    }}
+                    className="w-full py-3 sm:py-4 bg-white text-surface-700 border-2 border-surface-200 rounded-xl sm:rounded-2xl text-[13px] sm:text-[14px] font-bold hover:bg-surface-50 hover:border-surface-300 transition-all active:scale-[0.98] flex items-center justify-center gap-1.5 sm:gap-2"
+                  >
+                    <ArrowRight className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                    Continue
+                  </button>
+                </>
+              ) : (
+                <div className="flex items-center justify-center gap-3 p-4 bg-surface-50 rounded-2xl border border-surface-100">
+                  <div className="w-2.5 h-2.5 bg-primary-500 rounded-full animate-pulse" />
+                  <span className="text-sm font-bold text-surface-500 uppercase tracking-widest">
+                    Generating JD...
+                  </span>
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Timestamp / Sender Detail */}

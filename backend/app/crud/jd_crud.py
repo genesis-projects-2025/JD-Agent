@@ -14,7 +14,7 @@ import json
 import uuid
 from sqlalchemy.dialects.postgresql import insert
 from app.models.taxonomy_model import Skill, JDSessionSkill, EmployeeSkill
-from app.core.cache import get_cache, set_cache, invalidate_cache, invalidate_pattern
+from app.core.cache import get_cache, set_cache, invalidate_pattern
 
 
 # ── JSONB Safety Helpers ──────────────────────────────────────────────────────
@@ -830,7 +830,7 @@ async def get_unread_feedback_for_user(
             .where(
                 (JDSession.employee_id == employee_id)
                 & (JDReviewComment.target_role == "employee")
-                & (JDReviewComment.is_read == False)
+                & (not JDReviewComment.is_read)
             )
             .order_by(JDReviewComment.created_at.desc())
         )
@@ -845,7 +845,7 @@ async def get_unread_feedback_for_user(
                     (Employee.reporting_manager_code == employee_id)
                     | (JDSession.employee_id == employee_id)
                 )
-                & (JDReviewComment.is_read == False)
+                & (not JDReviewComment.is_read)
             )
             .order_by(JDReviewComment.created_at.desc())
         )

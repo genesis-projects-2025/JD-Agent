@@ -17,10 +17,21 @@ from app.models.taxonomy_model import Skill, JDSessionSkill, EmployeeSkill
 from app.core.cache import get_cache, set_cache, invalidate_pattern
 
 SOFT_SKILLS = {
-    "communication", "leadership", "teamwork", "problem solving", "time management",
-    "adaptability", "team player", "interpersonal skills", "critical thinking",
-    "collaboration", "work ethic", "attention to detail", "creative thinking",
+    "communication",
+    "leadership",
+    "teamwork",
+    "problem solving",
+    "time management",
+    "adaptability",
+    "team player",
+    "interpersonal skills",
+    "critical thinking",
+    "collaboration",
+    "work ethic",
+    "attention to detail",
+    "creative thinking",
 }
+
 
 def sanitise_skills(skills: list) -> list:
     """Strip out common soft-skill hallucinations to keep the JD technical."""
@@ -29,7 +40,8 @@ def sanitise_skills(skills: list) -> list:
     seen = set()
     clean = []
     for s in skills:
-        if not s: continue
+        if not s:
+            continue
         s_clean = s.strip()
         s_lower = s_clean.lower()
         if s_lower not in SOFT_SKILLS and s_lower not in seen:
@@ -50,6 +62,7 @@ def _safe_jsonb(value) -> dict:
         try:
             value = dict(value)
         except Exception:
+            return {}
             return {}
     try:
         return json.loads(json.dumps(value, default=str))
@@ -130,7 +143,6 @@ async def _harvest_organic_skills(
     if not isinstance(tools, list):
         tools = []
 
-    # New Pulse Pharma keys
     new_skills = jd_structured.get("skills", [])
     if not isinstance(new_skills, list):
         new_skills = []
@@ -139,11 +151,18 @@ async def _harvest_organic_skills(
     if not isinstance(new_tools, list):
         new_tools = []
 
-    all_skills = set()
-    raw_list = req_skills + tools + new_skills + new_tools
-    sanitised = sanitise_skills(raw_list)
-    for s in sanitised:
-        all_skills.add(s)
+    raw_skills = set()
+    for s in req_skills + tools + new_skills + new_tools:
+        if isinstance(s, str) and s.strip():
+            raw_skills.add(s.strip())
+
+    if not raw_skills:
+        return
+
+    # Sanitise before inserting — never store soft skills in the DB
+    from app.services.jd_service import sanitise_skills
+
+    all_skills = set(sanitise_skills(list(raw_skills)))
 
     if not all_skills:
         return

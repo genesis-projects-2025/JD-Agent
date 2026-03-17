@@ -54,8 +54,21 @@ def get_or_create_session(session_id: str) -> SessionMemory:
 
 
 async def hydrate_session_from_db(session_id: str, db: AsyncSession) -> SessionMemory:
-    print(f"💧 Hydrating session {session_id} from DB...")
-    record = await get_questionnaire(db, session_id)
+    print(f"Hydrating session {session_id} from DB...")
+    import uuid
+    from sqlalchemy.future import select as fut_select
+    from app.models.jd_session_model import JDSession, ConversationTurn
+
+    # Local safe_uuid helper
+    def _to_uuid(val):
+        if isinstance(val, uuid.UUID):
+            return val
+        return uuid.UUID(str(val))
+
+    result = await db.execute(
+        fut_select(JDSession).where(JDSession.id == _to_uuid(session_id))
+    )
+    record = result.scalar_one_or_none()
     memory = SessionMemory()
 
     if record:
@@ -71,10 +84,14 @@ async def hydrate_session_from_db(session_id: str, db: AsyncSession) -> SessionM
         memory.generated_jd = record.jd_text
         memory.jd_structured = record.jd_structured
 
-        history = [
-            {"role": t.role, "content": t.content}
-            for t in (record.conversation_turns or [])
-        ]
+        turns_result = await db.execute(
+            fut_select(ConversationTurn)
+            .where(ConversationTurn.session_id == record.id)
+            .order_by(ConversationTurn.turn_index.desc())
+            .limit(10)
+        )
+        recent_turns = list(reversed(turns_result.scalars().all()))
+        history = [{"role": t.role, "content": t.content} for t in recent_turns]
         memory.load_history_from_db(history, llm_limit=10)
 
     return memory
@@ -351,10 +368,10 @@ async def confirm_skills(
 
     # Update insights with confirmed skills
     session_memory.insights["skills"] = request.skills
-    
+
     # Update status to ready_for_generation
     session_memory.progress["status"] = "ready_for_generation"
-    
+
     await sync_session_to_db(
         db=db,
         session_id=jd_id,
@@ -362,7 +379,7 @@ async def confirm_skills(
         progress=session_memory.progress,
         conversation_history=session_memory.full_history,
         employee_id=session_memory.employee_id,
-        status="ready_for_generation"
+        status="ready_for_generation",
     )
 
     return {"status": "success", "message": "Skills confirmed and stored."}
@@ -483,21 +500,21 @@ async def download_jd_docx(
     dept = record.department or ""
     safe_filename = f"{title} - {dept}.docx" if dept else f"{title}.docx"
     safe_filename = re.sub(r'[<>:"/\\|?*]', "", safe_filename)
-
+    
+    # Use a plain Response with explicit Content-Length.
+    # We force 'identity' encoding to prevent GZipMiddleware from compressing
+    # the already-compressed docx file, which can lead to browser corruption.
     content = docx_buffer.getvalue()
     return Response(
         content=content,
         media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         headers={
             "Content-Disposition": f'attachment; filename="{safe_filename}"',
-            "Content-Length": str(len(content)),
-            "Access-Control-Expose-Headers": "Content-Disposition",
             "Content-Encoding": "identity",
+            "Access-Control-Expose-Headers": "Content-Disposition",
         },
     )
 
-
-# ── Get single JD ─────────────────────────────────────────────────────────────
 @router.get("/{jd_id}")
 @cached_response("jd_detail", ttl=600)
 async def get_jd(jd_id: str, db: AsyncSession = Depends(get_db)):

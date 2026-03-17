@@ -470,8 +470,10 @@ export default function JDPage() {
         </button>
 
         {/* Header card */}
-        <div className="bg-white rounded-2xl md:rounded-[32px] p-5 sm:p-6 md:p-8 border border-surface-200 shadow-premium relative overflow-hidden">
-          <div className="absolute top-0 right-0 w-[500px] h-[500px] bg-gradient-to-br from-primary-50 via-white to-transparent opacity-50 rounded-full blur-3xl -translate-y-1/2 translate-x-1/3 pointer-events-none overflow-hidden"></div>
+        <div className="bg-white rounded-2xl md:rounded-[32px] p-5 sm:p-6 md:p-8 border border-surface-200 shadow-premium relative">
+          <div className="absolute inset-0 overflow-hidden rounded-2xl md:rounded-[32px] pointer-events-none">
+            <div className="absolute top-0 right-0 w-[500px] h-[500px] bg-gradient-to-br from-primary-50 via-white to-transparent opacity-50 rounded-full blur-3xl -translate-y-1/2 translate-x-1/3 overflow-hidden"></div>
+          </div>
           <div className="relative z-20 flex flex-col lg:flex-row lg:items-start justify-between gap-6">
             <div>
               <div className="flex flex-wrap items-center gap-3 mb-6">

@@ -30,6 +30,6 @@ jobs:
             echo "Restarting FastAPI service with Gunicorn..."
             # Assuming the service file or supervisor is updated to run:
             # gunicorn -c gunicorn.conf.py app.main:app
-            sudo systemctl restart fastapi
+            sudo systemctl restart fastapi nginx redis
 
             echo "Deployment completed!"

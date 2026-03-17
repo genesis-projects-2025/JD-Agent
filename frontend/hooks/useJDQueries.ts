@@ -19,6 +19,7 @@ import {
   fetchJD,
   updateJDStatus,
   markFeedbackRead,
+  createReviewComment,
   type AuthUser,
 } from "@/lib/api";
 
@@ -46,7 +47,9 @@ export function useEmployeeJDs(employeeId: string | null) {
     queryKey: qk.employeeJDs(employeeId ?? ""),
     queryFn: () => fetchEmployeeJDs(employeeId!),
     enabled: !!employeeId,
-    staleTime: 30_000,   // fresh for 30 s
+    staleTime: 60_000,          // ← 60s, was 30s
+    gcTime: 10 * 60_000,        // ← keep in cache 10min, was default 5min
+    refetchOnWindowFocus: false, // ← already in defaultOptions but be explicit
   });
 }
 
@@ -67,7 +70,8 @@ export function useHRJDs() {
   return useQuery({
     queryKey: qk.hrJDs(),
     queryFn: fetchHRPendingJDs,
-    staleTime: 30_000,
+    staleTime: 60_000,           // ← was 30s
+    refetchIntervalInBackground: false,
   });
 }
 
@@ -102,9 +106,11 @@ export function useUnreadFeedback(
   return useQuery({
     queryKey: qk.unreadFeedback(employeeId ?? "", role),
     queryFn: () => fetchUnreadFeedback(employeeId!, role),
-    enabled: !!employeeId && (role === "employee" || role === "manager"),
-    staleTime: 60_000,
-    refetchInterval: 60_000,   // auto-poll every 60 s for new notifications
+    // HR also needs feedback — they can see what they've sent to managers
+    enabled: !!employeeId && (role === "employee" || role === "manager" || role === "hr"),
+    staleTime: 120_000,        // ← 2 min, was 60s
+    refetchInterval: 120_000,  // ← 2 min polling, was 60s
+    refetchIntervalInBackground: false, // ← don't poll when tab is hidden
   });
 }
 
@@ -151,12 +157,37 @@ export function useMarkFeedbackRead() {
   return useMutation({
     mutationFn: markFeedbackRead,
     onSuccess: () => {
-      // Invalidate all unread feedback queries so badge updates immediately
+      qc.invalidateQueries({ queryKey: ["feedback", "unread"] });
+      qc.invalidateQueries({ queryKey: ["feedback", "all"] }); // ← also refresh the full list
+    },
+  });
+}
+// NEW — was missing entirely
+export function useCreateReviewComment() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      jdId,
+      data,
+    }: {
+      jdId: string;
+      data: {
+        action: "rejected" | "approved" | "revision_requested";
+        target_role: "employee" | "manager";
+        comment?: string;
+        reviewer_id: string;
+      };
+    }) => createReviewComment(jdId, data),
+    onSuccess: (_data, { jdId }) => {
+      // Refresh everything touched by a review action
+      qc.invalidateQueries({ queryKey: qk.jd(jdId) });
+      qc.invalidateQueries({ queryKey: qk.reviews(jdId) });
+      qc.invalidateQueries({ queryKey: ["jds", "manager"] });
+      qc.invalidateQueries({ queryKey: qk.hrJDs() });
       qc.invalidateQueries({ queryKey: ["feedback", "unread"] });
     },
   });
 }
-
 /** Update JD status (submit / approve / reject); refreshes affected lists. */
 export function useUpdateJDStatus(employeeId?: string) {
   const qc = useQueryClient();
@@ -170,10 +201,12 @@ export function useUpdateJDStatus(employeeId?: string) {
       status: string;
       empId: string;
     }) => updateJDStatus(jdId, { status, employee_id: empId }),
-    onSuccess: (_data, { empId }) => {
+    onSuccess: (_data, { jdId, empId }) => {
       qc.invalidateQueries({ queryKey: qk.employeeJDs(empId) });
       qc.invalidateQueries({ queryKey: qk.hrJDs() });
       qc.invalidateQueries({ queryKey: ["jds", "manager"] });
+      qc.invalidateQueries({ queryKey: qk.jd(jdId) });        // ← invalidate single JD
+      qc.invalidateQueries({ queryKey: qk.reviews(jdId) });   // ← invalidate its reviews too
     },
   });
 }

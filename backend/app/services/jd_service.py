@@ -69,7 +69,7 @@ def extract_streaming_text(raw_json: str) -> str:
         try:
             return json.loads(f'"{extracted}"')
         except json.JSONDecodeError:
-            return extracted.replace('\\"', '"').replace('\\n', '\n')
+            return extracted.replace('\\"', '"').replace("\\n", "\n")
     return ""
 
 
@@ -280,7 +280,8 @@ def wrap_plain_text_into_json(
             "missing_insight_areas": [],
             "status": "collecting",
         },
-        "employee_role_insights": insights_dict or {
+        "employee_role_insights": insights_dict
+        or {
             "identity_context": {},
             "purpose": "",
             "responsibilities": [],
@@ -378,10 +379,7 @@ def build_markdown_from_structured(structured: dict) -> str:
     """Standardized markdown generator for Pulse Pharma template."""
     emp = structured.get("employee_information", {})
     title = (
-        emp.get("job_title")
-        or emp.get("title")
-        or emp.get("role_title")
-        or "New Role"
+        emp.get("job_title") or emp.get("title") or emp.get("role_title") or "New Role"
     )
     lines = [f"# Job Description: {title}\n"]
     dept = emp.get("department", "")
@@ -420,9 +418,13 @@ def build_markdown_from_structured(structured: dict) -> str:
         if wr.get("team_size"):
             lines.append(f"| **Team** | {wr['team_size']} |")
         if wr.get("internal_stakeholders"):
-            lines.append(f"| **Internal Stakeholders** | {wr['internal_stakeholders']} |")
+            lines.append(
+                f"| **Internal Stakeholders** | {wr['internal_stakeholders']} |"
+            )
         if wr.get("external_stakeholders"):
-            lines.append(f"| **External Stakeholders** | {wr['external_stakeholders']} |")
+            lines.append(
+                f"| **External Stakeholders** | {wr['external_stakeholders']} |"
+            )
         lines.append("\n---\n")
 
     for section, key in [
@@ -559,7 +561,9 @@ async def handle_jd_generation(session_memory: SessionMemory) -> dict:
 
     # Strategy 3: reconstruct markdown from structured
     if structured and not jd_text:
-        print("\n🔧 PARSING STRATEGY 3 — Reconstructing markdown")        # Build markdown for UI
+        print(
+            "\n🔧 PARSING STRATEGY 3 — Reconstructing markdown"
+        )  # Build markdown for UI
         md = build_markdown_from_structured(structured)
         jd_text = md
 
@@ -624,16 +628,41 @@ async def handle_conversation(
         # Update progress carefully — don't overwrite with 0 if LLM failed to return progress
         current_percentage = session_memory.progress.get("completion_percentage", 0)
         new_percentage = validated.progress.completion_percentage
-        
-        # Only update progress if it's an improvement or we have no progress yet
+        current_status = session_memory.progress.get("status", "collecting")
+
+        # Never let status go backwards (ready_for_generation → collecting)
+        # Never let percentage drop more than 10 points (LLM miscalculation)
+        status_priority = {
+            "collecting": 0,
+            "ready_for_generation": 1,
+            "jd_generated": 2,
+            "approved": 3,
+        }
+        current_priority = status_priority.get(current_status, 0)
+        new_priority = status_priority.get(validated.progress.status, 0)
+
         if new_percentage > current_percentage or not session_memory.progress:
             session_memory.progress = validated.progress.model_dump()
+        elif new_priority > current_priority:
+            # Status advanced (e.g. collecting → ready_for_generation) — always accept
+            session_memory.progress = validated.progress.model_dump()
         else:
-            print(f"   ⚠️ LLM returned lower or equal progress ({new_percentage}%) than current ({current_percentage}%) — ignoring drop.")
-            # IMPORTANT: We still want to allow STATUS changes even if percentage hasn't moved!
-            # e.g. shifting from 'collecting' at 100% to 'ready_for_generation' at 100%
-            session_memory.progress["status"] = validated.progress.status
-            session_memory.progress["missing_insight_areas"] = validated.progress.missing_insight_areas
+            # Keep the higher percentage but update missing areas only if
+            # status hasn't reached ready_for_generation yet
+            session_memory.progress["status"] = max(
+                current_status,
+                validated.progress.status,
+                key=lambda s: status_priority.get(s, 0),
+            )
+            if current_status != "ready_for_generation":
+                # Only update missing areas before ready state
+                # After ready, clearing missing_insight_areas stops re-asking
+                session_memory.progress["missing_insight_areas"] = (
+                    validated.progress.missing_insight_areas
+                )
+            else:
+                # Already ready — wipe missing areas so LLM stops re-asking
+                session_memory.progress["missing_insight_areas"] = []
             parsed_json["progress"] = session_memory.progress
 
         session_memory.progress.get("status", "collecting")
@@ -665,11 +694,27 @@ async def handle_conversation(
         update_summary(session_memory)
 
         # Interview only — JD generation is via POST /jd/generate endpoint
+        # Interview only — JD generation is via POST /jd/generate endpoint
         parsed_json["employee_role_insights"] = merged_insights
         parsed_json["jd_structured_data"] = {}
         parsed_json["jd_text_format"] = ""
+        # DO NOT wipe suggested_skills here — frontend needs it to show skill chips
+        # It is already correctly set by the LLM only when status=ready_for_generation
 
         reply_content = json.dumps(parsed_json, indent=2)
+
+        # Store assistant turn with status metadata so context_builder
+        # can remind the LLM what it already collected
+        assistant_history_entry = json.dumps(
+            {
+                "conversation_response": validated.conversation_response.strip(),
+                "progress": parsed_json.get("progress", {}),
+                "suggested_skills": parsed_json.get("suggested_skills", []),
+            }
+        )
+        session_memory.update_recent("user", user_message)
+        session_memory.update_recent("assistant", assistant_history_entry)
+        update_summary(session_memory)
 
         history.append({"role": "user", "content": user_message})
         history.append({"role": "assistant", "content": reply_content})
@@ -705,7 +750,7 @@ async def handle_conversation_stream(
                 # Strip think tags before trying to extract to ensure we get actual response
                 no_think_raw = remove_think_tags(raw_content)
                 current_text = extract_streaming_text(no_think_raw)
-                
+
                 # Yield text delta
                 if current_text and current_text != last_extracted_text:
                     yield f"data: {json.dumps({'type': 'chunk', 'content': current_text})}\n\n"
@@ -725,29 +770,67 @@ async def handle_conversation_stream(
 
         current_percentage = session_memory.progress.get("completion_percentage", 0)
         new_percentage = validated.progress.completion_percentage
-        
+        current_status = session_memory.progress.get("status", "collecting")
+
+        # Never let status go backwards (ready_for_generation → collecting)
+        # Never let percentage drop more than 10 points (LLM miscalculation)
+        status_priority = {
+            "collecting": 0,
+            "ready_for_generation": 1,
+            "jd_generated": 2,
+            "approved": 3,
+        }
+        current_priority = status_priority.get(current_status, 0)
+        new_priority = status_priority.get(validated.progress.status, 0)
+
         if new_percentage > current_percentage or not session_memory.progress:
             session_memory.progress = validated.progress.model_dump()
+        elif new_priority > current_priority:
+            # Status advanced (e.g. collecting → ready_for_generation) — always accept
+            session_memory.progress = validated.progress.model_dump()
         else:
-            session_memory.progress["status"] = validated.progress.status
-            session_memory.progress["missing_insight_areas"] = validated.progress.missing_insight_areas
+            # Keep the higher percentage but update missing areas only if
+            # status hasn't reached ready_for_generation yet
+            session_memory.progress["status"] = max(
+                current_status,
+                validated.progress.status,
+                key=lambda s: status_priority.get(s, 0),
+            )
+            if current_status != "ready_for_generation":
+                # Only update missing areas before ready state
+                # After ready, clearing missing_insight_areas stops re-asking
+                session_memory.progress["missing_insight_areas"] = (
+                    validated.progress.missing_insight_areas
+                )
+            else:
+                # Already ready — wipe missing areas so LLM stops re-asking
+                session_memory.progress["missing_insight_areas"] = []
             parsed_json["progress"] = session_memory.progress
 
-        session_memory.progress.get("status", "collecting")
-
         conv_resp = parsed_json.get("conversation_response", "")
-        if conv_resp and (conv_resp.strip().startswith("{") or "conversation_response" in conv_resp):
+        if conv_resp and (
+            conv_resp.strip().startswith("{") or "conversation_response" in conv_resp
+        ):
             try:
                 inner = json.loads(conv_resp)
                 if "conversation_response" in inner:
-                    parsed_json["conversation_response"] = inner["conversation_response"]
+                    parsed_json["conversation_response"] = inner[
+                        "conversation_response"
+                    ]
             except (json.JSONDecodeError, TypeError):
                 pass
 
         assistant_text = validated.conversation_response.strip()
         assistant_text = re.sub(r"\n{3,}", "\n\n", assistant_text)
 
-        assistant_history_entry = json.dumps({"conversation_response": assistant_text})
+        # Store progress + skills in history so context_builder can remind the LLM
+        assistant_history_entry = json.dumps(
+            {
+                "conversation_response": assistant_text,
+                "progress": parsed_json.get("progress", {}),
+                "suggested_skills": parsed_json.get("suggested_skills", []),
+            }
+        )
         session_memory.update_recent("user", user_message)
         session_memory.update_recent("assistant", assistant_history_entry)
         update_summary(session_memory)
@@ -755,21 +838,25 @@ async def handle_conversation_stream(
         parsed_json["employee_role_insights"] = merged_insights
         parsed_json["jd_structured_data"] = {}
         parsed_json["jd_text_format"] = ""
+        # DO NOT wipe suggested_skills — frontend needs it for skill chips
 
         # Yield final completed JSON for frontend to finalize state
         yield f"data: {json.dumps({'type': 'done', 'parsed': parsed_json})}\n\n"
-        
+
         history.append({"role": "user", "content": user_message})
-        history.append({"role": "assistant", "content": json.dumps(parsed_json, indent=2)})
+        history.append(
+            {"role": "assistant", "content": json.dumps(parsed_json, indent=2)}
+        )
 
     except Exception as e:
         print(f"⚠️ STREAM PROCESSING ERROR: {e}")
         import traceback
+
         traceback.print_exc()
         try:
             fallback = json.loads(build_fallback_response(session_memory))
             yield f"data: {json.dumps({'type': 'error', 'parsed': fallback})}\n\n"
         except Exception:
-             yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
+            yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
 
     print("[Interview Stream] ✅ TURN COMPLETED\n")

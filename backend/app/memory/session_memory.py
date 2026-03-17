@@ -1,5 +1,6 @@
 # app/memory/session_memory.py
 
+
 class SessionMemory:
     def __init__(self):
         self.id = None
@@ -9,7 +10,7 @@ class SessionMemory:
         self.progress = {
             "completion_percentage": 0,
             "missing_insight_areas": [],
-            "status": "collecting"
+            "status": "collecting",
         }
         self.summary = ""
 
@@ -23,7 +24,7 @@ class SessionMemory:
         self.generated_jd = None
         self.jd_structured = None
 
-    def add_turn(self, role: str, content: str, llm_limit: int = 6):
+    def add_turn(self, role: str, content: str, llm_limit: int = 20):
         """
         Add one conversation turn.
         - full_history: always appended (goes to DB)
@@ -34,7 +35,7 @@ class SessionMemory:
         self.recent_messages.append(turn)
         self.recent_messages = self.recent_messages[-llm_limit:]
 
-    def update_recent(self, role: str, content: str, limit: int = 6):
+    def update_recent(self, role: str, content: str, limit: int = 20):
         """
         Backward-compatible alias for add_turn.
         Existing callers in jd_service.py use this — it now correctly
@@ -42,7 +43,7 @@ class SessionMemory:
         """
         self.add_turn(role, content, llm_limit=limit)
 
-    def load_history_from_db(self, db_history: list, llm_limit: int = 6):
+    def load_history_from_db(self, db_history: list, llm_limit: int = 20):
         """
         Called during cold-start hydration from DB.
         Restores full_history completely, recent_messages as sliding window.

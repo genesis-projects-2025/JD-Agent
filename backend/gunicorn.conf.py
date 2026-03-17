@@ -20,8 +20,8 @@ worker_connections = 500  # async connections per worker
 
 # ── Timeouts ─────────────────────────────────────────────────────────────────
 # Gemini API calls take 5-30 s — raise timeout so workers aren't killed mid-LLM
-timeout = 120
-keepalive = 5
+timeout = 300
+keepalive = 75
 graceful_timeout = 30
 
 # ── Performance ──────────────────────────────────────────────────────────────
@@ -31,7 +31,7 @@ worker_tmp_dir = "/dev/shm"
 # Preload app code before forking workers
 # → each worker shares the same Python bytecode in memory (COW)
 # → reduces per-worker RAM by ~30-50 MB
-preload_app = True
+preload_app = False
 
 # ── Logging ───────────────────────────────────────────────────────────────────
 accesslog = "-"
@@ -41,11 +41,9 @@ loglevel = "warning"  # "info" in dev; "warning" in prod reduces I/O
 
 # ── Post-fork hook ────────────────────────────────────────────────────────────
 def post_fork(server, worker):
-    """
-    Called after each worker is forked.
-    Dispose the SQLAlchemy engine so every worker gets its own
-    fresh connection pool (avoids sharing file descriptors across fork).
-    """
+    import asyncio
+
+    asyncio.set_event_loop(asyncio.new_event_loop())
     from app.core.database import engine
 
     server.log.info("Worker spawned (pid: %s)", worker.pid)

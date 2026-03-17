@@ -71,9 +71,34 @@ def build_context(session_memory, user_message: str) -> list:
     filled = [label for label, ok in checks if ok]
     missing = [label for label, ok in checks if not ok]
 
+    current_status = progress.get("status", "collecting")
+
+    if current_status == "ready_for_generation":
+        next_action = (
+            "ALL fields are collected. Status is ready_for_generation.\n"
+            "DO NOT ask any more questions.\n"
+            "Ask the employee to confirm JD generation: "
+            "'I now have everything I need. Shall I generate your Job Description?'\n"
+            "Set suggested_skills to the full list of skills from employee_role_insights.skills + tools.\n"
+            "Keep status = ready_for_generation."
+        )
+    elif not missing:
+        next_action = (
+            "All fields are now filled. Set status = ready_for_generation in your next response.\n"
+            "Ask the employee to confirm before generating."
+        )
+    else:
+        next_action = (
+            "Look at MISSING above. Ask ONE question about the FIRST missing item.\n"
+            "Do NOT ask about anything already in FILLED.\n"
+            "Your response employee_role_insights MUST contain every field from "
+            "ACCUMULATED DATA — never drop or blank a field that already has a value."
+        )
+
     status_note = (
         f"FILLED  ({len(filled)}/10): {', '.join(filled) or 'nothing yet'}\n"
-        f"MISSING ({len(missing)}/10): {', '.join(missing) or 'all done!'}"
+        f"MISSING ({len(missing)}/10): {', '.join(missing) or 'all done!'}\n"
+        f"CURRENT STATUS: {current_status}"
     )
 
     messages.append(
@@ -86,10 +111,7 @@ def build_context(session_memory, user_message: str) -> list:
                 + "\n\n=== COLLECTION STATUS ===\n"
                 + status_note
                 + "\n\n=== YOUR NEXT ACTION ===\n"
-                "Look at MISSING above. Ask ONE question about the FIRST missing item.\n"
-                "Do NOT ask about anything already in FILLED.\n"
-                "Your response employee_role_insights MUST contain every field from "
-                "ACCUMULATED DATA — never drop or blank a field that already has a value."
+                + next_action
             )
         )
     )
@@ -103,14 +125,25 @@ def build_context(session_memory, user_message: str) -> list:
         )
 
     # ── 4. Recent conversation turns (text only — no raw JSON blobs) ──────────
+    # ── 4. Recent conversation turns ──────────────────────────────────────────
     for msg in session_memory.recent_messages:
         if msg["role"] == "user":
             messages.append(HumanMessage(content=msg["content"]))
         else:
-            # Extract just the human-readable response, not the full JSON blob
+            # Send the assistant's conversation_response as the visible text
+            # BUT also include progress/status so LLM knows what it already collected
             try:
                 parsed = json.loads(msg["content"])
                 text = parsed.get("conversation_response", "")
+                status_in_turn = parsed.get("progress", {}).get("status", "")
+                pct = parsed.get("progress", {}).get("completion_percentage", 0)
+                # Append a compact status reminder so LLM doesn't re-ask
+                if text and status_in_turn:
+                    text = (
+                        f"{text}\n"
+                        f"[turn_meta: status={status_in_turn}, "
+                        f"completion={pct}%]"
+                    )
             except Exception:
                 text = msg["content"]
             if text:

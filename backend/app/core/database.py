@@ -8,9 +8,14 @@ engine = create_async_engine(
     settings.DATABASE_URL,
     echo=False,
     pool_pre_ping=True,
-    pool_size=10,  # Increase pool size per worker
-    max_overflow=20,  # Allow more temporary connections
-    pool_recycle=3600,  # Recycle connections hourly
+    pool_size=5,  # 5 per worker × 2 workers = 10 total (was 10×2=20, too many for Aiven free)
+    max_overflow=5,  # Allow burst to 10 per worker max
+    pool_recycle=1800,  # Recycle every 30 min (not 1 hour — Aiven kills idle at 5min)
+    pool_timeout=30,  # Wait max 30s for a connection
+    connect_args={
+        "server_settings": {"jit": "off"},  # Disable JIT for short queries
+        "command_timeout": 60,
+    },
 )
 
 AsyncSessionLocal = async_sessionmaker(
@@ -79,7 +84,9 @@ async def init_db():
     except Exception as e:
         # If another worker is already updating the metadata/triggers, we can skip
         if "tuple concurrently updated" in str(e) or "already exists" in str(e).lower():
-            print("ℹ️ Database initialization skip: Concurrent update or already exists.")
+            print(
+                "ℹ️ Database initialization skip: Concurrent update or already exists."
+            )
         else:
             print(f"❌ Database initialization error: {e}")
             raise

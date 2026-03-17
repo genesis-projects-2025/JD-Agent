@@ -13,6 +13,7 @@ import { getOrCreateEmployeeId } from "@/lib/auth";
 export function useChat(onSaveSuccess?: () => void, autoInit: boolean = true) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [history, setHistory] = useState<any[]>([]);
+  const historyRef = useRef<any[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);
   const [jd, setJd] = useState<string | null>(null);
   const [progress, setProgress] = useState<number>(0);
@@ -28,7 +29,10 @@ export function useChat(onSaveSuccess?: () => void, autoInit: boolean = true) {
   const [hydrated, setHydrated] = useState(false);
 
   const initialized = useRef(false);
-
+  const updateHistory = (newHistory: any[]) => {
+     historyRef.current = newHistory;
+     setHistory(newHistory);
+  };
   // ── Rate limit countdown ────────────────────────────────────────────────────
   useEffect(() => {
     let interval: NodeJS.Timeout;
@@ -62,7 +66,6 @@ export function useChat(onSaveSuccess?: () => void, autoInit: boolean = true) {
 
     setProgress(parsed.progress?.completion_percentage ?? 0);
     setStatus(newStatus);
-    // Only update structuredData if we actually received something non-empty
     if (jdStructured && Object.keys(jdStructured).length > 0) {
       setStructuredData(jdStructured);
     }
@@ -83,7 +86,6 @@ export function useChat(onSaveSuccess?: () => void, autoInit: boolean = true) {
         },
       ]);
     } else {
-      // ✅ Update the LAST message instead of appending (used for finalizing stream)
       setMessages((prev) => {
         const newMessages = [...prev];
         const lastIdx = newMessages.length - 1;
@@ -92,7 +94,7 @@ export function useChat(onSaveSuccess?: () => void, autoInit: boolean = true) {
             ...newMessages[lastIdx],
             text: parsed.conversation_response,
             skills: suggestedSkills,
-            isStreaming: false, // ✅ Stream finished
+            isStreaming: false,
             isSkillSelection:
               newStatus === "ready_for_generation" &&
               !!suggestedSkills &&
@@ -104,10 +106,12 @@ export function useChat(onSaveSuccess?: () => void, autoInit: boolean = true) {
       });
     }
 
-    setHistory(updatedHistory);
+    // Only update history if caller passed a real array (non-streaming path)
+    // Streaming path passes [] and handles history itself via updateHistory
+    if (updatedHistory.length > 0) {
+      updateHistory(updatedHistory);  // ← use helper, updates both ref and state
+    }
 
-    // Only set JD from chat response if actually generated
-    // (generation now happens via handleGenerateJD, not chat turns)
     if (newStatus === "jd_generated" || newStatus === "approved") {
       const finalJD = parsed.jd_text_format || parsed.conversation_response;
       if (finalJD) setJd(finalJD);
@@ -173,7 +177,7 @@ export function useChat(onSaveSuccess?: () => void, autoInit: boolean = true) {
             });
 
             setMessages(reconstructedMessages);
-            setHistory(dbHistory);
+            updateHistory(dbHistory);
             setProgress(dbProgress);
             setStatus(dbStatus);
             let initialJd = existingData.generated_jd ?? null;
@@ -211,14 +215,13 @@ export function useChat(onSaveSuccess?: () => void, autoInit: boolean = true) {
   }, [autoInit]);
 
   // ── Send chat message ────────────────────────────────────────────────────────
-  const sendMessage = async (text: string) => {
+ const sendMessage = async (text: string) => {
     if (isRateLimited && retryTimer > 0) return;
 
     setIsRateLimited(false);
     setLastMessageText(text);
     setIsGenerating(true);
 
-    // Optimistic message — avoid duplicate if already added
     setMessages((prev) => {
       const last = prev[prev.length - 1];
       if (last?.sender === "employee" && last.text === text) return prev;
@@ -227,8 +230,7 @@ export function useChat(onSaveSuccess?: () => void, autoInit: boolean = true) {
 
     try {
       const id = window.location.pathname.split("/").pop();
-      
-      // Add the initial empty agent message with isStreaming: true
+
       setMessages((prev) => [
         ...prev,
         { sender: "agent", text: "", isStreaming: true },
@@ -236,42 +238,49 @@ export function useChat(onSaveSuccess?: () => void, autoInit: boolean = true) {
 
       await apiSendMessageStream(
         text,
-        history,
+        historyRef.current,   // ← use ref, always the latest value at call time
         id,
         (chunk) => {
           setMessages((prev) => {
             const newMessages = [...prev];
             const lastIdx = newMessages.length - 1;
             if (lastIdx >= 0 && newMessages[lastIdx].sender === "agent") {
-              // Create a new object to ensure React detects the change
               newMessages[lastIdx] = {
                 ...newMessages[lastIdx],
                 text: chunk,
-                isStreaming: true
+                isStreaming: true,
               };
             }
             return newMessages;
           });
         },
         (parsedData) => {
-          // Instead of removing and re-adding, we just finalize the last message
           const rawReply = JSON.stringify(parsedData);
+
+          // Build history from the REF — always fresh even after a 30s stream
           const newHistory = [
-            ...history, 
-            { role: "user", content: text }, 
-            { role: "assistant", content: rawReply }
+            ...historyRef.current,   // ← ref, not stale closure
+            { role: "user", content: text },
+            { role: "assistant", content: rawReply },
           ];
-          
-          processResponse(rawReply, newHistory, false); // false = don't append, update last
+
+          // Update ref + state together before processResponse reads it
+          updateHistory(newHistory);
+
+          // Pass empty array so processResponse doesn't call updateHistory again
+          processResponse(rawReply, [], false);
           setLastMessageText(null);
         },
         (error: any) => {
-          // Optional: handle error visually in the last message
           setMessages((prev) => {
             const newMessages = [...prev];
             const lastIdx = newMessages.length - 1;
-            if (lastIdx >= 0 && newMessages[lastIdx].sender === "agent" && !newMessages[lastIdx].text) {
-              return prev.slice(0, -1); // remove if no text streamed
+            if (
+              lastIdx >= 0 &&
+              newMessages[lastIdx].sender === "agent" &&
+              !newMessages[lastIdx].text
+            ) {
+              return prev.slice(0, -1); // remove empty streaming bubble on error
             }
             return newMessages;
           });
@@ -310,7 +319,6 @@ export function useChat(onSaveSuccess?: () => void, autoInit: boolean = true) {
       setIsGenerating(false);
     }
   };
-
   // ── Generate JD — explicit button, not keyword detection ────────────────────
   const handleGenerateJD = async () => {
     setIsGeneratingJD(true);

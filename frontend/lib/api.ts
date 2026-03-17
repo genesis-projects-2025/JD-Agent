@@ -351,23 +351,25 @@ export async function sendMessageStream(
   onDone: (data: any) => void,
   onError: (error: any) => void
 ) {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 90_000); // 90s hard timeout
+
   try {
     const res = await fetch(`${API_URL}/jd/chat/stream`, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Accept: "text/event-stream",
-      },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ message, history, id: sessionId }),
+      signal: controller.signal,
     });
 
-    if (!res.ok) throw new Error("Failed to start message stream");
+    if (!res.ok) {
+      throw new Error(`Stream failed: ${res.status}`);
+    }
 
     const reader = res.body?.getReader();
-    const decoder = new TextDecoder("utf-8");
-
     if (!reader) throw new Error("No readable stream");
 
+    const decoder = new TextDecoder("utf-8");
     let buffer = "";
 
     while (true) {
@@ -375,35 +377,45 @@ export async function sendMessageStream(
       if (done) break;
 
       buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split("\n\n");
-      // Keep the last partial event in the buffer
-      buffer = lines.pop() || "";
 
-      for (const line of lines) {
-        if (line.startsWith("data: ")) {
-          const dataStr = line.slice(6).trim();
-          if (!dataStr) continue;
-          
-          try {
-            const parsed = JSON.parse(dataStr);
-            if (parsed.type === "chunk" && parsed.content) {
-              onChunk(parsed.content);
-            } else if (parsed.type === "done") {
-              onDone(parsed.parsed);
-            } else if (parsed.type === "error") {
-              onError(parsed.message || parsed.parsed || "Stream error");
-            }
-          } catch (e) {
-            console.error("Failed to parse stream data", dataStr, e);
+      // Process ALL complete SSE events in the buffer
+      let boundary = buffer.indexOf("\n\n");
+      while (boundary !== -1) {
+        const raw = buffer.slice(0, boundary).trim();
+        buffer = buffer.slice(boundary + 2);
+        boundary = buffer.indexOf("\n\n");
+
+        if (!raw.startsWith("data: ")) continue;
+        const dataStr = raw.slice(6).trim();
+        if (!dataStr || dataStr === "[DONE]") continue;
+
+        try {
+          const parsed = JSON.parse(dataStr);
+          if (parsed.type === "chunk" && parsed.content) {
+            onChunk(parsed.content);
+          } else if (parsed.type === "done") {
+            onDone(parsed.parsed);
+            return; // clean exit
+          } else if (parsed.type === "error") {
+            onError(new Error(parsed.message || "Stream error"));
+            return;
           }
+        } catch {
+          // Partial JSON in a single SSE event is a server bug — log it
+          console.warn("Failed to parse SSE event:", dataStr.slice(0, 100));
         }
       }
     }
-  } catch (err) {
-    onError(err);
+  } catch (err: any) {
+    if (err.name === "AbortError") {
+      onError(new Error("Stream timed out after 90 seconds"));
+    } else {
+      onError(err);
+    }
+  } finally {
+    clearTimeout(timeoutId);
   }
 }
-
 export async function generateJD(data: { id: string }) {
   const res = await fetch(`${API_URL}/jd/generate`, {
     method: "POST",

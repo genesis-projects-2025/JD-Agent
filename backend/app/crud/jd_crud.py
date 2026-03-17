@@ -47,7 +47,7 @@ def _extract_title(jd_structured: dict) -> Optional[str]:
         or jd_structured.get("title")
         or jd_structured.get("role_title")
         or jd_structured.get("position")
-        or jd_structured.get("designation") # New Pulse Pharma key
+        or jd_structured.get("designation")  # New Pulse Pharma key
     )
     if title and isinstance(title, str) and len(title) < 200:
         return title.strip()
@@ -104,16 +104,16 @@ async def _harvest_organic_skills(
     req_skills = jd_structured.get("required_skills", [])
     if not isinstance(req_skills, list):
         req_skills = []
-    
+
     tools = jd_structured.get("tools_and_technologies", [])
     if not isinstance(tools, list):
         tools = []
-    
+
     # New Pulse Pharma keys
     new_skills = jd_structured.get("skills", [])
     if not isinstance(new_skills, list):
         new_skills = []
-    
+
     new_tools = jd_structured.get("tools", [])
     if not isinstance(new_tools, list):
         new_tools = []
@@ -450,7 +450,7 @@ async def update_questionnaire_jd(
     from app.services.jd_service import build_markdown_from_structured
 
     safe_structured = _safe_jsonb(jd_structured)
-    
+
     # If jd_text is empty or not provided, reconstruct it from structured data
     # This keeps the 'View' and 'Edit' modes in sync.
     if not jd_text:
@@ -633,7 +633,7 @@ async def list_questionnaires_by_employee(
         }
         for r in records
     ]
-    await set_cache(cache_key, serialised, ttl=30)
+    await set_cache(cache_key, serialised, ttl=60)
 
     # Return actual ORM objects so callers that need them still work
     return records
@@ -739,6 +739,18 @@ async def create_review_comment(
                 record.status = "hr_rejected"
             elif reviewer and reviewer.role == "manager":
                 record.status = "manager_rejected"
+        elif action == "revision_requested":
+            # Same as rejected — send it back to the appropriate party
+            from app.models.user_model import Employee
+
+            reviewer_res = await db.execute(
+                select(Employee).where(Employee.id == reviewer_id)
+            )
+            reviewer = reviewer_res.scalar_one_or_none()
+            if reviewer and reviewer.role == "hr":
+                record.status = "hr_rejected"
+            elif reviewer and reviewer.role == "manager":
+                record.status = "manager_rejected"
         elif action == "approved":
             record.status = "approved"
 
@@ -818,7 +830,7 @@ async def get_unread_feedback_for_user(
             .where(
                 (JDSession.employee_id == employee_id)
                 & (JDReviewComment.target_role == "employee")
-                & (not JDReviewComment.is_read)
+                & (JDReviewComment.is_read == False)
             )
             .order_by(JDReviewComment.created_at.desc())
         )
@@ -833,7 +845,7 @@ async def get_unread_feedback_for_user(
                     (Employee.reporting_manager_code == employee_id)
                     | (JDSession.employee_id == employee_id)
                 )
-                & (not JDReviewComment.is_read)
+                & (JDReviewComment.is_read == False)
             )
             .order_by(JDReviewComment.created_at.desc())
         )
@@ -867,17 +879,20 @@ async def get_all_feedback_for_user(
     employee_id: str,
     user_role: str,
 ) -> list:
-    """
-    FIXED: Was N+1. Now single JOIN per role branch.
-    """
     from app.models.review_comment_model import JDReviewComment
     from app.models.user_model import Employee
+    from sqlalchemy.orm import aliased
 
     if user_role == "employee":
+        # Use aliased so SQLAlchemy can distinguish the two Employee joins
+        EmpReviewer = aliased(Employee, name="emp_reviewer")
+        EmpOwner = aliased(Employee, name="emp_owner")
+
         result = await db.execute(
-            select(JDReviewComment, JDSession, Employee, Employee)
+            select(JDReviewComment, JDSession, EmpReviewer, EmpOwner)
             .join(JDSession, JDReviewComment.jd_session_id == JDSession.id)
-            .outerjoin(Employee, JDReviewComment.reviewer_id == Employee.id)
+            .outerjoin(EmpReviewer, JDReviewComment.reviewer_id == EmpReviewer.id)
+            .outerjoin(EmpOwner, JDSession.employee_id == EmpOwner.id)
             .where(
                 (JDSession.employee_id == employee_id)
                 & (JDReviewComment.target_role == "employee")
@@ -886,18 +901,17 @@ async def get_all_feedback_for_user(
         )
         rows = result.all()
 
-        # For employee view we also need the JD employee info — already have it from JDSession
         serialized = []
         for row in rows:
-            c, jd, reviewer = row[0], row[1], row[2]
+            c, jd, reviewer, owner = row[0], row[1], row[2], row[3]
             serialized.append(
                 {
                     "id": str(c.id),
                     "jd_session_id": str(c.jd_session_id),
                     "jd_title": jd.title if jd else "Untitled JD",
                     "jd_status": jd.status if jd else "unknown",
-                    "jd_employee_name": "Unknown",
-                    "jd_department": "",
+                    "jd_employee_name": owner.name if owner else "Unknown",
+                    "jd_department": owner.department if owner else "",
                     "reviewer_name": reviewer.name if reviewer else "Unknown User",
                     "reviewer_role": reviewer.role if reviewer else "unknown",
                     "target_role": c.target_role,
@@ -994,6 +1008,7 @@ async def mark_feedback_read(
     comment_id: str,
 ) -> bool:
     from app.models.review_comment_model import JDReviewComment
+    from app.models.user_model import Employee
 
     comment_uuid = _safe_uuid(comment_id)
     result = await db.execute(
@@ -1009,8 +1024,16 @@ async def mark_feedback_read(
     comment.is_read = True
     await db.commit()
 
-    # Bust unread feedback cache for the JD owner
     if jd:
+        # Invalidate employee's unread cache
         await invalidate_pattern(f"feedback:unread:{jd.employee_id}:*")
+
+        # Also invalidate the manager's unread cache
+        emp_result = await db.execute(
+            select(Employee).where(Employee.id == jd.employee_id)
+        )
+        emp = emp_result.scalar_one_or_none()
+        if emp and emp.reporting_manager_code:
+            await invalidate_pattern(f"feedback:unread:{emp.reporting_manager_code}:*")
 
     return True

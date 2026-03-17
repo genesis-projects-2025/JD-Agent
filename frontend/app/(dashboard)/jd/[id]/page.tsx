@@ -5,6 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { downloadJDPdfClient } from "@/lib/download-jd-pdf";
 import {
   FileText,
   Clock,
@@ -41,7 +42,7 @@ import {
   createReviewComment,
   fetchReviewComments,
   downloadJDDocx,
-  downloadJDPdf,
+
 } from "@/lib/api";
 import { DeleteModal } from "@/components/ui/delete-modal";
 import FeedbackModal from "@/components/feedback/FeedbackModal";
@@ -75,7 +76,7 @@ export default function JDPage() {
   const [isApproving, setIsApproving] = useState(false);
   const [activeTab, setActiveTab] = useState<"structured">("structured");
   const [isMounted, setIsMounted] = useState(false);
-  const [isDownloading, setIsDownloading] = useState(false);
+
 
   useEffect(() => {
     setIsMounted(true);
@@ -138,7 +139,7 @@ export default function JDPage() {
         try {
           const p = JSON.parse(pText);
           if (p.jd_text_format) pText = p.jd_text_format;
-        } catch (e) {}
+        } catch (e) { }
         setEditedJdText(pText);
 
         let pStruct = safeParseObject(data.jd_structured);
@@ -156,7 +157,7 @@ export default function JDPage() {
             } else if (p.role_summary || p.key_responsibilities || p.responsibilities) {
               pStruct = p;
             }
-          } catch (e) {}
+          } catch (e) { }
         }
 
         // --- Pulse Pharma Schema Alignment (Inflight Migration) ---
@@ -177,7 +178,7 @@ export default function JDPage() {
           if (pStruct.performance_metrics && !pStruct.metrics) {
             pStruct.metrics = pStruct.performance_metrics;
           }
-           if (pStruct.stakeholder_interactions && !pStruct.stakeholders) {
+          if (pStruct.stakeholder_interactions && !pStruct.stakeholders) {
             pStruct.stakeholders = pStruct.stakeholder_interactions;
           }
           if (pStruct.additional_details && !pStruct.additional) {
@@ -411,7 +412,7 @@ export default function JDPage() {
       try {
         const p = JSON.parse(pTextRaw);
         if (p.jd_text_format) pText = p.jd_text_format;
-      } catch (e) {}
+      } catch (e) { }
 
       let pStruct = safeParseObject(jd.jd_structured);
       if (
@@ -448,7 +449,7 @@ export default function JDPage() {
     if (parsedJD.jd_text_format) {
       displayJDContent = parsedJD.jd_text_format;
     }
-  } catch (e) {}
+  } catch (e) { }
 
   return (
     <div className="h-[calc(100vh-3rem)] md:h-[calc(100vh)] overflow-y-auto bg-surface-50 pt-16 pb-24 px-4 md:pt-6 md:px-6">
@@ -511,7 +512,7 @@ export default function JDPage() {
 
               {/* Download Button — visible to all roles when JD exists */}
               {jd.jd_structured && (
-                <div 
+                <div
                   className="relative mt-4 inline-block"
                   onMouseEnter={() => setShowDownloadDropdown(true)}
                   onMouseLeave={() => setShowDownloadDropdown(false)}
@@ -526,50 +527,44 @@ export default function JDPage() {
                   </button>
 
                   {showDownloadDropdown && (
-                    <div 
+                    <div
                       className="absolute left-0 mt-1 w-56 bg-white border border-surface-200 rounded-2xl shadow-2xl z-[100] overflow-hidden animate-in fade-in slide-in-from-top-2 duration-200"
                     >
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
                           setShowDownloadDropdown(false);
-                          downloadJDDocx(jdId);
+                          // Use the client-side branded template instead of server PDF
+                          downloadJDPdfClient(
+                            jd.jd_structured,
+                            jd.title || undefined,
+                            jd.department || undefined
+                          );
                         }}
-                        disabled={isDownloading}
-                        className="w-full flex items-center gap-3 px-4 py-3.5 text-[13px] font-bold text-surface-700 hover:bg-primary-50 hover:text-primary-700 transition-colors border-b border-surface-50 disabled:opacity-50 group/item"
+                        className="w-full flex items-center gap-3 px-4 py-3.5 text-[13px] font-bold text-surface-700 hover:bg-primary-50 hover:text-primary-700 transition-colors group/item"
                       >
-                        <div className="w-8 h-8 rounded-lg bg-blue-50 flex items-center justify-center group-hover/item:bg-blue-100 transition-colors">
-                          {isDownloading ? (
-                            <Loader2 className="w-4 h-4 animate-spin text-blue-600" />
-                          ) : (
-                            <FileText className="w-4 h-4 text-blue-600" />
-                          )}
+                        <div className="w-8 h-8 rounded-lg bg-red-50 flex items-center justify-center group-hover/item:bg-red-100 transition-colors">
+                          <FileDown className="w-4 h-4 text-red-600" />
                         </div>
                         <div className="flex flex-col items-start px-1">
-                          <span>Microsoft Word</span>
-                          <span className="text-[10px] text-surface-400 font-medium">Editable .docx format</span>
+                          <span>Professional PDF</span>
+                          <span className="text-[10px] text-surface-400 font-medium">Branded Pulse Pharma template</span>
                         </div>
                       </button>
-                      
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
                           setShowDownloadDropdown(false);
-                          downloadJDPdf(jdId);
+                          downloadJDDocx(jdId);
                         }}
-                        disabled={isDownloadingPdf}
-                        className="w-full flex items-center gap-3 px-4 py-3.5 text-[13px] font-bold text-surface-700 hover:bg-primary-50 hover:text-primary-700 transition-colors disabled:opacity-50 group/item"
+                        className="w-full flex items-center gap-3 px-4 py-3.5 text-[13px] font-bold text-surface-700 hover:bg-primary-50 hover:text-primary-700 transition-colors group/item"
                       >
-                        <div className="w-8 h-8 rounded-lg bg-red-50 flex items-center justify-center group-hover/item:bg-red-100 transition-colors">
-                          {isDownloadingPdf ? (
-                            <Loader2 className="w-4 h-4 animate-spin text-red-600" />
-                          ) : (
-                            <FileDown className="w-4 h-4 text-red-600" />
-                          )}
+                        <div className="w-8 h-8 rounded-lg bg-blue-50 flex items-center justify-center group-hover/item:bg-blue-100 transition-colors">
+                          <FileText className="w-4 h-4 text-blue-600" />
                         </div>
                         <div className="flex flex-col items-start px-1">
-                          <span>Professional PDF</span>
-                          <span className="text-[10px] text-surface-400 font-medium">Ready to print .pdf</span>
+                          <span>Word Document</span>
+                          <span className="text-[10px] text-surface-400 font-medium">Editable .docx file</span>
                         </div>
                       </button>
                     </div>
@@ -759,52 +754,52 @@ export default function JDPage() {
                   "manager_rejected",
                   "hr_rejected",
                 ].includes(jd.status) && (
-                  <>
-                    <button
-                      onClick={() => router.push(`/questionnaire/${jdId}`)}
-                      className="px-6 py-3.5 bg-white text-surface-700 border border-surface-200 rounded-2xl font-bold hover:bg-surface-50 hover:shadow-md transition-all shadow-sm active:scale-[0.98] flex items-center justify-center gap-2 text-[14px]"
-                    >
-                      <Edit3 className="w-4 h-4" /> Refine in Chat
-                    </button>
-                    <button
-                      onClick={handleEditToggle}
-                      disabled={isSavingEdit}
-                      className="px-6 py-3.5 bg-white text-primary-700 border border-primary-200 rounded-2xl font-bold hover:bg-primary-50 transition-all shadow-sm active:scale-[0.98] flex items-center justify-center gap-2 text-[14px] disabled:opacity-50"
-                    >
-                      {isSavingEdit ? (
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                      ) : isEditing ? (
-                        <Save className="w-4 h-4" />
-                      ) : (
-                        <Edit className="w-4 h-4" />
-                      )}
-                      {isEditing ? "Save Edits" : "Edit Document"}
-                    </button>
-                    <button
-                      onClick={handleSendToManager}
-                      disabled={sendingToManager || isEditing}
-                      className="px-6 py-3.5 bg-primary-600 text-white rounded-2xl font-bold hover:bg-primary-700 transition-all shadow-md active:scale-[0.98] flex items-center justify-center gap-2 text-[14px] disabled:opacity-50 hover:shadow-lg hover:-translate-y-0.5"
-                    >
-                      {sendingToManager ? (
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                      ) : (
-                        <Send className="w-4 h-4" />
-                      )}
-                      Submit for Approval
-                    </button>
-                  </>
-                )}
+                    <>
+                      <button
+                        onClick={() => router.push(`/questionnaire/${jdId}`)}
+                        className="px-6 py-3.5 bg-white text-surface-700 border border-surface-200 rounded-2xl font-bold hover:bg-surface-50 hover:shadow-md transition-all shadow-sm active:scale-[0.98] flex items-center justify-center gap-2 text-[14px]"
+                      >
+                        <Edit3 className="w-4 h-4" /> Refine in Chat
+                      </button>
+                      <button
+                        onClick={handleEditToggle}
+                        disabled={isSavingEdit}
+                        className="px-6 py-3.5 bg-white text-primary-700 border border-primary-200 rounded-2xl font-bold hover:bg-primary-50 transition-all shadow-sm active:scale-[0.98] flex items-center justify-center gap-2 text-[14px] disabled:opacity-50"
+                      >
+                        {isSavingEdit ? (
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                        ) : isEditing ? (
+                          <Save className="w-4 h-4" />
+                        ) : (
+                          <Edit className="w-4 h-4" />
+                        )}
+                        {isEditing ? "Save Edits" : "Edit Document"}
+                      </button>
+                      <button
+                        onClick={handleSendToManager}
+                        disabled={sendingToManager || isEditing}
+                        className="px-6 py-3.5 bg-primary-600 text-white rounded-2xl font-bold hover:bg-primary-700 transition-all shadow-md active:scale-[0.98] flex items-center justify-center gap-2 text-[14px] disabled:opacity-50 hover:shadow-lg hover:-translate-y-0.5"
+                      >
+                        {sendingToManager ? (
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                        ) : (
+                          <Send className="w-4 h-4" />
+                        )}
+                        Submit for Approval
+                      </button>
+                    </>
+                  )}
                 {["sent_to_manager", "sent_to_hr", "approved"].includes(
                   jd.status,
                 ) && (
-                  <button
-                    disabled
-                    className="px-6 py-3.5 bg-surface-50 text-surface-400 border border-surface-200 rounded-2xl font-bold flex items-center justify-center gap-2 text-[14px] cursor-not-allowed"
-                  >
-                    <CheckCircle2 className="w-5 h-5" />
-                    {jd.status === "approved" ? "Finalized" : "Asset Submitted"}
-                  </button>
-                )}
+                    <button
+                      disabled
+                      className="px-6 py-3.5 bg-surface-50 text-surface-400 border border-surface-200 rounded-2xl font-bold flex items-center justify-center gap-2 text-[14px] cursor-not-allowed"
+                    >
+                      <CheckCircle2 className="w-5 h-5" />
+                      {jd.status === "approved" ? "Finalized" : "Asset Submitted"}
+                    </button>
+                  )}
               </div>
             )}
           </div>
@@ -853,11 +848,10 @@ export default function JDPage() {
               {reviewComments.slice(1).map((rc: any) => (
                 <div
                   key={rc.id}
-                  className={`rounded-2xl p-4 border ${
-                    rc.action === "rejected"
-                      ? "bg-red-50/30 border-red-100"
-                      : "bg-emerald-50/30 border-emerald-100"
-                  }`}
+                  className={`rounded-2xl p-4 border ${rc.action === "rejected"
+                    ? "bg-red-50/30 border-red-100"
+                    : "bg-emerald-50/30 border-emerald-100"
+                    }`}
                 >
                   <div className="flex items-center justify-between mb-1">
                     <span className="text-[10px] font-bold text-surface-500">
@@ -879,131 +873,131 @@ export default function JDPage() {
         {/* Document block */}
         <div className="bg-white rounded-2xl md:rounded-[40px] p-5 md:p-16 border border-surface-200 shadow-premium relative min-h-[500px] flex flex-col transition-all duration-500">
           {isEditing ? (
-              <div className="flex-1 overflow-y-auto pr-2 custom-scrollbar">
-                  <div className="w-full bg-surface-50 border border-surface-200 rounded-2xl p-8 space-y-12 shadow-inner min-h-full">
-                    {/* Job Title */}
-                    <div className="space-y-4">
-                      <label className="text-[11px] font-black text-surface-500 uppercase tracking-widest px-1">
-                        Job Title
+            <div className="flex-1 overflow-y-auto pr-2 custom-scrollbar">
+              <div className="w-full bg-surface-50 border border-surface-200 rounded-2xl p-8 space-y-12 shadow-inner min-h-full">
+                {/* Job Title */}
+                <div className="space-y-4">
+                  <label className="text-[11px] font-black text-surface-500 uppercase tracking-widest px-1">
+                    Job Title
+                  </label>
+                  <input
+                    type="text"
+                    value={
+                      editedData.job_title ||
+                      editedData.role_title ||
+                      editedData.title ||
+                      ""
+                    }
+                    onChange={(e) =>
+                      handleTextChange("job_title", e.target.value)
+                    }
+                    className="w-full bg-white border border-surface-200 rounded-2xl p-6 text-[16px] font-bold text-surface-900 leading-relaxed focus:ring-4 focus:ring-primary-500/10 focus:border-primary-500 outline-none shadow-sm transition-all"
+                    placeholder="e.g. Strategic Role Architect"
+                  />
+                </div>
+
+                {/* Purpose of the Job */}
+                <div className="space-y-4">
+                  <label className="text-[11px] font-black text-surface-500 uppercase tracking-widest px-1">
+                    Purpose of the Job
+                  </label>
+                  <textarea
+                    value={editedData.purpose || ""}
+                    onChange={(e) =>
+                      handleTextChange("purpose", e.target.value)
+                    }
+                    className="w-full bg-white border border-surface-200 rounded-2xl p-6 text-[15px] font-medium text-surface-800 leading-relaxed focus:ring-4 focus:ring-primary-500/10 focus:border-primary-500 outline-none resize-none min-h-[160px] shadow-sm transition-all"
+                    placeholder="Brief overview of the role's purpose..."
+                  />
+                </div>
+
+                {/* Array fields */}
+                {[
+                  {
+                    key: "responsibilities",
+                    label: "Job Responsibilities",
+                  },
+                  { key: "skills", label: "Skills / Competencies" },
+                  {
+                    key: "tools",
+                    label: "Tools & Technologies",
+                  },
+                ].map((field) => (
+                  <div key={field.key} className="space-y-5">
+                    <div className="flex items-center justify-between px-1">
+                      <label className="text-[11px] font-black text-surface-500 uppercase tracking-widest">
+                        {field.label}
                       </label>
-                      <input
-                        type="text"
-                        value={
-                          editedData.job_title ||
-                          editedData.role_title ||
-                          editedData.title ||
-                          ""
-                        }
-                        onChange={(e) =>
-                          handleTextChange("job_title", e.target.value)
-                        }
-                        className="w-full bg-white border border-surface-200 rounded-2xl p-6 text-[16px] font-bold text-surface-900 leading-relaxed focus:ring-4 focus:ring-primary-500/10 focus:border-primary-500 outline-none shadow-sm transition-all"
-                        placeholder="e.g. Strategic Role Architect"
-                      />
+                      <button
+                        onClick={() => handleAddArrayItem(field.key)}
+                        className="flex items-center gap-2 text-[11px] font-black uppercase tracking-widest text-primary-600 hover:text-primary-700 bg-primary-50 hover:bg-primary-100 px-4 py-2 rounded-xl transition-all active:scale-95"
+                      >
+                        <Plus className="w-3.5 h-3.5" /> Add Item
+                      </button>
                     </div>
 
-                    {/* Purpose of the Job */}
-                    <div className="space-y-4">
-                      <label className="text-[11px] font-black text-surface-500 uppercase tracking-widest px-1">
-                        Purpose of the Job
-                      </label>
-                      <textarea
-                        value={editedData.purpose || ""}
-                        onChange={(e) =>
-                          handleTextChange("purpose", e.target.value)
-                        }
-                        className="w-full bg-white border border-surface-200 rounded-2xl p-6 text-[15px] font-medium text-surface-800 leading-relaxed focus:ring-4 focus:ring-primary-500/10 focus:border-primary-500 outline-none resize-none min-h-[160px] shadow-sm transition-all"
-                        placeholder="Brief overview of the role's purpose..."
-                      />
-                    </div>
-
-                    {/* Array fields */}
-                    {[
-                      {
-                        key: "responsibilities",
-                        label: "Job Responsibilities",
-                      },
-                      { key: "skills", label: "Skills / Competencies" },
-                      {
-                        key: "tools",
-                        label: "Tools & Technologies",
-                      },
-                    ].map((field) => (
-                      <div key={field.key} className="space-y-5">
-                        <div className="flex items-center justify-between px-1">
-                          <label className="text-[11px] font-black text-surface-500 uppercase tracking-widest">
-                            {field.label}
-                          </label>
-                          <button
-                            onClick={() => handleAddArrayItem(field.key)}
-                            className="flex items-center gap-2 text-[11px] font-black uppercase tracking-widest text-primary-600 hover:text-primary-700 bg-primary-50 hover:bg-primary-100 px-4 py-2 rounded-xl transition-all active:scale-95"
+                    <div className="space-y-3">
+                      {(editedData[field.key] || []).map(
+                        (item: string, idx: number) => (
+                          <div
+                            key={idx}
+                            className="flex items-start gap-3 group animate-in fade-in slide-in-from-left-2 duration-300"
                           >
-                            <Plus className="w-3.5 h-3.5" /> Add Item
-                          </button>
-                        </div>
-
-                        <div className="space-y-3">
-                          {(editedData[field.key] || []).map(
-                            (item: string, idx: number) => (
-                              <div
-                                key={idx}
-                                className="flex items-start gap-3 group animate-in fade-in slide-in-from-left-2 duration-300"
-                              >
-                                <textarea
-                                  value={item}
-                                  onChange={(e) =>
-                                    handleArrayChange(
-                                      field.key,
-                                      idx,
-                                      e.target.value,
-                                    )
-                                  }
-                                  className="flex-1 bg-white border border-surface-200 rounded-2xl p-4 text-[14px] font-medium text-surface-800 leading-relaxed focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 outline-none resize-none min-h-[80px] shadow-sm transition-all"
-                                />
-                                <button
-                                  onClick={() =>
-                                    handleRemoveArrayItem(field.key, idx)
-                                  }
-                                  className="mt-2 w-10 h-10 bg-surface-100 text-surface-400 rounded-xl flex items-center justify-center hover:bg-red-50 hover:text-red-500 transition-all opacity-0 group-hover:opacity-100 focus:opacity-100"
-                                >
-                                  <Trash className="w-4 h-4" />
-                                </button>
-                              </div>
-                            ),
-                          )}
-                        </div>
-                      </div>
-                    ))}
-
-                    {/* Education and Experience */}
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                      <div className="space-y-4">
-                        <label className="text-[11px] font-black text-surface-500 uppercase tracking-widest px-1">
-                          Education Requested
-                        </label>
-                        <textarea
-                          value={editedData.education || ""}
-                          onChange={(e) =>
-                            handleTextChange("education", e.target.value)
-                          }
-                          className="w-full bg-white border border-surface-200 rounded-2xl p-6 text-[14px] font-medium text-surface-800 leading-relaxed focus:ring-4 focus:ring-primary-500/10 focus:border-primary-500 outline-none resize-none min-h-[100px] shadow-sm transition-all"
-                        />
-                      </div>
-                      <div className="space-y-4">
-                        <label className="text-[11px] font-black text-surface-500 uppercase tracking-widest px-1">
-                          Experience Requested
-                        </label>
-                        <textarea
-                          value={editedData.experience || ""}
-                          onChange={(e) =>
-                            handleTextChange("experience", e.target.value)
-                          }
-                          className="w-full bg-white border border-surface-200 rounded-2xl p-6 text-[14px] font-medium text-surface-800 leading-relaxed focus:ring-4 focus:ring-primary-500/10 focus:border-primary-500 outline-none resize-none min-h-[100px] shadow-sm transition-all"
-                        />
-                      </div>
+                            <textarea
+                              value={item}
+                              onChange={(e) =>
+                                handleArrayChange(
+                                  field.key,
+                                  idx,
+                                  e.target.value,
+                                )
+                              }
+                              className="flex-1 bg-white border border-surface-200 rounded-2xl p-4 text-[14px] font-medium text-surface-800 leading-relaxed focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 outline-none resize-none min-h-[80px] shadow-sm transition-all"
+                            />
+                            <button
+                              onClick={() =>
+                                handleRemoveArrayItem(field.key, idx)
+                              }
+                              className="mt-2 w-10 h-10 bg-surface-100 text-surface-400 rounded-xl flex items-center justify-center hover:bg-red-50 hover:text-red-500 transition-all opacity-0 group-hover:opacity-100 focus:opacity-100"
+                            >
+                              <Trash className="w-4 h-4" />
+                            </button>
+                          </div>
+                        ),
+                      )}
                     </div>
                   </div>
+                ))}
+
+                {/* Education and Experience */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                  <div className="space-y-4">
+                    <label className="text-[11px] font-black text-surface-500 uppercase tracking-widest px-1">
+                      Education Requested
+                    </label>
+                    <textarea
+                      value={editedData.education || ""}
+                      onChange={(e) =>
+                        handleTextChange("education", e.target.value)
+                      }
+                      className="w-full bg-white border border-surface-200 rounded-2xl p-6 text-[14px] font-medium text-surface-800 leading-relaxed focus:ring-4 focus:ring-primary-500/10 focus:border-primary-500 outline-none resize-none min-h-[100px] shadow-sm transition-all"
+                    />
+                  </div>
+                  <div className="space-y-4">
+                    <label className="text-[11px] font-black text-surface-500 uppercase tracking-widest px-1">
+                      Experience Requested
+                    </label>
+                    <textarea
+                      value={editedData.experience || ""}
+                      onChange={(e) =>
+                        handleTextChange("experience", e.target.value)
+                      }
+                      className="w-full bg-white border border-surface-200 rounded-2xl p-6 text-[14px] font-medium text-surface-800 leading-relaxed focus:ring-4 focus:ring-primary-500/10 focus:border-primary-500 outline-none resize-none min-h-[100px] shadow-sm transition-all"
+                    />
+                  </div>
                 </div>
+              </div>
+            </div>
           ) : (
             <div className="flex-1 animate-in fade-in zoom-in-[0.98] duration-500 h-full">
               <div className="bg-white rounded-[32px] p-8 md:p-12 border border-surface-200/60 shadow-[0_8px_30px_rgb(0,0,0,0.04)] ring-1 ring-black/[0.02]">

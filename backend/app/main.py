@@ -6,6 +6,7 @@ from contextlib import asynccontextmanager
 from app.version import VERSION
 from app.core.database import init_db
 import app.models  # Ensure models are registered for init_db
+from app.core.config import settings
 from app.routers.jd_routes import router as jd_router
 from app.routers.organogram_routes import router as organogram_router
 from app.routers.admin_routes import router as admin_router
@@ -23,15 +24,10 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="JD Agent API", version=VERSION, lifespan=lifespan)
 
-origins = [
-    "https://jd-agent-kappa.vercel.app",
-    "https://jd.web3vers.me/",
-    "http://localhost:3000",
-]
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,
+    allow_origins=settings.cors_origins_list,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

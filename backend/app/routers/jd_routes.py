@@ -4,7 +4,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 import re
 import json
 from app.services.docx_generator import generate_jd_docx
-from app.services.pdf_generator import generate_jd_pdf
 from app.schemas.jd_schema import (
     ChatRequest,
     InitJDRequest,
@@ -14,7 +13,11 @@ from app.schemas.jd_schema import (
     UpdateStatusRequest,
     GenerateJDRequest,
 )
-from app.services.jd_service import handle_conversation, handle_conversation_stream, handle_jd_generation
+from app.services.jd_service import (
+    handle_conversation,
+    handle_conversation_stream,
+    handle_jd_generation,
+)
 from app.memory.session_memory import SessionMemory
 from app.core.database import get_db
 from app.crud.jd_crud import (
@@ -43,7 +46,6 @@ router = APIRouter()
 
 
 def get_or_create_session(session_id: str) -> SessionMemory:
-    """Creates a temporary SessionMemory object. It won't be stored in memory."""
     print(f"🆕 Creating transient session object: {session_id}")
     memory = SessionMemory()
     memory.id = session_id
@@ -51,7 +53,6 @@ def get_or_create_session(session_id: str) -> SessionMemory:
 
 
 async def hydrate_session_from_db(session_id: str, db: AsyncSession) -> SessionMemory:
-    """Always loads from DB to ensure statelessness (important for AWS/Scale)."""
     print(f"💧 Hydrating session {session_id} from DB...")
     record = await get_questionnaire(db, session_id)
     memory = SessionMemory()
@@ -81,7 +82,6 @@ async def hydrate_session_from_db(session_id: str, db: AsyncSession) -> SessionM
 # ── Init ──────────────────────────────────────────────────────────────────────
 @router.post("/init", response_model=InitJDResponse)
 async def init_jd(request: InitJDRequest, db: AsyncSession = Depends(get_db)):
-    # Local Dev fix: Auto-create employee if doesn't exist to prevent Foreign Key Error
     from sqlalchemy.future import select
     from app.models.user_model import Employee
 
@@ -102,7 +102,6 @@ async def init_jd(request: InitJDRequest, db: AsyncSession = Depends(get_db)):
     memory.employee_id = request.employee_id
     memory.employee_name = request.employee_name
 
-    # --- Context Injection: Pre-fill Organogram Data ---
     starting_insights = {}
     if emp:
         identity_context = {}
@@ -119,12 +118,11 @@ async def init_jd(request: InitJDRequest, db: AsyncSession = Depends(get_db)):
         if emp.phone_mobile:
             identity_context["phone"] = emp.phone_mobile
 
-        # Fetch actual Job Title, Location, and DOJ from Organogram table
         from sqlalchemy import text
 
         org_query = text("""
-            SELECT designation, location, date_of_joining 
-            FROM organogram 
+            SELECT designation, location, date_of_joining
+            FROM organogram
             WHERE code = :code
         """)
         org_res = await db.execute(org_query, {"code": request.employee_id})
@@ -137,14 +135,12 @@ async def init_jd(request: InitJDRequest, db: AsyncSession = Depends(get_db)):
             if org_row.get("date_of_joining"):
                 identity_context["date_of_joining"] = org_row["date_of_joining"]
         elif emp.role:
-            # Fallback
             identity_context["title"] = emp.role
 
         if identity_context:
             starting_insights["identity_context"] = identity_context
 
     memory.insights = starting_insights
-    # _session_store[new_id] = memory # REMOVED: using stateless session instead
 
     await sync_session_to_db(
         db=db,
@@ -160,7 +156,6 @@ async def init_jd(request: InitJDRequest, db: AsyncSession = Depends(get_db)):
         employee_name=request.employee_name,
     )
 
-    # Invalidate caches
     await invalidate_pattern("cache:jd_list:*")
     await invalidate_pattern("cache:dept_stats:*")
     await invalidate_pattern("cache:dept_employees:*")
@@ -196,7 +191,6 @@ async def chat(request: ChatRequest, db: AsyncSession = Depends(get_db)):
         status=session_memory.progress.get("status"),
     )
 
-    # Invalidate detail cache for this session
     await invalidate_pattern(f"cache:jd_detail:*{session_id}*")
 
     return {"reply": reply, "history": updated_history}
@@ -212,7 +206,6 @@ async def chat_stream(request: ChatRequest, db: AsyncSession = Depends(get_db)):
 
     async def event_generator():
         try:
-            # Yield events from the service
             async for chunk in handle_conversation_stream(
                 history=request.history,
                 user_message=request.message,
@@ -220,7 +213,6 @@ async def chat_stream(request: ChatRequest, db: AsyncSession = Depends(get_db)):
             ):
                 yield chunk
 
-            # After yielding completes, sync updated memory to the database
             await sync_session_to_db(
                 db=db,
                 session_id=session_id,
@@ -233,7 +225,6 @@ async def chat_stream(request: ChatRequest, db: AsyncSession = Depends(get_db)):
                 jd_structured=session_memory.jd_structured,
                 status=session_memory.progress.get("status"),
             )
-            # Invalidate detail cache for this session
             await invalidate_pattern(f"cache:jd_detail:*{session_id}*")
         except Exception as e:
             yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
@@ -279,7 +270,6 @@ async def generate_jd_endpoint(
         status="jd_generated",
     )
 
-    # Invalidate detail cache
     await invalidate_pattern(f"cache:jd_detail:*{session_id}*")
 
     return {
@@ -295,7 +285,6 @@ async def generate_jd_endpoint(
 async def save_jd(request: SaveJDRequest, db: AsyncSession = Depends(get_db)):
     session_id = request.id
 
-    # ALWAYS hydrate from DB to stay stateless
     session_memory = await hydrate_session_from_db(session_id, db)
     if not session_memory.insights:
         raise HTTPException(
@@ -323,7 +312,6 @@ async def save_jd(request: SaveJDRequest, db: AsyncSession = Depends(get_db)):
             else None,
         )
 
-        # Invalidate lists and detail
         await invalidate_pattern("cache:jd_list:*")
         await invalidate_pattern("cache:manager_pending:*")
         await invalidate_pattern("cache:hr_pending:*")
@@ -352,9 +340,7 @@ def health_check():
 # ── List all (admin) ──────────────────────────────────────────────────────────
 @router.get("/list")
 @cached_response("jd_list", ttl=300)
-async def list_jds(
-    submitted_only: bool = False, db: AsyncSession = Depends(get_db)
-):
+async def list_jds(submitted_only: bool = False, db: AsyncSession = Depends(get_db)):
     status_filter = (
         ["sent_to_manager", "manager_rejected", "sent_to_hr", "hr_rejected", "approved"]
         if submitted_only
@@ -394,7 +380,6 @@ async def get_hr_pending_jds(db: AsyncSession = Depends(get_db)):
 async def get_user_feedback(
     employee_id: str, role: str = "employee", db: AsyncSession = Depends(get_db)
 ):
-    """Get unread feedback for a specific user (for sidebar notification)."""
     try:
         feedback = await get_unread_feedback_for_user(db, employee_id, role)
         return feedback
@@ -408,7 +393,6 @@ async def get_user_feedback(
 async def get_all_user_feedback(
     employee_id: str, role: str = "employee", db: AsyncSession = Depends(get_db)
 ):
-    """Get all feedback (read and unread) for a specific user (for the dedicated feedback page)."""
     try:
         feedback = await get_all_feedback_for_user(db, employee_id, role)
         return feedback
@@ -420,7 +404,6 @@ async def get_all_user_feedback(
 
 @router.patch("/feedback/{comment_id}/read")
 async def mark_read(comment_id: str, db: AsyncSession = Depends(get_db)):
-    """Mark a specific feedback comment as read."""
     try:
         success = await mark_feedback_read(db, comment_id)
         if not success:
@@ -434,12 +417,13 @@ async def mark_read(comment_id: str, db: AsyncSession = Depends(get_db)):
         )
 
 
-# ── Download JD as DOCX ──────────────────────────────────────────────────────
+# ── Download JD as DOCX (only download format — PDF is now client-side) ──────
 @router.get("/{jd_id}/download/docx/{filename}")
-@router.get("/{jd_id}/download")  # Legacy support
-async def download_jd_docx(jd_id: str, filename: str = None, db: AsyncSession = Depends(get_db)):
-    """Generate and stream a DOCX file for the given JD."""
-
+@router.get("/{jd_id}/download")
+async def download_jd_docx(
+    jd_id: str, filename: str = None, db: AsyncSession = Depends(get_db)
+):
+    """Generate and stream a Pulse Pharma branded DOCX file for the given JD."""
     record = await get_questionnaire(db, jd_id)
     if not record:
         raise HTTPException(status_code=404, detail="JD not found")
@@ -450,76 +434,23 @@ async def download_jd_docx(jd_id: str, filename: str = None, db: AsyncSession = 
             detail="No generated JD available for download. Please generate a JD first.",
         )
 
-    # Generate the DOCX
     docx_buffer = generate_jd_docx(
         jd_data=record.jd_structured,
         title=record.title,
         department=record.department,
     )
 
-    # Build a safe filename
     title = record.title or "Job Description"
     dept = record.department or ""
-    filename = f"{title} - {dept}.docx" if dept else f"{title}.docx"
-    # Sanitize filename (remove chars that are problematic in file names)
-    filename = re.sub(r'[<>:"/\\|?*]', "", filename)
+    safe_filename = f"{title} - {dept}.docx" if dept else f"{title}.docx"
+    safe_filename = re.sub(r'[<>:"/\\|?*]', "", safe_filename)
 
-    # Return as standard Response to avoid streaming corruption
     content = docx_buffer.getvalue()
-    
     return Response(
         content=content,
         media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         headers={
-            "Content-Disposition": f'attachment; filename="{filename}"',
-            "Content-Length": str(len(content)),
-            "Access-Control-Expose-Headers": "Content-Disposition",
-            "Content-Encoding": "identity",
-        },
-    )
-
-
-# ── Download JD as PDF ───────────────────────────────────────────────────────
-@router.get("/{jd_id}/download/pdf/{filename}")
-@router.get("/{jd_id}/download/pdf") # Legacy support
-async def download_jd_pdf(jd_id: str, filename: str = None, db: AsyncSession = Depends(get_db)):
-    """Generate and stream a professional PDF file for the given JD."""
-
-    record = await get_questionnaire(db, jd_id)
-    if not record:
-        raise HTTPException(status_code=404, detail="JD not found")
-
-    if not record.jd_structured:
-        raise HTTPException(
-            status_code=400,
-            detail="No generated JD available for download. Please generate a JD first.",
-        )
-
-    # Generate the PDF
-    pdf_buffer = generate_jd_pdf(
-        jd_data=record.jd_structured,
-        title=record.title,
-        department=record.department,
-    )
-
-    # Build a professional safe filename
-    safe_title = re.sub(r'[<>:"/\\|?* ]', "_", (record.title or "Strategic_Role")).strip("_")
-    safe_dept = re.sub(r'[<>:"/\\|?* ]', "_", (record.department or "Organization")).strip("_")
-    
-    # Format: Pulse_Pharma_JD_Role_Dept.pdf
-    filename = f"Pulse_Pharma_JD_{safe_title}_{safe_dept}.pdf"
-    # Ensure no double underscores
-    while "__" in filename:
-        filename = filename.replace("__", "_")
-
-    # Return as standard Response with length (more reliable for some browsers/proxies)
-    content = pdf_buffer.getvalue()
-    
-    return Response(
-        content=content,
-        media_type="application/pdf",
-        headers={
-            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Content-Disposition": f'attachment; filename="{safe_filename}"',
             "Content-Length": str(len(content)),
             "Access-Control-Expose-Headers": "Content-Disposition",
             "Content-Encoding": "identity",
@@ -588,8 +519,7 @@ async def update_jd(
         )
         if not record:
             raise HTTPException(status_code=404, detail="JD not found")
-        
-        # Invalidate cache
+
         await invalidate_pattern(f"cache:jd_detail:*{jd_id}*")
 
         return {
@@ -632,8 +562,7 @@ async def update_jd_status(
         )
         if not record:
             raise HTTPException(status_code=404, detail="JD not found")
-        
-        # Invalidate all relevant caches
+
         await invalidate_pattern("cache:jd_list:*")
         await invalidate_pattern("cache:manager_pending:*")
         await invalidate_pattern("cache:hr_pending:*")
@@ -664,7 +593,6 @@ async def delete_jd(jd_id: str, employee_id: str, db: AsyncSession = Depends(get
         if not success:
             raise HTTPException(status_code=404, detail="JD not found")
 
-        # Invalidate lists and detail
         await invalidate_pattern("cache:jd_list:*")
         await invalidate_pattern("cache:manager_pending:*")
         await invalidate_pattern("cache:hr_pending:*")
@@ -683,7 +611,6 @@ async def delete_jd(jd_id: str, employee_id: str, db: AsyncSession = Depends(get
 
 @router.post("/{jd_id}/review")
 async def submit_review(jd_id: str, request: dict, db: AsyncSession = Depends(get_db)):
-    """Create a review comment (rejection/approval with audit trail)."""
     action = request.get("action")
     target_role = request.get("target_role", "employee")
     comment = request.get("comment")
@@ -710,7 +637,6 @@ async def submit_review(jd_id: str, request: dict, db: AsyncSession = Depends(ge
             comment=comment,
         )
 
-        # Invalidate relevant caches
         await invalidate_pattern("cache:jd_list:*")
         await invalidate_pattern("cache:manager_pending:*")
         await invalidate_pattern("cache:hr_pending:*")
@@ -733,7 +659,6 @@ async def submit_review(jd_id: str, request: dict, db: AsyncSession = Depends(ge
 
 @router.get("/{jd_id}/reviews")
 async def get_reviews(jd_id: str, db: AsyncSession = Depends(get_db)):
-    """Get all review comments for a JD (audit trail)."""
     try:
         comments = await get_review_comments_for_jd(db, jd_id)
         return comments

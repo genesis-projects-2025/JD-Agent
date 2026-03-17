@@ -1,297 +1,357 @@
-# app/services/docx_generator.py
-"""
-Enterprise DOCX generator for Job Descriptions.
-Produces a professionally formatted .docx file matching Pulse Pharma's official JD template.
-"""
+# backend/app/services/docx_generator.py
+# Pulse Pharma branded DOCX — matches the official company JD template exactly.
+# 4-section table layout, grey section headers (#BFBFBF), company logo in header,
+# footer disclaimer. Replaces the old multi-colour enterprise format entirely.
 
 from io import BytesIO
+import os
+
 from docx import Document
-from docx.shared import Pt, RGBColor
-from docx.enum.table import WD_TABLE_ALIGNMENT
+from docx.shared import Pt, Inches, Emu
 from docx.enum.text import WD_ALIGN_PARAGRAPH
+from docx.enum.table import WD_TABLE_ALIGNMENT
 from docx.oxml.ns import qn
+from docx.oxml import OxmlElement
+
+# Logo path — moved to static assets directory
+_HERE = os.path.dirname(os.path.abspath(__file__))
+# Default to static/images/pulse_logo.jpeg relative to the backend root (one level up from app/)
+_PROJECT_ROOT = os.path.dirname(os.path.dirname(_HERE))
+DEFAULT_LOGO_PATH = os.path.join(_PROJECT_ROOT, "static", "images", "pulse_logo.jpeg")
+LOGO_PATH = os.getenv("COMPANY_LOGO_PATH", DEFAULT_LOGO_PATH)
+
+HEADER_COLOR = "BFBFBF"  # exact grey from company template
+BORDER_COLOR = "999999"
 
 
-def _set_cell_shading(cell, color_hex: str):
-    """Apply background shading to a table cell."""
-    shading = cell._element.get_or_add_tcPr()
-    shading_elem = shading.makeelement(
-        qn("w:shd"),
-        {
-            qn("w:fill"): color_hex,
-            qn("w:val"): "clear",
-        },
+# ── Low-level helpers ─────────────────────────────────────────────────────────
+
+
+def _set_cell_bg(cell, hex_color: str) -> None:
+    tc = cell._tc
+    tcPr = tc.get_or_add_tcPr()
+    for old in tcPr.findall(qn("w:shd")):
+        tcPr.remove(old)
+    shd = OxmlElement("w:shd")
+    shd.set(qn("w:val"), "clear")
+    shd.set(qn("w:color"), "auto")
+    shd.set(qn("w:fill"), hex_color)
+    tcPr.append(shd)
+
+
+def _set_cell_borders(cell) -> None:
+    tc = cell._tc
+    tcPr = tc.get_or_add_tcPr()
+    for old in tcPr.findall(qn("w:tcBorders")):
+        tcPr.remove(old)
+    tcBorders = OxmlElement("w:tcBorders")
+    for side in ("top", "left", "bottom", "right"):
+        b = OxmlElement(f"w:{side}")
+        b.set(qn("w:val"), "single")
+        b.set(qn("w:sz"), "4")
+        b.set(qn("w:space"), "0")
+        b.set(qn("w:color"), BORDER_COLOR)
+        tcBorders.append(b)
+    tcPr.append(tcBorders)
+
+
+def _set_cell_valign(cell, align: str = "top") -> None:
+    tc = cell._tc
+    tcPr = tc.get_or_add_tcPr()
+    for old in tcPr.findall(qn("w:vAlign")):
+        tcPr.remove(old)
+    va = OxmlElement("w:vAlign")
+    va.set(qn("w:val"), align)
+    tcPr.append(va)
+
+
+def _para_spacing(para, before: float = 0, after: float = 0) -> None:
+    para.paragraph_format.space_before = Pt(before)
+    para.paragraph_format.space_after = Pt(after)
+
+
+# ── Row builders ──────────────────────────────────────────────────────────────
+
+
+def _section_header_row(table, row_idx: int, text: str) -> None:
+    """Merge cols, grey background, bold centred text."""
+    row = table.rows[row_idx]
+    row.cells[0].merge(row.cells[1])
+    cell = row.cells[0]
+    _set_cell_bg(cell, HEADER_COLOR)
+    _set_cell_borders(cell)
+    para = cell.paragraphs[0]
+    para.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    _para_spacing(para)
+    run = para.add_run(text)
+    run.bold = True
+    run.font.size = Pt(11)
+
+
+def _data_row(table, row_idx: int, label: str, value) -> None:
+    """Bold label cell | plain value cell."""
+    row = table.rows[row_idx]
+    lc, vc = row.cells[0], row.cells[1]
+
+    for cell in (lc, vc):
+        _set_cell_borders(cell)
+        _set_cell_valign(cell)
+
+    # Label
+    lp = lc.paragraphs[0]
+    _para_spacing(lp)
+    lr = lp.add_run(label)
+    lr.bold = True
+    lr.font.size = Pt(11)
+
+    # Value — list → bulleted paragraphs, string → single paragraph
+    if isinstance(value, list):
+        for i, item in enumerate(value):
+            p = vc.paragraphs[0] if i == 0 else vc.add_paragraph()
+            _para_spacing(p, after=2)
+            p.paragraph_format.left_indent = Inches(0.15)
+            r = p.add_run(f"\u2022 {item}")
+            r.font.size = Pt(11)
+    else:
+        vp = vc.paragraphs[0]
+        _para_spacing(vp)
+        vr = vp.add_run(str(value) if value else "")
+        vr.font.size = Pt(11)
+
+
+def _job_desc_content_row(
+    table, row_idx: int, purpose: str, responsibilities: list
+) -> None:
+    """Full-width merged cell: Purpose paragraph + Responsibilities list."""
+    row = table.rows[row_idx]
+    row.cells[0].merge(row.cells[1])
+    cell = row.cells[0]
+    _set_cell_borders(cell)
+    _set_cell_valign(cell)
+
+    # Purpose
+    if purpose:
+        pp = cell.paragraphs[0]
+        _para_spacing(pp, before=4)
+        r1 = pp.add_run("Purpose of the Job / Role :  ")
+        r1.bold = True
+        r1.font.size = Pt(11)
+        r2 = pp.add_run(purpose)
+        r2.font.size = Pt(11)
+    else:
+        cell.paragraphs[0].clear()
+
+    # Blank separator
+    blank = cell.add_paragraph()
+    _para_spacing(blank, before=0, after=4)
+
+    # Responsibilities header
+    rh = cell.add_paragraph()
+    _para_spacing(rh, before=0, after=4)
+    rhr = rh.add_run("Job Responsibilities")
+    rhr.bold = True
+    rhr.font.size = Pt(11)
+
+    # Responsibility bullets
+    for resp in responsibilities:
+        rp = cell.add_paragraph()
+        _para_spacing(rp, after=2)
+        rp.paragraph_format.left_indent = Inches(0.2)
+        rr = rp.add_run(f"\u2022 {resp}")
+        rr.font.size = Pt(11)
+
+
+# ── Data extraction helpers ───────────────────────────────────────────────────
+
+
+def _get(data: dict, *keys) -> str:
+    emp = data.get("employee_information") or {}
+    for k in keys:
+        v = data.get(k) or emp.get(k)
+        if v and isinstance(v, str) and v.strip():
+            return v.strip()
+    return ""
+
+
+def _get_list(data: dict, *keys) -> list:
+    for k in keys:
+        v = data.get(k)
+        if isinstance(v, list) and v:
+            return [str(x) for x in v if x]
+    return []
+
+
+def _get_stakeholder(data: dict, itype: str) -> str:
+    s = (
+        data.get("stakeholder_interactions")
+        or data.get("stakeholders")
+        or data.get("working_relationships")
+        or {}
     )
-    shading.append(shading_elem)
+    if itype == "internal":
+        v = s.get("internal") or s.get("internal_stakeholders") or ""
+    else:
+        v = s.get("external") or s.get("external_stakeholders") or ""
+    return ", ".join(v) if isinstance(v, list) else str(v)
 
 
-def _set_cell_content(cell, text: str, bold: bool = False, size: int = 10):
-    """Set cell text with formatting."""
-    cell.text = ""
-    p = cell.paragraphs[0]
-    run = p.add_run(str(text) if text else "")
-    run.font.size = Pt(size)
-    run.font.name = "Calibri"
-    run.bold = bold
-
-
-def _add_section_table(
-    doc, header: str, rows: list[tuple[str, str]], header_color: str = "1F4E79"
-):
-    """
-    Adds a styled two-column table (Label | Value) with a merged header row.
-    `rows` is a list of (label, value) tuples.
-    """
-    table = doc.add_table(rows=1 + len(rows), cols=2)
-    table.alignment = WD_TABLE_ALIGNMENT.CENTER
-    table.style = "Table Grid"
-
-    # Header row (merged)
-    header_cell = table.cell(0, 0)
-    header_cell.merge(table.cell(0, 1))
-    _set_cell_content(header_cell, header, bold=True, size=11)
-    _set_cell_shading(header_cell, header_color)
-    header_cell.paragraphs[0].runs[0].font.color.rgb = RGBColor(0xFF, 0xFF, 0xFF)
-
-    # Data rows
-    for i, (label, value) in enumerate(rows, start=1):
-        label_cell = table.cell(i, 0)
-        value_cell = table.cell(i, 1)
-        _set_cell_content(label_cell, label, bold=True, size=10)
-        _set_cell_content(value_cell, str(value) if value else "", size=10)
-        _set_cell_shading(label_cell, "D6E4F0")
-
-    doc.add_paragraph("")  # spacing
-
-
-def _list_to_text(items) -> str:
-    """Convert a list or string to multi-line text."""
-    if isinstance(items, list):
-        return "\n".join(f"• {item}" for item in items if item)
-    if isinstance(items, str):
-        return items
-    return str(items) if items else ""
-
-
-def _dict_list_to_text(items) -> str:
-    """Convert a list of strings or dicts to readable text."""
-    if isinstance(items, list):
-        parts = []
-        for item in items:
-            if isinstance(item, dict):
-                parts.append(", ".join(f"{k}: {v}" for k, v in item.items()))
-            else:
-                parts.append(str(item))
-        return ", ".join(parts)
-    if isinstance(items, str):
-        return items
-    return str(items) if items else ""
+# ── Public API ────────────────────────────────────────────────────────────────
 
 
 def generate_jd_docx(
     jd_data: dict, title: str = None, department: str = None
 ) -> BytesIO:
     """
-    Generate a DOCX file from JD structured data.
+    Generate a Pulse Pharma branded DOCX from structured JD data.
 
     Args:
-        jd_data: The jd_structured JSON data from the database.
-        title: JD title (fallback if not in jd_data).
-        department: Department (fallback if not in jd_data).
+        jd_data:    jd_structured dict from the database.
+        title:      Fallback job title if not in jd_data.
+        department: Fallback department if not in jd_data.
 
     Returns:
-        BytesIO stream containing the DOCX file.
+        BytesIO stream of the .docx file, seeked to 0.
     """
+    # ── Extract fields ────────────────────────────────────────────────────────
+    designation = _get(jd_data, "job_title", "title", "designation") or title or "—"
+    band = _get(jd_data, "band")
+    grade = _get(jd_data, "grade")
+    func = _get(jd_data, "department", "function") or department or "—"
+    location = _get(jd_data, "location")
+
+    wr = jd_data.get("working_relationships") or {}
+    ts = jd_data.get("team_structure") or {}
+    reporting_to = (
+        _get(jd_data, "reports_to", "reporting_to")
+        or wr.get("reporting_to")
+        or ts.get("reports_to")
+        or "—"
+    )
+    team_size = str(ts.get("team_size") or wr.get("team_size") or "—")
+    internal = _get_stakeholder(jd_data, "internal") or "—"
+    external = _get_stakeholder(jd_data, "external") or "Not applicable"
+
+    purpose = _get(jd_data, "purpose", "role_summary")
+    responsibilities = _get_list(jd_data, "responsibilities", "key_responsibilities")
+    skills = _get_list(jd_data, "skills", "required_skills")
+    tools = _get_list(jd_data, "tools", "tools_and_technologies")
+    all_skills = skills + [f"{t} (Tool/Platform)" for t in tools]
+    if not all_skills:
+        all_skills = ["To be confirmed with line manager."]
+
+    education = _get(jd_data, "education")
+    experience = _get(jd_data, "experience")
+    edu_exp = (
+        "\n\n".join(filter(None, [education, experience]))
+        or "To be confirmed with line manager."
+    )
+
+    # ── Document setup ────────────────────────────────────────────────────────
     doc = Document()
 
-    # ── Document defaults ─────────────────────────────────────────────────
-    style = doc.styles["Normal"]
-    font = style.font
-    font.name = "Calibri"
-    font.size = Pt(10)
+    section = doc.sections[0]
+    section.page_width = Emu(7556500)  # A4
+    section.page_height = Emu(10680700)
+    section.top_margin = Emu(914400)  # 1 inch
+    section.bottom_margin = Emu(914400)
+    section.left_margin = Emu(914400)
+    section.right_margin = Emu(914400)
 
-    # ── Extract data safely ───────────────────────────────────────────────
-    emp_info = jd_data.get("employee_information", {})
-    if isinstance(emp_info, str):
-        emp_info = {}
+    doc.styles["Normal"].font.name = "Calibri"
+    doc.styles["Normal"].font.size = Pt(11)
 
-    team = jd_data.get("team_structure", {})
-    if isinstance(team, str):
-        team = {}
+    # ── Logo in header ────────────────────────────────────────────────────────
+    header = section.header
+    header.is_linked_to_previous = False
+    hp = header.paragraphs[0]
+    hp.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    _para_spacing(hp, after=6)
+    if os.path.exists(LOGO_PATH):
+        hp.add_run().add_picture(LOGO_PATH, width=Inches(2.5))
+    else:
+        # Fallback text if logo file missing
+        lr = hp.add_run("PULSE PHARMA")
+        lr.bold = True
+        lr.font.size = Pt(16)
 
-    stakeholders = jd_data.get("stakeholder_interactions", {})
-    if isinstance(stakeholders, str):
-        stakeholders = {}
+    # ── TABLE 1: Job / Role Information ──────────────────────────────────────
+    t1 = doc.add_table(rows=8, cols=2)
+    t1.alignment = WD_TABLE_ALIGNMENT.CENTER
 
-    work_env = jd_data.get("work_environment", {})
-    if isinstance(work_env, str):
-        work_env = {}
+    _section_header_row(t1, 0, "Job / Role Information")
+    _data_row(t1, 1, "Designation", designation)
+    _data_row(t1, 2, "Band & Band Name", band)
+    _data_row(t1, 3, "Grade", grade)
+    _data_row(t1, 4, "Function", func)
+    _data_row(t1, 5, "Location", location)
+    _section_header_row(t1, 6, "Job Description")
+    _job_desc_content_row(t1, 7, purpose, responsibilities)
 
-    additional = jd_data.get("additional_details", {})
-    if isinstance(additional, str):
-        additional = {}
+    doc.add_paragraph().paragraph_format.space_after = Pt(6)
 
-    role_summary = jd_data.get("role_summary", "")
-    if isinstance(role_summary, dict):
-        role_summary = role_summary.get("summary", str(role_summary))
+    # ── TABLE 2: Working Relationships ────────────────────────────────────────
+    t2 = doc.add_table(rows=5, cols=2)
+    t2.alignment = WD_TABLE_ALIGNMENT.CENTER
 
-    designation = emp_info.get("title", title or "")
-    dept = emp_info.get("department", department or "")
-    location = emp_info.get("location", "")
-    reports_to = emp_info.get("reports_to", "")
-    work_type = emp_info.get("work_type", "")
+    _section_header_row(t2, 0, "Working Relationships")
+    _data_row(t2, 1, "Reporting to", reporting_to)
+    _data_row(t2, 2, "Team", team_size)
+    _data_row(t2, 3, "Internal Stakeholders", internal)
+    _data_row(t2, 4, "External Stakeholders", external)
 
-    # Section 1: Job / Role Info
-    purpose = jd_data.get("purpose") or jd_data.get("role_summary", "")
-    if isinstance(purpose, dict):
-        purpose = purpose.get("summary", str(purpose))
-        
-    responsibilities = jd_data.get("responsibilities") or jd_data.get("key_responsibilities", [])
-    
-    # Section 2: Working Relationships
-    relationships = jd_data.get("stakeholders") or jd_data.get("working_relationships") or jd_data.get("stakeholder_interactions") or {}
-    team_info = team.get("team_size") or relationships.get("team_size", "-")
-    internal_stakeholders = relationships.get("internal") or relationships.get("internal_stakeholders", "-")
-    external_stakeholders = relationships.get("external") or relationships.get("external_stakeholders", "-")
-    reports_to = team.get("reports_to") or relationships.get("reporting_to", reports_to) # keep fallback for initial info
+    doc.add_paragraph().paragraph_format.space_after = Pt(6)
 
-    # Section 3: Skills / Competencies
-    skills = jd_data.get("skills") or jd_data.get("required_skills", [])
-    tools_list = jd_data.get("tools") or jd_data.get("tools_and_technologies", [])
-    
-    # Section 4: Education & Experience
-    education = jd_data.get("education", "")
-    experience = jd_data.get("experience", "")
+    # ── TABLE 3: Skills / Competencies ────────────────────────────────────────
+    t3 = doc.add_table(rows=2, cols=2)
+    t3.alignment = WD_TABLE_ALIGNMENT.CENTER
 
-    # ── Company Header ────────────────────────────────────────────────────
-    header_para = doc.add_paragraph()
-    header_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    run = header_para.add_run("PULSE PHARMA")
-    run.bold = True
-    run.font.size = Pt(16)
-    run.font.color.rgb = RGBColor(0x1F, 0x4E, 0x79)
-
-    subtitle = doc.add_paragraph()
-    subtitle.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    run = subtitle.add_run("Job Description Document")
-    run.font.size = Pt(12)
-    run.font.color.rgb = RGBColor(0x59, 0x59, 0x59)
-    run.italic = True
-
-    doc.add_paragraph("")
-
-    # ── Table 1: Job / Role Information ───────────────────────────────────
-    resp_text = _list_to_text(responsibilities)
-    full_purpose = f"{purpose}\n\nKey Responsibilities:\n{resp_text}" if resp_text else purpose
-
-    _add_section_table(
-        doc,
-        "Job / Role Information",
-        [
-            ("Designation", designation),
-            ("Band & Band Name", emp_info.get("band", "")),
-            ("Grade", emp_info.get("grade", "")),
-            ("Function", dept),
-            ("Location", location),
-            ("Work Type", work_type),
-            ("Purpose of the Job / Role", full_purpose),
-        ],
+    _section_header_row(t3, 0, "Skills/ Competencies Required")
+    _data_row(
+        t3,
+        1,
+        "Skills",
+        all_skills,
     )
 
-    # ── Table 2: Working Relationships ────────────────────────────────────
-    _add_section_table(
-        doc,
-        "Working Relationships",
-        [
-            ("Reporting to", reports_to),
-            ("Team", team_info),
-            ("Internal Stakeholders", _dict_list_to_text(internal_stakeholders)),
-            ("External Stakeholders", _dict_list_to_text(external_stakeholders)),
-        ],
-        header_color="2E75B6",
+    doc.add_paragraph().paragraph_format.space_after = Pt(6)
+
+    # ── TABLE 4: Academic Qualifications & Experience ─────────────────────────
+    t4 = doc.add_table(rows=2, cols=2)
+    t4.alignment = WD_TABLE_ALIGNMENT.CENTER
+
+    _section_header_row(t4, 0, "Academic Qualifications & Experience Required")
+
+    # Custom label (two lines) + value
+    row4 = t4.rows[1]
+    lc4, vc4 = row4.cells[0], row4.cells[1]
+    for cell in (lc4, vc4):
+        _set_cell_borders(cell)
+        _set_cell_valign(cell)
+
+    lp4 = lc4.paragraphs[0]
+    _para_spacing(lp4)
+    lr4 = lp4.add_run("Required Educational Qualification & \nRelevant experience")
+    lr4.bold = True
+    lr4.font.size = Pt(11)
+
+    vp4 = vc4.paragraphs[0]
+    _para_spacing(vp4)
+    vr4 = vp4.add_run(edu_exp)
+    vr4.font.size = Pt(11)
+
+    # ── Footer disclaimer ──────────────────────────────────────────────────────
+    fp = doc.add_paragraph()
+    fp.paragraph_format.space_before = Pt(10)
+    fp.paragraph_format.space_after = Pt(0)
+    fr = fp.add_run(
+        "Pulse Pharma is an equal opportunity employer - we never differentiate candidates "
+        "on the basis of religion, caste, gender, language, disabilities or ethnic group. "
+        "Pulse reserves the right to place/move any candidate to any company location, "
+        "partner location or customer location globally, in the best interest of Pulse business."
     )
+    fr.font.size = Pt(10)
 
-    # ── Table 3: Skills / Competencies ────────────────────────────────────
-    all_skills = []
-    if isinstance(skills, list):
-        all_skills.extend(skills)
-    if isinstance(tools_list, list):
-        all_skills.extend([f"{t} (Tool/Platform)" for t in tools_list])
-
-    skills_text = (
-        _list_to_text(all_skills)
-        if all_skills
-        else "To be confirmed with line manager."
-    )
-
-    _add_section_table(
-        doc,
-        "Skills / Competencies Required",
-        [
-            ("Skills", skills_text),
-        ],
-        header_color="548235",
-    )
-
-    # ── Table 4: Academic Qualifications & Experience Required ──────────
-    _add_section_table(
-        doc,
-        "Academic Qualifications & Experience Required",
-        [
-            ("Education", education or "-"),
-            ("Experience", experience or "-"),
-        ],
-        header_color="BF8F00",
-    )
-
-    # ── Table 5: Work Environment & Additional ────────────────────────────
-    env_parts = []
-    if work_env.get("type"):
-        env_parts.append(f"Type: {work_env['type']}")
-    if work_env.get("culture"):
-        env_parts.append(f"Culture: {work_env['culture']}")
-    if work_env.get("work_pace"):
-        env_parts.append(f"Pace: {work_env['work_pace']}")
-    if work_env.get("work_style"):
-        env_parts.append(f"Style: {work_env['work_style']}")
-    env_text = "\n".join(env_parts) if env_parts else "-"
-
-    special_projects = _list_to_text(additional.get("special_projects", []))
-    unique_contrib = additional.get("unique_contributions", "")
-    growth = additional.get("growth_opportunities", "")
-
-    additional_text = ""
-    if special_projects:
-        additional_text += f"Special Projects:\n{special_projects}\n"
-    if unique_contrib:
-        additional_text += f"\nUnique Contributions: {unique_contrib}\n"
-    if growth:
-        additional_text += f"\nGrowth Opportunities: {growth}"
-
-    _add_section_table(
-        doc,
-        "Work Environment & Additional Details",
-        [
-            ("Work Environment", env_text),
-            ("Special Contributions", additional_text.strip() or "-"),
-        ],
-        header_color="7030A0",
-    )
-
-    # ── Footer Disclaimer ─────────────────────────────────────────────────
-    doc.add_paragraph("")
-    disclaimer = doc.add_paragraph()
-    disclaimer.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    run = disclaimer.add_run(
-        "Pulse Pharma is an equal opportunity employer. "
-        "This Job Description was generated from a structured employee role intelligence interview."
-    )
-    run.font.size = Pt(8)
-    run.font.color.rgb = RGBColor(0x99, 0x99, 0x99)
-    run.italic = True
-
-    # ── Write to BytesIO ──────────────────────────────────────────────────
-    buffer = BytesIO()
-    doc.save(buffer)
-    buffer.seek(0)
-    return buffer
+    buf = BytesIO()
+    doc.save(buf)
+    buf.seek(0)
+    return buf

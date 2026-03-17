@@ -390,6 +390,9 @@ async def list_jds(submitted_only: bool = False, db: AsyncSession = Depends(get_
 @router.get("/employee/{employee_id}")
 async def get_employee_jds(employee_id: str, db: AsyncSession = Depends(get_db)):
     records = await list_questionnaires_by_employee(db, employee_id)
+    # records might be already serialised (from cache) or raw objects
+    if records and isinstance(records[0], dict):
+        return records
     return [_serialize_list_item(r) for r in records]
 
 
@@ -706,6 +709,8 @@ async def get_reviews(jd_id: str, db: AsyncSession = Depends(get_db)):
 
 # ── Serializer ────────────────────────────────────────────────────────────────
 def _serialize_list_item(r) -> dict:
+    if isinstance(r, dict):
+        return r
     return {
         "id": str(r.id),
         "employee_id": r.employee_id,

@@ -24,6 +24,7 @@ import {
   fetchHRPendingJDs,
   getCurrentUser,
   fetchDepartmentEmployees,
+  deleteJD,
 } from "@/lib/api";
 import { getOrCreateEmployeeId } from "@/lib/auth";
 import { DeleteModal } from "@/components/ui/delete-modal";
@@ -182,16 +183,8 @@ export default function DashboardPage() {
 
     try {
       setIsDeleting(true);
-      const response = await fetch(
-        `http://localhost:8000/api/jds/${jdToDelete}`,
-        {
-          method: "DELETE",
-        },
-      );
-
-      if (!response.ok) {
-        console.log("Failed to delete JD");
-      }
+      const id = getOrCreateEmployeeId();
+      await deleteJD(jdToDelete, id);
 
       // Reload Data
       await loadData();

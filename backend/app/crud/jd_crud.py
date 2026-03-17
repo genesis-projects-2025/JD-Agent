@@ -634,9 +634,7 @@ async def list_questionnaires_by_employee(
         for r in records
     ]
     await set_cache(cache_key, serialised, ttl=60)
-
-    # Return actual ORM objects so callers that need them still work
-    return records
+    return serialised
 
 
 async def list_manager_pending_jds(

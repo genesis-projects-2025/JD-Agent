@@ -441,7 +441,7 @@ export default function JDPage() {
   } catch (e) { }
 
   return (
-    <div className="h-[calc(100vh-3rem)] md:h-[calc(100vh)] overflow-y-auto bg-surface-50 pt-16 pb-24 px-4 md:pt-6 md:px-6">
+    <div className="min-h-screen bg-surface-50 pt-16 pb-24 px-4 md:pt-6 md:px-6">
       <div className="max-w-7xl mx-auto space-y-4 md:space-y-6 animate-in fade-in duration-500">
         <button
           onClick={() => {
@@ -470,9 +470,9 @@ export default function JDPage() {
         </button>
 
         {/* Header card */}
-        <div className="bg-white rounded-2xl md:rounded-[40px] p-5 md:p-12 border border-surface-200 shadow-premium relative">
+        <div className="bg-white rounded-2xl md:rounded-[32px] p-5 sm:p-6 md:p-10 border border-surface-200 shadow-premium relative overflow-hidden">
           <div className="absolute top-0 right-0 w-[500px] h-[500px] bg-gradient-to-br from-primary-50 via-white to-transparent opacity-50 rounded-full blur-3xl -translate-y-1/2 translate-x-1/3 pointer-events-none overflow-hidden"></div>
-          <div className="relative z-10 flex flex-col md:flex-row md:items-start justify-between gap-8">
+          <div className="relative z-10 flex flex-col lg:flex-row lg:items-start justify-between gap-6 md:gap-8">
             <div>
               <div className="flex flex-wrap items-center gap-3 mb-6">
                 <span className="px-4 py-1.5 bg-surface-100 text-surface-600 rounded-xl text-[11px] font-black uppercase tracking-widest flex items-center gap-1.5 border border-surface-200/50 shadow-sm">
@@ -490,11 +490,11 @@ export default function JDPage() {
                   </span>
                 )}
               </div>
-              <h1 className="text-2xl md:text-4xl lg:text-5xl font-black text-surface-900 tracking-tight mb-3">
+              <h1 className="text-xl sm:text-2xl md:text-3xl lg:text-4xl font-black text-surface-900 tracking-tight mb-3">
                 {jd.title || "Strategic Role Architecture"}
               </h1>
               {jd.department && (
-                <p className="text-sm font-bold text-surface-500 uppercase tracking-widest">
+                <p className="text-[10px] sm:text-sm font-bold text-surface-500 uppercase tracking-widest">
                   {jd.department}
                 </p>
               )}
@@ -563,7 +563,7 @@ export default function JDPage() {
             </div>
 
             {(role === "manager" || role === "hr") && (
-              <div className="flex flex-col gap-3 min-w-[240px] order-last md:order-none">
+              <div className="flex flex-col gap-3 min-w-[240px] w-full lg:w-auto mt-2 lg:mt-0 order-last lg:order-none">
                 {role === "manager" && jd.status === "sent_to_manager" && (
                   <div className="flex flex-col sm:flex-row flex-wrap gap-3 w-full">
                     <button
@@ -860,10 +860,10 @@ export default function JDPage() {
         )}
 
         {/* Document block */}
-        <div className="bg-white rounded-2xl md:rounded-[40px] p-5 md:p-16 border border-surface-200 shadow-premium relative min-h-[500px] flex flex-col transition-all duration-500">
+        <div className="bg-white rounded-2xl md:rounded-[32px] p-5 md:p-10 border border-surface-200 shadow-premium relative min-h-[500px] flex flex-col transition-all duration-500">
           {isEditing ? (
             <div className="flex-1 overflow-y-auto pr-2 custom-scrollbar">
-              <div className="w-full bg-surface-50 border border-surface-200 rounded-2xl p-8 space-y-12 shadow-inner min-h-full">
+              <div className="w-full bg-surface-50 border border-surface-200 rounded-2xl p-5 sm:p-8 space-y-8 sm:space-y-12 shadow-inner min-h-full">
                 {/* Job Title */}
                 <div className="space-y-4">
                   <label className="text-[11px] font-black text-surface-500 uppercase tracking-widest px-1">
@@ -880,7 +880,7 @@ export default function JDPage() {
                     onChange={(e) =>
                       handleTextChange("job_title", e.target.value)
                     }
-                    className="w-full bg-white border border-surface-200 rounded-2xl p-6 text-[16px] font-bold text-surface-900 leading-relaxed focus:ring-4 focus:ring-primary-500/10 focus:border-primary-500 outline-none shadow-sm transition-all"
+                    className="w-full bg-white border border-surface-200 rounded-2xl p-4 sm:p-6 text-[15px] sm:text-[16px] font-bold text-surface-900 leading-relaxed focus:ring-4 focus:ring-primary-500/10 focus:border-primary-500 outline-none shadow-sm transition-all"
                     placeholder="e.g. Strategic Role Architect"
                   />
                 </div>
@@ -895,7 +895,7 @@ export default function JDPage() {
                     onChange={(e) =>
                       handleTextChange("purpose", e.target.value)
                     }
-                    className="w-full bg-white border border-surface-200 rounded-2xl p-6 text-[15px] font-medium text-surface-800 leading-relaxed focus:ring-4 focus:ring-primary-500/10 focus:border-primary-500 outline-none resize-none min-h-[160px] shadow-sm transition-all"
+                    className="w-full bg-white border border-surface-200 rounded-2xl p-4 sm:p-6 text-[14px] sm:text-[15px] font-medium text-surface-800 leading-relaxed focus:ring-4 focus:ring-primary-500/10 focus:border-primary-500 outline-none resize-none min-h-[160px] shadow-sm transition-all"
                     placeholder="Brief overview of the role's purpose..."
                   />
                 </div>
@@ -969,7 +969,7 @@ export default function JDPage() {
                       onChange={(e) =>
                         handleTextChange("education", e.target.value)
                       }
-                      className="w-full bg-white border border-surface-200 rounded-2xl p-6 text-[14px] font-medium text-surface-800 leading-relaxed focus:ring-4 focus:ring-primary-500/10 focus:border-primary-500 outline-none resize-none min-h-[100px] shadow-sm transition-all"
+                      className="w-full bg-white border border-surface-200 rounded-2xl p-4 sm:p-6 text-[14px] font-medium text-surface-800 leading-relaxed focus:ring-4 focus:ring-primary-500/10 focus:border-primary-500 outline-none resize-none min-h-[100px] shadow-sm transition-all"
                     />
                   </div>
                   <div className="space-y-4">
@@ -981,7 +981,7 @@ export default function JDPage() {
                       onChange={(e) =>
                         handleTextChange("experience", e.target.value)
                       }
-                      className="w-full bg-white border border-surface-200 rounded-2xl p-6 text-[14px] font-medium text-surface-800 leading-relaxed focus:ring-4 focus:ring-primary-500/10 focus:border-primary-500 outline-none resize-none min-h-[100px] shadow-sm transition-all"
+                      className="w-full bg-white border border-surface-200 rounded-2xl p-4 sm:p-6 text-[14px] font-medium text-surface-800 leading-relaxed focus:ring-4 focus:ring-primary-500/10 focus:border-primary-500 outline-none resize-none min-h-[100px] shadow-sm transition-all"
                     />
                   </div>
                 </div>
@@ -989,9 +989,9 @@ export default function JDPage() {
             </div>
           ) : (
             <div className="flex-1 animate-in fade-in zoom-in-[0.98] duration-500 h-full">
-              <div className="bg-white rounded-[32px] p-8 md:p-12 border border-surface-200/60 shadow-[0_8px_30px_rgb(0,0,0,0.04)] ring-1 ring-black/[0.02]">
-                <div className="border-b border-surface-200/60 pb-8 mb-10">
-                  <div className="flex items-center gap-3 mb-6">
+              <div className="bg-white rounded-2xl md:rounded-[32px] p-6 sm:p-8 md:p-12 border border-surface-200/60 shadow-[0_8px_30px_rgb(0,0,0,0.04)] ring-1 ring-black/[0.02]">
+                <div className="border-b border-surface-200/60 pb-6 sm:pb-8 mb-6 sm:mb-10">
+                  <div className="flex items-center gap-3 mb-4 sm:mb-6">
                     <div className="h-10 w-10 bg-primary-50 rounded-xl flex items-center justify-center border border-primary-100">
                       <FileText className="w-5 h-5 text-primary-600" />
                     </div>
@@ -1038,14 +1038,14 @@ export default function JDPage() {
 
 function JDDocumentView({ data }: { data: any }) {
   const Section = ({ title, children }: { title: string; children: React.ReactNode }) => (
-    <div className="py-8 border-b border-surface-100 last:border-0">
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <div className="md:col-span-1">
-          <h3 className="text-[11px] font-black text-surface-400 uppercase tracking-[0.2em] sticky top-4">
+    <div className="py-6 sm:py-8 border-b border-surface-100 last:border-0">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 lg:gap-8">
+        <div className="lg:col-span-1">
+          <h3 className="text-[10px] sm:text-[11px] font-black text-surface-400 uppercase tracking-[0.2em] lg:sticky lg:top-8 mb-2 lg:mb-0">
             {title}
           </h3>
         </div>
-        <div className="md:col-span-2 space-y-4">
+        <div className="lg:col-span-2 space-y-4">
           {children}
         </div>
       </div>

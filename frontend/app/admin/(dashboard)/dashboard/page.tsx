@@ -234,7 +234,7 @@ export default function AdminDashboard() {
                   Live
                 </span>
               </div>
-              <h3 className="text-2xl sm:text-4xl font-extrabold tracking-tight">
+              <h3 className="text-xl sm:text-2xl md:text-3xl lg:text-4xl font-extrabold tracking-tight">
                 {s.value}
               </h3>
               <p className="text-xs sm:text-sm font-medium opacity-90 mt-0.5">
@@ -448,7 +448,7 @@ export default function AdminDashboard() {
                     ].map((h, i) => (
                       <th
                         key={i}
-                        className="px-4 sm:px-6 py-3 text-[11px] font-semibold text-slate-500 uppercase tracking-wider"
+                        className="px-3 sm:px-6 py-3 text-[10px] sm:text-[11px] font-semibold text-slate-500 uppercase tracking-wider"
                       >
                         {h}
                       </th>
@@ -457,7 +457,7 @@ export default function AdminDashboard() {
                       (h, i) => (
                         <th
                           key={i}
-                          className="px-4 sm:px-6 py-3 text-[11px] font-semibold text-slate-500 uppercase tracking-wider"
+                          className="px-3 sm:px-6 py-3 text-[10px] sm:text-[11px] font-semibold text-slate-500 uppercase tracking-wider"
                         >
                           {h}
                         </th>
@@ -475,7 +475,7 @@ export default function AdminDashboard() {
                     {isJDTab ? (
                       <>
                         {/* JD Title */}
-                        <td className="px-4 sm:px-6 py-4">
+                        <td className="px-3 sm:px-6 py-4">
                           <div className="flex items-center gap-3">
                             <div className="w-9 h-9 rounded-lg bg-blue-100 flex items-center justify-center text-blue-600 shrink-0">
                               <FileText className="w-4 h-4" />
@@ -507,7 +507,7 @@ export default function AdminDashboard() {
                             : "—"}
                         </td>
                         {/* Status */}
-                        <td className="px-4 sm:px-6 py-4">
+                        <td className="px-3 sm:px-6 py-4">
                           <span
                             className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-semibold border ${statusBadgeClass(item.status)}`}
                           >
@@ -518,7 +518,7 @@ export default function AdminDashboard() {
                           </span>
                         </td>
                         {/* Action */}
-                        <td className="px-4 sm:px-6 py-4">
+                        <td className="px-3 sm:px-6 py-4">
                           <Link
                             href={`/jd/${item.id}`}
                             className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-md transition-colors"
@@ -531,7 +531,7 @@ export default function AdminDashboard() {
                     ) : (
                       <>
                         {/* Employee */}
-                        <td className="px-4 sm:px-6 py-4">
+                        <td className="px-3 sm:px-6 py-4">
                           <div className="flex items-center gap-3">
                             <div className="w-9 h-9 rounded-lg bg-slate-100 flex items-center justify-center font-bold text-sm text-slate-600 border border-slate-200 shrink-0">
                               {item.name?.charAt(0) || "?"}
@@ -547,7 +547,7 @@ export default function AdminDashboard() {
                           </div>
                         </td>
                         {/* Role */}
-                        <td className="px-4 sm:px-6 py-4">
+                        <td className="px-3 sm:px-6 py-4">
                           <span
                             className={`px-2.5 py-1 rounded-md text-xs font-semibold border ${
                               item.role === "Manager"
@@ -561,7 +561,7 @@ export default function AdminDashboard() {
                           </span>
                         </td>
                         {/* JD Status — uses jd_status from backend */}
-                        <td className="px-4 sm:px-6 py-4">
+                        <td className="px-3 sm:px-6 py-4">
                           <span
                             className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-semibold border ${statusBadgeClass(item.jd_status)}`}
                           >
@@ -585,7 +585,7 @@ export default function AdminDashboard() {
                             : "—"}
                         </td>
                         {/* Action */}
-                        <td className="px-4 sm:px-6 py-4">
+                        <td className="px-3 sm:px-6 py-4">
                           {item.jd_session_id ? (
                             <Link
                               href={`/jd/${item.jd_session_id}`}

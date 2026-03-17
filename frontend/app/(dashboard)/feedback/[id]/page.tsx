@@ -99,7 +99,7 @@ export default function FeedbackPage() {
                 <MessageSquare className="w-7 h-7 text-white" />
               </div>
               <div>
-                <h1 className="text-3xl sm:text-5xl font-black text-surface-900 tracking-tight">
+                <h1 className="text-2xl sm:text-5xl font-black text-surface-900 tracking-tight">
                   Feedback Hub
                 </h1>
                 <p className="text-surface-500 mt-2 text-sm sm:text-base max-w-xl font-medium leading-relaxed">
@@ -112,13 +112,13 @@ export default function FeedbackPage() {
           </div>
 
           {/* Stats */}
-          <div className="flex gap-4">
-            <div className="bg-white px-5 py-4 rounded-2xl border border-surface-200/60 shadow-sm flex items-center gap-4 min-w-[160px]">
-              <div className="w-10 h-10 rounded-xl bg-orange-100/50 flex items-center justify-center">
+          <div className="flex flex-col sm:flex-row gap-4 w-full sm:w-auto">
+            <div className="bg-white px-5 py-4 rounded-2xl border border-surface-200/60 shadow-sm flex items-center gap-4 flex-1 sm:min-w-[160px]">
+              <div className="w-10 h-10 rounded-xl bg-orange-100/50 flex items-center justify-center shrink-0">
                 <AlertTriangle className="w-5 h-5 text-orange-600" />
               </div>
               <div>
-                <p className="text-[11px] font-bold text-surface-500 uppercase tracking-widest mb-0.5">
+                <p className="text-[11px] font-bold text-surface-500 uppercase tracking-widest mb-0.5 whitespace-nowrap">
                   Unread
                 </p>
                 <p className="text-2xl font-black text-surface-900 leading-none">
@@ -126,12 +126,12 @@ export default function FeedbackPage() {
                 </p>
               </div>
             </div>
-            <div className="bg-white px-5 py-4 rounded-2xl border border-surface-200/60 shadow-sm flex items-center gap-4 min-w-[160px]">
-              <div className="w-10 h-10 rounded-xl bg-surface-100 flex items-center justify-center">
+            <div className="bg-white px-5 py-4 rounded-2xl border border-surface-200/60 shadow-sm flex items-center gap-4 flex-1 sm:min-w-[160px]">
+              <div className="w-10 h-10 rounded-xl bg-surface-100 flex items-center justify-center shrink-0">
                 <FileText className="w-5 h-5 text-surface-600" />
               </div>
               <div>
-                <p className="text-[11px] font-bold text-surface-500 uppercase tracking-widest mb-0.5">
+                <p className="text-[11px] font-bold text-surface-500 uppercase tracking-widest mb-0.5 whitespace-nowrap">
                   Total
                 </p>
                 <p className="text-2xl font-black text-surface-900 leading-none">

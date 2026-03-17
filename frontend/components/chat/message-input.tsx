@@ -48,11 +48,11 @@ export default function MessageInput({
   return (
     <div className="p-3 sm:p-6 bg-white border-t border-surface-200 shadow-[0_-4px_20px_-10px_rgba(0,0,0,0.05)]">
       <div className="max-w-4xl mx-auto">
-        <div className="flex gap-2 sm:gap-4 items-end bg-surface-50 p-1.5 sm:p-2 rounded-[20px] sm:rounded-[24px] border border-surface-200 shadow-sm focus-within:shadow-premium transition-all duration-300">
+        <div className="flex gap-2 sm:gap-4 items-end bg-surface-50 p-1 sm:p-2 rounded-[16px] sm:rounded-[24px] border border-surface-200 shadow-sm focus-within:shadow-premium transition-all duration-300">
           {/* Action Icons (Visual only for now) */}
-          <div className="flex gap-1 sm:gap-2 pb-1.5 sm:pb-2 pl-1 sm:pl-2">
-            <button className="p-1.5 sm:p-2 text-surface-400 hover:text-primary-600 transition-colors">
-              <Paperclip className="w-4 h-4 sm:w-5 sm:h-5" />
+          <div className="flex gap-1 sm:gap-2 pb-1 sm:pb-2 pl-1 sm:pl-2">
+            <button className="p-1 sm:p-2 text-surface-400 hover:text-primary-600 transition-colors">
+              <Paperclip className="w-3.5 h-3.5 sm:w-5 sm:h-5" />
             </button>
           </div>
 

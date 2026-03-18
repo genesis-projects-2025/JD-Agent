@@ -189,8 +189,9 @@ export default function JDPage() {
         pStruct.team_structure = pStruct.team_structure || {};
         pStruct.work_environment = pStruct.work_environment || {};
 
-        console.log("JD Edit Loader -> Final extracted pStruct:", pStruct);
+        pStruct = safeParseObject(data.jd_structured);
         setEditedData(pStruct);
+
 
         if (
           data.insights &&
@@ -208,7 +209,7 @@ export default function JDPage() {
           );
 
           if (unreadComments.length > 0) {
-            console.log("Found unread feedback for user. Marking as read...");
+
             await Promise.all(
               unreadComments.map((c: any) => markFeedbackRead(c.id)),
             );
@@ -424,10 +425,10 @@ export default function JDPage() {
       pStruct.tools_and_technologies = pStruct.tools_and_technologies || [];
       pStruct.performance_metrics = pStruct.performance_metrics || [];
 
-      console.log("JD Edit Button -> Extracted pStruct:", pStruct);
       setEditedJdText(pText);
       setEditedData(pStruct);
       setIsEditing(true);
+
     }
   };
 
@@ -441,7 +442,7 @@ export default function JDPage() {
   } catch (e) { }
 
   return (
-    <div className="h-full bg-surface-50 overflow-y-auto custom-scrollbar pt-6 pb-24 px-4 md:px-6">
+    <div className="h-full bg-surface-50 overflow-y-auto custom-scrollbar pt-14 md:pt-6 pb-24 px-4 md:px-6">
       <div className="max-w-7xl mx-auto space-y-4 md:space-y-6 animate-in fade-in duration-500">
         <button
           onClick={() => {
@@ -453,7 +454,9 @@ export default function JDPage() {
 
             let url = `/dashboard/${u.employee_id}`;
             if (jd) {
-              if (u.role === "manager" && jd.status === "sent_to_manager") {
+              const isManagerRole = u.role === "manager" || u.role === "head";
+              if (isManagerRole && (jd.status === "sent_to_manager" || jd.status === "sent_to_hr")) {
+                 // For heads, they might care about both. But pending is the default for managers.
                 url += "?view=pending";
               } else if (u.role === "hr" && jd.status === "sent_to_hr") {
                 url += "?view=approvals";
@@ -462,6 +465,7 @@ export default function JDPage() {
               }
             }
             router.push(url);
+
           }}
           className="flex items-center gap-2 text-surface-400 hover:text-primary-600 transition-colors text-[11px] font-black uppercase tracking-widest group px-2"
         >
@@ -562,9 +566,10 @@ export default function JDPage() {
               )}
             </div>
 
-            {(role === "manager" || role === "hr") && (
-              <div className="flex flex-col gap-3 min-w-[240px] w-full lg:w-auto mt-2 lg:mt-0 order-last lg:order-none">
-                {role === "manager" && jd.status === "sent_to_manager" && (
+            {(role === "manager" || role === "head" || role === "hr") && (
+                <div className="flex flex-col gap-3 min-w-[240px] w-full lg:w-auto mt-2 lg:mt-0 order-last lg:order-none">
+                  {(role === "manager" || role === "head") && jd.status === "sent_to_manager" && (
+
                   <div className="flex flex-col sm:flex-row flex-wrap gap-3 w-full">
                     <button
                       onClick={handleManagerSendToHR}
@@ -602,11 +607,12 @@ export default function JDPage() {
                   </div>
                 )}
 
-                {/* Manager Owner Actions (for their own drafts) */}
-                {role === "manager" &&
+                {/* Manager/Head Owner Actions (for their own drafts) */}
+                {(role === "manager" || role === "head") &&
                   ["draft", "jd_generated", "hr_rejected"].includes(
                     jd.status,
                   ) && (
+
                     <div className="flex flex-col sm:flex-row flex-wrap gap-3 w-full">
                       <button
                         onClick={() => router.push(`/questionnaire/${jdId}`)}
@@ -642,7 +648,7 @@ export default function JDPage() {
                       </button>
                     </div>
                   )}
-                {role === "manager" &&
+                {(role === "manager" || role === "head") &&
                   ["sent_to_hr", "hr_rejected", "approved"].includes(
                     jd.status,
                   ) && (
@@ -653,6 +659,7 @@ export default function JDPage() {
                       <CheckCircle2 className="w-5 h-5" /> Approved by Manager
                     </button>
                   )}
+
                 {role === "hr" && jd.status === "sent_to_hr" && (
                   <div className="flex flex-col sm:flex-row flex-wrap gap-3 w-full">
                     <button

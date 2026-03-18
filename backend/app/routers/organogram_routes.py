@@ -6,6 +6,8 @@ from pydantic import BaseModel
 
 from app.core.database import get_db
 from app.models.user_model import Employee
+from app.services.dashboard_service import DashboardService
+
 
 router = APIRouter()
 
@@ -71,8 +73,12 @@ async def login_organogram(request: LoginRequest, db: AsyncSession = Depends(get
     child_count = reports_res.scalar() or 0
     has_reports = child_count > 0
 
+    is_head = await DashboardService.is_department_head(db, request.emp_code)
+
     if not has_manager:
         computed_role = "hr"
+    elif is_head:
+        computed_role = "head"
     elif has_reports:
         computed_role = "manager"
     else:
@@ -81,6 +87,7 @@ async def login_organogram(request: LoginRequest, db: AsyncSession = Depends(get
     # Hardcode override for HR testing request
     if request.emp_code == "C0014":
         computed_role = "hr"
+
 
     # 3. Upsert into employees table
     from sqlalchemy.future import select

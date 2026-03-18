@@ -5,7 +5,8 @@
 
 import { getCookie, setCookie, deleteCookie, cookieKeys } from "@/lib/cookies";
 
-export type UserRole = "employee" | "manager" | "hr" | "admin";
+export type UserRole = "employee" | "manager" | "head" | "hr" | "admin";
+
 
 export type AuthUser = {
   employee_id: string;
@@ -62,10 +63,12 @@ export function getCurrentUser(): AuthUser | null {
 // ── Role helpers ──────────────────────────────────────────────────────────────
 
 export const isEmployee = (u: AuthUser | null) => !u || u.role === "employee";
-export const isManager = (u: AuthUser | null) => u?.role === "manager";
+export const isManager = (u: AuthUser | null) => u?.role === "manager" || u?.role === "head";
+export const isHead = (u: AuthUser | null) => u?.role === "head";
 export const isHR = (u: AuthUser | null) =>
   u?.role === "hr" || u?.role === "admin";
 export const canApprove = (u: AuthUser | null) => isManager(u) || isHR(u);
+
 
 // ── DEV: simulate login ───────────────────────────────────────────────────────
 // Run in browser console: devLogin("manager")  or  devLogin("hr")
@@ -99,7 +102,15 @@ export function devLogin(role: UserRole): AuthUser {
       role: "hr",
       department: "HR",
     },
+    head: {
+      employee_id: "head_test",
+      name: "Test Head",
+      email: "head@company.com",
+      role: "head",
+      department: "Engineering",
+    },
     admin: {
+
       employee_id: "admin_001",
       name: "Admin",
       email: "admin@company.com",
@@ -165,6 +176,26 @@ export async function fetchDepartmentEmployees(
   if (!res.ok) throw new Error("Failed to fetch department employees");
   return res.json();
 }
+
+export async function fetchMyTeamStats(empCode: string) {
+  const res = await fetch(`${API_URL}/api/hr/my-team-stats?emp_code=${empCode}`);
+  if (!res.ok) throw new Error("Failed to fetch team statistics");
+  return res.json();
+}
+
+export async function fetchMyTeamEmployees(
+  empCode: string,
+  page: number = 1,
+  limit: number = 50
+) {
+  const res = await fetch(
+    `${API_URL}/api/hr/my-team-employees?emp_code=${empCode}&page=${page}&limit=${limit}`
+  );
+  if (res.status === 404) return [];
+  if (!res.ok) throw new Error("Failed to fetch team employees");
+  return res.json();
+}
+
 
 // ── Organogram Login ──────────────────────────────────────────────────────────
 

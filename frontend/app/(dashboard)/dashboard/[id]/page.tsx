@@ -32,10 +32,14 @@ import {
   getOrCreateEmployeeId,
   isHR,
   isManager,
+  isHead,
   fetchEmployeeProfile,
   fetchHRDepartmentStats,
   fetchDepartmentEmployees,
+  fetchMyTeamStats,
+  fetchMyTeamEmployees,
 } from "@/lib/api";
+
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -48,6 +52,10 @@ type JDListItem = {
   created_at: string | null;
   employee_name?: string;
   department?: string;
+  reporting_manager?: string; // Added
+  jd_status?: string; // Added
+  jd_id?: string; // Added
+  last_updated?: string | null; // Added
 };
 
 // ── Status config ─────────────────────────────────────────────────────────────
@@ -173,93 +181,93 @@ function JDGrid({
     <>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         {jds.map((jd) => {
-        const config = STATUS_CONFIG[jd.status] || STATUS_CONFIG.draft;
-        const isOwnJD = !showEmployee;
-        const href = (isOwnJD && [
-          "collecting",
-          "jd_session_init",
-        ].includes(jd.status))
-          ? `/questionnaire/${jd.id}`
-          : `/jd/${jd.id}`;
+          const config = STATUS_CONFIG[jd.status] || STATUS_CONFIG.draft;
+          const isOwnJD = !showEmployee;
+          const href = (isOwnJD && [
+            "collecting",
+            "jd_session_init",
+          ].includes(jd.status))
+            ? `/questionnaire/${jd.id}`
+            : `/jd/${jd.id}`;
 
-        return (
-          <Link
-            key={jd.id}
-            href={href}
-            className="group bg-white rounded-3xl p-6 border border-surface-100 shadow-premium hover:shadow-2xl hover:border-primary-200 transition-all duration-500 flex flex-col justify-between"
-          >
-            <div>
-              <div className="flex items-start justify-between mb-6">
-                <div
-                  className={`px-4 py-1.5 rounded-xl border ${config.bg} ${config.color} flex items-center gap-2 shadow-sm`}
-                >
-                  <config.icon className="w-3.5 h-3.5" />
-                  <span className="text-[10px] font-black uppercase tracking-widest">
-                    {config.label}
-                  </span>
-                </div>
-                <div className="text-[10px] font-black text-surface-300 uppercase tracking-tighter">
-                  v{jd.version}.0
-                </div>
-              </div>
-
-              <h3 className="text-xl font-bold text-surface-900 mb-2 group-hover:text-primary-600 transition-colors tracking-tight">
-                {jd.title || "Untitled Strategic Role"}
-              </h3>
-
-              {/* Show employee name for manager/HR views */}
-              {showEmployee && jd.employee_name && (
-                <p className="text-xs text-primary-600 font-bold mb-1 flex items-center gap-1">
-                  <Users className="w-3 h-3" />
-                  {jd.employee_name}
-                  {jd.department && (
-                    <span className="text-surface-400 font-medium">
-                      {" "}
-                      · {jd.department}
-                    </span>
-                  )}
-                </p>
-              )}
-
-              <p className="text-xs text-surface-400 font-medium mb-8 flex items-center gap-2">
-                <Clock className="w-3.5 h-3.5" />
-                Updated{" "}
-                {jd.updated_at
-                  ? new Date(jd.updated_at).toLocaleDateString()
-                  : "Internal"}
-              </p>
-            </div>
-
-            <div className="flex items-center justify-between pt-6 border-t border-surface-50">
-              <span className="text-xs font-bold text-primary-600 uppercase tracking-widest group-hover:translate-x-1 transition-transform inline-flex items-center gap-2">
-                View JD
-                <ArrowRight className="w-4 h-4" />
-              </span>
-              <div className="flex gap-2">
-                {/* Delete button only shown if the current user is the owner (in employee view) and status is a deletable one */}
-                {!showEmployee && ["collecting", "draft", "manager_rejected", "hr_rejected", "jd_generated"].includes(jd.status) && (
-                  <button
-                    onClick={(e) => handleDelete(jd, e)}
-                    disabled={isDeleting === jd.id}
-                    className="w-10 h-10 bg-red-50 text-red-500 hover:bg-red-100 hover:text-red-600 rounded-xl flex flex-shrink-0 items-center justify-center transition-colors disabled:opacity-50"
+          return (
+            <Link
+              key={jd.id}
+              href={href}
+              className="group bg-white rounded-3xl p-6 border border-surface-100 shadow-premium hover:shadow-2xl hover:border-primary-200 transition-all duration-500 flex flex-col justify-between"
+            >
+              <div>
+                <div className="flex items-start justify-between mb-6">
+                  <div
+                    className={`px-4 py-1.5 rounded-xl border ${config.bg} ${config.color} flex items-center gap-2 shadow-sm`}
                   >
-                    {isDeleting === jd.id ? (
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                    ) : (
-                      <Trash2 className="w-4 h-4" />
+                    <config.icon className="w-3.5 h-3.5" />
+                    <span className="text-[10px] font-black uppercase tracking-widest">
+                      {config.label}
+                    </span>
+                  </div>
+                  <div className="text-[10px] font-black text-surface-300 uppercase tracking-tighter">
+                    v{jd.version}.0
+                  </div>
+                </div>
+
+                <h3 className="text-xl font-bold text-surface-900 mb-2 group-hover:text-primary-600 transition-colors tracking-tight">
+                  {jd.title || "Untitled Strategic Role"}
+                </h3>
+
+                {/* Show employee name for manager/HR views */}
+                {showEmployee && jd.employee_name && (
+                  <p className="text-xs text-primary-600 font-bold mb-1 flex items-center gap-1">
+                    <Users className="w-3 h-3" />
+                    {jd.employee_name}
+                    {jd.department && (
+                      <span className="text-surface-400 font-medium">
+                        {" "}
+                        · {jd.department}
+                      </span>
                     )}
-                  </button>
+                  </p>
                 )}
-                <div className="w-10 h-10 bg-surface-50 rounded-xl flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                  <FileText className="w-5 h-5 text-surface-400" />
+
+                <p className="text-xs text-surface-400 font-medium mb-8 flex items-center gap-2">
+                  <Clock className="w-3.5 h-3.5" />
+                  Updated{" "}
+                  {jd.updated_at
+                    ? new Date(jd.updated_at).toLocaleDateString()
+                    : "Internal"}
+                </p>
+              </div>
+
+              <div className="flex items-center justify-between pt-6 border-t border-surface-50">
+                <span className="text-xs font-bold text-primary-600 uppercase tracking-widest group-hover:translate-x-1 transition-transform inline-flex items-center gap-2">
+                  View JD
+                  <ArrowRight className="w-4 h-4" />
+                </span>
+                <div className="flex gap-2">
+                  {/* Delete button only shown if the current user is the owner (in employee view) and status is a deletable one */}
+                  {!showEmployee && ["collecting", "draft", "manager_rejected", "hr_rejected", "jd_generated"].includes(jd.status) && (
+                    <button
+                      onClick={(e) => handleDelete(jd, e)}
+                      disabled={isDeleting === jd.id}
+                      className="w-10 h-10 bg-red-50 text-red-500 hover:bg-red-100 hover:text-red-600 rounded-xl flex flex-shrink-0 items-center justify-center transition-colors disabled:opacity-50"
+                    >
+                      {isDeleting === jd.id ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <Trash2 className="w-4 h-4" />
+                      )}
+                    </button>
+                  )}
+                  <div className="w-10 h-10 bg-surface-50 rounded-xl flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                    <FileText className="w-5 h-5 text-surface-400" />
+                  </div>
                 </div>
               </div>
-            </div>
-          </Link>
-        );
-      })}
+            </Link>
+          );
+        })}
       </div>
-      
+
       <DeleteModal
         isOpen={!!jdToDelete}
         onClose={() => !isDeleting && setJdToDelete(null)}
@@ -453,11 +461,10 @@ function EmployeeView({
               <button
                 key={tab.key}
                 onClick={() => setFilter(tab.key as any)}
-                className={`flex-1 min-w-[140px] flex items-center gap-3 p-3 rounded-xl transition-all duration-200 ${
-                  isActive
-                    ? "bg-surface-900 text-white shadow-md shadow-surface-900/20 ring-1 ring-surface-900"
-                    : "hover:bg-surface-50 text-surface-600 hover:text-surface-900"
-                }`}
+                className={`flex-1 min-w-[140px] flex items-center gap-3 p-3 rounded-xl transition-all duration-200 ${isActive
+                  ? "bg-surface-900 text-white shadow-md shadow-surface-900/20 ring-1 ring-surface-900"
+                  : "hover:bg-surface-50 text-surface-600 hover:text-surface-900"
+                  }`}
               >
                 <div
                   className={`w-10 h-10 rounded-lg flex items-center justify-center ${isActive ? "bg-white/10" : colorClasses}`}
@@ -508,11 +515,18 @@ function ManagerView({ user }: { user: AuthUser }) {
   const [jds, setJds] = useState<JDListItem[]>([]);
   const [loading, setLoading] = useState(true);
 
+  // My Team State
+  const [teamStats, setTeamStats] = useState<any>(null);
+  const [myTeamEmployees, setMyTeamEmployees] = useState<any[]>([]);
+  const [loadingTeam, setLoadingTeam] = useState(false);
+
+
+
   const searchParams = useSearchParams();
   const currentView = searchParams.get("view");
 
   const [filter, setFilter] = useState<
-    "all" | "pending" | "approved" | "my_jds" | "feedback"
+    "all" | "pending" | "approved" | "my_jds" | "my_team" | "feedback"
   >(
     currentView === "feedback"
       ? "feedback"
@@ -521,21 +535,28 @@ function ManagerView({ user }: { user: AuthUser }) {
         : "all",
   );
 
+
   useEffect(() => {
     async function load() {
       try {
         const { fetchManagerPendingJDs } = require("@/lib/api");
-        const [teamData, personalData] = await Promise.all([
+        const [teamData, personalData, statsData, employeesData] = await Promise.all([
           fetchManagerPendingJDs(user.employee_id),
           fetchEmployeeJDs(user.employee_id),
+          fetchMyTeamStats(user.employee_id).catch(() => null),
+          fetchMyTeamEmployees(user.employee_id).catch(() => []),
         ]);
         setAllJds(teamData || []);
         setMyJds(personalData || []);
+        setTeamStats(statsData);
+        setMyTeamEmployees(employeesData || []);
+
         // Default view shows pending
         setJds(
           (teamData || []).filter((j: any) => j.status === "sent_to_manager"),
         );
       } catch (err) {
+
         console.error(err);
       } finally {
         setLoading(false);
@@ -569,7 +590,7 @@ function ManagerView({ user }: { user: AuthUser }) {
 
   return (
     <div className="absolute inset-0 overflow-y-auto p-4 sm:p-6 pb-24">
-      <div className="max-w-7xl mx-auto space-y-8 sm:space-y-10 pt-14 pb-10 sm:pt-0 animate-in fade-in slide-in-from-bottom-4 duration-700">
+      <div className="max-w-7xl mx-auto space-y-8 sm:space-y-10 pt-14 pb-10 sm:pt-0 animate-in fade-in slide-in-in-from-bottom-4 duration-700">
         {/* Executive Dark Header */}
         <header className="bg-gradient-to-r from-slate-900 via-slate-800 to-blue-950 rounded-[2rem] p-6 sm:p-10 relative overflow-hidden shadow-2xl shadow-slate-900/20">
           {/* Subtle background glow */}
@@ -588,7 +609,7 @@ function ManagerView({ user }: { user: AuthUser }) {
                 )}
               </div>
               <h1 className="text-4xl font-black text-white tracking-tight leading-none mb-3">
-                Welcome, {user.name.split(" ")[0]}
+                Welcome, {user.name}
               </h1>
               <p className="text-slate-400 font-medium text-sm">
                 Review and approve strategic Job Descriptions from your reports.
@@ -627,15 +648,23 @@ function ManagerView({ user }: { user: AuthUser }) {
               icon: AlertTriangle,
             },
             {
+              key: "my_team",
+              label: "Team Overview",
+              count: teamStats?.total_employees || 0,
+              color: "blue",
+              icon: Users,
+            },
+            {
               key: "approved",
-              label: "Signed Off",
+
+              label: "Your Approvals",
               count: approved,
               color: "emerald",
               icon: CheckCircle2,
             },
             {
               key: "all",
-              label: "Portfolio Overview",
+              label: "All JDs",
               count: allJds.length,
               color: "blue",
               icon: Briefcase,
@@ -661,11 +690,10 @@ function ManagerView({ user }: { user: AuthUser }) {
               <button
                 key={tab.key}
                 onClick={() => setFilter(tab.key as any)}
-                className={`flex-1 min-w-[140px] flex items-center gap-3 p-3 rounded-xl transition-all duration-200 ${
-                  isActive
-                    ? "bg-slate-900 text-white shadow-md shadow-slate-900/20 ring-1 ring-slate-900"
-                    : "hover:bg-slate-50 text-slate-600 hover:text-slate-900"
-                }`}
+                className={`flex-1 min-w-[140px] flex items-center gap-3 p-3 rounded-xl transition-all duration-200 ${isActive
+                  ? "bg-slate-900 text-white shadow-md shadow-slate-900/20 ring-1 ring-slate-900"
+                  : "hover:bg-slate-50 text-slate-600 hover:text-slate-900"
+                  }`}
               >
                 <div
                   className={`w-10 h-10 rounded-lg flex items-center justify-center ${isActive ? "bg-white/10" : colorClasses}`}
@@ -691,7 +719,7 @@ function ManagerView({ user }: { user: AuthUser }) {
           })}
         </div>
 
-        {/* JD Grid area */}
+        {/* JD Grid area / Team Overview */}
         <div className="space-y-6">
           <h2 className="text-lg sm:text-xl font-bold text-slate-900 flex items-center gap-3 px-2">
             <span className="w-1.5 h-6 bg-slate-800 rounded-full" />
@@ -701,10 +729,117 @@ function ManagerView({ user }: { user: AuthUser }) {
                 ? "Awaiting Your Approval"
                 : filter === "my_jds"
                   ? "Your Personal Documents"
-                  : "Successfully Processed"}
+                  : filter === "my_team"
+                    ? "Team Progress Overview"
+                    : "Successfully Processed"}
           </h2>
-          <JDGrid jds={jds} showEmployee={filter !== "my_jds"} />
+
+          {filter === "my_team" ? (
+            <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+              {/* Stats Summary */}
+              {teamStats && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+                  <div className="bg-white p-6 rounded-3xl border border-surface-200 shadow-premium hover:shadow-2xl transition-all duration-300 relative overflow-hidden group">
+                    <div className="absolute top-0 right-0 w-24 h-24 bg-primary-500/5 rounded-full blur-2xl -translate-y-1/2 translate-x-1/2 group-hover:scale-150 transition-transform duration-700" />
+                    <p className="text-[10px] font-black uppercase tracking-[0.2em] text-surface-400 mb-2">Total Team</p>
+                    <p className="text-4xl font-black text-surface-900 tracking-tight">{teamStats.total_employees}</p>
+                  </div>
+                  <div className="bg-white p-6 rounded-3xl border border-surface-200 shadow-premium hover:shadow-2xl transition-all duration-300 relative overflow-hidden group">
+                    <div className="absolute top-0 right-0 w-24 h-24 bg-blue-500/5 rounded-full blur-2xl -translate-y-1/2 translate-x-1/2 group-hover:scale-150 transition-transform duration-700" />
+                    <p className="text-[10px] font-black uppercase tracking-[0.2em] text-blue-500 mb-2">In Progress</p>
+                    <p className="text-4xl font-black text-surface-900 tracking-tight">{teamStats.submitted + teamStats.under_review}</p>
+                  </div>
+                  <div className="bg-white p-6 rounded-3xl border border-surface-200 shadow-premium hover:shadow-2xl transition-all duration-300 relative overflow-hidden group">
+                    <div className="absolute top-0 right-0 w-24 h-24 bg-emerald-500/5 rounded-full blur-2xl -translate-y-1/2 translate-x-1/2 group-hover:scale-150 transition-transform duration-700" />
+                    <p className="text-[10px] font-black uppercase tracking-[0.2em] text-emerald-500 mb-2">Approved</p>
+                    <p className="text-4xl font-black text-surface-900 tracking-tight">{teamStats.approved}</p>
+                  </div>
+                  <div className="bg-white p-6 rounded-3xl border border-surface-200 shadow-premium hover:shadow-2xl transition-all duration-300 relative overflow-hidden group">
+                    <div className="absolute top-0 right-0 w-24 h-24 bg-primary-500/10 rounded-full blur-2xl -translate-y-1/2 translate-x-1/2 group-hover:scale-150 transition-transform duration-700" />
+                    <p className="text-[10px] font-black uppercase tracking-[0.2em] text-primary-500 mb-2">Completion</p>
+                    <p className="text-4xl font-black text-surface-900 tracking-tight">{teamStats.completion_percentage}%</p>
+                  </div>
+                </div>
+              )}
+
+
+              {/* Employee Directory */}
+              <div className="bg-white rounded-[2.5rem] border border-surface-200 shadow-premium overflow-hidden">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left border-collapse">
+                    <thead>
+                      <tr className="bg-surface-50/50">
+                        <th className="px-6 py-5 text-[10px] font-black text-surface-400 uppercase tracking-widest border-b border-surface-100">Team Member</th>
+                        <th className="px-6 py-5 text-[10px] font-black text-surface-400 uppercase tracking-widest border-b border-surface-100">Designation</th>
+                        <th className="px-6 py-5 text-[10px] font-black text-surface-400 uppercase tracking-widest border-b border-surface-100">JD Status</th>
+                        <th className="px-6 py-5 text-[10px] font-black text-surface-400 uppercase tracking-widest border-b border-surface-100">Action</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-surface-50">
+                      {myTeamEmployees.map((emp) => (
+                        <tr key={emp.employee_id} className="hover:bg-surface-50/50 transition-colors group">
+                          <td className="px-6 py-5">
+                            <div className="flex items-center gap-3">
+                              <div className="w-10 h-10 rounded-xl bg-primary-50 text-primary-600 flex items-center justify-center font-bold text-xs ring-1 ring-primary-100">
+                                {emp.name.split(' ').map((n: any) => n[0]).join('').slice(0, 2).toUpperCase()}
+                              </div>
+                              <div>
+                                <p className="font-bold text-surface-900 text-sm">{emp.name}</p>
+                                <p className="text-[10px] font-medium text-surface-400 font-mono uppercase tracking-tighter">{emp.employee_id}</p>
+                              </div>
+                            </div>
+                          </td>
+                          <td className="px-6 py-5">
+                            <p className="text-xs font-bold text-surface-600 leading-snug">{emp.designation}</p>
+                            <p className="text-[10px] text-surface-400 mt-0.5">Manager: {emp.reporting_manager || 'None'}</p>
+                          </td>
+                          <td className="px-6 py-5">
+                            <div className={`inline-flex items-center gap-2 px-3 py-1 rounded-lg border text-[10px] font-black uppercase tracking-widest ${STATUS_CONFIG[emp.jd_status]?.bg || 'bg-surface-100 border-surface-200 text-surface-500'
+                              } ${STATUS_CONFIG[emp.jd_status]?.color || ''}`}>
+                              <span className={`w-1.5 h-1.5 rounded-full bg-current opacity-40`} />
+                              {STATUS_CONFIG[emp.jd_status]?.label || emp.jd_status}
+                            </div>
+                          </td>
+                          <td className="px-6 py-5">
+                            {emp.jd_id ? (
+                              <Link
+                                href={`/jd/${emp.jd_id}`}
+                                className="inline-flex items-center gap-2 text-[10px] font-black text-emerald-600 uppercase tracking-widest hover:text-emerald-700 transition-colors"
+                              >
+                                View JD
+                                <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-1 transition-transform" />
+                              </Link>
+                            ) : (
+                              <Link
+                                href={`/dashboard/${emp.employee_id}`}
+                                className="inline-flex items-center gap-2 text-[10px] font-black text-primary-600 uppercase tracking-widest hover:text-primary-700 transition-colors"
+                              >
+                                NO JD
+                                <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-1 transition-transform" />
+                              </Link>
+                            )}
+                          </td>
+
+                        </tr>
+                      ))}
+                      {myTeamEmployees.length === 0 && (
+                        <tr>
+                          <td colSpan={4} className="px-6 py-20 text-center">
+                            <Users className="w-12 h-12 text-surface-200 mx-auto mb-4" />
+                            <p className="text-surface-500 font-medium">No team members identified in your scope.</p>
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <JDGrid jds={jds} showEmployee={filter !== "my_jds"} />
+          )}
         </div>
+
       </div>
     </div>
   );
@@ -882,7 +1017,7 @@ function HRView({ user }: { user: AuthUser }) {
               key: "approved",
               label: "Approved JDs",
               count: counts.approved,
-              icon: CheckCircle2,
+              icon: FileText,
               color: "text-emerald-600",
             },
             {
@@ -894,20 +1029,21 @@ function HRView({ user }: { user: AuthUser }) {
             },
             {
               key: "departments",
-              label: "Department Analytics",
+              label: "Department Pulse",
               count: departmentStats.length,
               icon: Users,
               color: "text-purple-600",
             },
+
+
           ].map(({ key, label, count, icon: Icon, color, alert }) => (
             <button
               key={key}
               onClick={() => setFilter(key)}
-              className={`flex-1 min-w-[140px] sm:min-w-[200px] flex items-center justify-between p-3 sm:p-4 rounded-xl transition-all duration-300 ${
-                filter === key
-                  ? "bg-purple-50 ring-2 ring-purple-500 shadow-sm"
-                  : "hover:bg-surface-50"
-              }`}
+              className={`flex-1 min-w-[140px] sm:min-w-[200px] flex items-center justify-between p-3 sm:p-4 rounded-xl transition-all duration-300 ${filter === key
+                ? "bg-purple-50 ring-2 ring-purple-500 shadow-sm"
+                : "hover:bg-surface-50"
+                }`}
             >
               <div className="flex items-center gap-3">
                 <div
@@ -925,13 +1061,12 @@ function HRView({ user }: { user: AuthUser }) {
               </div>
               <div className="relative">
                 <span
-                  className={`text-[11px] px-2 py-1 rounded-md font-black ${
-                    filter === key
-                      ? "bg-purple-600 text-white"
-                      : alert
-                        ? "bg-amber-100 text-amber-700"
-                        : "bg-surface-100 text-surface-500"
-                  }`}
+                  className={`text-[11px] px-2 py-1 rounded-md font-black ${filter === key
+                    ? "bg-purple-600 text-white"
+                    : alert
+                      ? "bg-amber-100 text-amber-700"
+                      : "bg-surface-100 text-surface-500"
+                    }`}
                 >
                   {count}
                 </span>
@@ -1046,21 +1181,19 @@ function HRView({ user }: { user: AuthUser }) {
               <div className="flex items-center gap-2 bg-surface-200/50 p-1.5 rounded-2xl">
                 <button
                   onClick={() => handleToggleSubmitted(true)}
-                  className={`px-4 py-2 text-[11px] font-black uppercase tracking-widest rounded-xl transition-all ${
-                    onlySubmitted
-                      ? "bg-white text-primary-600 shadow-sm"
-                      : "text-surface-500 hover:text-surface-700"
-                  }`}
+                  className={`px-4 py-2 text-[11px] font-black uppercase tracking-widest rounded-xl transition-all ${onlySubmitted
+                    ? "bg-white text-primary-600 shadow-sm"
+                    : "text-surface-500 hover:text-surface-700"
+                    }`}
                 >
                   Submitted
                 </button>
                 <button
                   onClick={() => handleToggleSubmitted(false)}
-                  className={`px-4 py-2 text-[11px] font-black uppercase tracking-widest rounded-xl transition-all ${
-                    !onlySubmitted
-                      ? "bg-white text-surface-900 shadow-sm"
-                      : "text-surface-500 hover:text-surface-700"
-                  }`}
+                  className={`px-4 py-2 text-[11px] font-black uppercase tracking-widest rounded-xl transition-all ${!onlySubmitted
+                    ? "bg-white text-surface-900 shadow-sm"
+                    : "text-surface-500 hover:text-surface-700"
+                    }`}
                 >
                   Show All
                 </button>
@@ -1106,16 +1239,15 @@ function HRView({ user }: { user: AuthUser }) {
                       return (
                         <tr
                           key={emp.employee_id}
-                          onClick={() => emp.jd_session_id && router.push(`/jd/${emp.jd_session_id}`)}
-                          className={`group/row transition-all duration-300 ${
-                            emp.jd_session_id 
-                              ? "cursor-pointer hover:bg-primary-50/50" 
-                              : "hover:bg-surface-50/60"
-                          }`}
+                          onClick={() => emp.jd_id && router.push(`/jd/${emp.jd_id}`)}
+                          className={`group/row transition-all duration-300 ${emp.jd_id
+                            ? "cursor-pointer hover:bg-primary-50/50"
+                            : "hover:bg-surface-50/60"
+                            }`}
                         >
                           <td className="px-3 sm:px-6 py-4">
                             <div className="flex flex-col">
-                              <span className={`font-bold transition-colors ${emp.jd_session_id ? "group-hover/row:text-primary-600 text-surface-900" : "text-surface-900"}`}>
+                              <span className={`font-bold transition-colors ${emp.jd_id ? "group-hover/row:text-primary-600 text-surface-900" : "text-surface-900"}`}>
                                 {emp.name}
                               </span>
                               <span className="text-[11px] font-bold text-surface-400">
@@ -1148,7 +1280,7 @@ function HRView({ user }: { user: AuthUser }) {
                                     </div>
                                   )}
                               </div>
-                              {emp.jd_session_id && (
+                              {emp.jd_id && (
                                 <ArrowRight className="w-4 h-4 text-primary-400 opacity-0 group-hover/row:opacity-100 group-hover/row:translate-x-1 transition-all" />
                               )}
                             </div>

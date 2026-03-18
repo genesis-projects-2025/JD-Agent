@@ -52,20 +52,9 @@ function SSOSync() {
            }
         }
 
-        // Console Debugger for the user
-        console.group(
-          `%c🚀 SSO AUTHENTICATED: ${data.employee.employee_id}`,
-          "color: #10b981; font-weight: bold; font-size: 14px",
-        );
-        console.log(
-          "%cEmployee Data:",
-          "color: #3b82f6; font-weight: bold",
-          data.employee,
-        );
-        console.groupEnd();
-
         // Redirect to their dashboard
         router.push(`/dashboard/${data.employee.employee_id}`);
+
       } catch (err: any) {
         // Only log actual network crashes here
         console.warn("Network or SSO Sync Error:", err.message);

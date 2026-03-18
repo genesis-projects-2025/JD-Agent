@@ -25,7 +25,12 @@ import {
   getCurrentUser,
   fetchDepartmentEmployees,
   deleteJD,
+  isManager as apiIsManager,
+  isHead as apiIsHead,
+  isHR as apiIsHR,
 } from "@/lib/api";
+
+
 import { getOrCreateEmployeeId } from "@/lib/auth";
 import { DeleteModal } from "@/components/ui/delete-modal";
 
@@ -106,10 +111,17 @@ export default function DashboardPage() {
   const [loadingDept, setLoadingDept] = useState(false);
   const [onlySubmitted, setOnlySubmitted] = useState(true);
 
+  // My Team State (for Managers/Heads)
+  const [teamStats, setTeamStats] = useState<any>(null);
+  const [myTeamEmployees, setMyTeamEmployees] = useState<DepartmentEmployee[]>([]);
+  const [loadingTeam, setLoadingTeam] = useState(false);
+
   const [loading, setLoading] = useState(true);
+
   const [activeTab, setActiveTab] = useState<
-    "my_jds" | "team_approvals" | "hr_approvals" | "departments"
+    "my_jds" | "team_approvals" | "hr_approvals" | "departments" | "my_team"
   >("my_jds");
+
   const [isMounted, setIsMounted] = useState(false);
 
   // Delete Modal State
@@ -124,10 +136,17 @@ export default function DashboardPage() {
   const user = isMounted ? getCurrentUser() : null;
   const role = user?.role || "employee";
 
+  const isHead = isMounted ? apiIsHead(user) : false;
+  const isManager = isMounted ? apiIsManager(user) : false;
+  const isHR = isMounted ? apiIsHR(user) : false;
+
+
+
+
   // Auto-redirect to dynamic dashboard if we have a user
   useEffect(() => {
     if (isMounted && user?.employee_id) {
-       router.replace(`/dashboard/${user.employee_id}`);
+      router.replace(`/dashboard/${user.employee_id}`);
     }
   }, [isMounted, user, router]);
 
@@ -139,9 +158,12 @@ export default function DashboardPage() {
       // Parallelize data fetching to avoid "waterfall" latency
       const promises: Promise<any>[] = [fetchEmployeeJDs(id)];
 
-      if (role === "manager") {
+      if (isManager || isHead) {
         promises.push(fetchManagerPendingJDs(id));
-      } else if (role === "hr") {
+        // Also fetch recursive team stats
+        const api = await import("@/lib/api");
+        promises.push(api.fetchMyTeamStats(id));
+      } else if (isHR) {
         promises.push(fetchHRPendingJDs());
         // For HR, also fetch department stats
         const api = await import("@/lib/api");
@@ -153,12 +175,17 @@ export default function DashboardPage() {
       // Map results back to state
       setJds(results[0] || []);
 
-      if (role === "manager") {
+      if (isManager || isHead) {
         setPendingJDs(results[1] || []);
-      } else if (role === "hr") {
+        setTeamStats(results[2] || null);
+        // Load team employees for the first page
+        loadTeamEmployees(id);
+      } else if (isHR) {
         setPendingJDs(results[1] || []);
         setDepartmentStats(results[2] || []);
       }
+
+
     } catch (err) {
       console.error("Failed to load dashboard data:", err);
     } finally {
@@ -169,7 +196,9 @@ export default function DashboardPage() {
   useEffect(() => {
     if (!isMounted) return;
     loadData();
-  }, [role, isMounted]);
+  }, [role, isMounted, isHead, isManager, isHR]);
+
+
 
   const handleDeleteClick = (e: React.MouseEvent, id: string) => {
     e.preventDefault();
@@ -222,6 +251,20 @@ export default function DashboardPage() {
     setSelectedDepartment(null);
     setDeptEmployees([]);
   };
+
+  const loadTeamEmployees = async (empId: string) => {
+    setLoadingTeam(true);
+    try {
+      const api = await import("@/lib/api");
+      const data = await api.fetchMyTeamEmployees(empId, 1, 100);
+      setMyTeamEmployees(data || []);
+    } catch (error) {
+      console.error("Error fetching team employees:", error);
+    } finally {
+      setLoadingTeam(false);
+    }
+  };
+
 
   // Aggregate counts based on role.
   // Employees only see their own stats. Managers/HR see stats representing their active queue + history.
@@ -347,44 +390,36 @@ export default function DashboardPage() {
         </div>
 
         {/* Multi-Role Tabs */}
-        {(role === "manager" || role === "hr") && (
+        {(isManager || isHead || isHR) && (
           <div className="flex overflow-x-auto gap-3 mb-8 bg-surface-200/50 p-1.5 rounded-2xl w-full sm:w-fit custom-scrollbar pb-2 sm:pb-1.5">
             <button
               onClick={() => setActiveTab("my_jds")}
-              className={`whitespace-nowrap px-5 py-2.5 text-sm font-bold rounded-xl transition-all ${
-                activeTab === "my_jds"
+              className={`whitespace-nowrap px-5 py-2.5 text-sm font-bold rounded-xl transition-all ${activeTab === "my_jds"
                   ? "bg-white text-surface-900 shadow-sm"
                   : "text-surface-500 hover:text-surface-700 hover:bg-surface-200/50"
-              }`}
+                }`}
             >
               My JDs
             </button>
-            {role === "manager" && (
+            {(isManager || isHead) && (
               <button
-                onClick={() => setActiveTab("team_approvals")}
-                className={`whitespace-nowrap px-5 py-2.5 text-sm font-bold rounded-xl transition-all flex items-center gap-2 ${
-                  activeTab === "team_approvals"
+                onClick={() => setActiveTab("my_team")}
+                className={`whitespace-nowrap px-5 py-2.5 text-sm font-bold rounded-xl transition-all flex items-center gap-2 ${activeTab === "my_team"
                     ? "bg-white text-surface-900 shadow-sm"
                     : "text-surface-500 hover:text-surface-700 hover:bg-surface-200/50"
-                }`}
+                  }`}
               >
-                Team JDs
-                {pendingJDs.length > 0 && (
-                  <span className="bg-primary-500 text-white text-[11px] px-2 py-0.5 rounded-full font-black">
-                    {pendingJDs.length}
-                  </span>
-                )}
+                Team Overview
               </button>
             )}
-            {role === "hr" && (
+            {isHR && (
               <>
                 <button
                   onClick={() => setActiveTab("hr_approvals")}
-                  className={`whitespace-nowrap px-5 py-2.5 text-sm font-bold rounded-xl transition-all flex items-center gap-2 ${
-                    activeTab === "hr_approvals"
+                  className={`whitespace-nowrap px-5 py-2.5 text-sm font-bold rounded-xl transition-all flex items-center gap-2 ${activeTab === "hr_approvals"
                       ? "bg-white text-surface-900 shadow-sm"
                       : "text-surface-500 hover:text-surface-700 hover:bg-surface-200/50"
-                  }`}
+                    }`}
                 >
                   HR Review Queue
                   {pendingJDs.length > 0 && (
@@ -395,11 +430,10 @@ export default function DashboardPage() {
                 </button>
                 <button
                   onClick={() => setActiveTab("departments")}
-                  className={`whitespace-nowrap px-5 py-2.5 text-sm font-bold rounded-xl transition-all flex items-center gap-2 ${
-                    activeTab === "departments"
+                  className={`whitespace-nowrap px-5 py-2.5 text-sm font-bold rounded-xl transition-all flex items-center gap-2 ${activeTab === "departments"
                       ? "bg-white text-surface-900 shadow-sm"
                       : "text-surface-500 hover:text-surface-700 hover:bg-surface-200/50"
-                  }`}
+                    }`}
                 >
                   Department Overview
                 </button>
@@ -407,6 +441,7 @@ export default function DashboardPage() {
             )}
           </div>
         )}
+
 
         {/* Department Stats View */}
         {activeTab === "departments" &&
@@ -516,21 +551,19 @@ export default function DashboardPage() {
               <div className="flex items-center gap-2 bg-surface-200/50 p-1 rounded-xl">
                 <button
                   onClick={() => handleToggleSubmitted(true)}
-                  className={`px-3 py-1.5 text-[11px] font-black uppercase tracking-widest rounded-lg transition-all ${
-                    onlySubmitted
+                  className={`px-3 py-1.5 text-[11px] font-black uppercase tracking-widest rounded-lg transition-all ${onlySubmitted
                       ? "bg-white text-primary-600 shadow-sm"
                       : "text-surface-500 hover:text-surface-700"
-                  }`}
+                    }`}
                 >
                   Submitted
                 </button>
                 <button
                   onClick={() => handleToggleSubmitted(false)}
-                  className={`px-3 py-1.5 text-[11px] font-black uppercase tracking-widest rounded-lg transition-all ${
-                    !onlySubmitted
+                  className={`px-3 py-1.5 text-[11px] font-black uppercase tracking-widest rounded-lg transition-all ${!onlySubmitted
                       ? "bg-white text-surface-900 shadow-sm"
                       : "text-surface-500 hover:text-surface-700"
-                  }`}
+                    }`}
                 >
                   Show All
                 </button>
@@ -698,12 +731,12 @@ export default function DashboardPage() {
                               <Clock className="w-3.5 h-3.5" />
                               {jdItem.updated_at
                                 ? new Date(
-                                    jdItem.updated_at,
-                                  ).toLocaleDateString("en-US", {
-                                    month: "short",
-                                    day: "numeric",
-                                    year: "numeric",
-                                  })
+                                  jdItem.updated_at,
+                                ).toLocaleDateString("en-US", {
+                                  month: "short",
+                                  day: "numeric",
+                                  year: "numeric",
+                                })
                                 : "—"}
                             </span>
                             <span className="text-[12px] font-bold text-surface-400 bg-surface-100 px-2 py-0.5 rounded-md">
@@ -733,11 +766,10 @@ export default function DashboardPage() {
                         <Link
                           href={href}
                           onClick={(e) => e.stopPropagation()}
-                          className={`flex items-center gap-2 px-3 sm:px-4 py-2 sm:py-2.5 rounded-xl font-bold text-sm transition-all ${
-                            isDraft
+                          className={`flex items-center gap-2 px-3 sm:px-4 py-2 sm:py-2.5 rounded-xl font-bold text-sm transition-all ${isDraft
                               ? "bg-primary-50 text-primary-700 hover:bg-primary-100 border border-primary-100/50"
                               : "bg-surface-100 text-surface-700 hover:bg-surface-200 border border-surface-200"
-                          }`}
+                            }`}
                         >
                           {isDraft ? (
                             <>

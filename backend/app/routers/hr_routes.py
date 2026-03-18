@@ -4,6 +4,8 @@ from sqlalchemy import text
 
 from app.core.database import get_db
 from app.core.cache import cached_response
+from app.services.dashboard_service import DashboardService
+
 
 router = APIRouter()
 
@@ -143,12 +145,130 @@ async def get_department_employees(
                 "designation": row.designation,
                 "reporting_manager": row.reporting_manager,
                 "jd_status": status,
+                "jd_id": row.jd_session_id,
                 "last_updated": row.last_updated.isoformat() if row.last_updated else None
             })
+
             
         return employees
         
-    except Exception as e:
+    except Exception:
+        raise HTTPException(status_code=500, detail="Failed to fetch department employees")
+
+
+
+@router.get("/my-team-stats")
+async def get_my_team_stats(emp_code: str, db: AsyncSession = Depends(get_db)):
+    """
+    Detects if the user is a Department Head or a Manager and returns 
+    the appropriate scoped JD statistics.
+    """
+    try:
+        is_head = await DashboardService.is_department_head(db, emp_code)
+        
+        if is_head:
+            # Get all employees in the department
+            emp_codes = await DashboardService.get_department_employees(db, emp_code)
+            scope = "department"
+        else:
+            # Get recursive reports (subtree)
+            reports = await DashboardService.get_recursive_reports(db, emp_code)
+            emp_codes = list(reports)
+            scope = "team"
+
+        stats = await DashboardService.get_team_stats(db, emp_codes)
+        stats["scope"] = scope
+        return stats
+
+    except Exception:
         import traceback
         traceback.print_exc()
-        raise HTTPException(status_code=500, detail=f"Failed to fetch department employees: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to fetch team stats")
+
+
+
+@router.get("/my-team-employees")
+async def get_my_team_employees(
+    emp_code: str, 
+    page: int = 1, 
+    limit: int = 50,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Returns a list of employees for the logged in manager/head with their JD status.
+    """
+    try:
+        is_head = await DashboardService.is_department_head(db, emp_code)
+        
+        if is_head:
+            # Get department name first
+            dept_query = text("SELECT department FROM organogram WHERE code = :code")
+            res = await db.execute(dept_query, {"code": emp_code})
+            row = res.fetchone()
+            if not row:
+                return []
+            return await get_department_employees(row[0], page, limit, False, db)
+        else:
+            # For managers, we fetch their recursive reports list
+            reports = await DashboardService.get_recursive_reports(db, emp_code)
+            if not reports:
+                return []
+            
+            offset = (page - 1) * limit
+            query = text("""
+                WITH LatestJDs AS (
+                    SELECT 
+                        id as jd_id,
+                        employee_id, 
+                        status,
+                        updated_at,
+                        ROW_NUMBER() OVER(PARTITION BY employee_id ORDER BY updated_at DESC) as rn
+                    FROM jd_sessions
+                )
+                SELECT 
+                    o.code as employee_id,
+                    o.employee_name as name,
+                    o.designation as designation,
+                    o.reporting_manager as reporting_manager,
+                    lj.jd_id as jd_session_id,
+                    lj.status as jd_status,
+                    lj.updated_at as last_updated
+                FROM organogram o
+                LEFT JOIN LatestJDs lj ON o.code = lj.employee_id AND lj.rn = 1
+                WHERE o.code = ANY(:codes)
+                ORDER BY o.employee_name ASC
+                LIMIT :limit OFFSET :offset
+            """)
+
+            
+            result = await db.execute(query, {
+                "codes": list(reports),
+                "limit": limit,
+                "offset": offset
+            })
+            
+            employees = []
+            for row in result.mappings():
+                status = row.jd_status
+                if not status or status in ["draft", "jd_generated"]:
+                    status = "Not Submitted"
+                    
+                employees.append({
+                    "employee_id": row.employee_id,
+                    "name": row.name,
+                    "designation": row.designation,
+                    "reporting_manager": row.reporting_manager,
+                    "jd_status": status,
+                    "jd_id": row.jd_session_id,
+                    "last_updated": row.last_updated.isoformat() if row.last_updated else None
+                })
+
+                
+            return employees
+
+    except Exception:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail="Failed to fetch team employees")
+
+

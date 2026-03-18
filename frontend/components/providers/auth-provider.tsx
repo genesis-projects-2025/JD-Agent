@@ -76,11 +76,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (typeof window !== "undefined") {
       try {
-        localStorage.clear();
-        sessionStorage.clear();
-        console.log("%c🧹 Legacy storage cleared", "color: #3b82f6; font-weight: bold");
+        // One-time migration: clear legacy storage only if not already done
+        const migrationKey = "jd_cookie_migrated";
+        if (!document.cookie.includes(migrationKey)) {
+          localStorage.clear();
+          sessionStorage.clear();
+          document.cookie = `${migrationKey}=1; Path=/; Max-Age=31536000;`;
+        }
       } catch (e) {
-        console.error("Cleanup failed:", e);
+        // Silently ignore cleanup failures
       }
     }
   }, []);

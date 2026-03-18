@@ -1,10 +1,14 @@
 # backend/app/services/jd_service.py
-from fastapi import HTTPException
-import json
 import asyncio
+import json
+import logging
 import re
+import traceback
+
+from fastapi import HTTPException
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.messages import HumanMessage, SystemMessage
+
 from app.core.config import settings
 from app.prompts.jd_prompts import JD_GENERATION_PROMPT
 from app.schemas.jd_schema import (
@@ -17,6 +21,8 @@ from app.schemas.jd_schema import (
 from app.utils.text_utils import strip_reasoning_tags
 from app.services.context_builder import build_context
 from app.memory.session_memory import SessionMemory
+
+logger = logging.getLogger(__name__)
 
 # ── LLM Instances ──────────────────────────────────────────────────────────────
 interview_llm = ChatGoogleGenerativeAI(
@@ -32,6 +38,22 @@ jd_llm = ChatGoogleGenerativeAI(
     temperature=0.1,
     response_mime_type="application/json",
 )
+
+
+async def _invoke_with_retry(llm, messages, max_retries=2):
+    """Invoke LLM with exponential backoff on transient failures (429, 500)."""
+    for attempt in range(max_retries + 1):
+        try:
+            return await llm.ainvoke(messages)
+        except Exception as e:
+            err = str(e).lower()
+            is_retryable = "429" in err or "500" in err or "resource_exhausted" in err
+            if is_retryable and attempt < max_retries:
+                wait = 2 ** attempt  # 1s, 2s
+                logger.warning(f"LLM retry {attempt + 1}/{max_retries} after {wait}s: {e}")
+                await asyncio.sleep(wait)
+            else:
+                raise
 
 # ── Soft skill blocklist — never allow these in skills[] ──────────────────────
 _SOFT_SKILL_PATTERNS = {
@@ -522,7 +544,7 @@ async def handle_jd_generation(session_memory: SessionMemory) -> dict:
     """
     Dedicated JD generation — called ONLY from POST /jd/generate endpoint.
     """
-    print("\n[JD Generation] STARTED")
+    logger.info("[JD Generation] STARTED")
 
     insights_dict = safe_to_dict(session_memory.insights)
 
@@ -548,9 +570,9 @@ async def handle_jd_generation(session_memory: SessionMemory) -> dict:
         ),
     ]
 
-    print("\n CALLING JD LLM...")
+    logger.info("Calling JD LLM...")
     try:
-        response = await jd_llm.ainvoke(messages)
+        response = await _invoke_with_retry(jd_llm, messages)
     except Exception as e:
         err_msg = str(e)
         if (
@@ -611,7 +633,7 @@ async def handle_jd_generation(session_memory: SessionMemory) -> dict:
                 jd_text = ""
 
         except json.JSONDecodeError as e:
-            print(f"[JD Generation] JSON parse failed: {e}")
+            logger.warning(f"JD Generation JSON parse failed: {e}")
 
     if not jd_text and not structured:
         clean_raw = remove_think_tags(raw).strip()
@@ -632,7 +654,7 @@ async def handle_jd_generation(session_memory: SessionMemory) -> dict:
         session_memory.jd_structured = structured
 
     session_memory.progress["status"] = "jd_generated"
-    print("[JD Generation] Completed")
+    logger.info("[JD Generation] Completed")
 
     return {
         "jd_text": jd_text,
@@ -647,16 +669,16 @@ async def handle_jd_generation(session_memory: SessionMemory) -> dict:
 async def handle_conversation(
     history: list, user_message: str, session_memory: SessionMemory
 ):
-    print("\n[Interview] TURN STARTED")
+    logger.info("[Interview] TURN STARTED")
 
     msgs = build_context(session_memory, user_message)
 
     try:
-        response = await interview_llm.ainvoke(msgs)
+        response = await _invoke_with_retry(interview_llm, msgs)
         raw_content = strip_reasoning_tags(response.content)
     except Exception as e:
         error_str = str(e).lower()
-        print(f"LLM ERROR: {e}")
+        logger.error(f"LLM invocation error: {e}")
         if "rate limit" in error_str or "429" in error_str or "exhausted" in error_str:
             raise HTTPException(status_code=429, detail="Rate limit exceeded")
         raise HTTPException(status_code=500, detail="Internal LLM Error")
@@ -746,22 +768,20 @@ async def handle_conversation(
         history.append({"role": "assistant", "content": reply_content})
 
     except Exception as e:
-        print(f"PROCESSING ERROR: {e}")
-        import traceback
-
+        logger.error(f"Interview processing error: {e}")
         traceback.print_exc()
         reply_content = build_fallback_response(session_memory)
         history.append({"role": "user", "content": user_message})
         history.append({"role": "assistant", "content": reply_content})
 
-    print("[Interview] TURN COMPLETED\n")
+    logger.info("[Interview] TURN COMPLETED")
     return reply_content, history
 
 
 async def handle_conversation_stream(
     history: list, user_message: str, session_memory: SessionMemory
 ):
-    print("\n[Interview Stream] TURN STARTED")
+    logger.info("[Interview Stream] TURN STARTED")
 
     msgs = build_context(session_memory, user_message)
 
@@ -894,9 +914,7 @@ async def handle_conversation_stream(
 
     except Exception as e:
         error_msg = str(e)
-        print(f"STREAM PROCESSING ERROR: {error_msg}")
-        import traceback
-
+        logger.error(f"Stream processing error: {error_msg}")
         traceback.print_exc()
 
         is_rate_limit = (
@@ -917,4 +935,4 @@ async def handle_conversation_stream(
                 payload["is_rate_limit"] = True
             yield f"data: {json.dumps(payload)}\n\n"
 
-    print("[Interview Stream] TURN COMPLETED\n")
+    logger.info("[Interview Stream] TURN COMPLETED")

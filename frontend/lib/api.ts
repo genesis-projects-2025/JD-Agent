@@ -134,29 +134,36 @@ export default function devLogout() {
 export const API_URL =
   process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
+/** Fetch with automatic timeout (default 30s). Prevents infinite hangs. */
+function fetchWithTimeout(url: string, options: RequestInit = {}, timeoutMs = 30000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  return fetch(url, { ...options, signal: controller.signal }).finally(() => clearTimeout(timer));
+}
+
 export async function fetchEmployeeJDs(employeeId: string) {
-  const res = await fetch(`${API_URL}/jd/employee/${employeeId}`);
+  const res = await fetchWithTimeout(`${API_URL}/jd/employee/${employeeId}`);
   if (res.status === 404) return [];
   if (!res.ok) throw new Error("Failed to fetch employee JDs");
   return res.json();
 }
 
 export async function fetchManagerPendingJDs(managerId: string) {
-  const res = await fetch(`${API_URL}/jd/manager/${managerId}/pending`);
+  const res = await fetchWithTimeout(`${API_URL}/jd/manager/${managerId}/pending`);
   if (res.status === 404) return [];
   if (!res.ok) throw new Error("Failed to fetch manager pending JDs");
   return res.json();
 }
 
 export async function fetchHRPendingJDs() {
-  const res = await fetch(`${API_URL}/jd/hr/pending`);
+  const res = await fetchWithTimeout(`${API_URL}/jd/hr/pending`);
   if (res.status === 404) return [];
   if (!res.ok) throw new Error("Failed to fetch HR pending JDs");
   return res.json();
 }
 
 export async function fetchHRDepartmentStats() {
-  const res = await fetch(`${API_URL}/api/hr/department-stats`);
+  const res = await fetchWithTimeout(`${API_URL}/api/hr/department-stats`);
   if (res.status === 404) return [];
   if (!res.ok) throw new Error("Failed to fetch HR Department statistics");
   return res.json();
@@ -169,7 +176,7 @@ export async function fetchDepartmentEmployees(
   submittedOnly: boolean = false,
 ) {
   const encodedName = encodeURIComponent(departmentName);
-  const res = await fetch(
+  const res = await fetchWithTimeout(
     `${API_URL}/api/hr/departments/${encodedName}/employees?page=${page}&limit=${limit}&only_submitted=${submittedOnly}`,
   );
   if (res.status === 404) return [];
@@ -178,7 +185,7 @@ export async function fetchDepartmentEmployees(
 }
 
 export async function fetchMyTeamStats(empCode: string) {
-  const res = await fetch(`${API_URL}/api/hr/my-team-stats?emp_code=${empCode}`);
+  const res = await fetchWithTimeout(`${API_URL}/api/hr/my-team-stats?emp_code=${empCode}`);
   if (!res.ok) throw new Error("Failed to fetch team statistics");
   return res.json();
 }
@@ -188,7 +195,7 @@ export async function fetchMyTeamEmployees(
   page: number = 1,
   limit: number = 50
 ) {
-  const res = await fetch(
+  const res = await fetchWithTimeout(
     `${API_URL}/api/hr/my-team-employees?emp_code=${empCode}&page=${page}&limit=${limit}`
   );
   if (res.status === 404) return [];

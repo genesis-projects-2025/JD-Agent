@@ -1,9 +1,10 @@
 from fastapi import APIRouter, Depends, HTTPException, Response
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
+import logging
 import re
 import json
-from app.services.docx_generator import generate_jd_docx
+import uuid
 from app.schemas.jd_schema import (
     ChatRequest,
     InitJDRequest,
@@ -38,8 +39,10 @@ from app.crud.jd_crud import (
     get_all_feedback_for_user,
     mark_feedback_read,
 )
-import uuid
 from app.core.cache import cached_response, invalidate_pattern
+from app.services.docx_generator import generate_jd_docx
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -47,15 +50,14 @@ router = APIRouter()
 
 
 def get_or_create_session(session_id: str) -> SessionMemory:
-    print(f"🆕 Creating transient session object: {session_id}")
+    logger.debug(f"Creating transient session object: {session_id}")
     memory = SessionMemory()
     memory.id = session_id
     return memory
 
 
 async def hydrate_session_from_db(session_id: str, db: AsyncSession) -> SessionMemory:
-    print(f"Hydrating session {session_id} from DB...")
-    import uuid
+    logger.debug(f"Hydrating session {session_id} from DB...")
     from sqlalchemy.future import select as fut_select
     from app.models.jd_session_model import JDSession, ConversationTurn
 

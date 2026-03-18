@@ -113,7 +113,7 @@ export default function MessageBubble({
       {/* Avatar (Agent only) */}
       {isAgent && (
         <div className="flex-shrink-0 mt-1">
-          <div className="w-8 h-8 sm:w-11 sm:h-11 bg-primary-600 rounded-xl sm:rounded-2xl flex items-center justify-center shadow-premium ring-2 sm:ring-4 ring-primary-50">
+          <div className="w-8 h-8 sm:w-11 sm:h-11 bg-primary-600 rounded-lg sm:rounded-2xl flex items-center justify-center shadow-premium ring-2 sm:ring-4 ring-primary-50">
             <Bot className="w-4 h-4 sm:w-6 sm:h-6 text-white" />
           </div>
         </div>
@@ -125,7 +125,7 @@ export default function MessageBubble({
       >
         {/* Message Bubble Overlay */}
         <div
-          className={`relative px-4 sm:px-6 py-3 sm:py-5 rounded-2xl sm:rounded-3xl shadow-sm ${isAgent
+          className={`relative px-4 sm:px-6 py-2.5 sm:py-5 rounded-xl sm:rounded-3xl shadow-sm ${isAgent
               ? "bg-white text-surface-900 rounded-tl-none border border-surface-200"
               : "bg-surface-900 text-white rounded-tr-none shadow-premium font-medium"
             }`}
@@ -179,7 +179,7 @@ export default function MessageBubble({
                       disabled={isConfirmed}
                       onClick={() => toggleSkill(skill)}
                       className={`
-                        group relative px-3 sm:px-5 py-2 sm:py-3 rounded-xl sm:rounded-2xl text-[13px] sm:text-sm font-semibold
+                        group relative px-3 sm:px-5 py-2 sm:py-3 rounded-lg sm:rounded-2xl text-[12px] sm:text-sm font-semibold
                         transition-all duration-300 
                         ${isSelected
                           ? "bg-primary-600 text-white shadow-lg shadow-primary-500/20 scale-[1.03]"
@@ -190,7 +190,7 @@ export default function MessageBubble({
                     >
                       <span className="flex items-center gap-1.5 sm:gap-2">
                         {isSelected && (
-                          <Check className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                          <Check className="w-3 sm:w-4 h-3 sm:h-4" />
                         )}
                         {skill}
                       </span>
@@ -295,7 +295,7 @@ export default function MessageBubble({
       {/* Avatar (User only) */}
       {!isAgent && (
         <div className="flex-shrink-0 mt-1">
-          <div className="w-8 h-8 sm:w-11 sm:h-11 bg-surface-100 rounded-xl sm:rounded-2xl flex items-center justify-center shadow-sm border border-surface-200">
+          <div className="w-8 h-8 sm:w-11 sm:h-11 bg-surface-100 rounded-lg sm:rounded-2xl flex items-center justify-center shadow-sm border border-surface-200">
             <User className="w-4 h-4 sm:w-6 sm:h-6 text-surface-600" />
           </div>
         </div>

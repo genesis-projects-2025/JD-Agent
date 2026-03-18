@@ -27,42 +27,47 @@ BORDER_COLOR = "999999"
 # ── Low-level helpers ─────────────────────────────────────────────────────────
 
 
-def _set_cell_bg(cell, hex_color: str) -> None:
+def _set_cell_properties(cell, bg_color: str = None, borders: bool = True, valign: str = None) -> None:
+    """Sets cell properties ensuring correct OOXML element order in tcPr."""
     tc = cell._tc
     tcPr = tc.get_or_add_tcPr()
-    for old in tcPr.findall(qn("w:shd")):
-        tcPr.remove(old)
-    shd = OxmlElement("w:shd")
-    shd.set(qn("w:val"), "clear")
-    shd.set(qn("w:color"), "auto")
-    shd.set(qn("w:fill"), hex_color)
-    tcPr.append(shd)
 
+    # Elements must appear in this order: tcW, gridSpan, vMerge, tcBorders, shd, ... vAlign
+    
+    # 1. Borders
+    if borders:
+        tcBorders = tcPr.find(qn("w:tcBorders"))
+        if tcBorders is not None:
+            tcPr.remove(tcBorders)
+        tcBorders = OxmlElement("w:tcBorders")
+        for side in ("top", "left", "bottom", "right"):
+            b = OxmlElement(f"w:{side}")
+            b.set(qn("w:val"), "single")
+            b.set(qn("w:sz"), "4")
+            b.set(qn("w:space"), "0")
+            b.set(qn("w:color"), BORDER_COLOR)
+            tcBorders.append(b)
+        tcPr.append(tcBorders)
 
-def _set_cell_borders(cell) -> None:
-    tc = cell._tc
-    tcPr = tc.get_or_add_tcPr()
-    for old in tcPr.findall(qn("w:tcBorders")):
-        tcPr.remove(old)
-    tcBorders = OxmlElement("w:tcBorders")
-    for side in ("top", "left", "bottom", "right"):
-        b = OxmlElement(f"w:{side}")
-        b.set(qn("w:val"), "single")
-        b.set(qn("w:sz"), "4")
-        b.set(qn("w:space"), "0")
-        b.set(qn("w:color"), BORDER_COLOR)
-        tcBorders.append(b)
-    tcPr.append(tcBorders)
+    # 2. Shading (Background)
+    if bg_color:
+        shd = tcPr.find(qn("w:shd"))
+        if shd is not None:
+            tcPr.remove(shd)
+        shd = OxmlElement("w:shd")
+        shd.set(qn("w:val"), "clear")
+        shd.set(qn("w:color"), "auto")
+        shd.set(qn("w:fill"), bg_color)
+        tcPr.append(shd)
 
-
-def _set_cell_valign(cell, align: str = "top") -> None:
-    tc = cell._tc
-    tcPr = tc.get_or_add_tcPr()
-    for old in tcPr.findall(qn("w:vAlign")):
-        tcPr.remove(old)
-    va = OxmlElement("w:vAlign")
-    va.set(qn("w:val"), align)
-    tcPr.append(va)
+    # 3. Vertical Alignment
+    if valign:
+        va = tcPr.find(qn("w:vAlign"))
+        if va is not None:
+            tcPr.remove(va)
+        va = OxmlElement("w:vAlign")
+        va.set(qn("w:val"), valign)
+        tcPr.append(va)
 
 
 def _para_spacing(para, before: float = 0, after: float = 0) -> None:
@@ -78,8 +83,7 @@ def _section_header_row(table, row_idx: int, text: str) -> None:
     row = table.rows[row_idx]
     row.cells[0].merge(row.cells[1])
     cell = row.cells[0]
-    _set_cell_bg(cell, HEADER_COLOR)
-    _set_cell_borders(cell)
+    _set_cell_properties(cell, bg_color=HEADER_COLOR, borders=True)
     para = cell.paragraphs[0]
     para.alignment = WD_ALIGN_PARAGRAPH.CENTER
     _para_spacing(para)
@@ -94,8 +98,7 @@ def _data_row(table, row_idx: int, label: str, value) -> None:
     lc, vc = row.cells[0], row.cells[1]
 
     for cell in (lc, vc):
-        _set_cell_borders(cell)
-        _set_cell_valign(cell)
+        _set_cell_properties(cell, borders=True, valign="top")
 
     # Label
     lp = lc.paragraphs[0]
@@ -126,8 +129,7 @@ def _job_desc_content_row(
     row = table.rows[row_idx]
     row.cells[0].merge(row.cells[1])
     cell = row.cells[0]
-    _set_cell_borders(cell)
-    _set_cell_valign(cell)
+    _set_cell_properties(cell, borders=True, valign="top")
 
     # Purpose
     if purpose:
@@ -325,8 +327,7 @@ def generate_jd_docx(
     row4 = t4.rows[1]
     lc4, vc4 = row4.cells[0], row4.cells[1]
     for cell in (lc4, vc4):
-        _set_cell_borders(cell)
-        _set_cell_valign(cell)
+        _set_cell_properties(cell, borders=True, valign="top")
 
     lp4 = lc4.paragraphs[0]
     _para_spacing(lp4)

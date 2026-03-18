@@ -830,7 +830,7 @@ function HRView({ user }: { user: AuthUser }) {
                   HR Center
                 </span>
               </div>
-              <h1 className="text-4xl font-black tracking-tight mb-2">
+              <h1 className="text-2xl sm:text-3xl md:text-4xl font-black tracking-tight mb-2">
                 Welcome, {user?.name}
               </h1>
               <p className="text-indigo-200 font-medium">
@@ -903,7 +903,7 @@ function HRView({ user }: { user: AuthUser }) {
             <button
               key={key}
               onClick={() => setFilter(key)}
-              className={`flex-1 min-w-[200px] flex items-center justify-between p-4 rounded-xl transition-all duration-300 ${
+              className={`flex-1 min-w-[140px] sm:min-w-[200px] flex items-center justify-between p-3 sm:p-4 rounded-xl transition-all duration-300 ${
                 filter === key
                   ? "bg-purple-50 ring-2 ring-purple-500 shadow-sm"
                   : "hover:bg-surface-50"
@@ -918,7 +918,7 @@ function HRView({ user }: { user: AuthUser }) {
                   />
                 </div>
                 <span
-                  className={`text-[13px] font-bold ${filter === key ? "text-purple-900" : "text-surface-700"}`}
+                  className={`text-[11px] sm:text-[13px] font-bold ${filter === key ? "text-purple-900" : "text-surface-700"}`}
                 >
                   {label}
                 </span>
@@ -1091,11 +1091,11 @@ function HRView({ user }: { user: AuthUser }) {
               <div className="overflow-x-auto">
                 <table className="w-full text-left border-collapse">
                   <thead>
-                    <tr className="bg-surface-50/80 border-b border-surface-200 text-xs font-bold text-surface-500 uppercase tracking-wider">
-                      <th className="px-6 py-4 font-bold">Employee</th>
-                      <th className="px-6 py-4 font-bold">Designation</th>
-                      <th className="px-6 py-4 font-bold">Reporting Manager</th>
-                      <th className="px-6 py-4 font-bold">JD Status</th>
+                    <tr className="bg-surface-50/80 border-b border-surface-200 text-[10px] sm:text-xs font-bold text-surface-500 uppercase tracking-wider">
+                      <th className="px-3 sm:px-6 py-4 font-bold">Employee</th>
+                      <th className="px-3 sm:px-6 py-4 font-bold">Designation</th>
+                      <th className="px-3 sm:px-6 py-4 font-bold">Reporting Manager</th>
+                      <th className="px-3 sm:px-6 py-4 font-bold">JD Status</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-surface-100">
@@ -1113,7 +1113,7 @@ function HRView({ user }: { user: AuthUser }) {
                               : "hover:bg-surface-50/60"
                           }`}
                         >
-                          <td className="px-6 py-4">
+                          <td className="px-3 sm:px-6 py-4">
                             <div className="flex flex-col">
                               <span className={`font-bold transition-colors ${emp.jd_session_id ? "group-hover/row:text-primary-600 text-surface-900" : "text-surface-900"}`}>
                                 {emp.name}
@@ -1123,13 +1123,13 @@ function HRView({ user }: { user: AuthUser }) {
                               </span>
                             </div>
                           </td>
-                          <td className="px-6 py-4 text-sm font-medium text-surface-700">
+                          <td className="px-3 sm:px-6 py-4 text-sm font-medium text-surface-700">
                             {emp.designation || "—"}
                           </td>
-                          <td className="px-6 py-4 text-sm font-medium text-surface-700">
+                          <td className="px-3 sm:px-6 py-4 text-sm font-medium text-surface-700">
                             {emp.reporting_manager || "—"}
                           </td>
-                          <td className="px-6 py-4">
+                          <td className="px-3 sm:px-6 py-4">
                             <div className="flex items-center justify-between">
                               <div>
                                 <span

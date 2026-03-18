@@ -44,16 +44,16 @@ export default function ChatWindow({
       <div className="flex-shrink-0 relative z-20">
         <div className="px-4 sm:px-8 py-3 sm:py-5 glass border-b border-surface-200 shadow-sm">
           <div className="flex items-center justify-between gap-2">
-            <div className="flex items-center gap-3 sm:gap-4">
-              <div className="w-10 h-10 sm:w-12 sm:h-12 bg-primary-600 rounded-xl sm:rounded-2xl flex items-center justify-center shadow-lg shadow-primary-500/20 shrink-0">
-                <Sparkles className="w-5 h-5 sm:w-6 sm:h-6 text-white" />
+            <div className="flex items-center gap-2 sm:gap-4">
+              <div className="w-8 h-8 sm:w-12 sm:h-12 bg-primary-600 rounded-lg sm:rounded-2xl flex items-center justify-center shadow-lg shadow-primary-500/20 shrink-0">
+                <Sparkles className="w-4 h-4 sm:w-6 sm:h-6 text-white" />
               </div>
               <div className="overflow-hidden">
-                <h3 className="text-base sm:text-lg font-bold text-surface-900 tracking-tight leading-none truncate w-full">
+                <h3 className="text-sm sm:text-lg font-bold text-surface-900 tracking-tight leading-none truncate w-full">
                   Jd Assistant
                 </h3>
-                <p className="text-[9px] sm:text-[11px] font-bold text-primary-600 uppercase tracking-widest mt-1 sm:mt-1.5 flex items-center gap-1 sm:gap-1.5 truncate w-full">
-                  <Activity className="w-2.5 h-2.5 sm:w-3 sm:h-3 shrink-0" />
+                <p className="text-[8px] sm:text-[11px] font-bold text-primary-600 uppercase tracking-widest mt-0.5 sm:mt-1.5 flex items-center gap-1 sm:gap-1.5 truncate w-full">
+                  <Activity className="w-2 h-2 sm:w-3 sm:h-3 shrink-0" />
                   <span className="hidden sm:inline">
                     Enterprise Intelligence Active
                   </span>

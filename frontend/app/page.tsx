@@ -73,7 +73,7 @@ export default function HomePage() {
       </nav>
 
       {/* Hero Section */}
-      <section className="pt-40 pb-24 px-6 relative overflow-hidden">
+      <section className="pt-28 sm:pt-40 pb-16 sm:pb-24 px-6 relative overflow-hidden">
         {/* Background Decor */}
         <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full h-full -z-10 bg-[radial-gradient(circle_at_50%_0%,#eff6ff_0%,transparent_50%)]" />
 
@@ -103,7 +103,7 @@ export default function HomePage() {
                 <span>AI-POWERED JD INTELLIGENCE</span>
               </div>
 
-              <h1 className="text-5xl md:text-6xl lg:text-7xl font-extrabold tracking-tight text-neutral-900 mb-8 max-w-4xl mx-auto leading-[1.1] animate-in fade-in slide-in-from-bottom-8 duration-1000">
+              <h1 className="text-3xl sm:text-5xl md:text-6xl lg:text-7xl font-extrabold tracking-tight text-neutral-900 mb-6 sm:mb-8 max-w-4xl mx-auto leading-[1.1] animate-in fade-in slide-in-from-bottom-8 duration-1000">
                 Precision Hiring Starts with{" "}
                 <span className="text-blue-600">Perfect Descriptions</span>
               </h1>

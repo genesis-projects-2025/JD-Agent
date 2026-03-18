@@ -139,11 +139,15 @@ export default function Sidebar() {
 
   return (
     <>
-      {isAuthenticated && !pathname.startsWith("/admin") && (
+      {isAuthenticated && (
         <button
           onClick={() => setIsMobileOpen(true)}
           aria-label="Open menu"
-          className="md:hidden fixed top-4 left-4 z-40 p-2.5 bg-neutral-900 text-white rounded-xl shadow-xl hover:bg-neutral-800 transition-colors active:scale-95"
+          className={`md:hidden fixed top-4 left-4 z-40 p-2.5 rounded-xl shadow-xl transition-all active:scale-95 ${
+            pathname.startsWith("/admin") 
+              ? "bg-slate-900 text-white hover:bg-slate-800" 
+              : "bg-neutral-900 text-white hover:bg-neutral-800"
+          }`}
         >
           <Menu className="w-5 h-5" />
         </button>

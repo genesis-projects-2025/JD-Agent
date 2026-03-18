@@ -26,8 +26,12 @@ import {
   Plus,
   Trash,
   GraduationCap,
+  ChevronDown,
+  FileDown,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
+import { downloadJDPdfClient } from "@/lib/download-jd-pdf";
+import { downloadJDDocx } from "@/lib/api";
 
 type Props = {
   jd: string | null;
@@ -111,6 +115,7 @@ export default function JDPreviewPanel({
   );
   const [isEditing, setIsEditing] = useState(false);
   const [editedData, setEditedData] = useState<any>(null);
+  const [showDownloadDropdown, setShowDownloadDropdown] = useState(false);
 
   const s = structuredData || {};
 
@@ -521,7 +526,7 @@ export default function JDPreviewPanel({
               <button
                 onClick={handleEditToggle}
                 disabled={isSaving}
-                className={`w-full py-3 hover:bg-surface-50 border border-surface-200 rounded-xl font-bold text-[12px] transition-all active:scale-[0.98] flex items-center justify-center gap-2 shadow-sm ${
+                className={`flex-1 py-3 hover:bg-surface-50 border border-surface-200 rounded-xl font-bold text-[12px] transition-all active:scale-[0.98] flex items-center justify-center gap-2 shadow-sm ${
                   isEditing
                     ? "bg-primary-50 text-primary-700 border-primary-200"
                     : "bg-white text-surface-700"
@@ -534,6 +539,59 @@ export default function JDPreviewPanel({
                 )}
                 {isEditing ? "Done Editing" : "Edit JD"}
               </button>
+
+              <div className="flex-1 relative">
+                <button
+                  onClick={() => setShowDownloadDropdown(!showDownloadDropdown)}
+                  disabled={isEditing || !jd}
+                  className="w-full py-3 bg-white text-primary-700 border border-primary-200 rounded-xl font-bold text-[12px] hover:bg-primary-50 transition-all active:scale-[0.98] flex items-center justify-center gap-2 shadow-sm disabled:opacity-50"
+                >
+                  <Download className={`w-3.5 h-3.5 ${isGenerating ? 'animate-pulse' : ''}`} />
+                  Download
+                  <ChevronDown className={`w-3 h-3 transition-transform duration-200 ${showDownloadDropdown ? 'rotate-180' : ''}`} />
+                </button>
+
+                {showDownloadDropdown && (
+                  <div className="absolute bottom-full left-0 right-0 mb-2 bg-white border border-surface-200 rounded-2xl shadow-2xl z-[100] overflow-hidden animate-in fade-in slide-in-from-bottom-2 duration-200">
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setShowDownloadDropdown(false);
+                        downloadJDPdfClient(
+                          safeData,
+                          title,
+                          dept
+                        );
+                      }}
+                      className="w-full flex items-center gap-3 px-4 py-3.5 text-[12px] font-bold text-surface-700 hover:bg-primary-50 hover:text-primary-700 transition-colors group/item"
+                    >
+                      <div className="w-8 h-8 rounded-lg bg-red-50 flex items-center justify-center group-hover/item:bg-red-100 transition-colors">
+                        <FileDown className="w-4 h-4 text-red-600" />
+                      </div>
+                      <div className="flex flex-col items-start text-left">
+                        <span>Professional PDF</span>
+                        <span className="text-[9px] text-surface-400 font-medium">Branded template</span>
+                      </div>
+                    </button>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setShowDownloadDropdown(false);
+                        downloadJDDocx(sessionId);
+                      }}
+                      className="w-full flex items-center gap-3 px-4 py-3.5 text-[12px] font-bold text-surface-700 hover:bg-primary-50 hover:text-primary-700 transition-colors group/item"
+                    >
+                      <div className="w-8 h-8 rounded-lg bg-blue-50 flex items-center justify-center group-hover/item:bg-blue-100 transition-colors">
+                        <FileText className="w-4 h-4 text-blue-600" />
+                      </div>
+                      <div className="flex flex-col items-start text-left">
+                        <span>Word Document</span>
+                        <span className="text-[9px] text-surface-400 font-medium">Editable file</span>
+                      </div>
+                    </button>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         </>

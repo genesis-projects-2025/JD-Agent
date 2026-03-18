@@ -1,4 +1,4 @@
-# app/services/jd_service.py
+# backend/app/services/jd_service.py
 from fastapi import HTTPException
 import json
 import asyncio
@@ -21,8 +21,8 @@ from app.memory.session_memory import SessionMemory
 # ── LLM Instances ──────────────────────────────────────────────────────────────
 interview_llm = ChatGoogleGenerativeAI(
     google_api_key=settings.GEMINI_API_KEY,
-    model="gemini-2.5-flash",  # Using stable version
-    temperature=0.2,
+    model="gemini-2.5-flash",
+    temperature=0.4,  # Increased from 0.2 — more natural conversational questions
     response_mime_type="application/json",
 )
 
@@ -32,6 +32,88 @@ jd_llm = ChatGoogleGenerativeAI(
     temperature=0.1,
     response_mime_type="application/json",
 )
+
+# ── Soft skill blocklist — never allow these in skills[] ──────────────────────
+_SOFT_SKILL_PATTERNS = {
+    "communication",
+    "teamwork",
+    "collaboration",
+    "leadership",
+    "adaptability",
+    "problem solving",
+    "problem-solving",
+    "critical thinking",
+    "attention to detail",
+    "time management",
+    "interpersonal",
+    "result-oriented",
+    "results-oriented",
+    "self-starter",
+    "proactive",
+    "detail-oriented",
+    "organised",
+    "organized",
+    "motivated",
+    "analytical",
+    "analytical thinking",
+    "strategic thinking",
+    "decision making",
+    "decision-making",
+    "multitasking",
+    "multi-tasking",
+    "fast learner",
+    "quick learner",
+    "adaptive",
+    "agile mindset",
+    "growth mindset",
+    "self-motivated",
+    "team player",
+    "strong work ethic",
+    "positive attitude",
+    "creative thinking",
+    "innovative",
+    "flexibility",
+    "flexible",
+    "dependable",
+    "reliable",
+    "responsible",
+    "hardworking",
+    "hard working",
+    "dedicated",
+    "passionate",
+    "enthusiastic",
+    "ambitious",
+    "goal-oriented",
+    "goal oriented",
+    "results driven",
+    "results-driven",
+    "customer focused",
+    "customer-focused",
+}
+
+
+def sanitise_skills(skills: list) -> list:
+    """
+    Remove soft skills, vague traits, and personality descriptions from a skills list.
+    Only keep technical domain skills, hard professional skills, and tools/platforms.
+    """
+    if not skills:
+        return []
+    clean = []
+    for s in skills:
+        if not isinstance(s, str):
+            continue
+        stripped = s.strip()
+        lower = stripped.lower()
+        # Skip empty or very short strings
+        if len(lower) < 4:
+            continue
+        # Skip if it contains any soft-skill pattern
+        if any(pattern in lower for pattern in _SOFT_SKILL_PATTERNS):
+            continue
+        clean.append(stripped)
+    return clean
+
 
 # ── Utilities ──────────────────────────────────────────────────────────────────
 
@@ -108,7 +190,6 @@ def deep_merge(base: dict, incoming: dict) -> dict:
 
 
 def update_summary(memory: SessionMemory):
-    # Use full_history length — recent_messages is always capped so this was always True
     if len(memory.full_history) >= 4:
         memory.summary = "Conversation collected employee role responsibilities, tools, and workflow insights."
 
@@ -161,12 +242,8 @@ def wrap_plain_text_into_json(
     insights_dict = safe_to_dict(session_memory.insights)
     progress_dict = safe_to_dict(session_memory.progress)
 
-    # ── CRITICAL FIX: If plain_text is actually a JSON blob (parsing failed upstream),
-    # try one more time to extract conversation_response from it before wrapping as text.
-    # This prevents the raw JSON from leaking into the conversation_response field.
     stripped = plain_text.strip()
 
-    # FIX: Check if LLM output JSON properties but omitted the outer braces {}
     if not stripped.startswith("{") and '"conversation_response"' in stripped:
         stripped = stripped.rstrip(", \r\n\t")
         stripped = "{\n" + stripped + "\n}"
@@ -175,11 +252,7 @@ def wrap_plain_text_into_json(
         try:
             candidate = json.loads(stripped)
             if "conversation_response" in candidate:
-                print(
-                    "   ✅ wrap_plain_text_into_json: rescued conversation_response from raw JSON blob"
-                )
                 conversation_text = candidate["conversation_response"]
-                # Merge insights if present
                 if "employee_role_insights" in candidate and isinstance(
                     candidate["employee_role_insights"], dict
                 ):
@@ -188,7 +261,6 @@ def wrap_plain_text_into_json(
                     )
                 if "progress" in candidate and isinstance(candidate["progress"], dict):
                     progress_dict = deep_merge(progress_dict, candidate["progress"])
-                # Rebuild properly
                 wrapped = {
                     "conversation_response": conversation_text,
                     "progress": progress_dict
@@ -218,17 +290,12 @@ def wrap_plain_text_into_json(
                 wrapped_str = json.dumps(wrapped, indent=2)
                 return wrapped, wrapped_str
         except (json.JSONDecodeError, TypeError):
-            # Try extracting the JSON block from within the text
             block = extract_json_block(stripped)
             if block:
                 try:
                     candidate = json.loads(block)
                     if "conversation_response" in candidate:
-                        print(
-                            "   ✅ wrap_plain_text_into_json: rescued conversation_response from embedded JSON block"
-                        )
                         conversation_text = candidate["conversation_response"]
-                        # Preserve progress if not in block
                         p_block = candidate.get("progress")
                         if not p_block or not p_block.get("completion_percentage"):
                             p_block = progress_dict or {
@@ -236,7 +303,6 @@ def wrap_plain_text_into_json(
                                 "missing_insight_areas": [],
                                 "status": "collecting",
                             }
-
                         wrapped = {
                             "conversation_response": conversation_text,
                             "progress": p_block,
@@ -309,14 +375,15 @@ def wrap_plain_text_into_json(
 def parse_llm_response(
     raw_content: str, session_memory: SessionMemory = None
 ) -> tuple[dict, str]:
-    # Strategy 1: clean markdown fences + think tags, parse directly
     cleaned = clean_json_string(raw_content)
     if cleaned:
         try:
             parsed = json.loads(cleaned)
             if "conversation_response" in parsed:
-                # ✅ NEW Strategy: Check for skills in insights if top-level suggested_skills is missing
-                if not parsed.get("suggested_skills") and "employee_role_insights" in parsed:
+                if (
+                    not parsed.get("suggested_skills")
+                    and "employee_role_insights" in parsed
+                ):
                     insights = parsed["employee_role_insights"]
                     if isinstance(insights, dict):
                         skills = insights.get("skills", [])
@@ -327,7 +394,6 @@ def parse_llm_response(
         except json.JSONDecodeError:
             pass
 
-    # Strategy 2: extract JSON block from cleaned string
     extracted = extract_json_block(cleaned)
     if extracted:
         try:
@@ -337,7 +403,6 @@ def parse_llm_response(
         except json.JSONDecodeError:
             pass
 
-    # Strategy 3: remove think tags first, then extract JSON block
     no_think = remove_think_tags(raw_content)
     extracted2 = extract_json_block(no_think)
     if extracted2:
@@ -348,7 +413,6 @@ def parse_llm_response(
         except json.JSONDecodeError:
             pass
 
-    # Strategy 4: aggressively scan for any valid JSON object in the text
     no_think_clean = clean_json_string(no_think)
     for attempt in [no_think_clean, no_think, raw_content]:
         start = 0
@@ -356,7 +420,6 @@ def parse_llm_response(
             idx = attempt.find("{", start)
             if idx == -1:
                 break
-            # Try parsing from each { to find a complete valid JSON
             for end_idx in range(len(attempt), idx, -1):
                 try:
                     candidate = json.loads(attempt[idx:end_idx])
@@ -370,19 +433,16 @@ def parse_llm_response(
                     continue
             start = idx + 1
 
-    # Strategy 5: fallback — wrap whatever text we have
     plain_text = remove_think_tags(raw_content).strip()
     if plain_text and session_memory is not None:
-        print(
-            f"   ⚠️ parse_llm_response falling back to wrap_plain_text — first 100 chars: {plain_text[:100]}"
-        )
         return wrap_plain_text_into_json(plain_text, session_memory)
 
     raise ValueError(f"All JSON extraction strategies failed. Raw: {raw_content[:200]}")
 
 
 # ── JD Generation ──────────────────────────────────────────────────────────────
-# getting the structed data of the employee whole conversation
+
+
 def build_markdown_from_structured(structured: dict) -> str:
     """Standardized markdown generator for Pulse Pharma template."""
     emp = structured.get("employee_information", {})
@@ -458,23 +518,17 @@ def build_markdown_from_structured(structured: dict) -> str:
     return "\n".join(lines)
 
 
-# This is where the jd is generated to save in the database
 async def handle_jd_generation(session_memory: SessionMemory) -> dict:
     """
     Dedicated JD generation — called ONLY from POST /jd/generate endpoint.
-    Never triggered from chat turns.
-    Returns: { jd_text, jd_structured, status }
     """
-    print("\n[JD Generation] 🎯 STARTED")
+    print("\n[JD Generation] STARTED")
 
     insights_dict = safe_to_dict(session_memory.insights)
-
-    # for k, v in insights_dict.items():
 
     if not insights_dict:
         raise ValueError("No insights collected yet. Complete the interview first.")
 
-    # ── Call JD LLM ────────────────────────────────────────────────────────────
     messages = [
         SystemMessage(content=JD_GENERATION_PROMPT),
         HumanMessage(
@@ -487,42 +541,42 @@ async def handle_jd_generation(session_memory: SessionMemory) -> dict:
                 "   'jd_text_format'     — complete JD as a clean markdown string\n"
                 "3. jd_structured_data must NOT be empty {} — populate every field.\n"
                 "4. jd_text_format must be clean markdown starting with '# Job Description:'\n"
-                "   IMPORTANT: You must escape all newlines as \\n within the JSON string. Do NOT use literal (raw) newlines inside the JSON values!\n"
-                "   It must NOT be a JSON dump or contain raw field names.\n\n"
+                "   IMPORTANT: Escape all newlines as \\n within the JSON string.\n\n"
                 "Employee Role Intelligence:\n"
                 f"{json.dumps(insights_dict, indent=2)}"
             )
         ),
     ]
 
-    print("\n🤖 CALLING JD LLM...")
+    print("\n CALLING JD LLM...")
     try:
         response = await jd_llm.ainvoke(messages)
     except Exception as e:
         err_msg = str(e)
-        if "429" in err_msg or "quota" in err_msg.lower() or "resource_exhausted" in err_msg.lower():
-            raise HTTPException(status_code=429, detail="Gemini API Quota Exceeded. Please try again in 30 seconds.")
+        if (
+            "429" in err_msg
+            or "quota" in err_msg.lower()
+            or "resource_exhausted" in err_msg.lower()
+        ):
+            raise HTTPException(
+                status_code=429,
+                detail="Gemini API Quota Exceeded. Please try again in 30 seconds.",
+            )
         raise e
 
     raw = strip_reasoning_tags(response.content)
 
-    # ── Parse response ─────────────────────────────────────────────────────────
     structured = {}
     jd_text = ""
 
-    # Strategy 1: extract JSON block and parse
     cleaned = clean_json_string(raw)
     block = extract_json_block(cleaned) or extract_json_block(remove_think_tags(raw))
-
-    print(f"[JD Generation] Strategy 1 — JSON block extraction (found: {bool(block)})")
 
     if block:
         try:
             parsed = json.loads(block, strict=False)
-            # Extract jd_structured_data
             structured = parsed.get("jd_structured_data") or {}
 
-            # If LLM returned structured fields at top level (no nesting)
             if not structured:
                 jd_keys = {
                     "employee_information",
@@ -537,14 +591,9 @@ async def handle_jd_generation(session_memory: SessionMemory) -> dict:
                 }
                 if any(k in parsed for k in jd_keys):
                     structured = {k: parsed[k] for k in jd_keys if k in parsed}
-                    print(
-                        f"   ⚠️  Collected top-level structured fields: {list(structured.keys())}"
-                    )
 
-            # Extract jd_text_format
             jd_text = parsed.get("jd_text_format", "")
 
-            # Try fallback keys
             if not jd_text:
                 for key in (
                     "jd_text",
@@ -555,50 +604,35 @@ async def handle_jd_generation(session_memory: SessionMemory) -> dict:
                 ):
                     if parsed.get(key) and isinstance(parsed[key], str):
                         jd_text = parsed[key]
-                        print(f"   ⚠️  Found jd_text_format under key '{key}'")
                         break
 
-            # Discard if jd_text is a data dump
             garbage_starts = ("jd_structured_data", "employee_information name")
             if jd_text and any(jd_text.strip().startswith(g) for g in garbage_starts):
-                print("   ⚠️  jd_text_format looks like a data dump — discarding")
                 jd_text = ""
 
         except json.JSONDecodeError as e:
-            print(f"[JD Generation] ❌ JSON parse failed: {e}")
+            print(f"[JD Generation] JSON parse failed: {e}")
 
-    # Strategy 2: raw output is pure markdown or unstructured text
     if not jd_text and not structured:
         clean_raw = remove_think_tags(raw).strip()
         if len(clean_raw) > 100:
-            print("\n🔧 PARSING STRATEGY 2 — Fallback to raw text as markdown")
             jd_text = clean_raw
 
-    # Strategy 3: reconstruct markdown from structured
     if structured and not jd_text:
-        print(
-            "\n🔧 PARSING STRATEGY 3 — Reconstructing markdown"
-        )  # Build markdown for UI
-        md = build_markdown_from_structured(structured)
-        jd_text = md
-
-    print(
-        f"[JD Generation] 📋 FINAL RESULT | structured keys: {len(list(structured.keys()))} | text length: {len(jd_text)}"
-    )
+        jd_text = build_markdown_from_structured(structured)
 
     if not jd_text and not structured:
         raise ValueError(
             "JD generation produced no output. Check LLM response in logs above."
         )
 
-    # ── Store in session memory ────────────────────────────────────────────────
     if jd_text:
         session_memory.generated_jd = jd_text
     if structured:
         session_memory.jd_structured = structured
 
     session_memory.progress["status"] = "jd_generated"
-    print("[JD Generation] ✅ Completed")
+    print("[JD Generation] Completed")
 
     return {
         "jd_text": jd_text,
@@ -613,17 +647,16 @@ async def handle_jd_generation(session_memory: SessionMemory) -> dict:
 async def handle_conversation(
     history: list, user_message: str, session_memory: SessionMemory
 ):
-    print("\n[Interview] 🚀 TURN STARTED")
+    print("\n[Interview] TURN STARTED")
 
     msgs = build_context(session_memory, user_message)
 
     try:
-        # Use ainvoke for true asynchrony and simultaneous user support
         response = await interview_llm.ainvoke(msgs)
         raw_content = strip_reasoning_tags(response.content)
     except Exception as e:
         error_str = str(e).lower()
-        print(f"❌ LLM ERROR: {e}")
+        print(f"LLM ERROR: {e}")
         if "rate limit" in error_str or "429" in error_str or "exhausted" in error_str:
             raise HTTPException(status_code=429, detail="Rate limit exceeded")
         raise HTTPException(status_code=500, detail="Internal LLM Error")
@@ -634,19 +667,21 @@ async def handle_conversation(
         parsed_json, cleaned_content = parse_llm_response(raw_content, session_memory)
         validated = ChatResponse(**parsed_json)
 
-        # Deep merge insights
+        # Deep merge insights then sanitise skills
         llm_insights = validated.employee_role_insights.model_dump()
         existing_insights = safe_to_dict(session_memory.insights)
         merged_insights = deep_merge(existing_insights, llm_insights)
+
+        # Sanitise skills — remove soft skills
+        if "skills" in merged_insights and isinstance(merged_insights["skills"], list):
+            merged_insights["skills"] = sanitise_skills(merged_insights["skills"])
+
         session_memory.insights = merged_insights
 
-        # Update progress carefully — don't overwrite with 0 if LLM failed to return progress
         current_percentage = session_memory.progress.get("completion_percentage", 0)
         new_percentage = validated.progress.completion_percentage
         current_status = session_memory.progress.get("status", "collecting")
 
-        # Never let status go backwards (ready_for_generation → collecting)
-        # Never let percentage drop more than 10 points (LLM miscalculation)
         status_priority = {
             "collecting": 0,
             "ready_for_generation": 1,
@@ -659,166 +694,18 @@ async def handle_conversation(
         if new_percentage > current_percentage or not session_memory.progress:
             session_memory.progress = validated.progress.model_dump()
         elif new_priority > current_priority:
-            # Status advanced (e.g. collecting → ready_for_generation) — always accept
             session_memory.progress = validated.progress.model_dump()
         else:
-            # Keep the higher percentage but update missing areas only if
-            # status hasn't reached ready_for_generation yet
             session_memory.progress["status"] = max(
                 current_status,
                 validated.progress.status,
                 key=lambda s: status_priority.get(s, 0),
             )
             if current_status != "ready_for_generation":
-                # Only update missing areas before ready state
-                # After ready, clearing missing_insight_areas stops re-asking
                 session_memory.progress["missing_insight_areas"] = (
                     validated.progress.missing_insight_areas
                 )
             else:
-                # Already ready — wipe missing areas so LLM stops re-asking
-                session_memory.progress["missing_insight_areas"] = []
-            parsed_json["progress"] = session_memory.progress
-
-        session_memory.progress.get("status", "collecting")
-
-        # ── SAFETY GUARD: Ensure conversation_response is clean human-readable text
-        # If it somehow contains JSON structure, extract the inner text
-        conv_resp = parsed_json.get("conversation_response", "")
-        if conv_resp and (
-            conv_resp.strip().startswith("{") or "conversation_response" in conv_resp
-        ):
-            try:
-                inner = json.loads(conv_resp)
-                if "conversation_response" in inner:
-                    parsed_json["conversation_response"] = inner[
-                        "conversation_response"
-                    ]
-            except (json.JSONDecodeError, TypeError):
-                pass
-
-        # Store plain conversation text in history only
-        assistant_text = validated.conversation_response.strip()
-        import re
-
-        assistant_text = re.sub(r"\n{3,}", "\n\n", assistant_text)
-
-        assistant_history_entry = json.dumps({"conversation_response": assistant_text})
-        session_memory.update_recent("user", user_message)
-        session_memory.update_recent("assistant", assistant_history_entry)
-        update_summary(session_memory)
-
-        # Interview only — JD generation is via POST /jd/generate endpoint
-        # Interview only — JD generation is via POST /jd/generate endpoint
-        parsed_json["employee_role_insights"] = merged_insights
-        parsed_json["jd_structured_data"] = {}
-        parsed_json["jd_text_format"] = ""
-        # DO NOT wipe suggested_skills here — frontend needs it to show skill chips
-        # It is already correctly set by the LLM only when status=ready_for_generation
-
-        reply_content = json.dumps(parsed_json, indent=2)
-
-        # Store assistant turn with status metadata so context_builder
-        # can remind the LLM what it already collected
-        assistant_history_entry = json.dumps(
-            {
-                "conversation_response": validated.conversation_response.strip(),
-                "progress": parsed_json.get("progress", {}),
-                "suggested_skills": parsed_json.get("suggested_skills", []),
-            }
-        )
-        session_memory.update_recent("user", user_message)
-        session_memory.update_recent("assistant", assistant_history_entry)
-        update_summary(session_memory)
-
-        history.append({"role": "user", "content": user_message})
-        history.append({"role": "assistant", "content": reply_content})
-
-    except Exception as e:
-        print(f"⚠️ PROCESSING ERROR: {e}")
-        import traceback
-
-        traceback.print_exc()
-        reply_content = build_fallback_response(session_memory)
-        history.append({"role": "user", "content": user_message})
-        history.append({"role": "assistant", "content": reply_content})
-
-    print("[Interview] ✅ TURN COMPLETED\n")
-
-    return reply_content, history
-
-
-async def handle_conversation_stream(
-    history: list, user_message: str, session_memory: SessionMemory
-):
-    print("\n[Interview Stream] 🚀 TURN STARTED")
-
-    msgs = build_context(session_memory, user_message)
-
-    try:
-        raw_content = ""
-        last_extracted_text = ""
-
-        async for chunk in interview_llm.astream(msgs):
-            if chunk.content:
-                raw_content += chunk.content
-                # Strip think tags before trying to extract to ensure we get actual response
-                no_think_raw = remove_think_tags(raw_content)
-                current_text = extract_streaming_text(no_think_raw)
-
-                # Yield text delta
-                if current_text and current_text != last_extracted_text:
-                    yield f"data: {json.dumps({'type': 'chunk', 'content': current_text})}\n\n"
-                    last_extracted_text = current_text
-                    # Small sleep to provide a steady stream for the frontend typewriter to catch up to
-                    await asyncio.sleep(0.03)
-
-        # ── Parsing the fully accumulated string ──────────────────────────────────
-        raw_content = strip_reasoning_tags(raw_content)
-        parsed_json, _ = parse_llm_response(raw_content, session_memory)
-        validated = ChatResponse(**parsed_json)
-
-        llm_insights = validated.employee_role_insights.model_dump()
-        existing_insights = safe_to_dict(session_memory.insights)
-        merged_insights = deep_merge(existing_insights, llm_insights)
-        session_memory.insights = merged_insights
-
-        current_percentage = session_memory.progress.get("completion_percentage", 0)
-        new_percentage = validated.progress.completion_percentage
-        current_status = session_memory.progress.get("status", "collecting")
-
-        # Never let status go backwards (ready_for_generation → collecting)
-        # Never let percentage drop more than 10 points (LLM miscalculation)
-        status_priority = {
-            "collecting": 0,
-            "ready_for_generation": 1,
-            "jd_generated": 2,
-            "approved": 3,
-        }
-        current_priority = status_priority.get(current_status, 0)
-        new_priority = status_priority.get(validated.progress.status, 0)
-
-        if new_percentage > current_percentage or not session_memory.progress:
-            session_memory.progress = validated.progress.model_dump()
-        elif new_priority > current_priority:
-            # Status advanced (e.g. collecting → ready_for_generation) — always accept
-            session_memory.progress = validated.progress.model_dump()
-        else:
-            # Keep the higher percentage but update missing areas only if
-            # status hasn't reached ready_for_generation yet
-            session_memory.progress["status"] = max(
-                current_status,
-                validated.progress.status,
-                key=lambda s: status_priority.get(s, 0),
-            )
-            if current_status != "ready_for_generation":
-                # Only update missing areas before ready state
-                # After ready, clearing missing_insight_areas stops re-asking
-                session_memory.progress["missing_insight_areas"] = (
-                    validated.progress.missing_insight_areas
-                )
-            else:
-                # Already ready — wipe missing areas so LLM stops re-asking
                 session_memory.progress["missing_insight_areas"] = []
             parsed_json["progress"] = session_memory.progress
 
@@ -838,7 +725,6 @@ async def handle_conversation_stream(
         assistant_text = validated.conversation_response.strip()
         assistant_text = re.sub(r"\n{3,}", "\n\n", assistant_text)
 
-        # Store progress + skills in history so context_builder can remind the LLM
         assistant_history_entry = json.dumps(
             {
                 "conversation_response": assistant_text,
@@ -853,26 +739,152 @@ async def handle_conversation_stream(
         parsed_json["employee_role_insights"] = merged_insights
         parsed_json["jd_structured_data"] = {}
         parsed_json["jd_text_format"] = ""
-        # ── Final Fallback: Ensure skills are present ONLY if not already confirmed ──
-        history_text = " ".join([m.get("content", "") for m in session_memory.full_history if m.get("role") == "user"]).lower()
+
+        reply_content = json.dumps(parsed_json, indent=2)
+
+        history.append({"role": "user", "content": user_message})
+        history.append({"role": "assistant", "content": reply_content})
+
+    except Exception as e:
+        print(f"PROCESSING ERROR: {e}")
+        import traceback
+
+        traceback.print_exc()
+        reply_content = build_fallback_response(session_memory)
+        history.append({"role": "user", "content": user_message})
+        history.append({"role": "assistant", "content": reply_content})
+
+    print("[Interview] TURN COMPLETED\n")
+    return reply_content, history
+
+
+async def handle_conversation_stream(
+    history: list, user_message: str, session_memory: SessionMemory
+):
+    print("\n[Interview Stream] TURN STARTED")
+
+    msgs = build_context(session_memory, user_message)
+
+    try:
+        raw_content = ""
+        last_extracted_text = ""
+
+        async for chunk in interview_llm.astream(msgs):
+            if chunk.content:
+                raw_content += chunk.content
+                no_think_raw = remove_think_tags(raw_content)
+                current_text = extract_streaming_text(no_think_raw)
+
+                if current_text and current_text != last_extracted_text:
+                    yield f"data: {json.dumps({'type': 'chunk', 'content': current_text})}\n\n"
+                    last_extracted_text = current_text
+                    await asyncio.sleep(0.03)
+
+        raw_content = strip_reasoning_tags(raw_content)
+        parsed_json, _ = parse_llm_response(raw_content, session_memory)
+        validated = ChatResponse(**parsed_json)
+
+        llm_insights = validated.employee_role_insights.model_dump()
+        existing_insights = safe_to_dict(session_memory.insights)
+        merged_insights = deep_merge(existing_insights, llm_insights)
+
+        # Sanitise skills — remove soft skills
+        if "skills" in merged_insights and isinstance(merged_insights["skills"], list):
+            merged_insights["skills"] = sanitise_skills(merged_insights["skills"])
+
+        session_memory.insights = merged_insights
+
+        current_percentage = session_memory.progress.get("completion_percentage", 0)
+        new_percentage = validated.progress.completion_percentage
+        current_status = session_memory.progress.get("status", "collecting")
+
+        status_priority = {
+            "collecting": 0,
+            "ready_for_generation": 1,
+            "jd_generated": 2,
+            "approved": 3,
+        }
+        current_priority = status_priority.get(current_status, 0)
+        new_priority = status_priority.get(validated.progress.status, 0)
+
+        if new_percentage > current_percentage or not session_memory.progress:
+            session_memory.progress = validated.progress.model_dump()
+        elif new_priority > current_priority:
+            session_memory.progress = validated.progress.model_dump()
+        else:
+            session_memory.progress["status"] = max(
+                current_status,
+                validated.progress.status,
+                key=lambda s: status_priority.get(s, 0),
+            )
+            if current_status != "ready_for_generation":
+                session_memory.progress["missing_insight_areas"] = (
+                    validated.progress.missing_insight_areas
+                )
+            else:
+                session_memory.progress["missing_insight_areas"] = []
+            parsed_json["progress"] = session_memory.progress
+
+        conv_resp = parsed_json.get("conversation_response", "")
+        if conv_resp and (
+            conv_resp.strip().startswith("{") or "conversation_response" in conv_resp
+        ):
+            try:
+                inner = json.loads(conv_resp)
+                if "conversation_response" in inner:
+                    parsed_json["conversation_response"] = inner[
+                        "conversation_response"
+                    ]
+            except (json.JSONDecodeError, TypeError):
+                pass
+
+        assistant_text = validated.conversation_response.strip()
+        assistant_text = re.sub(r"\n{3,}", "\n\n", assistant_text)
+
+        assistant_history_entry = json.dumps(
+            {
+                "conversation_response": assistant_text,
+                "progress": parsed_json.get("progress", {}),
+                "suggested_skills": parsed_json.get("suggested_skills", []),
+            }
+        )
+        session_memory.update_recent("user", user_message)
+        session_memory.update_recent("assistant", assistant_history_entry)
+        update_summary(session_memory)
+
+        parsed_json["employee_role_insights"] = merged_insights
+        parsed_json["jd_structured_data"] = {}
+        parsed_json["jd_text_format"] = ""
+
+        history_text = " ".join(
+            [
+                m.get("content", "")
+                for m in session_memory.full_history
+                if m.get("role") == "user"
+            ]
+        ).lower()
         full_check_text = f"{history_text} {user_message.lower()}"
-        is_ready_status = session_memory.progress.get("status") == "ready_for_generation"
-        skills_confirmed = "confirm these required skills" in full_check_text or "confirm" in full_check_text or is_ready_status
-        
+        is_ready_status = (
+            session_memory.progress.get("status") == "ready_for_generation"
+        )
+        skills_confirmed = (
+            "confirm these required skills" in full_check_text
+            or "confirm" in full_check_text
+            or is_ready_status
+        )
+
         if (
             session_memory.progress.get("status") == "ready_for_generation"
             and not parsed_json.get("suggested_skills")
             and not skills_confirmed
         ):
-            # If the LLM didn't provide them in this turn's JSON, pull from accumulated memory
             mem_skills = merged_insights.get("skills", [])
             mem_tools = merged_insights.get("tools", [])
             if isinstance(mem_skills, list) and isinstance(mem_tools, list):
-                parsed_json["suggested_skills"] = list(set(mem_skills + mem_tools))
+                # Sanitise before surfacing to frontend
+                combined = sanitise_skills(list(set(mem_skills + mem_tools)))
+                parsed_json["suggested_skills"] = combined
 
-        # DO NOT wipe suggested_skills — frontend needs it for skill chips
-
-        # Yield final completed JSON for frontend to finalize state
         yield f"data: {json.dumps({'type': 'done', 'parsed': parsed_json})}\n\n"
 
         history.append({"role": "user", "content": user_message})
@@ -882,12 +894,16 @@ async def handle_conversation_stream(
 
     except Exception as e:
         error_msg = str(e)
-        print(f"⚠️ STREAM PROCESSING ERROR: {error_msg}")
+        print(f"STREAM PROCESSING ERROR: {error_msg}")
         import traceback
+
         traceback.print_exc()
 
-        # Detect Rate Limit / Quota issues (Gemini 429)
-        is_rate_limit = "429" in error_msg or "quota" in error_msg.lower() or "resource_exhausted" in error_msg.lower()
+        is_rate_limit = (
+            "429" in error_msg
+            or "quota" in error_msg.lower()
+            or "resource_exhausted" in error_msg.lower()
+        )
 
         try:
             fallback = json.loads(build_fallback_response(session_memory))
@@ -901,4 +917,4 @@ async def handle_conversation_stream(
                 payload["is_rate_limit"] = True
             yield f"data: {json.dumps(payload)}\n\n"
 
-    print("[Interview Stream] ✅ TURN COMPLETED\n")
+    print("[Interview Stream] TURN COMPLETED\n")

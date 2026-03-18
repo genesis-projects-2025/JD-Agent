@@ -100,14 +100,8 @@ def build_context(session_memory, user_message: str) -> list:
             "Keep status = ready_for_generation."
         )
     elif not missing:
-        history_text = " ".join(
-            [
-                m.get("content", "")
-                for m in session_memory.full_history
-                if m.get("role") == "user"
-            ]
-        ).lower()
-        full_check_text = f"{history_text} {user_message.lower()}"
+        # Use cached user history text instead of re-scanning full_history
+        full_check_text = f"{session_memory.user_history_text} {user_message.lower()}"
         is_ready_status = (
             session_memory.progress.get("status") == "ready_for_generation"
         )

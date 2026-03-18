@@ -1,10 +1,14 @@
 # backend/app/services/jd_service.py
-from fastapi import HTTPException
-import json
 import asyncio
+import json
+import logging
 import re
+import traceback
+
+from fastapi import HTTPException
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.messages import HumanMessage, SystemMessage
+
 from app.core.config import settings
 from app.prompts.jd_prompts import JD_GENERATION_PROMPT
 from app.schemas.jd_schema import (
@@ -17,6 +21,8 @@ from app.schemas.jd_schema import (
 from app.utils.text_utils import strip_reasoning_tags
 from app.services.context_builder import build_context
 from app.memory.session_memory import SessionMemory
+
+logger = logging.getLogger(__name__)
 
 # ── LLM Instances ──────────────────────────────────────────────────────────────
 interview_llm = ChatGoogleGenerativeAI(
@@ -32,6 +38,22 @@ jd_llm = ChatGoogleGenerativeAI(
     temperature=0.1,
     response_mime_type="application/json",
 )
+
+
+async def _invoke_with_retry(llm, messages, max_retries=2):
+    """Invoke LLM with exponential backoff on transient failures (429, 500)."""
+    for attempt in range(max_retries + 1):
+        try:
+            return await llm.ainvoke(messages)
+        except Exception as e:
+            err = str(e).lower()
+            is_retryable = "429" in err or "500" in err or "resource_exhausted" in err
+            if is_retryable and attempt < max_retries:
+                wait = 2 ** attempt  # 1s, 2s
+                logger.warning(f"LLM retry {attempt + 1}/{max_retries} after {wait}s: {e}")
+                await asyncio.sleep(wait)
+            else:
+                raise
 
 # ── Soft skill blocklist — never allow these in skills[] ──────────────────────
 _SOFT_SKILL_PATTERNS = {
@@ -116,6 +138,34 @@ def sanitise_skills(skills: list) -> list:
 
 
 # ── Utilities ──────────────────────────────────────────────────────────────────
+
+
+def _extract_balanced_json_blocks(text: str) -> list:
+    """Find balanced {} JSON blocks using stack-based bracket matching.
+    Returns candidate substrings from outermost to innermost, O(n) scan."""
+    blocks = []
+    stack = []
+    in_string = False
+    escape_next = False
+    for i, ch in enumerate(text):
+        if escape_next:
+            escape_next = False
+            continue
+        if ch == '\\':
+            escape_next = True
+            continue
+        if ch == '"':
+            in_string = not in_string
+            continue
+        if in_string:
+            continue
+        if ch == '{':
+            stack.append(i)
+        elif ch == '}' and stack:
+            start = stack.pop()
+            if not stack:  # outermost balanced block
+                blocks.append(text[start:i + 1])
+    return blocks
 
 
 def remove_think_tags(text: str) -> str:
@@ -415,23 +465,17 @@ def parse_llm_response(
 
     no_think_clean = clean_json_string(no_think)
     for attempt in [no_think_clean, no_think, raw_content]:
-        start = 0
-        while True:
-            idx = attempt.find("{", start)
-            if idx == -1:
-                break
-            for end_idx in range(len(attempt), idx, -1):
-                try:
-                    candidate = json.loads(attempt[idx:end_idx])
-                    if (
-                        isinstance(candidate, dict)
-                        and "conversation_response" in candidate
-                    ):
-                        candidate_str = json.dumps(candidate)
-                        return candidate, candidate_str
-                except json.JSONDecodeError:
-                    continue
-            start = idx + 1
+        # Bracket-matching: find balanced {} pairs and only try parsing those
+        for block in _extract_balanced_json_blocks(attempt):
+            try:
+                candidate = json.loads(block)
+                if (
+                    isinstance(candidate, dict)
+                    and "conversation_response" in candidate
+                ):
+                    return candidate, json.dumps(candidate, separators=(",", ":"))
+            except json.JSONDecodeError:
+                continue
 
     plain_text = remove_think_tags(raw_content).strip()
     if plain_text and session_memory is not None:
@@ -522,7 +566,7 @@ async def handle_jd_generation(session_memory: SessionMemory) -> dict:
     """
     Dedicated JD generation — called ONLY from POST /jd/generate endpoint.
     """
-    print("\n[JD Generation] STARTED")
+    logger.info("[JD Generation] STARTED")
 
     insights_dict = safe_to_dict(session_memory.insights)
 
@@ -548,9 +592,9 @@ async def handle_jd_generation(session_memory: SessionMemory) -> dict:
         ),
     ]
 
-    print("\n CALLING JD LLM...")
+    logger.info("Calling JD LLM...")
     try:
-        response = await jd_llm.ainvoke(messages)
+        response = await _invoke_with_retry(jd_llm, messages)
     except Exception as e:
         err_msg = str(e)
         if (
@@ -611,7 +655,7 @@ async def handle_jd_generation(session_memory: SessionMemory) -> dict:
                 jd_text = ""
 
         except json.JSONDecodeError as e:
-            print(f"[JD Generation] JSON parse failed: {e}")
+            logger.warning(f"JD Generation JSON parse failed: {e}")
 
     if not jd_text and not structured:
         clean_raw = remove_think_tags(raw).strip()
@@ -632,7 +676,7 @@ async def handle_jd_generation(session_memory: SessionMemory) -> dict:
         session_memory.jd_structured = structured
 
     session_memory.progress["status"] = "jd_generated"
-    print("[JD Generation] Completed")
+    logger.info("[JD Generation] Completed")
 
     return {
         "jd_text": jd_text,
@@ -647,16 +691,16 @@ async def handle_jd_generation(session_memory: SessionMemory) -> dict:
 async def handle_conversation(
     history: list, user_message: str, session_memory: SessionMemory
 ):
-    print("\n[Interview] TURN STARTED")
+    logger.info("[Interview] TURN STARTED")
 
     msgs = build_context(session_memory, user_message)
 
     try:
-        response = await interview_llm.ainvoke(msgs)
+        response = await _invoke_with_retry(interview_llm, msgs)
         raw_content = strip_reasoning_tags(response.content)
     except Exception as e:
         error_str = str(e).lower()
-        print(f"LLM ERROR: {e}")
+        logger.error(f"LLM invocation error: {e}")
         if "rate limit" in error_str or "429" in error_str or "exhausted" in error_str:
             raise HTTPException(status_code=429, detail="Rate limit exceeded")
         raise HTTPException(status_code=500, detail="Internal LLM Error")
@@ -740,28 +784,26 @@ async def handle_conversation(
         parsed_json["jd_structured_data"] = {}
         parsed_json["jd_text_format"] = ""
 
-        reply_content = json.dumps(parsed_json, indent=2)
+        reply_content = json.dumps(parsed_json, separators=(',', ':'))
 
         history.append({"role": "user", "content": user_message})
         history.append({"role": "assistant", "content": reply_content})
 
     except Exception as e:
-        print(f"PROCESSING ERROR: {e}")
-        import traceback
-
+        logger.error(f"Interview processing error: {e}")
         traceback.print_exc()
         reply_content = build_fallback_response(session_memory)
         history.append({"role": "user", "content": user_message})
         history.append({"role": "assistant", "content": reply_content})
 
-    print("[Interview] TURN COMPLETED\n")
+    logger.info("[Interview] TURN COMPLETED")
     return reply_content, history
 
 
 async def handle_conversation_stream(
     history: list, user_message: str, session_memory: SessionMemory
 ):
-    print("\n[Interview Stream] TURN STARTED")
+    logger.info("[Interview Stream] TURN STARTED")
 
     msgs = build_context(session_memory, user_message)
 
@@ -772,11 +814,13 @@ async def handle_conversation_stream(
         async for chunk in interview_llm.astream(msgs):
             if chunk.content:
                 raw_content += chunk.content
-                no_think_raw = remove_think_tags(raw_content)
-                current_text = extract_streaming_text(no_think_raw)
+                # Optimization: only process the tail (last 500 chars) for streaming extraction
+                tail = raw_content[-500:] if len(raw_content) > 500 else raw_content
+                no_think_tail = remove_think_tags(tail)
+                current_text = extract_streaming_text(no_think_tail)
 
                 if current_text and current_text != last_extracted_text:
-                    yield f"data: {json.dumps({'type': 'chunk', 'content': current_text})}\n\n"
+                    yield f"data: {json.dumps({'type': 'chunk', 'content': current_text}, separators=(',', ':'))}\n\n"
                     last_extracted_text = current_text
                     await asyncio.sleep(0.03)
 
@@ -856,14 +900,8 @@ async def handle_conversation_stream(
         parsed_json["jd_structured_data"] = {}
         parsed_json["jd_text_format"] = ""
 
-        history_text = " ".join(
-            [
-                m.get("content", "")
-                for m in session_memory.full_history
-                if m.get("role") == "user"
-            ]
-        ).lower()
-        full_check_text = f"{history_text} {user_message.lower()}"
+        # Use cached user history text instead of re-scanning full_history
+        full_check_text = f"{session_memory.user_history_text} {user_message.lower()}"
         is_ready_status = (
             session_memory.progress.get("status") == "ready_for_generation"
         )
@@ -889,14 +927,12 @@ async def handle_conversation_stream(
 
         history.append({"role": "user", "content": user_message})
         history.append(
-            {"role": "assistant", "content": json.dumps(parsed_json, indent=2)}
+            {"role": "assistant", "content": json.dumps(parsed_json, separators=(',', ':'))}
         )
 
     except Exception as e:
         error_msg = str(e)
-        print(f"STREAM PROCESSING ERROR: {error_msg}")
-        import traceback
-
+        logger.error(f"Stream processing error: {error_msg}")
         traceback.print_exc()
 
         is_rate_limit = (
@@ -917,4 +953,4 @@ async def handle_conversation_stream(
                 payload["is_rate_limit"] = True
             yield f"data: {json.dumps(payload)}\n\n"
 
-    print("[Interview Stream] TURN COMPLETED\n")
+    logger.info("[Interview Stream] TURN COMPLETED")

@@ -1,9 +1,10 @@
 from fastapi import APIRouter, Depends, HTTPException, Response
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
+import logging
 import re
 import json
-from app.services.docx_generator import generate_jd_docx
+import uuid
 from app.schemas.jd_schema import (
     ChatRequest,
     InitJDRequest,
@@ -38,8 +39,13 @@ from app.crud.jd_crud import (
     get_all_feedback_for_user,
     mark_feedback_read,
 )
-import uuid
-from app.core.cache import cached_response, invalidate_pattern
+from app.core.cache import cached_response, invalidate_pattern, get_cache, set_cache
+from app.services.docx_generator import generate_jd_docx
+
+logger = logging.getLogger(__name__)
+
+# Session cache TTL — 5 minutes for active interviews
+_SESSION_CACHE_TTL = 300
 
 router = APIRouter()
 
@@ -47,15 +53,62 @@ router = APIRouter()
 
 
 def get_or_create_session(session_id: str) -> SessionMemory:
-    print(f"🆕 Creating transient session object: {session_id}")
+    logger.debug(f"Creating transient session object: {session_id}")
     memory = SessionMemory()
     memory.id = session_id
     return memory
 
 
+def _session_to_cache_dict(memory: SessionMemory) -> dict:
+    """Serialize a SessionMemory to a cache-friendly dict."""
+    return {
+        "id": memory.id,
+        "employee_id": memory.employee_id,
+        "employee_name": memory.employee_name,
+        "insights": memory.insights,
+        "progress": memory.progress,
+        "generated_jd": memory.generated_jd,
+        "jd_structured": memory.jd_structured,
+        "recent_messages": memory.recent_messages,
+        "full_history": memory.full_history[-10:],  # Only cache recent turns
+    }
+
+
+def _session_from_cache_dict(data: dict) -> SessionMemory:
+    """Restore a SessionMemory from a cached dict."""
+    memory = SessionMemory()
+    memory.id = data.get("id")
+    memory.employee_id = data.get("employee_id")
+    memory.employee_name = data.get("employee_name")
+    memory.insights = data.get("insights", {})
+    memory.progress = data.get("progress", {})
+    memory.generated_jd = data.get("generated_jd")
+    memory.jd_structured = data.get("jd_structured")
+    history = data.get("full_history", [])
+    memory.load_history_from_db(history, llm_limit=10)
+    return memory
+
+
+async def _cache_session(memory: SessionMemory):
+    """Cache a hot session in Redis for fast retrieval."""
+    try:
+        await set_cache(
+            f"session:{memory.id}",
+            _session_to_cache_dict(memory),
+            ttl=_SESSION_CACHE_TTL,
+        )
+    except Exception:
+        pass  # Cache failures are non-critical
+
+
 async def hydrate_session_from_db(session_id: str, db: AsyncSession) -> SessionMemory:
-    print(f"Hydrating session {session_id} from DB...")
-    import uuid
+    # Try Redis cache first — ~1ms vs ~50-100ms for DB
+    cached = await get_cache(f"session:{session_id}")
+    if cached:
+        logger.debug(f"Session {session_id} loaded from Redis cache")
+        return _session_from_cache_dict(cached)
+
+    logger.debug(f"Hydrating session {session_id} from DB...")
     from sqlalchemy.future import select as fut_select
     from app.models.jd_session_model import JDSession, ConversationTurn
 
@@ -93,6 +146,9 @@ async def hydrate_session_from_db(session_id: str, db: AsyncSession) -> SessionM
         recent_turns = list(reversed(turns_result.scalars().all()))
         history = [{"role": t.role, "content": t.content} for t in recent_turns]
         memory.load_history_from_db(history, llm_limit=10)
+
+    # Cache for next request
+    await _cache_session(memory)
 
     return memory
 
@@ -210,6 +266,7 @@ async def chat(request: ChatRequest, db: AsyncSession = Depends(get_db)):
     )
 
     await invalidate_pattern(f"cache:jd_detail:*{session_id}*")
+    await _cache_session(session_memory)
 
     return {"reply": reply, "history": updated_history}
 
@@ -244,6 +301,7 @@ async def chat_stream(request: ChatRequest, db: AsyncSession = Depends(get_db)):
                 status=session_memory.progress.get("status"),
             )
             await invalidate_pattern(f"cache:jd_detail:*{session_id}*")
+            await _cache_session(session_memory)
         except Exception as e:
             yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
 

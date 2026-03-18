@@ -140,6 +140,34 @@ def sanitise_skills(skills: list) -> list:
 # ── Utilities ──────────────────────────────────────────────────────────────────
 
 
+def _extract_balanced_json_blocks(text: str) -> list:
+    """Find balanced {} JSON blocks using stack-based bracket matching.
+    Returns candidate substrings from outermost to innermost, O(n) scan."""
+    blocks = []
+    stack = []
+    in_string = False
+    escape_next = False
+    for i, ch in enumerate(text):
+        if escape_next:
+            escape_next = False
+            continue
+        if ch == '\\':
+            escape_next = True
+            continue
+        if ch == '"':
+            in_string = not in_string
+            continue
+        if in_string:
+            continue
+        if ch == '{':
+            stack.append(i)
+        elif ch == '}' and stack:
+            start = stack.pop()
+            if not stack:  # outermost balanced block
+                blocks.append(text[start:i + 1])
+    return blocks
+
+
 def remove_think_tags(text: str) -> str:
     cleaned = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL)
     cleaned = re.sub(r"<think>.*", "", cleaned, flags=re.DOTALL)
@@ -437,23 +465,17 @@ def parse_llm_response(
 
     no_think_clean = clean_json_string(no_think)
     for attempt in [no_think_clean, no_think, raw_content]:
-        start = 0
-        while True:
-            idx = attempt.find("{", start)
-            if idx == -1:
-                break
-            for end_idx in range(len(attempt), idx, -1):
-                try:
-                    candidate = json.loads(attempt[idx:end_idx])
-                    if (
-                        isinstance(candidate, dict)
-                        and "conversation_response" in candidate
-                    ):
-                        candidate_str = json.dumps(candidate)
-                        return candidate, candidate_str
-                except json.JSONDecodeError:
-                    continue
-            start = idx + 1
+        # Bracket-matching: find balanced {} pairs and only try parsing those
+        for block in _extract_balanced_json_blocks(attempt):
+            try:
+                candidate = json.loads(block)
+                if (
+                    isinstance(candidate, dict)
+                    and "conversation_response" in candidate
+                ):
+                    return candidate, json.dumps(candidate, separators=(",", ":"))
+            except json.JSONDecodeError:
+                continue
 
     plain_text = remove_think_tags(raw_content).strip()
     if plain_text and session_memory is not None:
@@ -762,7 +784,7 @@ async def handle_conversation(
         parsed_json["jd_structured_data"] = {}
         parsed_json["jd_text_format"] = ""
 
-        reply_content = json.dumps(parsed_json, indent=2)
+        reply_content = json.dumps(parsed_json, separators=(',', ':'))
 
         history.append({"role": "user", "content": user_message})
         history.append({"role": "assistant", "content": reply_content})
@@ -792,11 +814,13 @@ async def handle_conversation_stream(
         async for chunk in interview_llm.astream(msgs):
             if chunk.content:
                 raw_content += chunk.content
-                no_think_raw = remove_think_tags(raw_content)
-                current_text = extract_streaming_text(no_think_raw)
+                # Optimization: only process the tail (last 500 chars) for streaming extraction
+                tail = raw_content[-500:] if len(raw_content) > 500 else raw_content
+                no_think_tail = remove_think_tags(tail)
+                current_text = extract_streaming_text(no_think_tail)
 
                 if current_text and current_text != last_extracted_text:
-                    yield f"data: {json.dumps({'type': 'chunk', 'content': current_text})}\n\n"
+                    yield f"data: {json.dumps({'type': 'chunk', 'content': current_text}, separators=(',', ':'))}\n\n"
                     last_extracted_text = current_text
                     await asyncio.sleep(0.03)
 
@@ -876,14 +900,8 @@ async def handle_conversation_stream(
         parsed_json["jd_structured_data"] = {}
         parsed_json["jd_text_format"] = ""
 
-        history_text = " ".join(
-            [
-                m.get("content", "")
-                for m in session_memory.full_history
-                if m.get("role") == "user"
-            ]
-        ).lower()
-        full_check_text = f"{history_text} {user_message.lower()}"
+        # Use cached user history text instead of re-scanning full_history
+        full_check_text = f"{session_memory.user_history_text} {user_message.lower()}"
         is_ready_status = (
             session_memory.progress.get("status") == "ready_for_generation"
         )
@@ -909,7 +927,7 @@ async def handle_conversation_stream(
 
         history.append({"role": "user", "content": user_message})
         history.append(
-            {"role": "assistant", "content": json.dumps(parsed_json, indent=2)}
+            {"role": "assistant", "content": json.dumps(parsed_json, separators=(',', ':'))}
         )
 
     except Exception as e:

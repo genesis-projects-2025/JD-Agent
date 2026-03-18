@@ -23,6 +23,20 @@ class SessionMemory:
         self.generated_jd = None
         self.jd_structured = None
 
+        # Cached joined user-text for duplicate scan avoidance
+        self._user_history_text_cache = None
+
+    @property
+    def user_history_text(self) -> str:
+        """Cached lowercase join of all user messages. Avoids repeated O(n) scans."""
+        if self._user_history_text_cache is None:
+            self._user_history_text_cache = " ".join(
+                m.get("content", "")
+                for m in self.full_history
+                if m.get("role") == "user"
+            ).lower()
+        return self._user_history_text_cache
+
     def add_turn(self, role: str, content: str, llm_limit: int = 10):
         """
         Add one conversation turn.
@@ -34,6 +48,8 @@ class SessionMemory:
         self.full_history.append(turn)
         self.recent_messages.append(turn)
         self.recent_messages = self.recent_messages[-llm_limit:]
+        # Invalidate cached text when new turns are added
+        self._user_history_text_cache = None
 
     def update_recent(self, role: str, content: str, limit: int = 10):
         """
@@ -50,3 +66,4 @@ class SessionMemory:
         """
         self.full_history = list(db_history)
         self.recent_messages = db_history[-llm_limit:]
+        self._user_history_text_cache = None

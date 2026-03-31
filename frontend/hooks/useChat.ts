@@ -21,6 +21,8 @@ export function useChat(onSaveSuccess?: () => void, autoInit: boolean = true) {
   const [status, setStatus] = useState<string>("collecting");
   const [structuredData, setStructuredData] = useState<any>(null);
   const [insights, setInsights] = useState<any>(null);
+  const [currentAgent, setCurrentAgent] = useState<string>("BasicInfoAgent");
+  const [depthScores, setDepthScores] = useState<Record<string, number>>({});
   const [isSaving, setIsSaving] = useState(false);
   const [isGeneratingJD, setIsGeneratingJD] = useState(false);
   const [isRateLimited, setIsRateLimited] = useState(false);
@@ -64,9 +66,14 @@ export function useChat(onSaveSuccess?: () => void, autoInit: boolean = true) {
         : undefined;
 
     const newStatus = parsed.progress?.status ?? "collecting";
+    const agent = parsed.current_agent || parsed.progress?.current_agent || "BasicInfoAgent";
+    const scores = parsed.progress?.depth_scores || {};
 
     setProgress(parsed.progress?.completion_percentage ?? 0);
     setStatus(newStatus);
+    setCurrentAgent(agent);
+    setDepthScores(scores);
+    
     if (jdStructured && Object.keys(jdStructured).length > 0) {
       setStructuredData(jdStructured);
     }
@@ -77,13 +84,14 @@ export function useChat(onSaveSuccess?: () => void, autoInit: boolean = true) {
         ...prev,
         {
           sender: "agent",
-          text: parsed.conversation_response,
+          text: parsed.next_question,
           skills: suggestedSkills,
           isSkillSelection:
             newStatus === "ready_for_generation" &&
             !!suggestedSkills &&
             suggestedSkills.length > 0,
           isReadySelection: newStatus === "ready_for_generation",
+          currentAgent: agent,
         },
       ]);
     } else {
@@ -93,7 +101,7 @@ export function useChat(onSaveSuccess?: () => void, autoInit: boolean = true) {
         if (lastIdx >= 0 && newMessages[lastIdx].sender === "agent") {
           newMessages[lastIdx] = {
             ...newMessages[lastIdx],
-            text: parsed.conversation_response,
+            text: parsed.next_question,
             skills: suggestedSkills,
             isStreaming: false,
             isSkillSelection:
@@ -101,6 +109,7 @@ export function useChat(onSaveSuccess?: () => void, autoInit: boolean = true) {
               !!suggestedSkills &&
               suggestedSkills.length > 0,
             isReadySelection: newStatus === "ready_for_generation",
+            currentAgent: agent,
           };
         }
         return newMessages;
@@ -114,7 +123,7 @@ export function useChat(onSaveSuccess?: () => void, autoInit: boolean = true) {
     }
 
     if (newStatus === "jd_generated" || newStatus === "approved") {
-      const finalJD = parsed.jd_text_format || parsed.conversation_response;
+      const finalJD = parsed.jd_text_format || parsed.next_question;
       if (finalJD) setJd(finalJD);
     }
   };
@@ -140,6 +149,8 @@ export function useChat(onSaveSuccess?: () => void, autoInit: boolean = true) {
             const convState = existingData.conversation_state ?? {};
             const dbProgress: number = convState.completion_percentage ?? 0;
             const dbStatus: string = convState.status ?? "collecting";
+            const dbAgent: string = convState.current_agent || existingData.current_agent || "BasicInfoAgent";
+            const dbScores: Record<string, number> = convState.depth_scores || {};
 
             // Reconstruct chat messages from stored history
             const reconstructedMessages: Message[] = dbHistory.map((h: any) => {
@@ -152,11 +163,12 @@ export function useChat(onSaveSuccess?: () => void, autoInit: boolean = true) {
               let skills: string[] | undefined;
               let isSkillSelection = false;
               let isReadySelection = false;
+              let msgAgent = "BasicInfoAgent";
 
               try {
                 const parsed = JSON.parse(h.content);
                 // Never extract data dumps as conversation text
-                text = parsed.conversation_response ?? h.content;
+                text = parsed.next_question ?? h.content;
                 skills = parsed.suggested_skills;
                 isSkillSelection =
                   parsed.progress?.status === "ready_for_generation" &&
@@ -164,6 +176,7 @@ export function useChat(onSaveSuccess?: () => void, autoInit: boolean = true) {
                   skills.length > 0;
                 isReadySelection =
                   parsed.progress?.status === "ready_for_generation";
+                msgAgent = parsed.current_agent || parsed.progress?.current_agent || "BasicInfoAgent";
               } catch {
                 // Plain text — use as-is
               }
@@ -174,6 +187,7 @@ export function useChat(onSaveSuccess?: () => void, autoInit: boolean = true) {
                 skills,
                 isSkillSelection,
                 isReadySelection,
+                currentAgent: msgAgent,
               };
             });
 
@@ -181,6 +195,8 @@ export function useChat(onSaveSuccess?: () => void, autoInit: boolean = true) {
             updateHistory(dbHistory);
             setProgress(dbProgress);
             setStatus(dbStatus);
+            setCurrentAgent(dbAgent);
+            setDepthScores(dbScores);
             let initialJd = existingData.generated_jd ?? null;
             if (initialJd) {
               try {
@@ -234,7 +250,7 @@ export function useChat(onSaveSuccess?: () => void, autoInit: boolean = true) {
 
       setMessages((prev) => [
         ...prev,
-        { sender: "agent", text: "", isStreaming: true },
+        { sender: "agent", text: "", isStreaming: true, currentAgent: currentAgent },
       ]);
 
       await apiSendMessageStream(
@@ -250,6 +266,7 @@ export function useChat(onSaveSuccess?: () => void, autoInit: boolean = true) {
                 ...newMessages[lastIdx],
                 text: chunk,
                 isStreaming: true,
+                currentAgent: currentAgent,
               };
             }
             return newMessages;
@@ -306,6 +323,7 @@ export function useChat(onSaveSuccess?: () => void, autoInit: boolean = true) {
             sender: "agent",
             text: "Rate limit reached. Please wait a moment before continuing.",
             isRateLimitError: true,
+            currentAgent: currentAgent,
           },
         ]);
       } else {
@@ -314,6 +332,7 @@ export function useChat(onSaveSuccess?: () => void, autoInit: boolean = true) {
           {
             sender: "agent",
             text: "I'm having trouble connecting. Please try again.",
+            currentAgent: currentAgent,
           },
         ]);
       }
@@ -360,6 +379,7 @@ export function useChat(onSaveSuccess?: () => void, autoInit: boolean = true) {
           sender: "agent",
           text: "Your Job Description has been generated! Review it below and click 'Save JD' when you're ready.",
           isReadySelection: false,
+          currentAgent: "JDGeneratorAgent", // Explicitly set as generator here
         },
       ]);
     } catch (error: any) {
@@ -370,6 +390,7 @@ export function useChat(onSaveSuccess?: () => void, autoInit: boolean = true) {
         {
           sender: "agent",
           text: `Failed to generate JD: ${detail}`,
+          currentAgent: currentAgent,
         },
       ]);
     } finally {
@@ -453,6 +474,8 @@ export function useChat(onSaveSuccess?: () => void, autoInit: boolean = true) {
     status,
     structuredData,
     insights,
+    currentAgent,
+    depthScores,
     isRateLimited,
     retryTimer,
     hydrated, // ✅ NEW — use this in the chat page to show a loading skeleton

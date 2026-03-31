@@ -70,7 +70,9 @@ def _session_to_cache_dict(memory: SessionMemory) -> dict:
         "generated_jd": memory.generated_jd,
         "jd_structured": memory.jd_structured,
         "recent_messages": memory.recent_messages,
-        "full_history": memory.full_history[-10:],  # Only cache recent turns
+        "full_history": memory.full_history[-6:],  # Only cache recent turns
+        "current_phase": memory.current_phase,
+        "current_agent": memory.current_agent,
     }
 
 
@@ -84,8 +86,10 @@ def _session_from_cache_dict(data: dict) -> SessionMemory:
     memory.progress = data.get("progress", {})
     memory.generated_jd = data.get("generated_jd")
     memory.jd_structured = data.get("jd_structured")
+    memory.current_phase = data.get("current_phase", 1)
+    memory.current_agent = data.get("current_agent", "BasicInfoAgent")
     history = data.get("full_history", [])
-    memory.load_history_from_db(history, llm_limit=10)
+    memory.load_history_from_db(history, llm_limit=6)
     return memory
 
 
@@ -136,16 +140,18 @@ async def hydrate_session_from_db(session_id: str, db: AsyncSession) -> SessionM
         memory.progress = record.conversation_state or {}
         memory.generated_jd = record.jd_text
         memory.jd_structured = record.jd_structured
+        # Restore phase from stored progress state
+        memory.current_phase = (record.conversation_state or {}).get("current_phase", 1)
 
         turns_result = await db.execute(
             fut_select(ConversationTurn)
             .where(ConversationTurn.session_id == record.id)
             .order_by(ConversationTurn.turn_index.desc())
-            .limit(10)
+            .limit(6)
         )
         recent_turns = list(reversed(turns_result.scalars().all()))
         history = [{"role": t.role, "content": t.content} for t in recent_turns]
-        memory.load_history_from_db(history, llm_limit=10)
+        memory.load_history_from_db(history, llm_limit=6)
 
     # Cache for next request
     await _cache_session(memory)

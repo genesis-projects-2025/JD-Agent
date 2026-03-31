@@ -1,189 +1,116 @@
 # backend/app/services/context_builder.py
+#
+# Agent-aware context builder — sends ORCHESTRATOR_PROMPT + current agent prompt + relevant context.
+# FIXES:
+#   1. Identity context (title, dept, location, reports_to) injected explicitly
+#   2. Assistant history correctly reads "next_question" key (was "conversation_response")
 
 from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
-from app.prompts.jd_prompts import SYSTEM_PROMPT
+from app.prompts.jd_prompts import (
+    BASE_PROMPT, 
+    ORCHESTRATOR_PROMPT, 
+    BASIC_INFO_AGENT_PROMPT, 
+    TASK_AGENT_PROMPT, 
+    PRIORITY_AGENT_PROMPT,
+    WORKFLOW_DEEP_DIVE_AGENT_PROMPT, 
+    TOOLS_TECH_AGENT_PROMPT, 
+    SKILL_EXTRACTION_AGENT_PROMPT,
+    QUALIFICATION_AGENT_PROMPT
+)
 import json
 
-
-def _strip_empty(d):
-    """Remove null / empty values to keep the context lean."""
-    if isinstance(d, dict):
-        return {k: _strip_empty(v) for k, v in d.items() if v not in (None, {}, [], "")}
-    if isinstance(d, list):
-        return [_strip_empty(i) for i in d if i not in (None, {}, [], "")]
-    return d
-
+AGENT_PROMPTS = {
+    "BasicInfoAgent": BASIC_INFO_AGENT_PROMPT,
+    "TaskAgent": TASK_AGENT_PROMPT,
+    "PriorityAgent": PRIORITY_AGENT_PROMPT,
+    "WorkflowDeepDiveAgent": WORKFLOW_DEEP_DIVE_AGENT_PROMPT,
+    "ToolsTechAgent": TOOLS_TECH_AGENT_PROMPT,
+    "SkillExtractionAgent": SKILL_EXTRACTION_AGENT_PROMPT,
+    "QualificationAgent": QUALIFICATION_AGENT_PROMPT
+}
 
 def _compact_insights(insights: dict) -> dict:
-    """Return only non-empty fields, one level deep for nested dicts."""
+    """Return only non-empty fields."""
     if not isinstance(insights, dict):
         return {}
-    result = {}
-    for k, v in insights.items():
-        if v in (None, {}, [], ""):
-            continue
-        if isinstance(v, dict):
-            nested = {nk: nv for nk, nv in v.items() if nv not in (None, {}, [], "")}
-            if nested:
-                result[k] = nested
-        else:
-            result[k] = v
-    return result
+    return {k: v for k, v in insights.items() if v not in (None, {}, [], "")}
+
+
+def _build_identity_block(insights: dict) -> str:
+    """Build a pre-filled identity context block from init data."""
+    identity = insights.get("identity_context", {})
+    if not identity:
+        return ""
+    
+    lines = ["PRE-FILLED EMPLOYEE INFORMATION (already known — do NOT ask for these again):"]
+    field_map = {
+        "employee_name": "Employee Name",
+        "title": "Job Title / Designation",
+        "department": "Department",
+        "location": "Location",
+        "reports_to": "Reports To",
+        "email": "Email",
+        "phone": "Phone",
+        "date_of_joining": "Date of Joining",
+    }
+    for key, label in field_map.items():
+        val = identity.get(key)
+        if val:
+            lines.append(f"  - {label}: {val}")
+    
+    if len(lines) <= 1:
+        return ""
+    
+    lines.append("\nDo NOT ask the user for any of the above fields. They are already confirmed.")
+    return "\n".join(lines)
 
 
 def build_context(session_memory, user_message: str) -> list:
+    """Build the LLM message list for the current active agent."""
     messages = []
+    agent_name = session_memory.current_agent or "BasicInfoAgent"
 
-    # ── 1. System prompt ──────────────────────────────────────────────────────
-    messages.append(SystemMessage(content=SYSTEM_PROMPT))
+    # 1. Base Prompt & Orchestrator context
+    messages.append(SystemMessage(content=BASE_PROMPT))
+    messages.append(SystemMessage(content=ORCHESTRATOR_PROMPT))
 
-    # ── 2. Extract last user message for dynamic follow-up injection ──────────
-    last_user_msg = ""
-    for msg in reversed(session_memory.full_history):
-        if msg.get("role") == "user":
-            last_user_msg = msg.get("content", "")[:300]
-            break
+    # 2. Active Agent specific instructions
+    agent_prompt = AGENT_PROMPTS.get(agent_name, BASIC_INFO_AGENT_PROMPT)
+    messages.append(SystemMessage(content=f"CURRENT ACTIVE AGENT: {agent_name}\n{agent_prompt}"))
 
-    # ── 3. Compact accumulated data (only non-empty fields) ───────────────────
-    raw_insights = (
-        session_memory.insights if isinstance(session_memory.insights, dict) else {}
+    # 3. Inject Identity Context (pre-filled from DB/init)
+    raw_insights = session_memory.insights if isinstance(session_memory.insights, dict) else {}
+    identity_block = _build_identity_block(raw_insights)
+    if identity_block:
+        messages.append(SystemMessage(content=identity_block))
+
+    # 4. Inject Shared Memory (Global State)
+    compact_data = _compact_insights(raw_insights)
+    
+    state_msg = (
+        "SHARED MEMORY (Current State):\n"
+        f"{json.dumps(compact_data, indent=2)}\n\n"
+        f"AGENT GOAL: Extract and refine data for {agent_name} category. "
+        "Refer back to what they just said."
     )
-    progress = (
-        session_memory.progress if isinstance(session_memory.progress, dict) else {}
-    )
-    insights = _compact_insights(raw_insights)
+    messages.append(SystemMessage(content=state_msg))
 
-    # ── 4. Honest FILLED / MISSING check ─────────────────────────────────────
-    wr = insights.get("working_relationships", {})
-    if not isinstance(wr, dict):
-        wr = {}
-
-    def _filled(label: str, value) -> tuple:
-        ok = bool(value) and value not in ("", [], {})
-        return (label, ok)
-
-    checks = [
-        _filled("purpose", insights.get("purpose")),
-        _filled(
-            "responsibilities (need 8+)",
-            len(insights.get("responsibilities", [])) >= 8
-            if isinstance(insights.get("responsibilities"), list)
-            else False,
-        ),
-        _filled("reporting_to", wr.get("reporting_to")),
-        _filled("team_size", wr.get("team_size")),
-        _filled("internal_stakeholders", wr.get("internal_stakeholders")),
-        _filled("external_stakeholders", wr.get("external_stakeholders")),
-        _filled(
-            "skills (need 4+)",
-            len(insights.get("skills", [])) >= 4
-            if isinstance(insights.get("skills"), list)
-            else False,
-        ),
-        _filled("tools", insights.get("tools")),
-        _filled("education", insights.get("education")),
-        _filled("experience", insights.get("experience")),
-    ]
-
-    filled = [label for label, ok in checks if ok]
-    missing = [label for label, ok in checks if not ok]
-    current_status = progress.get("status", "collecting")
-
-    # ── 5. Build next action with dynamic follow-up ───────────────────────────
-    if current_status == "ready_for_generation":
-        next_action = (
-            "ALL fields collected. Status is ready_for_generation.\n"
-            "DO NOT ask any more data questions.\n"
-            "Ask the employee to confirm JD generation: "
-            "'I now have everything I need. Shall I generate your Job Description?'\n"
-            "Set suggested_skills to the full list from employee_role_insights.skills + tools.\n"
-            "Keep status = ready_for_generation."
-        )
-    elif not missing:
-        # Use cached user history text instead of re-scanning full_history
-        full_check_text = f"{session_memory.user_history_text} {user_message.lower()}"
-        is_ready_status = (
-            session_memory.progress.get("status") == "ready_for_generation"
-        )
-        skills_confirmed = (
-            "confirm these required skills" in full_check_text
-            or "confirm" in full_check_text
-            or is_ready_status
-        )
-        if not skills_confirmed:
-            next_action = (
-                "All fields are now filled. In your next response:\n"
-                "1. Set status = ready_for_generation\n"
-                "2. Provide the full list of suggested_skills (technical skills + tools only, NO soft skills)\n"
-                "3. Ask the employee to confirm if these skills are correct."
-            )
-        else:
-            next_action = (
-                "All fields filled and skills confirmed. In your next response:\n"
-                "1. Set status = ready_for_generation\n"
-                "2. Do NOT provide suggested_skills anymore\n"
-                "3. Ask the employee to confirm JD generation."
-            )
-    else:
-        first_missing = missing[0] if missing else "unknown"
-        if last_user_msg:
-            next_action = (
-                f"NEXT FIELD TO COLLECT: '{first_missing}'\n\n"
-                f'The user\'s last message was: "{last_user_msg}"\n\n'
-                f"IMPORTANT: Frame your question by referencing something SPECIFIC from what they just said above.\n"
-                f"Do NOT ask a generic template question — make it about THEIR specific context.\n"
-                f"Example: if they said 'I manage the PMT pipeline', ask about what handoff looks like in THEIR pipeline.\n"
-                f"Do NOT ask about anything already in FILLED below."
-            )
-        else:
-            next_action = (
-                f"NEXT FIELD TO COLLECT: '{first_missing}'\n"
-                f"Ask ONE focused question about this field."
-            )
-
-    status_note = (
-        f"FILLED  ({len(filled)}/10): {', '.join(filled) or 'nothing yet'}\n"
-        f"MISSING ({len(missing)}/10): {', '.join(missing) or 'all done!'}\n"
-        f"CURRENT STATUS: {current_status}"
-    )
-
-    messages.append(
-        SystemMessage(
-            content=(
-                "=== FILLED DATA (do NOT re-ask these fields) ===\n"
-                + json.dumps(insights, separators=(",", ":"))
-                + "\n\n=== COLLECTION STATUS ===\n"
-                + status_note
-                + "\n\n=== YOUR NEXT ACTION ===\n"
-                + next_action
-            )
-        )
-    )
-
-    # ── 6. Session summary (if exists) ────────────────────────────────────────
-    if session_memory.summary:
-        messages.append(
-            SystemMessage(
-                content=f"CONVERSATION SUMMARY (older turns): {session_memory.summary}"
-            )
-        )
-
-    # ── 7. Recent conversation turns — TEXT ONLY, no JSON blobs ──────────────
-    for msg in session_memory.recent_messages:
+    # 5. Recent conversation history (extract assistant text correctly)
+    for msg in session_memory.recent_messages[-6:]:
         if msg["role"] == "user":
             messages.append(HumanMessage(content=msg["content"]))
         else:
-            # Extract only the conversation_response text — never send full JSON to LLM
             text = ""
             try:
                 parsed = json.loads(msg["content"])
-                text = parsed.get("conversation_response", "")
+                # The assistant stores replies under "next_question"
+                text = parsed.get("next_question", "")
             except Exception:
                 text = msg["content"]
             if text and text.strip():
                 messages.append(AIMessage(content=text.strip()))
 
-    # ── 8. Current user message ───────────────────────────────────────────────
+    # 6. Current user message
     messages.append(HumanMessage(content=user_message))
 
     return messages

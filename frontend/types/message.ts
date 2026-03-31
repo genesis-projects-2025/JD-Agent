@@ -6,4 +6,5 @@ export type Message = {
   isReadySelection?: boolean;
   isRateLimitError?: boolean;
   isStreaming?: boolean;
+  currentAgent?: string;
 };

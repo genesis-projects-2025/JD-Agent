@@ -8,6 +8,8 @@ import { Sparkles, Activity, Bot, Loader2 } from "lucide-react";
 export default function ChatWindow({
   messages,
   progress = 0,
+  currentAgent = "BasicInfoAgent",
+  depthScores = {},
   onSkillSelect,
   onGenerateJD,
   onContinue,
@@ -15,6 +17,8 @@ export default function ChatWindow({
   messages: Message[];
   isGenerating?: boolean;
   progress?: number;
+  currentAgent?: string;
+  depthScores?: Record<string, number>;
   onSkillSelect?: (selectedSkills: string[]) => void;
   onGenerateJD?: () => void;
   onContinue?: () => void;
@@ -38,6 +42,17 @@ export default function ChatWindow({
 
   const progressPercent = Math.min(Math.round(progress), 100);
 
+  // Map agent internal names to user-friendly titles
+  const agentTitles: Record<string, string> = {
+    BasicInfoAgent: "Getting to Know You",
+    TaskAgent: "Deep Dive: Tasks",
+    WorkflowAgent: "Understanding Workflows",
+    ToolsTechAgent: "Tools & Technologies",
+    SkillExtractionAgent: "Technical Skills",
+    JDGeneratorAgent: "Ready to Generate",
+  };
+  const activeAgentTitle = agentTitles[currentAgent] || "Interview Assistant";
+
   return (
     <div className="flex-1 flex flex-col min-h-0 bg-white">
       {/* Premium Glass Header */}
@@ -55,9 +70,11 @@ export default function ChatWindow({
                 <p className="text-[8px] sm:text-[11px] font-bold text-primary-600 uppercase tracking-widest mt-0.5 sm:mt-1.5 flex items-center gap-1 sm:gap-1.5 truncate w-full">
                   <Activity className="w-2 h-2 sm:w-3 sm:h-3 shrink-0" />
                   <span className="hidden sm:inline">
-                    Enterprise Intelligence Active
+                    {activeAgentTitle}
                   </span>
-                  <span className="sm:hidden">Active</span>
+                  <span className="sm:hidden">
+                    {activeAgentTitle.split(":")[0]}
+                  </span>
                 </p>
               </div>
             </div>
@@ -89,6 +106,19 @@ export default function ChatWindow({
                 className="h-full bg-gradient-to-r from-primary-500 via-primary-600 to-primary-800 rounded-full transition-all duration-1000 ease-out"
                 style={{ width: `${progressPercent}%` }}
               />
+            </div>
+
+            {/* Depth Score Pills */}
+            <div className="flex gap-2 mt-2">
+              <div className="text-[8px] sm:text-[9px] font-bold tracking-wider px-2 py-0.5 rounded-full bg-surface-100 text-surface-500 border border-surface-200">
+                Tasks: {depthScores.tasks || 0}%
+              </div>
+              <div className="text-[8px] sm:text-[9px] font-bold tracking-wider px-2 py-0.5 rounded-full bg-surface-100 text-surface-500 border border-surface-200">
+                Tools: {depthScores.tools || 0}%
+              </div>
+              <div className="text-[8px] sm:text-[9px] font-bold tracking-wider px-2 py-0.5 rounded-full bg-surface-100 text-surface-500 border border-surface-200">
+                Skills: {depthScores.skills || 0}%
+              </div>
             </div>
           </div>
         </div>

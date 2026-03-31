@@ -130,11 +130,10 @@ export default function MessageBubble({
               : "bg-surface-900 text-white rounded-tr-none shadow-premium font-medium"
             }`}
         >
-          {/* Saniya Persona indicator */}
           {isAgent && (
             <div className="flex items-center gap-1 sm:gap-1.5 mb-1.5 sm:mb-2 text-[9px] sm:text-[10px] uppercase tracking-widest font-bold text-primary-600">
               <ShieldCheck className="w-2.5 h-2.5 sm:w-3 sm:h-3" />
-              Jd Assistant
+              Saniya {message.currentAgent ? `• ${message.currentAgent.replace('Agent', '')}` : ""}
             </div>
           )}
 
@@ -284,11 +283,10 @@ export default function MessageBubble({
           )}
         </div>
 
-        {/* Timestamp / Sender Detail */}
         <div
           className={`mt-2 px-2 text-[10px] font-bold uppercase tracking-widest text-surface-400 ${!isAgent && "text-right"}`}
         >
-          {isAgent ? "Saniya • Insight Delivered" : "Recorded"}
+          {isAgent ? "Insight Delivered" : "Recorded"}
         </div>
       </div>
 

@@ -767,28 +767,18 @@ async def create_review_comment(
         record.reviewer_comment = comment
         record.reviewed_at = _now().replace(tzinfo=None)
 
-        if action == "rejected":
+        if action in ["rejected", "revision_requested"]:
             from app.models.user_model import Employee
-
             reviewer_res = await db.execute(
                 select(Employee).where(Employee.id == reviewer_id)
             )
             reviewer = reviewer_res.scalar_one_or_none()
+            
+            # If rejected by HR, status is hr_rejected.
+            # Otherwise (Manager/Head), status is manager_rejected.
             if reviewer and reviewer.role == "hr":
                 record.status = "hr_rejected"
-            elif reviewer and reviewer.role == "manager":
-                record.status = "manager_rejected"
-        elif action == "revision_requested":
-            # Same as rejected — send it back to the appropriate party
-            from app.models.user_model import Employee
-
-            reviewer_res = await db.execute(
-                select(Employee).where(Employee.id == reviewer_id)
-            )
-            reviewer = reviewer_res.scalar_one_or_none()
-            if reviewer and reviewer.role == "hr":
-                record.status = "hr_rejected"
-            elif reviewer and reviewer.role == "manager":
+            else:
                 record.status = "manager_rejected"
         elif action == "approved":
             record.status = "approved"
@@ -873,7 +863,7 @@ async def get_unread_feedback_for_user(
             )
             .order_by(JDReviewComment.created_at.desc())
         )
-    elif user_role == "manager":
+    elif user_role in ["manager", "head"]:
         result = await db.execute(
             select(JDReviewComment, JDSession, Employee)
             .join(JDSession, JDReviewComment.jd_session_id == JDSession.id)
@@ -933,8 +923,10 @@ async def get_all_feedback_for_user(
             .outerjoin(EmpReviewer, JDReviewComment.reviewer_id == EmpReviewer.id)
             .outerjoin(EmpOwner, JDSession.employee_id == EmpOwner.id)
             .where(
+                # If I own the JD, I see ALL feedback for it
                 (JDSession.employee_id == employee_id)
-                & (JDReviewComment.target_role == "employee")
+                # OR if it was specifically targeted at the employee role and it's my JD
+                | ((JDSession.employee_id == employee_id) & (JDReviewComment.target_role == "employee"))
             )
             .order_by(JDReviewComment.created_at.desc())
         )
@@ -962,7 +954,7 @@ async def get_all_feedback_for_user(
             )
         return serialized
 
-    elif user_role == "manager":
+    elif user_role in ["manager", "head"]:
         EmpCreator = Employee.__class__  # alias not needed; use a labeled join below
         from sqlalchemy.orm import aliased
 
@@ -975,11 +967,10 @@ async def get_all_feedback_for_user(
             .outerjoin(EmpCreator, JDSession.employee_id == EmpCreator.id)
             .outerjoin(EmpReviewer, JDReviewComment.reviewer_id == EmpReviewer.id)
             .where(
-                (JDReviewComment.target_role == "manager")
-                & (
-                    (EmpCreator.reporting_manager_code == employee_id)
-                    | (JDSession.employee_id == employee_id)
-                )
+                # I see feedback for JDs I own
+                (JDSession.employee_id == employee_id)
+                # OR feedback targeted at managers for my team members
+                | ((EmpCreator.reporting_manager_code == employee_id) & (JDReviewComment.target_role == "manager"))
             )
             .order_by(JDReviewComment.created_at.desc())
         )
@@ -1015,7 +1006,10 @@ async def get_all_feedback_for_user(
             .join(JDSession, JDReviewComment.jd_session_id == JDSession.id)
             .outerjoin(EmpCreator, JDSession.employee_id == EmpCreator.id)
             .outerjoin(EmpReviewer, JDReviewComment.reviewer_id == EmpReviewer.id)
-            .where(JDReviewComment.reviewer_id == employee_id)
+            .where(
+                (JDReviewComment.reviewer_id == employee_id)
+                | (JDSession.employee_id == employee_id)
+            )
             .order_by(JDReviewComment.created_at.desc())
         )
         rows = result.all()

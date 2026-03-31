@@ -184,7 +184,9 @@ export default function FeedbackPage() {
  )}
  {item.action === "approve"
  ? "Approved"
- : "Revision Requested"}
+ : item.reviewer_role === "hr"
+ ? "HR Rejected"
+ : "Manager Rejected"}
  </span>
  {!item.is_read && (
  <span className="w-2.5 h-2.5 bg-orange-500 rounded-md animate-pulse absolute -top-1 -right-1 ring-4 ring-white shadow-md shadow-orange-500/50" />

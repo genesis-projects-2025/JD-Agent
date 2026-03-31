@@ -99,7 +99,7 @@ export default function Sidebar() {
  },
  ];
 
- if (role === "manager") {
+ if (role === "manager" || role === "head") {
  links.push({
  name: "Feedbacks",
  href: employeeId ? `/feedback/${employeeId}` : "/",

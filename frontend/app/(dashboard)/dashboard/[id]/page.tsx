@@ -552,9 +552,11 @@ function ManagerView({ user }: { user: AuthUser }) {
  setMyTeamEmployees(employeesData || []);
 
  // Default view shows pending
- setJds(
- (teamData || []).filter((j: any) => j.status === "sent_to_manager"),
- );
+      setJds(
+        (teamData || []).filter(
+          (j: any) => j.status === "sent_to_manager" || j.status === "hr_rejected",
+        ),
+      );
  } catch (err) {
 
  console.error(err);
@@ -570,9 +572,13 @@ function ManagerView({ user }: { user: AuthUser }) {
  setJds(myJds);
  } else if (filter === "all") {
  setJds(allJds);
- } else if (filter === "pending") {
- setJds(allJds.filter((j) => j.status === "sent_to_manager"));
- } else if (filter === "approved") {
+      } else if (filter === "pending") {
+        setJds(
+          allJds.filter(
+            (j) => j.status === "sent_to_manager" || j.status === "hr_rejected",
+          ),
+        );
+      } else if (filter === "approved") {
  setJds(
  allJds.filter(
  (j) => j.status === "approved" || j.status === "sent_to_hr",
@@ -583,7 +589,9 @@ function ManagerView({ user }: { user: AuthUser }) {
 
  if (loading) return <LoadingScreen />;
 
- const pending = allJds.filter((j) => j.status === "sent_to_manager").length;
+  const pending = allJds.filter(
+    (j) => j.status === "sent_to_manager" || j.status === "hr_rejected",
+  ).length;
  const approved = allJds.filter(
  (j) => j.status === "approved" || j.status === "sent_to_hr",
  ).length;

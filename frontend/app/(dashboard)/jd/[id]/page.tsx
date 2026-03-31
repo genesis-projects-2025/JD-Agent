@@ -289,6 +289,9 @@ export default function JDPage() {
  ]);
  setJd(updated);
  setReviewComments(comments);
+ 
+ router.push(`/dashboard/${user.employee_id}`);
+ router.refresh();
  } catch (e: any) {
  alert(e.message || "Failed to reject JD.");
  } finally {
@@ -485,8 +488,19 @@ export default function JDPage() {
  <FileText className="w-4 h-4" />
  Version {jd.version || 1}.0
  </span>
- <span className="px-4 py-1.5 bg-primary-50 text-primary-700 rounded-md text-[11px] font-medium border border-primary-100 shadow-sm">
- {jd.status.replace(/_/g, " ")}
+ <span className="px-4 py-1.5 bg-primary-50 text-primary-700 rounded-md text-[11px] font-medium border border-primary-100 shadow-sm capitalize">
+ {
+ ({
+ draft: "Interviewer Active",
+ jd_generated: "Created",
+ sent_to_manager: "Manager Review",
+ manager_rejected: "Manager Rejected",
+ sent_to_hr: "HR Review",
+ hr_rejected: "HR Rejected",
+ approved: "Accepted",
+ rejected: "Needs Revision",
+ } as Record<string, string>)[jd.status] || jd.status.replace(/_/g, " ")
+ }
  </span>
 
  {jd.jd_structured?._last_edited_by && (

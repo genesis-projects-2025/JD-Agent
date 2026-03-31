@@ -18,7 +18,7 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from app.core.config import settings
-from app.prompts.jd_prompts import JD_GENERATION_PROMPT
+from app.agents.prompts import JD_GENERATION_PROMPT
 from app.schemas.jd_schema import (
     ChatResponse,
     Progress,

@@ -27,7 +27,6 @@ from app.schemas.jd_schema import (
     EmployeeRoleInsights,
 )
 from app.utils.text_utils import strip_reasoning_tags
-from app.services.context_builder import build_context
 from app.memory.session_memory import SessionMemory
 
 logger = logging.getLogger(__name__)
@@ -678,74 +677,50 @@ def _process_llm_response(
 async def handle_conversation(
     history: list, user_message: str, session_memory: SessionMemory
 ):
-    logger.info(f"[Interview] TURN STARTED — Agent: {session_memory.current_agent}")
-
-    # Compute current agent before building context
-    session_memory.current_agent = _compute_current_agent(safe_to_dict(session_memory.insights))
-
-    msgs = build_context(session_memory, user_message)
+    """Interview turn handler — delegates to LangGraph multi-agent system."""
+    logger.info(f"[Interview v2] TURN STARTED — Agent: {session_memory.current_agent}")
 
     try:
-        response = await _invoke_with_retry(interview_llm, msgs)
-        raw_content = strip_reasoning_tags(response.content)
+        from app.agents.graph import run_interview_turn
+        reply_content, history = await run_interview_turn(
+            session_memory=session_memory,
+            user_message=user_message,
+            history=history,
+        )
+    except HTTPException:
+        raise
     except Exception as e:
         error_str = str(e).lower()
-        logger.error(f"LLM invocation error: {e}")
+        logger.error(f"Interview v2 error: {e}")
+        traceback.print_exc()
         if "rate limit" in error_str or "429" in error_str or "exhausted" in error_str:
             raise HTTPException(status_code=429, detail="Rate limit exceeded")
-        raise HTTPException(status_code=500, detail="Internal LLM Error")
-
-    try:
-        parsed_json, _ = parse_llm_response(raw_content, session_memory)
-        reply_content = _process_llm_response(parsed_json, session_memory, user_message, history)
-    except Exception as e:
-        logger.error(f"Interview processing error: {e}")
-        traceback.print_exc()
+        # Fallback to error response
         reply_content = build_fallback_response(session_memory)
         history.append({"role": "user", "content": user_message})
         history.append({"role": "assistant", "content": reply_content})
 
-    logger.info(f"[Interview] TURN COMPLETED — Agent now {session_memory.current_agent}")
+    logger.info(f"[Interview v2] TURN COMPLETED — Agent now {session_memory.current_agent}")
     return reply_content, history
 
 
 async def handle_conversation_stream(
     history: list, user_message: str, session_memory: SessionMemory
 ):
-    logger.info(f"[Interview Stream] TURN STARTED — Agent: {session_memory.current_agent}")
-
-    # Compute current agent before building context
-    session_memory.current_agent = _compute_current_agent(safe_to_dict(session_memory.insights))
-
-    msgs = build_context(session_memory, user_message)
+    """Streaming interview handler — delegates to LangGraph multi-agent system."""
+    logger.info(f"[Interview v2 Stream] TURN STARTED — Agent: {session_memory.current_agent}")
 
     try:
-        raw_content = ""
-        last_extracted_text = ""
-
-        async for chunk in interview_llm.astream(msgs):
-            if chunk.content:
-                raw_content += chunk.content
-                tail = raw_content[-500:] if len(raw_content) > 500 else raw_content
-                no_think_tail = remove_think_tags(tail)
-                current_text = extract_streaming_text(no_think_tail)
-
-                if current_text and current_text != last_extracted_text:
-                    yield f"data: {json.dumps({'type': 'chunk', 'content': current_text}, separators=(',', ':'))}\n\n"
-                    last_extracted_text = current_text
-                    await asyncio.sleep(0.03)
-
-        raw_content = strip_reasoning_tags(raw_content)
-        parsed_json, _ = parse_llm_response(raw_content, session_memory)
-
-        # Use shared response processor
-        _process_llm_response(parsed_json, session_memory, user_message, history)
-
-        yield f"data: {json.dumps({'type': 'done', 'parsed': parsed_json})}\n\n"
+        from app.agents.graph import run_interview_turn_stream
+        async for chunk in run_interview_turn_stream(
+            session_memory=session_memory,
+            user_message=user_message,
+        ):
+            yield chunk
 
     except Exception as e:
         error_msg = str(e)
-        logger.error(f"Stream processing error: {error_msg}")
+        logger.error(f"Stream v2 error: {error_msg}")
         traceback.print_exc()
 
         is_rate_limit = (
@@ -766,4 +741,4 @@ async def handle_conversation_stream(
                 payload["is_rate_limit"] = True
             yield f"data: {json.dumps(payload)}\n\n"
 
-    logger.info(f"[Interview Stream] TURN COMPLETED — Phase now {session_memory.current_phase}")
+    logger.info(f"[Interview v2 Stream] TURN COMPLETED — Agent now {session_memory.current_agent}")

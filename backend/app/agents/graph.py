@@ -1,0 +1,250 @@
+# backend/app/agents/graph.py
+"""
+LangGraph StateGraph — wires all nodes together.
+
+Graph topology (single pass per user message):
+   START → router → interview → gap_detector → END
+
+The graph is compiled once and reused for all sessions.
+For streaming, the InterviewEngine is called directly (not via LangGraph)
+to preserve SSE chunk delivery.
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+from typing import AsyncIterator
+
+from langgraph.graph import StateGraph, END, START
+
+from app.agents.state import AgentState, create_initial_state
+from app.agents.router import router_node, compute_current_agent, compute_progress
+from app.agents.interview import interview_node, engine as interview_engine
+from app.agents.gap_detector import gap_detector_node
+
+
+logger = logging.getLogger(__name__)
+
+# ── Build the Graph ───────────────────────────────────────────────────────────
+
+
+def _build_graph() -> StateGraph:
+    """Build and compile the interview state graph."""
+    graph = StateGraph(AgentState)
+
+    # Add nodes
+    graph.add_node("router", router_node)
+    graph.add_node("interview", interview_node)
+    graph.add_node("gap_detector", gap_detector_node)
+
+    # Wire edges (linear pipeline — no loops within a single turn)
+    graph.add_edge(START, "router")
+    graph.add_edge("router", "interview")
+    graph.add_edge("interview", "gap_detector")
+    graph.add_edge("gap_detector", END)
+
+    return graph.compile()
+
+
+# Compile once, reuse for all sessions
+_compiled_graph = _build_graph()
+
+
+# ── Entry Points (called from jd_service.py) ──────────────────────────────────
+
+
+async def run_interview_turn(
+    session_memory,
+    user_message: str,
+    history: list,
+) -> tuple[str, list]:
+    """Execute one interview turn via LangGraph (non-streaming).
+
+    Args:
+        session_memory: SessionMemory instance (hydrated from DB)
+        user_message: The user's message text
+        history: Conversation history from the request
+
+    Returns:
+        (reply_json_string, updated_history)
+    """
+    # Build initial state from session memory
+    initial_state = create_initial_state(
+        user_message=user_message,
+        insights=dict(session_memory.insights or {}),
+        identity_context=(session_memory.insights or {}).get("identity_context", {}),
+        current_agent=session_memory.current_agent or "BasicInfoAgent",
+        turn_count=len(session_memory.full_history) // 2,
+        progress=dict(session_memory.progress or {}),
+        messages=[],  # Messages are built inside the interview node
+    )
+
+    # Run the graph
+    result = await _compiled_graph.ainvoke(initial_state)
+
+    # Update session memory from result
+    session_memory.insights = result.get("insights", session_memory.insights)
+    session_memory.current_agent = result.get("current_agent", session_memory.current_agent)
+    session_memory.progress = result.get("progress", session_memory.progress)
+
+    # Build the response JSON matching frontend contract
+    response_json = _build_frontend_response(result, session_memory)
+    reply_content = json.dumps(response_json, separators=(",", ":"))
+
+    # Update conversation history
+    session_memory.update_recent("user", user_message)
+    session_memory.update_recent("assistant", reply_content)
+
+    history.append({"role": "user", "content": user_message})
+    history.append({"role": "assistant", "content": reply_content})
+
+    logger.info(f"[Graph] Turn completed — Agent: {session_memory.current_agent}")
+
+    return reply_content, history
+
+
+async def run_interview_turn_stream(
+    session_memory,
+    user_message: str,
+) -> AsyncIterator[str]:
+    """Execute one interview turn with SSE streaming.
+
+    Yields SSE-formatted strings: data: {"type": "chunk|done|error", ...}
+
+    Uses the InterviewEngine directly (not LangGraph) for streaming support.
+    """
+    try:
+        # 1. Compute current agent
+        agent_name = compute_current_agent(session_memory.insights or {})
+        session_memory.current_agent = agent_name
+
+        # 2. Get recent messages for context
+        recent_messages = session_memory.recent_messages[-6:]
+
+        # 3. Stream the interview turn
+        full_text = ""
+        extracted = {}
+
+        async for event in interview_engine.run_turn_stream(
+            agent_name=agent_name,
+            insights=dict(session_memory.insights or {}),
+            recent_messages=recent_messages,
+            user_message=user_message,
+        ):
+            if event["type"] == "chunk":
+                yield f"data: {json.dumps({'type': 'chunk', 'content': event['content']}, separators=(',', ':'))}\n\n"
+
+            elif event["type"] == "done":
+                extracted = event.get("extracted", {})
+                full_text = event.get("full_text", "")
+
+        # 4. Merge extracted data into insights
+        insights = dict(session_memory.insights or {})
+        for key, value in extracted.items():
+            if value in (None, "", [], {}):
+                continue
+            existing = insights.get(key)
+            if isinstance(value, list) and isinstance(existing, list):
+                seen = {json.dumps(v, sort_keys=True, default=str) if isinstance(v, dict) else str(v) for v in existing}
+                for item in value:
+                    item_key = json.dumps(item, sort_keys=True, default=str) if isinstance(item, dict) else str(item)
+                    if item_key not in seen:
+                        existing.append(item)
+                        seen.add(item_key)
+                insights[key] = existing
+            elif isinstance(value, dict) and isinstance(existing, dict):
+                existing.update(value)
+                insights[key] = existing
+            elif existing is None or existing == "" or existing == [] or existing == {}:
+                insights[key] = value
+            else:
+                insights[key] = value
+
+        session_memory.insights = insights
+
+        # 5. Run gap detection (lightweight, no LLM call)
+        from app.agents.gap_detector import gap_detector_node as _gap_check
+        gap_result = _gap_check({"insights": insights})
+
+        # 6. Update session memory
+        session_memory.current_agent = compute_current_agent(insights)
+        session_memory.progress = compute_progress(insights)
+
+        # 7. Build and send final response
+        result = {
+            "insights": insights,
+            "current_agent": session_memory.current_agent,
+            "progress": session_memory.progress,
+            "next_question": full_text,
+            "ready_for_jd": gap_result.get("ready_for_jd", False),
+            "suggested_skills": gap_result.get("suggested_skills", []),
+            "gaps": gap_result.get("gaps", []),
+            "quality_score": gap_result.get("quality_score", 0),
+        }
+
+        response_json = _build_frontend_response(result, session_memory)
+
+        # Update conversation history
+        reply_content = json.dumps(response_json, separators=(",", ":"))
+        session_memory.update_recent("user", user_message)
+        session_memory.update_recent("assistant", reply_content)
+
+        yield f"data: {json.dumps({'type': 'done', 'parsed': response_json})}\n\n"
+
+    except Exception as e:
+        error_msg = str(e)
+        logger.error(f"[Graph Stream] Error: {error_msg}")
+        import traceback
+        traceback.print_exc()
+
+        is_rate_limit = (
+            "429" in error_msg
+            or "quota" in error_msg.lower()
+            or "resource_exhausted" in error_msg.lower()
+        )
+
+        payload = {"type": "error", "message": error_msg}
+        if is_rate_limit:
+            payload["is_rate_limit"] = True
+        yield f"data: {json.dumps(payload)}\n\n"
+
+    logger.info(f"[Graph Stream] Turn completed — Agent: {session_memory.current_agent}")
+
+
+# ── Response Builder ──────────────────────────────────────────────────────────
+
+
+def _build_frontend_response(result: dict, session_memory) -> dict:
+    """Build the response JSON matching the frontend's expected contract.
+
+    Frontend expects: next_question, progress, employee_role_insights,
+    jd_structured_data, jd_text_format, suggested_skills, current_agent,
+    analytics, approval
+    """
+    insights = result.get("insights", {})
+    progress = result.get("progress", session_memory.progress)
+
+    return {
+        "next_question": result.get("next_question", ""),
+        "progress": progress,
+        "employee_role_insights": insights,
+        "jd_structured_data": {},
+        "jd_text_format": "",
+        "suggested_skills": result.get("suggested_skills", []),
+        "current_agent": result.get("current_agent", session_memory.current_agent),
+        "analytics": {
+            "questions_asked": len(session_memory.full_history) // 2,
+            "questions_answered": len([
+                m for m in session_memory.full_history if m.get("role") == "user"
+            ]),
+            "insights_collected": len([
+                v for v in insights.values() if v not in (None, {}, [], "")
+            ]),
+            "estimated_completion_time_minutes": max(5, 15 - int(progress.get("completion_percentage", 0)) // 10),
+        },
+        "approval": {
+            "approval_required": False,
+            "approval_status": "pending",
+        },
+    }

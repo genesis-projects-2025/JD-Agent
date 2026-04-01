@@ -19,7 +19,7 @@ from typing import AsyncIterator
 from langgraph.graph import StateGraph, END, START
 
 from app.agents.state import AgentState, create_initial_state
-from app.agents.router import router_node, compute_current_agent, compute_progress
+from app.agents.router import router_node, compute_current_agent, compute_progress, get_transition_message
 from app.agents.interview import interview_node, engine as interview_engine
 from app.agents.gap_detector import gap_detector_node
 
@@ -75,18 +75,34 @@ async def run_interview_turn(
         insights=dict(session_memory.insights or {}),
         identity_context=(session_memory.insights or {}).get("identity_context", {}),
         current_agent=session_memory.current_agent or "BasicInfoAgent",
+        previous_agent=session_memory.current_agent or "BasicInfoAgent",
         turn_count=len(session_memory.full_history) // 2,
         progress=dict(session_memory.progress or {}),
-        messages=[],  # Messages are built inside the interview node
+        messages=[],
+        questions_asked=list(getattr(session_memory, 'questions_asked', []) or []),
+        agent_transition_log=list(getattr(session_memory, 'agent_transition_log', []) or []),
     )
 
     # Run the graph
     result = await _compiled_graph.ainvoke(initial_state)
 
+    # Detect and log agent transitions
+    old_agent = session_memory.current_agent
+    new_agent = result.get("current_agent", old_agent)
+    if new_agent != old_agent:
+        session_memory.record_agent_transition(old_agent, new_agent)
+        logger.info(f"[Graph] Agent transition: {old_agent} → {new_agent}")
+
     # Update session memory from result
     session_memory.insights = result.get("insights", session_memory.insights)
-    session_memory.current_agent = result.get("current_agent", session_memory.current_agent)
+    session_memory.current_agent = new_agent
     session_memory.progress = result.get("progress", session_memory.progress)
+    session_memory.questions_asked = result.get("questions_asked", session_memory.questions_asked)
+
+    # Record the question
+    next_q = result.get("next_question", "")
+    if next_q:
+        session_memory.record_question(next_q)
 
     # Build the response JSON matching frontend contract
     response_json = _build_frontend_response(result, session_memory)
@@ -116,13 +132,25 @@ async def run_interview_turn_stream(
     """
     try:
         # 1. Compute current agent
+        old_agent = session_memory.current_agent or "BasicInfoAgent"
         agent_name = compute_current_agent(session_memory.insights or {})
+        
+        # 2. Detect transition
+        transition_context = ""
+        if agent_name != old_agent:
+            transition_context = get_transition_message(old_agent, agent_name)
+            session_memory.record_agent_transition(old_agent, agent_name)
+            logger.info(f"[Graph Stream] Agent transition: {old_agent} → {agent_name}")
+        
         session_memory.current_agent = agent_name
 
-        # 2. Get recent messages for context
+        # 3. Get recent messages for context
         recent_messages = session_memory.recent_messages[-6:]
 
-        # 3. Stream the interview turn
+        # 4. Get questions already asked (for deduplication)
+        questions_asked = list(getattr(session_memory, 'questions_asked', []) or [])
+
+        # 5. Stream the interview turn
         full_text = ""
         extracted = {}
 
@@ -131,6 +159,8 @@ async def run_interview_turn_stream(
             insights=dict(session_memory.insights or {}),
             recent_messages=recent_messages,
             user_message=user_message,
+            questions_asked=questions_asked,
+            transition_context=transition_context,
         ):
             if event["type"] == "chunk":
                 yield f"data: {json.dumps({'type': 'chunk', 'content': event['content']}, separators=(',', ':'))}\n\n"
@@ -138,8 +168,10 @@ async def run_interview_turn_stream(
             elif event["type"] == "done":
                 extracted = event.get("extracted", {})
                 full_text = event.get("full_text", "")
+                # Update questions_asked from engine
+                session_memory.questions_asked = event.get("questions_asked", questions_asked)
 
-        # 4. Merge extracted data into insights
+        # 6. Merge extracted data into insights
         insights = dict(session_memory.insights or {})
         for key, value in extracted.items():
             if value in (None, "", [], {}):
@@ -163,15 +195,22 @@ async def run_interview_turn_stream(
 
         session_memory.insights = insights
 
-        # 5. Run gap detection (lightweight, no LLM call)
+        # 7. Run gap detection (lightweight, no LLM call)
         from app.agents.gap_detector import gap_detector_node as _gap_check
         gap_result = _gap_check({"insights": insights})
 
-        # 6. Update session memory
-        session_memory.current_agent = compute_current_agent(insights)
+        # 8. Update session memory
+        new_agent = compute_current_agent(insights)
+        if new_agent != session_memory.current_agent:
+            session_memory.record_agent_transition(session_memory.current_agent, new_agent)
+        session_memory.current_agent = new_agent
         session_memory.progress = compute_progress(insights)
 
-        # 7. Build and send final response
+        # Record the question
+        if full_text:
+            session_memory.record_question(full_text)
+
+        # 9. Build and send final response
         result = {
             "insights": insights,
             "current_agent": session_memory.current_agent,

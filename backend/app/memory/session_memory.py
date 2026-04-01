@@ -1,15 +1,23 @@
 # backend/app/memory/session_memory.py
+"""
+Session Memory — Maintains conversation state across turns.
 
-# Agent → phase mapping for backward compatibility with frontend/DB code
+Three types of memory:
+  1. Short-Term (recent_messages) — sliding window for LLM context
+  2. Long-Term (insights) — structured extracted data store
+  3. Working Memory (questions_asked) — tracks asked questions to prevent repetition
+"""
+
+import hashlib
+
+# Agent → phase mapping (matches current 6-agent architecture)
 AGENT_PHASE_MAP = {
     "BasicInfoAgent": 1,
     "TaskAgent": 2,
     "PriorityAgent": 3,
-    "WorkflowDeepDiveAgent": 4,
-    "ToolsTechAgent": 5,
-    "SkillExtractionAgent": 6,
-    "QualificationAgent": 7,
-    "JDGeneratorAgent": 8,
+    "DeepDiveAgent": 4,
+    "ToolsSkillsAgent": 5,
+    "JDGeneratorAgent": 6,
 }
 
 
@@ -30,16 +38,24 @@ class SessionMemory:
         # Current active agent
         self.current_agent = "BasicInfoAgent"
 
-        # TWO SEPARATE LISTS — never mix these
+        # ── Short-Term Memory ──────────────────────────────────────────────
         # Sent to LLM: only last N turns to control token cost
         self.recent_messages = []
+
+        # ── Long-Term Memory ──────────────────────────────────────────────
         # Saved to DB: every single turn, never trimmed
         self.full_history = []
+
+        # ── Working Memory ────────────────────────────────────────────────
+        # Tracks question fingerprints to prevent repetition
+        self.questions_asked = []  # list of question hashes
+        self.agent_transition_log = []  # list of {"from": ..., "to": ..., "turn": ...}
+        self.current_stage_question_count = 0  # questions asked in current agent stage
 
         self.generated_jd = None
         self.jd_structured = None
 
-        # Deprecated: Current interview phase
+        # Deprecated: Current interview phase (kept for backward compat)
         self.current_phase = 1
 
         # Cached joined user-text for duplicate scan avoidance
@@ -60,12 +76,43 @@ class SessionMemory:
     def agent_name(self) -> str:
         return self.current_agent
 
+    def _compute_question_hash(self, question_text: str) -> str:
+        """Compute a normalized hash of a question for deduplication."""
+        # Normalize: lowercase, strip whitespace, remove punctuation
+        normalized = question_text.lower().strip()
+        # Remove common filler words for better matching
+        for word in ["could you", "can you", "please", "would you", "tell me"]:
+            normalized = normalized.replace(word, "")
+        normalized = " ".join(normalized.split())  # collapse whitespace
+        return hashlib.md5(normalized.encode()).hexdigest()[:12]
+
+    def is_question_repeated(self, question_text: str) -> bool:
+        """Check if a question (or very similar) has already been asked."""
+        q_hash = self._compute_question_hash(question_text)
+        return q_hash in self.questions_asked
+
+    def record_question(self, question_text: str):
+        """Record a question hash so it won't be asked again."""
+        q_hash = self._compute_question_hash(question_text)
+        if q_hash not in self.questions_asked:
+            self.questions_asked.append(q_hash)
+        self.current_stage_question_count += 1
+
+    def record_agent_transition(self, from_agent: str, to_agent: str):
+        """Log an agent transition for debugging and flow control."""
+        turn = len(self.full_history) // 2
+        self.agent_transition_log.append({
+            "from": from_agent,
+            "to": to_agent,
+            "turn": turn,
+        })
+        self.current_stage_question_count = 0  # Reset per-stage counter
+
     def add_turn(self, role: str, content: str, llm_limit: int = 6):
         """
         Add one conversation turn.
         - full_history: always appended (goes to DB)
         - recent_messages: sliding window of last llm_limit turns (goes to LLM only)
-        Reduced from 10 to 6 for phase-based token efficiency.
         """
         turn = {"role": role, "content": content}
         self.full_history.append(turn)

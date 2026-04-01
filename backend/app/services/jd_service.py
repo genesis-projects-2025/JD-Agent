@@ -28,6 +28,8 @@ from app.schemas.jd_schema import (
 )
 from app.utils.text_utils import strip_reasoning_tags
 from app.memory.session_memory import SessionMemory
+from app.agents.router import compute_current_agent as _compute_current_agent
+from app.agents.router import compute_progress as _compute_progress
 
 logger = logging.getLogger(__name__)
 
@@ -94,112 +96,6 @@ def sanitise_skills(skills: list) -> list:
         clean.append(stripped)
         seen.add(lower)
     return clean
-
-
-# ── Phase Computation & Depth Scoring ─────────────────────────────────────────
-
-
-# ── Agent Selection & Depth Scoring ───────────────────────────────────────────
-
-AGENT_CRITERIA = {
-    "BasicInfoAgent": {
-        "required_fields": ["purpose"],
-        "check": lambda insights: len(insights.get("purpose", "")) > 30 and (
-            bool(insights.get("basic_info", {}).get("title")) or 
-            bool(insights.get("identity_context", {}).get("title"))
-        )
-    },
-    "TaskAgent": {
-        "required_fields": ["tasks"],
-        "check": lambda insights: len(insights.get("tasks", [])) >= 8
-    },
-    "PriorityAgent": {
-        "required_fields": ["priority_tasks"],
-        "check": lambda insights: len(insights.get("priority_tasks", [])) >= 3
-    },
-    "WorkflowDeepDiveAgent": {
-        "required_fields": ["workflows"],
-        "check": lambda insights: all(
-            pt in insights.get("workflows", {}) and 
-            insights["workflows"][pt].get("steps") 
-            for pt in insights.get("priority_tasks", [])
-        ) if insights.get("priority_tasks") else False
-    },
-    "ToolsTechAgent": {
-        "required_fields": ["tools", "technologies"],
-        "check": lambda insights: len(insights.get("tools", [])) >= 2 or len(insights.get("technologies", [])) >= 2
-    },
-    "SkillExtractionAgent": {
-        "required_fields": ["skills"],
-        "check": lambda insights: len(insights.get("skills", [])) >= 4
-    },
-    "QualificationAgent": {
-        "required_fields": ["qualifications"],
-        "check": lambda insights: bool(insights.get("qualifications", {}).get("education"))
-    }
-}
-
-AGENT_ORDER = [
-    "BasicInfoAgent", 
-    "TaskAgent", 
-    "PriorityAgent", 
-    "WorkflowDeepDiveAgent", 
-    "ToolsTechAgent", 
-    "SkillExtractionAgent", 
-    "QualificationAgent", 
-    "JDGeneratorAgent"
-]
-
-def _compute_current_agent(insights: dict) -> str:
-    """Orchestrator logic: decide which agent is next based on data depth."""
-    for agent_name in AGENT_ORDER[:-1]: # Exclude Generator for now
-        criteria = AGENT_CRITERIA.get(agent_name)
-        if criteria and not criteria["check"](insights):
-            return agent_name
-    return "JDGeneratorAgent"
-
-def _get_depth_scores(insights: dict) -> dict:
-    """Compute depth scores (0-100) per category."""
-    scores = {}
-    # Tasks — need 8+ for full score
-    tasks = len(insights.get("tasks", []))
-    scores["tasks"] = min(100, int((tasks / 8) * 100))
-    
-    # Tools/Tech
-    tools = len(insights.get("tools", []))
-    tech = len(insights.get("technologies", []))
-    scores["tools"] = min(100, (tools + tech) * 20)
-    
-    # Skills
-    skills = len(insights.get("skills", []))
-    scores["skills"] = min(100, skills * 25)
-    
-    return scores
-
-
-def _compute_progress_percentage(insights: dict) -> float:
-    """Weighted progress scoring: Phase 1 (tasks+workflows) = 70%, Phase 2 (tools+skills+quals) = 30%."""
-    scores = _get_depth_scores(insights)
-    
-    # Basic Info: 10%
-    basic_score = 10 if AGENT_CRITERIA["BasicInfoAgent"]["check"](insights) else (5 if len(insights.get("purpose", "")) > 10 else 0)
-    
-    # Task Agent: 30%
-    task_score = scores["tasks"] * 0.30
-    
-    # Priority + Workflow Agents: 30%
-    priority_score = 10 if AGENT_CRITERIA["PriorityAgent"]["check"](insights) else (5 if len(insights.get("priority_tasks", [])) > 0 else 0)
-    workflow_score = 20 if AGENT_CRITERIA["WorkflowDeepDiveAgent"]["check"](insights) else 0
-    
-    # Tools + Skills Agents: 20%
-    tools_score = scores["tools"] * 0.10
-    skills_score = scores["skills"] * 0.10
-    
-    # Qualification Agent: 10%
-    qual_score = 10 if AGENT_CRITERIA["QualificationAgent"]["check"](insights) else 0
-
-    total = basic_score + task_score + priority_score + workflow_score + tools_score + skills_score + qual_score
-    return min(total, 100)
 
 
 # ── Utilities ──────────────────────────────────────────────────────────────────
@@ -613,21 +509,17 @@ def _process_llm_response(
     current_agent = _compute_current_agent(merged_insights)
     session_memory.current_agent = current_agent
 
-    # ── Progress — forward-only ───────────────────────────────────────────
-    computed_pct = _compute_progress_percentage(merged_insights)
+    # ── Progress — forward-only, using router.py's compute_progress ──────
+    computed_progress = _compute_progress(merged_insights)
     current_pct = session_memory.progress.get("completion_percentage", 0)
+    computed_pct = computed_progress.get("completion_percentage", 0)
 
     if computed_pct >= current_pct:
         session_memory.progress["completion_percentage"] = computed_pct
 
     session_memory.progress["current_agent"] = current_agent
-    session_memory.progress["depth_scores"] = _get_depth_scores(merged_insights)
-
-    # Status: backend-computed
-    if current_agent == "JDGeneratorAgent":
-        session_memory.progress["status"] = "ready_for_generation"
-    else:
-        session_memory.progress["status"] = "collecting"
+    session_memory.progress["depth_scores"] = computed_progress.get("depth_scores", {})
+    session_memory.progress["status"] = computed_progress.get("status", "collecting")
 
     # ── Fix nested JSON in next_question ──────────────────────────
     conv_resp = parsed_json.get("next_question", "")

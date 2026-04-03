@@ -133,7 +133,7 @@ async def run_interview_turn_stream(
     try:
         # 1. Compute current agent
         old_agent = session_memory.current_agent or "BasicInfoAgent"
-        agent_name = compute_current_agent(session_memory.insights or {})
+        agent_name = compute_current_agent(session_memory.insights or {}, old_agent)
         
         # 2. Detect transition
         transition_context = ""
@@ -200,11 +200,11 @@ async def run_interview_turn_stream(
         gap_result = _gap_check({"insights": insights})
 
         # 8. Update session memory
-        new_agent = compute_current_agent(insights)
+        new_agent = compute_current_agent(insights, session_memory.current_agent)
         if new_agent != session_memory.current_agent:
             session_memory.record_agent_transition(session_memory.current_agent, new_agent)
         session_memory.current_agent = new_agent
-        session_memory.progress = compute_progress(insights)
+        session_memory.progress = compute_progress(insights, new_agent)
 
         # Record the question
         if full_text:

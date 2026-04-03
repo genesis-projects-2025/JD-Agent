@@ -44,12 +44,12 @@ export default function ChatWindow({
 
  // Map agent internal names to user-friendly titles
  const agentTitles: Record<string, string> = {
- BasicInfoAgent: "Getting to Know You",
- TaskAgent: "Deep Dive: Tasks",
- WorkflowAgent: "Understanding Workflows",
- ToolsTechAgent: "Tools & Technologies",
- SkillExtractionAgent: "Technical Skills",
- JDGeneratorAgent: "Ready to Generate",
+ BasicInfoAgent: "Phase 1: Getting to Know You",
+ TaskAgent: "Phase 2: Defining Responsibilities",
+ PriorityAgent: "Phase 4: Understanding Workflows",
+ DeepDiveAgent: "Tools & Technologies",
+ ToolsSkillsAgent: "Phase 5: Tools \Technical Skills Technical Skills",
+ JDGeneratorAgent: "Phase 6: Finalizing Profile",
  };
  const activeAgentTitle = agentTitles[currentAgent] || "Interview Assistant";
 
@@ -65,7 +65,7 @@ export default function ChatWindow({
  </div>
  <div className="overflow-hidden">
  <h3 className="text-sm sm:text-lg font-medium text-surface-900 leading-none truncate w-full">
- Jd Assistant
+ JD Assistant
  </h3>
  <p className="text-[8px] sm:text-[11px] font-medium text-primary-600 mt-0.5 sm:mt-1.5 flex items-center gap-1 sm:gap-1.5 truncate w-full">
  <Activity className="w-2 h-2 sm:w-3 sm:h-3 shrink-0" />

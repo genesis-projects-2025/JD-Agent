@@ -129,31 +129,31 @@ APPROACH:
 """,
 
     "DeepDiveAgent": """AGENT: DeepDiveAgent
-GOAL: Extract the step-by-step workflow, tools used, decision-making logic, and challenges for EACH of the top 3 priority tasks.
+GOAL: Extract the exhaustive step-by-step workflow, task-specific tools, and problem-solving strategies for EACH of the top 3 priority tasks.
+DONE WHEN: All 3 priority tasks have a recorded workflow containing steps, tools, and a problem-solving approach.
 
 TOOLS TO USE: `save_workflow` for each completed workflow.
 
-EXAMPLE ORIENTATION: Provide a step-by-step logic example (e.g., "Starting with data ingestion, then applying filtering rules, and finally outputting the results into a CSV").
+EXAMPLE ORIENTATION: Provide a detailed logic + problem-solving example (e.g., "Starting with data ingestion, then applying filtering rules, and if the data is corrupted, I manually run a validation script before final output").
 
 APPROACH (ONE task at a time):
-- Pick the FIRST priority task that lacks a workflow in memory.
-- Ask them to walk you through exactly how they execute it: "When you [task], what's the first thing you do?"
-- Probe for: What triggers it? What are the steps? What tools do you use? What's the final output?
-- MUST get ≥2 steps before saving a workflow.
-- Once a workflow is complete for one task, move to the next priority task without a workflow.
-- Once ALL priority tasks have workflows, move forward. Do NOT ask for more workflows.
+- Pick the FIRST priority task that lacks a full workflow in memory.
+- Ask them to walk you through the process from start to finish: "When you [task], what's the first thing you do?"
+- PROBE DEEPLY: After they give steps, ask: "What specific tools or software do you use for this particular task?" and "How do you handle any common problems or challenges that arise during this process?"
+- MUST get ≥2 steps, ≥1 tool, and a problem-solving strategy before saving.
+- Once a workflow is complete for one task, move to the next.
+- Once ALL 3 priority tasks have deep workflows, move forward.
 """,
     "ToolsSkillsAgent": """AGENT: ToolsSkillsAgent
-GOAL: Extract an inventory of all Software tools, Technical Skills, and Qualifications (Education/Certifications).
+GOAL: Extract an inventory of OVERALL software tools, Technical Skills, and Academic Qualifications (Education/Experience).
+DONE WHEN: Overall tools (≥2), Technical Skills (≥3), and Qualifications (Education or years of experience) are all collected.
 
 TOOLS TO USE: `save_tools_tech`, `save_skills`, `save_qualifications`.
 
-EXAMPLE ORIENTATION: Provide a specialized skill or tool example (e.g., "Proficiency in Python and LangGraph, along with a Master's degree in Computer Science").
-
 APPROACH (STRICTLY ONE TOPIC AT A TIME):
-- STEP 1 (Tools): If tools in SHARED MEMORY are < 2, ask ONLY about software/tools: "Besides what we discussed in your workflows, are there other tools or software you use regularly?"
-- STEP 2 (Skills): If tools >= 2 but skills < 3, ask ONLY about technical skills: "What technical or domain-specific skills would a new hire need for this role?"
-- STEP 3 (Qualifications): If tools >= 2 and skills >= 3, ask ONLY about qualifications: "What education or certifications would be ideal for someone in this position?"
+- STEP 1 (Overall Tools): If tools in SHARED MEMORY < 2, ask about additional software: "Besides what we discussed in your workflows, are there any other tools or software you use regularly?"
+- STEP 2 (Technical Skills): If tools >= 2 but skills < 3, ask about domain expertise: "What specific technical or domain-specific skills would a person need to excel in this role?"
+- STEP 3 (Qualifications): If tools >= 2 and skills >= 3, ask about education/experience LAST: "Finally, what education background or years of experience would you look for in a candidate for this role?"
 - NEVER ask for tools, skills, or qualifications in the SAME question. Pick ONE based on the current step and wait for the user to answer.
 - Do NOT ask about soft skills (communication, teamwork, etc.) — those are blocked.
 """,
@@ -193,10 +193,10 @@ For each gap, provide:
 QUALITY STANDARDS:
 - Tasks: Need ≥6 tasks with DETAILED descriptions (each ≥15 words)
 - Priority tasks: Need ≥3 from the task list
-- Workflows: Each priority task needs trigger, steps, tools, output
-- Tools: Need specific product names, not categories
-- Skills: Need technical/domain skills, NOT soft skills
-- Qualifications: Need education level + any certifications
+- Workflows: For ALL 3 priority tasks, need trigger, ≥3 steps, task-specific tools, and problem-solving strategies
+- Tools: Need OVERALL specific product names
+- Skills: Need Technical/Domain skills, NOT soft skills
+- Qualifications: Need education level and/or experience years
 
 CURRENT DATA:
 {insights_json}

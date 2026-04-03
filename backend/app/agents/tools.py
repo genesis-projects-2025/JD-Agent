@@ -80,6 +80,7 @@ def save_workflow(
     trigger: str,
     steps: List[str],
     tools_used: List[str],
+    problem_solving: str,
     output: str,
     frequency: str = "",
 ) -> str:
@@ -93,6 +94,7 @@ def save_workflow(
         trigger: What initiates or starts this workflow
         steps: Ordered steps from start to finish (minimum 2)
         tools_used: Tools or software used during this workflow
+        problem_solving: How problems or common challenges are handled for this task
         output: The final deliverable or outcome
         frequency: How often this workflow runs (daily/weekly/monthly)
     """
@@ -204,6 +206,7 @@ def merge_tool_call_into_insights(tool_name: str, tool_args: dict, insights: dic
                 "trigger": tool_args.get("trigger", ""),
                 "steps": tool_args.get("steps", []),
                 "tools": tool_args.get("tools_used", []),
+                "problem_solving": tool_args.get("problem_solving", ""),
                 "output": tool_args.get("output", ""),
                 "frequency": tool_args.get("frequency", ""),
             }

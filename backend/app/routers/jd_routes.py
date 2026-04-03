@@ -73,6 +73,7 @@ def _session_to_cache_dict(memory: SessionMemory) -> dict:
         "full_history": memory.full_history[-6:],  # Only cache recent turns
         "current_phase": memory.current_phase,
         "current_agent": memory.current_agent,
+        "working_memory": memory.to_dict(),  # Include everything (questions_asked, etc)
     }
 
 
@@ -85,11 +86,13 @@ def _session_from_cache_dict(data: dict) -> SessionMemory:
     memory.insights = data.get("insights", {})
     memory.progress = data.get("progress", {})
     memory.generated_jd = data.get("generated_jd")
-    memory.jd_structured = data.get("jd_structured")
-    memory.current_phase = data.get("current_phase", 1)
     memory.current_agent = data.get("current_agent", "BasicInfoAgent")
     history = data.get("full_history", [])
     memory.load_history_from_db(history, llm_limit=6)
+    
+    # Restore working memory if present
+    if "working_memory" in data:
+        memory.from_dict(data["working_memory"])
     return memory
 
 
@@ -137,11 +140,10 @@ async def hydrate_session_from_db(session_id: str, db: AsyncSession) -> SessionM
             else None
         )
         memory.insights = record.insights or {}
-        memory.progress = record.conversation_state or {}
+        # Restore full session state (questions_asked, progress, etc)
+        memory.from_dict(record.conversation_state or {})
         memory.generated_jd = record.jd_text
         memory.jd_structured = record.jd_structured
-        # Restore phase from stored progress state
-        memory.current_phase = (record.conversation_state or {}).get("current_phase", 1)
 
         turns_result = await db.execute(
             fut_select(ConversationTurn)
@@ -226,11 +228,7 @@ async def init_jd(request: InitJDRequest, db: AsyncSession = Depends(get_db)):
         db=db,
         session_id=new_id,
         insights=starting_insights,
-        progress={
-            "completion_percentage": 5,
-            "status": "collecting",
-            "missing_insight_areas": [],
-        },
+        progress=memory.to_dict(),
         conversation_history=[],
         employee_id=request.employee_id,
         employee_name=request.employee_name,
@@ -262,7 +260,7 @@ async def chat(request: ChatRequest, db: AsyncSession = Depends(get_db)):
         db=db,
         session_id=session_id,
         insights=session_memory.insights,
-        progress=session_memory.progress,
+        progress=session_memory.to_dict(), # Persistence: Sync full state
         conversation_history=session_memory.full_history,
         employee_id=session_memory.employee_id,
         employee_name=session_memory.employee_name,
@@ -298,7 +296,7 @@ async def chat_stream(request: ChatRequest, db: AsyncSession = Depends(get_db)):
                 db=db,
                 session_id=session_id,
                 insights=session_memory.insights,
-                progress=session_memory.progress,
+                progress=session_memory.to_dict(),  # Persistence: Sync full state
                 conversation_history=session_memory.full_history,
                 employee_id=session_memory.employee_id,
                 employee_name=session_memory.employee_name,

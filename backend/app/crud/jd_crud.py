@@ -261,6 +261,8 @@ async def save_questionnaire_jd(
             record.jd_structured = safe_structured
 
         record.insights = safe_insights
+        # Handle both legacy progress dicts and new full session state dicts
+        # Save working memory (questions_asked) into conversation_state JSONB
         record.conversation_state = safe_progress
 
         if status:
@@ -390,6 +392,7 @@ async def sync_session_to_db(
 
     if record:
         record.insights = safe_insights
+        # Persistence: Save full session progress/state including questions_asked
         record.conversation_state = safe_progress
         if generated_jd:
             record.jd_text = generated_jd

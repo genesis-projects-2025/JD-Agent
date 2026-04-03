@@ -133,3 +133,34 @@ class SessionMemory:
         self.full_history = list(db_history)
         self.recent_messages = db_history[-llm_limit:]
         self._user_history_text_cache = None
+
+    def to_dict(self) -> dict:
+        """Serialize session state for DB persistence."""
+        return {
+            "current_agent": self.current_agent,
+            "current_phase": self.current_phase,
+            "questions_asked": self.questions_asked,
+            "agent_transition_log": self.agent_transition_log,
+            "current_stage_question_count": self.current_stage_question_count,
+            "completion_percentage": self.progress.get("completion_percentage", 0),
+            "depth_scores": self.progress.get("depth_scores", {}),
+            "status": self.progress.get("status", "collecting"),
+        }
+
+    def from_dict(self, data: dict):
+        """Restore session state from DB dictionary."""
+        if not data:
+            return
+        self.current_agent = data.get("current_agent", "BasicInfoAgent")
+        self.current_phase = data.get("current_phase", 1)
+        self.questions_asked = data.get("questions_asked", [])
+        self.agent_transition_log = data.get("agent_transition_log", [])
+        self.current_stage_question_count = data.get("current_stage_question_count", 0)
+        
+        # Sync progress object
+        self.progress.update({
+            "completion_percentage": data.get("completion_percentage", 0),
+            "depth_scores": data.get("depth_scores", {}),
+            "status": data.get("status", "collecting"),
+            "current_agent": self.current_agent,
+        })

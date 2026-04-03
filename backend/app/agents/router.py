@@ -30,7 +30,7 @@ AGENT_CRITERIA = {
     "BasicInfoAgent": lambda ins: (
         len(ins.get("purpose", "")) >= 15
     ),
-    "TaskAgent": lambda ins: len(ins.get("tasks", [])) >= 6,
+    "TaskAgent": lambda ins: len(ins.get("tasks", [])) >= 4,
     "PriorityAgent": lambda ins: len(ins.get("priority_tasks", [])) >= 3,
     "DeepDiveAgent": lambda ins: (
         all(

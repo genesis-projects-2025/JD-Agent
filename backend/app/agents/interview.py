@@ -130,8 +130,8 @@ def _get_task_fallback_question(insights: dict) -> str:
     count = len(tasks)
     if count == 0:
         return "Could you walk me through what a typical work week looks like for you?"
-    elif count < 6:
-        return f"We've captured {count} tasks so far. Are there any weekly or monthly tasks we haven't covered yet?"
+    elif count < 4:
+        return f"We've captured {count} tasks so far. Are there any other weekly or monthly tasks we haven't covered yet?"
     return "Is there anything else you'd like to add about your responsibilities?"
 
 
@@ -335,12 +335,12 @@ def _build_already_collected_summary(insights: dict) -> str:
             for t in tasks[:6]
         ]
         lines.append(f"  ✓ Tasks ({len(tasks)} collected): {', '.join(task_names)}")
-        if len(tasks) >= 6:
+        if len(tasks) >= 4:
             lines.append(
-                "    → [COMPLETE] You have 6+ tasks. DO NOT ask for more tasks."
+                "    → [COMPLETE] You have enough tasks. DO NOT ask for more tasks."
             )
         else:
-            lines.append(f"    → Need {6 - len(tasks)} more tasks.")
+            lines.append(f"    → Need {4 - len(tasks)} more tasks.")
         has_data = True
 
     priorities = insights.get("priority_tasks", [])
@@ -399,7 +399,11 @@ def _build_already_collected_summary(insights: dict) -> str:
     if not has_data:
         return "DATA ALREADY COLLECTED: Nothing yet. This is the first turn."
 
-    lines.append("\nYour NEXT question must be about something NOT listed above.")
+    lines.append("\nCRITICAL INSTRUCTIONS:")
+    lines.append("1. Your NEXT question must be about something NOT marked as ✓ above.")
+    lines.append("2. If the user mentions something already listed, acknowledge it briefly and ASK ABOUT A DIFFERENT TOPIC.")
+    lines.append("3. If the user says they already provided information or says 'nothing more', move to the next field immediately.")
+    
     return "\n".join(lines)
 
 
@@ -507,44 +511,46 @@ def build_interview_messages(
     return messages
 
 
-# ── Fallback Extraction ───────────────────────────────────────────────────────
-
-
 def _fallback_extraction(agent_name: str, user_message: str) -> dict:
     """Manual fallback extraction when LLM fails to call tools."""
     extracted = {}
     msg = user_message.strip()
+    msg_low = msg.lower()
 
-    if len(msg) < 5:
-        return extracted
+    # 1. Global Heuristics (Always check these)
+    
+    # Tasks: keywords + length
+    if "task" in msg_low or "responsible" in msg_low or "do " in msg_low:
+        potential_tasks = [t.strip() for t in msg.split(",") if len(t.strip()) > 10]
+        if potential_tasks:
+            extracted["tasks"] = [{"description": t, "frequency": "daily", "category": "technical"} for t in potential_tasks]
 
-    if agent_name == "BasicInfoAgent" and len(msg) >= 15:
-        extracted["purpose"] = msg
-
-    elif agent_name == "TaskAgent" and len(msg) >= 10:
-        tasks = [
-            {
-                "description": t.strip(),
-                "frequency": "daily",
-                "category": "technical",
-            }
-            for t in msg.split(",")
-            if len(t.strip()) > 5
-        ]
-        if not tasks:
-            tasks = [
-                {
-                    "description": msg,
-                    "frequency": "daily",
-                    "category": "technical",
-                }
-            ]
-        extracted["tasks"] = tasks
-
-    elif agent_name == "ToolsSkillsAgent":
-        items = [i.strip() for i in msg.split(",") if i.strip()]
+    # Tools/Tech: commas + length
+    if any(k in msg_low for k in ["use", "tool", "software", "tech"]):
+        items = [i.strip() for i in msg.split(",") if 2 < len(i.strip()) < 20]
         if items:
             extracted["tools"] = items
+
+    # 2. Agent-Specific Priority (If not already caught)
+    
+    if agent_name == "BasicInfoAgent" and not extracted.get("purpose") and len(msg) >= 15:
+        extracted["purpose"] = msg
+
+    elif agent_name == "PriorityAgent" and not extracted.get("priority_tasks"):
+        items = [i.strip() for i in msg.replace("\n", ",").split(",") if len(i.strip()) > 5]
+        if items:
+            extracted["priority_tasks"] = items[:3]
+
+    elif agent_name == "DeepDiveAgent" and not extracted.get("workflows"):
+        steps = [s.strip() for s in msg.replace("\n", ".").split(".") if len(s.strip()) > 8]
+        if len(steps) >= 2:
+            extracted["workflows"] = {
+                "User Provided": {
+                    "steps": steps,
+                    "trigger": "User indicated",
+                    "output": "Result of process"
+                }
+            }
 
     return extracted
 

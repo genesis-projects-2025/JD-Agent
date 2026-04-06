@@ -490,11 +490,12 @@ def _build_already_collected_summary(insights: dict, agent_name: str) -> str:
 
 def _build_response_reminder(agent_name: str) -> str:
     """Build response format reminder."""
-    if agent_name == "JDGeneratorAgent":
+    if agent_name in ["JDGeneratorAgent", "ToolsAgent", "SkillsAgent"]:
         return (
             "═══ FINAL FORMAT RULE ═══\n"
-            "The interview is COMPLETE. Thank the employee and summarize.\n"
+            "The data collection is COMPLETE for this stage. Present the data clearly.\n"
             "Do NOT ask any more data-collection questions.\n"
+            "Do NOT include any question marks in your response.\n"
         )
     return (
         "═══ FINAL FORMAT RULE ═══\n"
@@ -908,26 +909,47 @@ class InterviewEngine:
 
         # If Gemini only returned tool calls without content, make a follow-up call
         if not response_text.strip() and response.tool_calls:
-            follow_up_msgs = messages + [response]
-            for tc in response.tool_calls:
-                tc_id = tc.get("id") or tc.get("tool_call_id") or f"call_{tc['name']}"
-                follow_up_msgs.append(
-                    ToolMessage(content="Data saved successfully.", tool_call_id=tc_id)
-                )
-            follow_up = await _invoke_with_retry(_response_llm, follow_up_msgs)
-            response_text = _extract_text_content(follow_up.content)
+            silent_agents = ["ToolsAgent", "SkillsAgent", "JDGeneratorAgent"]
+            if agent_name in silent_agents:
+                if agent_name == "ToolsAgent":
+                    response_text = "I have extracted the technical infrastructure from your workflow. Please review the populated tools below and confirm."
+                elif agent_name == "SkillsAgent":
+                    response_text = "Based on the technical responsibilities discussed, I have populated the required skills below. Please refine and confirm."
+                elif agent_name == "JDGeneratorAgent":
+                    response_text = "Thank you for the detailed information. We have captured all aspects of your role. Your Job Description is ready for generation."
+            else:
+                follow_up_msgs = messages + [response]
+                for tc in response.tool_calls:
+                    tc_id = tc.get("id") or tc.get("tool_call_id") or f"call_{tc['name']}"
+                    follow_up_msgs.append(
+                        ToolMessage(content="Data saved successfully.", tool_call_id=tc_id)
+                    )
+                follow_up = await _invoke_with_retry(_response_llm, follow_up_msgs)
+                response_text = _extract_text_content(follow_up.content)
 
         # --- APPLY STRICT VALIDATION PIPELINE ---
         response_text = _strip_tool_code_leaks(response_text)
         response_text = _trim_duplicate_response(response_text)
         response_text = _truncate_if_too_long(response_text)
-        response_text = _ensure_ends_with_question(
-            response_text, agent_name, insights, {}
-        )
+        
+        silent_agents = ["ToolsAgent", "SkillsAgent", "JDGeneratorAgent"]
+        if agent_name in silent_agents:
+            if agent_name == "ToolsAgent":
+                response_text = "I have extracted the technical infrastructure from your workflow. Please review the populated tools below and confirm."
+            elif agent_name == "SkillsAgent":
+                response_text = "Based on the technical responsibilities discussed, I have populated the required skills below. Please refine and confirm."
+            elif agent_name == "JDGeneratorAgent":
+                response_text = "Thank you for the detailed information. We have captured all aspects of your role. Your Job Description is ready for generation."
+        else:
+            response_text = _ensure_ends_with_question(
+                response_text, agent_name, insights, {}
+            )
 
         # --- QUESTION DEDUPLICATION ---
         response_text = response_text.strip()
-        if _is_question_repeated(response_text, questions_asked):
+        silent_agents = ["ToolsAgent", "SkillsAgent", "JDGeneratorAgent"]
+        
+        if agent_name not in silent_agents and _is_question_repeated(response_text, questions_asked):
             print("  [DEDUP] ⚠ Question is repeated! Generating alternative.")
             # Try to get a new question by adding a strong instruction
             dedup_msgs = messages + [
@@ -1027,30 +1049,34 @@ class InterviewEngine:
         full_text = ""
         initial_text = _extract_text_content(response.content)
 
-        if initial_text.strip():
-            full_text = initial_text.strip()
-        elif response.tool_calls:
-            follow_up_msgs = messages + [response]
-            for tc in response.tool_calls:
-                tc_id = tc.get("id") or tc.get("tool_call_id") or f"call_{tc['name']}"
-                follow_up_msgs.append(
-                    ToolMessage(content="Data saved successfully.", tool_call_id=tc_id)
-                )
-
-            # Silent agents (Tools, Skills, JD) should NOT ask questions
-            silent_agents = ["ToolsAgent", "SkillsAgent", "JDGeneratorAgent"]
-            instruction = (
-                "Provide a professional and concise summary. DO NOT ASK ANY QUESTIONS."
-                if agent_name in silent_agents
-                else "Acknowledge the user's input smoothly. Based on your AGENT GOAL, ask the NEXT logical question. YOU MUST ALWAYS INCLUDE A QUESTION IN YOUR RESPONSE."
-            )
-            follow_up_msgs.append(SystemMessage(content=instruction))
-
-            follow_up = await _invoke_with_retry(_response_llm, follow_up_msgs)
-            full_text = _extract_text_content(follow_up.content)
+        silent_agents = ["ToolsAgent", "SkillsAgent", "JDGeneratorAgent"]
+        if agent_name in silent_agents:
+            # Deterministic override (bypassing LLM conversation)
+            if agent_name == "ToolsAgent":
+                full_text = "I have extracted the technical infrastructure from your workflow. Please review the populated tools below and confirm."
+            elif agent_name == "SkillsAgent":
+                full_text = "Based on the technical responsibilities discussed, I have populated the required skills below. Please refine and confirm."
+            elif agent_name == "JDGeneratorAgent":
+                full_text = "Thank you for the detailed information. We have captured all aspects of your role. Your Job Description is ready for generation."
         else:
-            direct_response = await _invoke_with_retry(_interview_llm, messages)
-            full_text = _extract_text_content(direct_response.content)
+            if initial_text.strip():
+                full_text = initial_text.strip()
+            elif response.tool_calls:
+                follow_up_msgs = messages + [response]
+                for tc in response.tool_calls:
+                    tc_id = tc.get("id") or tc.get("tool_call_id") or f"call_{tc['name']}"
+                    follow_up_msgs.append(
+                        ToolMessage(content="Data saved successfully.", tool_call_id=tc_id)
+                    )
+
+                instruction = "Acknowledge the user's input smoothly. Based on your AGENT GOAL, ask the NEXT logical question. YOU MUST ALWAYS INCLUDE A QUESTION IN YOUR RESPONSE."
+                follow_up_msgs.append(SystemMessage(content=instruction))
+
+                follow_up = await _invoke_with_retry(_response_llm, follow_up_msgs)
+                full_text = _extract_text_content(follow_up.content)
+            else:
+                direct_response = await _invoke_with_retry(_interview_llm, messages)
+                full_text = _extract_text_content(direct_response.content)
 
         print("\n\n" + "*" * 60)
         print("====== RAW LLM RESPONSE (BEFORE PROCESSING) ======")
@@ -1061,11 +1087,14 @@ class InterviewEngine:
         full_text = _strip_tool_code_leaks(full_text)
         full_text = _trim_duplicate_response(full_text)
         full_text = _truncate_if_too_long(full_text)
-        full_text = _ensure_ends_with_question(full_text, agent_name, insights, {})
+
+        silent_agents = ["ToolsAgent", "SkillsAgent", "JDGeneratorAgent"]
+        if agent_name not in silent_agents:
+            full_text = _ensure_ends_with_question(full_text, agent_name, insights, {})
         full_text = full_text.strip()
 
         # --- QUESTION DEDUPLICATION ---
-        if _is_question_repeated(full_text, questions_asked):
+        if agent_name not in silent_agents and _is_question_repeated(full_text, questions_asked):
             print("  [DEDUP STREAM] ⚠ Question is repeated! Generating alternative.")
             dedup_msgs = messages + [
                 AIMessage(content=full_text),

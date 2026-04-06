@@ -108,12 +108,13 @@ async def gap_detector_node(state: AgentState) -> dict:
     # 3. RAG Discovery (Automated Professional Suggestions)
     agent_name = state.get("current_agent", "BasicInfoAgent")
     role_title = insights.get("identity_context", {}).get("title", "")
+    department = insights.get("identity_context", {}).get("department", "")
     
     if agent_name in ["ToolsAgent", "SkillsAgent", "DeepDiveAgent"] and role_title:
-        # Pull from similar JDs in Pulse Pharma
-        logger.info(f"[Discovery] Querying RAG for Role: {role_title}")
-        rag_tools = await query_advanced_context(role_title, "tools", top_k=8)
-        rag_skills = await query_advanced_context(role_title, "skills", top_k=8)
+        # Pull from similar JDs in Pulse Pharma, filtered by department
+        logger.info(f"[Discovery] Querying RAG for Role: {role_title} in Dept: {department}")
+        rag_tools = await query_advanced_context(role_title, "tools", department=department, top_k=8)
+        rag_skills = await query_advanced_context(role_title, "skills", department=department, top_k=8)
         
         # Parse RAG strings (often lists or comma-separated)
         for rt in rag_tools:

@@ -203,9 +203,21 @@ async def query_advanced_context(
         
         examples = []
         current_tokens = 0
-        # Increased threshold to 0.5 to avoid cross-role pollution (e.g. Accountant tools for Devs)
+        # Increased threshold to 0.5 to avoid cross-role pollution
+        role_keywords = set(w.lower() for w in role_query.split() if len(w) > 3)
+        
         for res in sorted(results["matches"], key=lambda x: x["score"], reverse=True):
             if res["score"] > 0.5:
+                # Semantic isolation: ensure the matched role actually shares keywords with the queried role
+                matched_role = res["metadata"].get("role", "")
+                matched_keywords = set(w.lower() for w in matched_role.split() if len(w) > 3)
+                
+                # Only accept if there's keyword overlap (e.g., both contain "software" or "engineer")
+                # If role_query is too short to generate keywords, we bypass this strict check
+                if role_keywords and not role_keywords.intersection(matched_keywords):
+                    logger.info(f"RAG Filter: Discarded '{matched_role}' due to zero keyword overlap with '{role_query}'.")
+                    continue
+                    
                 text = res["metadata"]["text"]
                 tokens = estimate_tokens(text)
                 if current_tokens + tokens <= token_budget:

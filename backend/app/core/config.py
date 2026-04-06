@@ -22,6 +22,7 @@ class Settings(BaseSettings):
     ADMIN_PASSWORD: str = "admin@123"
     
     PINECONE_API_KEY: str = ""
+    PINECONE_INDEX_NAME: str = "jd-agent"
 
     # Redis configuration
     REDIS_URL: str = "redis://localhost:6379"

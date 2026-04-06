@@ -260,6 +260,16 @@ export async function confirmSkills(jdId: string, skills: string[]) {
   return res.json();
 }
 
+export async function confirmTools(jdId: string, tools: string[]) {
+  const res = await fetch(`${API_URL}/jd/${jdId}/confirm-tools`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ tools }),
+  });
+  if (!res.ok) throw new Error("Failed to confirm tools");
+  return res.json();
+}
+
 export async function fetchJD(jdId: string) {
   const res = await fetch(`${API_URL}/jd/${jdId}`);
   if (!res.ok) throw new Error("Failed to fetch JD");

@@ -202,14 +202,27 @@ def merge_tool_call_into_insights(tool_name: str, tool_args: dict, insights: dic
         workflows = insights.get("workflows", {})
         task_name = tool_args.get("task_name", "")
         if task_name:
-            workflows[task_name] = {
-                "trigger": tool_args.get("trigger", ""),
-                "steps": tool_args.get("steps", []),
-                "tools": tool_args.get("tools_used", []),
-                "problem_solving": tool_args.get("problem_solving", ""),
-                "output": tool_args.get("output", ""),
-                "frequency": tool_args.get("frequency", ""),
-            }
+            wf = workflows.get(task_name, {})
+            # merge fields
+            wf["trigger"] = tool_args.get("trigger", "") or wf.get("trigger", "")
+            wf["steps"] = tool_args.get("steps", []) or wf.get("steps", [])
+            wf["tools"] = tool_args.get("tools_used", []) or wf.get("tools", [])
+            wf["problem_solving"] = tool_args.get("problem_solving", "") or wf.get("problem_solving", "")
+            wf["output"] = tool_args.get("output", "") or wf.get("output", "")
+            wf["frequency"] = tool_args.get("frequency", "") or wf.get("frequency", "")
+            workflows[task_name] = wf
+            # Track visited tasks for iterative workflow
+            visited = insights.get("visited_tasks", [])
+            if task_name not in visited:
+                visited.append(task_name)
+                insights["visited_tasks"] = visited
+            
+            # SYNC: Also add these tools to the global master list for real-time progress tracking!
+            global_tools = set(insights.get("tools", []))
+            for t in tool_args.get("tools_used", []):
+                if t:
+                    global_tools.add(t)
+            insights["tools"] = list(global_tools)
         insights["workflows"] = workflows
 
     elif tool_name == "save_tools_tech":

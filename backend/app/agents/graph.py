@@ -20,14 +20,20 @@ from langgraph.graph import StateGraph, END, START
 
 from app.agents.state import AgentState, create_initial_state
 from app.agents.router import router_node, compute_current_agent, compute_progress, get_transition_message
-from app.agents.interview import interview_node, engine as interview_engine
+from app.agents.interview import (
+    basic_info_node,
+    workflow_identifier_node,
+    deep_dive_node,
+    tools_node,
+    skills_node,
+    qualification_node,
+    jd_generator_node,
+    engine as interview_engine
+)
 from app.agents.gap_detector import gap_detector_node
 
 
 logger = logging.getLogger(__name__)
-
-# ── Build the Graph ───────────────────────────────────────────────────────────
-
 
 def _build_graph() -> StateGraph:
     """Build and compile the interview state graph."""
@@ -35,13 +41,41 @@ def _build_graph() -> StateGraph:
 
     # Add nodes
     graph.add_node("router", router_node)
-    graph.add_node("interview", interview_node)
+    graph.add_node("basic_info", basic_info_node)
+    graph.add_node("workflow_identifier", workflow_identifier_node)
+    graph.add_node("deep_dive", deep_dive_node)
+    graph.add_node("tools", tools_node)
+    graph.add_node("skills", skills_node)
+    graph.add_node("qualification", qualification_node)
+    graph.add_node("jd_generator", jd_generator_node)
     graph.add_node("gap_detector", gap_detector_node)
 
-    # Wire edges (linear pipeline — no loops within a single turn)
+    # Helper for conditional routing
+    def route_to_agent(state: AgentState):
+        return state.get("current_agent", "BasicInfoAgent")
+
+    # Wire edges
     graph.add_edge(START, "router")
-    graph.add_edge("router", "interview")
-    graph.add_edge("interview", "gap_detector")
+    
+    # Conditional routing from router to specific agent nodes
+    graph.add_conditional_edges(
+        "router",
+        route_to_agent,
+        {
+            "BasicInfoAgent": "basic_info",
+            "WorkflowIdentifierAgent": "workflow_identifier",
+            "DeepDiveAgent": "deep_dive",
+            "ToolsAgent": "tools",
+            "SkillsAgent": "skills",
+            "QualificationAgent": "qualification",
+            "JDGeneratorAgent": "jd_generator",
+        }
+    )
+
+    # All agent nodes flow into gap_detector
+    for node in ["basic_info", "workflow_identifier", "deep_dive", "tools", "skills", "qualification", "jd_generator"]:
+        graph.add_edge(node, "gap_detector")
+
     graph.add_edge("gap_detector", END)
 
     return graph.compile()
@@ -70,10 +104,11 @@ async def run_interview_turn(
         (reply_json_string, updated_history)
     """
     # Build initial state from session memory
+    insights = dict(session_memory.insights or {})
     initial_state = create_initial_state(
         user_message=user_message,
-        insights=dict(session_memory.insights or {}),
-        identity_context=(session_memory.insights or {}).get("identity_context", {}),
+        insights=insights,
+        identity_context=insights.get("identity_context", {}),
         current_agent=session_memory.current_agent or "BasicInfoAgent",
         previous_agent=session_memory.current_agent or "BasicInfoAgent",
         turn_count=len(session_memory.full_history) // 2,
@@ -81,6 +116,8 @@ async def run_interview_turn(
         messages=[],
         questions_asked=list(getattr(session_memory, 'questions_asked', []) or []),
         agent_transition_log=list(getattr(session_memory, 'agent_transition_log', []) or []),
+        visited_tasks=list(getattr(session_memory, 'visited_tasks', []) or []),
+        active_deep_dive_task=getattr(session_memory, 'active_deep_dive_task', None),
     )
 
     # Run the graph
@@ -98,6 +135,8 @@ async def run_interview_turn(
     session_memory.current_agent = new_agent
     session_memory.progress = result.get("progress", session_memory.progress)
     session_memory.questions_asked = result.get("questions_asked", session_memory.questions_asked)
+    session_memory.visited_tasks = result.get("visited_tasks", [])
+    session_memory.active_deep_dive_task = result.get("active_deep_dive_task")
 
     # Record the question
     next_q = result.get("next_question", "")
@@ -152,7 +191,6 @@ async def run_interview_turn_stream(
 
         # 5. Stream the interview turn
         full_text = ""
-        extracted = {}
 
         async for event in interview_engine.run_turn_stream(
             agent_name=agent_name,
@@ -166,41 +204,22 @@ async def run_interview_turn_stream(
                 yield f"data: {json.dumps({'type': 'chunk', 'content': event['content']}, separators=(',', ':'))}\n\n"
 
             elif event["type"] == "done":
-                extracted = event.get("extracted", {})
+                insights = event.get("insights", session_memory.insights)
                 full_text = event.get("full_text", "")
                 # Update questions_asked from engine
                 session_memory.questions_asked = event.get("questions_asked", questions_asked)
-
-        # 6. Merge extracted data into insights
-        insights = dict(session_memory.insights or {})
-        for key, value in extracted.items():
-            if value in (None, "", [], {}):
-                continue
-            existing = insights.get(key)
-            if isinstance(value, list) and isinstance(existing, list):
-                seen = {json.dumps(v, sort_keys=True, default=str) if isinstance(v, dict) else str(v) for v in existing}
-                for item in value:
-                    item_key = json.dumps(item, sort_keys=True, default=str) if isinstance(item, dict) else str(item)
-                    if item_key not in seen:
-                        existing.append(item)
-                        seen.add(item_key)
-                insights[key] = existing
-            elif isinstance(value, dict) and isinstance(existing, dict):
-                existing.update(value)
-                insights[key] = existing
-            elif existing is None or existing == "" or existing == [] or existing == {}:
-                insights[key] = value
-            else:
-                insights[key] = value
-
-        session_memory.insights = insights
+                
+                # Update iterative helpers
+                session_memory.visited_tasks = insights.get("visited_tasks", [])
+                session_memory.active_deep_dive_task = insights.get("active_deep_dive_task")
+                session_memory.insights = insights
 
         # 7. Run gap detection (lightweight, no LLM call)
         from app.agents.gap_detector import gap_detector_node as _gap_check
-        gap_result = _gap_check({"insights": insights})
+        gap_result = await _gap_check({"insights": session_memory.insights, "current_agent": session_memory.current_agent})
 
         # 8. Update session memory
-        new_agent = compute_current_agent(insights, session_memory.current_agent)
+        new_agent = compute_current_agent(session_memory.insights, session_memory.current_agent)
         if new_agent != session_memory.current_agent:
             session_memory.record_agent_transition(session_memory.current_agent, new_agent)
         session_memory.current_agent = new_agent
@@ -218,6 +237,7 @@ async def run_interview_turn_stream(
             "next_question": full_text,
             "ready_for_jd": gap_result.get("ready_for_jd", False),
             "suggested_skills": gap_result.get("suggested_skills", []),
+            "suggested_tools": gap_result.get("suggested_tools", []),
             "gaps": gap_result.get("gaps", []),
             "quality_score": gap_result.get("quality_score", 0),
         }
@@ -271,6 +291,7 @@ def _build_frontend_response(result: dict, session_memory) -> dict:
         "jd_structured_data": {},
         "jd_text_format": "",
         "suggested_skills": result.get("suggested_skills", []),
+        "suggested_tools": result.get("suggested_tools", []),
         "current_agent": result.get("current_agent", session_memory.current_agent),
         "analytics": {
             "questions_asked": len(session_memory.full_history) // 2,

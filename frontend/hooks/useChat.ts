@@ -7,6 +7,7 @@ import {
   fetchJD,
   generateJD as apiGenerateJD,
   confirmSkills as apiConfirmSkills,
+  confirmTools as apiConfirmTools,
 } from "../lib/api";
 import { JDAgentResponse } from "../types/jd-agent";
 import { getOrCreateEmployeeId } from "@/lib/auth";
@@ -65,6 +66,11 @@ export function useChat(onSaveSuccess?: () => void, autoInit: boolean = true) {
         ? parsed.suggested_skills
         : undefined;
 
+    const suggestedTools =
+      parsed.suggested_tools && Array.isArray(parsed.suggested_tools)
+        ? parsed.suggested_tools
+        : undefined;
+
     const newStatus = parsed.progress?.status ?? "collecting";
     const agent = parsed.current_agent || parsed.progress?.current_agent || "BasicInfoAgent";
     const scores = parsed.progress?.depth_scores || {};
@@ -86,10 +92,15 @@ export function useChat(onSaveSuccess?: () => void, autoInit: boolean = true) {
           sender: "agent",
           text: parsed.next_question,
           skills: suggestedSkills,
+          tools: suggestedTools,
           isSkillSelection:
-            newStatus === "ready_for_generation" &&
+            agent === "SkillsAgent" &&
             !!suggestedSkills &&
             suggestedSkills.length > 0,
+          isToolSelection:
+            agent === "ToolsAgent" &&
+            !!suggestedTools &&
+            suggestedTools.length > 0,
           isReadySelection: newStatus === "ready_for_generation",
           currentAgent: agent,
         },
@@ -103,11 +114,16 @@ export function useChat(onSaveSuccess?: () => void, autoInit: boolean = true) {
             ...newMessages[lastIdx],
             text: parsed.next_question,
             skills: suggestedSkills,
+            tools: suggestedTools,
             isStreaming: false,
             isSkillSelection:
-              newStatus === "ready_for_generation" &&
+              agent === "SkillsAgent" &&
               !!suggestedSkills &&
               suggestedSkills.length > 0,
+            isToolSelection:
+              agent === "ToolsAgent" &&
+              !!suggestedTools &&
+              suggestedTools.length > 0,
             isReadySelection: newStatus === "ready_for_generation",
             currentAgent: agent,
           };
@@ -161,7 +177,9 @@ export function useChat(onSaveSuccess?: () => void, autoInit: boolean = true) {
               // Agent turns may be raw JSON strings or plain text
               let text = h.content;
               let skills: string[] | undefined;
+              let tools: string[] | undefined;
               let isSkillSelection = false;
+              let isToolSelection = false;
               let isReadySelection = false;
               let msgAgent = "BasicInfoAgent";
 
@@ -170,13 +188,22 @@ export function useChat(onSaveSuccess?: () => void, autoInit: boolean = true) {
                 // Never extract data dumps as conversation text
                 text = parsed.next_question ?? h.content;
                 skills = parsed.suggested_skills;
+                tools = parsed.suggested_tools;
+
+                const dbAgent = parsed.current_agent || parsed.progress?.current_agent || "BasicInfoAgent";
+                const dbStatus = parsed.progress?.status ?? "collecting";
+
                 isSkillSelection =
-                  parsed.progress?.status === "ready_for_generation" &&
+                  dbAgent === "SkillsAgent" &&
                   !!skills &&
                   skills.length > 0;
+                isToolSelection =
+                  dbAgent === "ToolsAgent" &&
+                  !!tools &&
+                  tools.length > 0;
                 isReadySelection =
-                  parsed.progress?.status === "ready_for_generation";
-                msgAgent = parsed.current_agent || parsed.progress?.current_agent || "BasicInfoAgent";
+                  dbStatus === "ready_for_generation";
+                msgAgent = dbAgent;
               } catch {
                 // Plain text — use as-is
               }
@@ -185,7 +212,9 @@ export function useChat(onSaveSuccess?: () => void, autoInit: boolean = true) {
                 sender: "agent" as const,
                 text,
                 skills,
+                tools,
                 isSkillSelection,
+                isToolSelection,
                 isReadySelection,
                 currentAgent: msgAgent,
               };
@@ -441,8 +470,7 @@ export function useChat(onSaveSuccess?: () => void, autoInit: boolean = true) {
           newMessages[i] = {
             ...newMessages[i],
             isSkillSelection: false,
-            isReadySelection: true,
-            text: newMessages[i].text + "\n\n✅ Skills confirmed. Ready to generate your Job Description.",
+            text: newMessages[i].text + "\n\n✅ Skills confirmed.",
             skills: skills // Update with finalized selection
           };
           break;
@@ -451,8 +479,35 @@ export function useChat(onSaveSuccess?: () => void, autoInit: boolean = true) {
       return newMessages;
     });
     
-    // Also update the local status so other UI parts know we are ready
-    setStatus("ready_for_generation");
+    // Explicitly notify the agent to move to the next phase (Qualifications)
+    await sendMessage("I have confirmed the skills. Please proceed.");
+  };
+
+  const confirmToolsAction = async (tools: string[]) => {
+    const id = window.location.pathname.split("/").pop();
+    if (!id) return;
+    
+    await apiConfirmTools(id, tools);
+    
+    setMessages((prev) => {
+      const newMessages = [...prev];
+      // Find the last assistant message with tool selection
+      for (let i = newMessages.length - 1; i >= 0; i--) {
+        if (newMessages[i].sender === "agent" && newMessages[i].isToolSelection) {
+          newMessages[i] = {
+            ...newMessages[i],
+            isToolSelection: false,
+            text: newMessages[i].text + "\n\n✅ Tools confirmed.",
+            tools: tools
+          };
+          break;
+        }
+      }
+      return newMessages;
+    });
+
+    // Explicitly notify the agent to move to the next phase (Skills)
+    await sendMessage("I have confirmed the technical infrastructure. Please proceed.");
   };
 
   const handleRetry = () => {
@@ -482,5 +537,6 @@ export function useChat(onSaveSuccess?: () => void, autoInit: boolean = true) {
     updateJd: setJd,
     updateStructuredData: setStructuredData,
     confirmSkillsAction,
+    confirmToolsAction,
   };
 }

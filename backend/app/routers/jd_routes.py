@@ -14,6 +14,7 @@ from app.schemas.jd_schema import (
     UpdateStatusRequest,
     GenerateJDRequest,
     ConfirmSkillsRequest,
+    ConfirmToolsRequest,
 )
 from app.services.jd_service import (
     handle_conversation,
@@ -430,9 +431,32 @@ async def confirm_skills(
 
     # Update insights with confirmed skills
     session_memory.insights["skills"] = request.skills
+    session_memory.insights["skills_confirmed"] = True
 
-    # Update status to ready_for_generation
-    session_memory.progress["status"] = "ready_for_generation"
+    # Do NOT hardcode status; let the router/sync logic recalculate it
+    await sync_session_to_db(
+        db=db,
+        session_id=jd_id,
+        insights=session_memory.insights,
+        progress=session_memory.progress,
+        conversation_history=session_memory.full_history,
+        employee_id=session_memory.employee_id,
+    )
+
+    return {"status": "success", "message": "Skills confirmed and stored."}
+
+
+@router.post("/{jd_id}/confirm-tools")
+async def confirm_tools(
+    jd_id: str, request: ConfirmToolsRequest, db: AsyncSession = Depends(get_db)
+):
+    session_memory = await hydrate_session_from_db(jd_id, db)
+    if not session_memory.insights:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    # Update insights with confirmed tools
+    session_memory.insights["tools"] = request.tools
+    session_memory.insights["tools_confirmed"] = True
 
     await sync_session_to_db(
         db=db,
@@ -441,10 +465,9 @@ async def confirm_skills(
         progress=session_memory.progress,
         conversation_history=session_memory.full_history,
         employee_id=session_memory.employee_id,
-        status="ready_for_generation",
     )
 
-    return {"status": "success", "message": "Skills confirmed and stored."}
+    return {"status": "success", "message": "Tools confirmed and stored."}
 
 
 @router.get("/")

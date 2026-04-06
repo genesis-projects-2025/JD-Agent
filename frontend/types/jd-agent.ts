@@ -60,6 +60,7 @@ export interface JDAgentResponse {
   jd_structured_data: JDStructuredData;
   jd_text_format: string;
   suggested_skills?: string[];
+  suggested_tools?: string[];
   current_agent?: string;
   analytics: Analytics;
   approval: Approval;

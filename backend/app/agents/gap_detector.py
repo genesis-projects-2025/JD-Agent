@@ -18,11 +18,12 @@ from app.agents.validators import (
     is_ready_for_jd,
     sanitise_skills,
 )
+from app.services.vector_service import query_advanced_context
 
 logger = logging.getLogger(__name__)
 
 
-def gap_detector_node(state: AgentState) -> dict:
+async def gap_detector_node(state: AgentState) -> dict:
     """LangGraph node: evaluate data quality and identify gaps.
 
     Uses rule-based checking (fast, no LLM call). Produces a gaps list
@@ -70,13 +71,71 @@ def gap_detector_node(state: AgentState) -> dict:
     if "skills" in insights and isinstance(insights["skills"], list):
         insights["skills"] = sanitise_skills(insights["skills"])
 
-    # Compute suggested_skills for the frontend skills panel
+    # Compute suggested_skills and suggested_tools for the frontend panels
     suggested_skills = []
-    if ready:
-        mem_skills = insights.get("skills", [])
-        mem_tools = insights.get("tools", [])
-        if isinstance(mem_skills, list) and isinstance(mem_tools, list):
-            suggested_skills = sanitise_skills(list(set(mem_skills + mem_tools)))
+    suggested_tools = []
+    
+    mem_skills = insights.get("skills", [])
+    mem_tools = insights.get("tools", [])
+    
+    # 1. Skills/Tools from memory (manual or previously detected)
+    if isinstance(mem_skills, list):
+        suggested_skills.extend(mem_skills)
+    if isinstance(mem_tools, list):
+        suggested_tools.extend(mem_tools)
+        
+    # 2. Extract Tools and Skills from workflows (Intelligent scanning)
+    workflows = insights.get("workflows", {})
+    if isinstance(workflows, dict):
+        for wf in workflows.values():
+            # Extract tools from workflows
+            wf_tools = wf.get("tools")
+            if wf_tools:
+                if isinstance(wf_tools, list):
+                    suggested_tools.extend(wf_tools)
+                else:
+                    suggested_tools.append(wf_tools)
+            
+            # Simple keyword extraction from steps (Basic automation)
+            steps = wf.get("steps", [])
+            for step in steps:
+                low_step = str(step).lower()
+                # Basic tech keywords (Expandable list)
+                for tech in ["python", "java", "react", "next.js", "postgres", "aws", "docker", "kubernetes", "jira", "figma"]:
+                    if tech in low_step:
+                        suggested_tools.append(tech.capitalize())
+
+    # 3. RAG Discovery (Automated Professional Suggestions)
+    agent_name = state.get("current_agent", "BasicInfoAgent")
+    role_title = insights.get("identity_context", {}).get("title", "")
+    
+    if agent_name in ["ToolsAgent", "SkillsAgent", "DeepDiveAgent"] and role_title:
+        # Pull from similar JDs in Pulse Pharma
+        logger.info(f"[Discovery] Querying RAG for Role: {role_title}")
+        rag_tools = await query_advanced_context(role_title, "tools", top_k=8)
+        rag_skills = await query_advanced_context(role_title, "skills", top_k=8)
+        
+        # Parse RAG strings (often lists or comma-separated)
+        for rt in rag_tools:
+            # Basic cleanup of RAG strings
+            items = [i.strip() for i in str(rt).replace("Tools:", "").replace("-", ",").split(",") if i.strip()]
+            suggested_tools.extend(items)
+        
+        for rs in rag_skills:
+            items = [i.strip() for i in str(rs).replace("Skills:", "").replace("-", ",").split(",") if i.strip()]
+            suggested_skills.extend(items)
+
+    # 4. Extract from simple tasks
+    tasks = insights.get("tasks", [])
+    for t in tasks:
+        t_str = str(t).lower()
+        if "using" in t_str or "with" in t_str or "software" in t_str:
+            # Simple heuristic: words after "using" or "with" (Cap at 3 words)
+            pass # LLM does this better, but we leave space for pattern matching
+
+    # Deduplicate and sanitise
+    suggested_skills = sanitise_skills(list(set(suggested_skills)))
+    suggested_tools = list(set([str(t).strip() for t in suggested_tools if t and len(str(t)) > 1]))
 
     logger.info(
         f"[GapDetector] Quality: {quality}/100 | Gaps: {len(gaps)} | Ready: {ready}"
@@ -88,4 +147,5 @@ def gap_detector_node(state: AgentState) -> dict:
         "ready_for_jd": ready,
         "insights": insights,
         "suggested_skills": suggested_skills,
+        "suggested_tools": suggested_tools,
     }

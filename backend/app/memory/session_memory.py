@@ -58,6 +58,10 @@ class SessionMemory:
         # Deprecated: Current interview phase (kept for backward compat)
         self.current_phase = 1
 
+        # ── Iterative Workflow Helpers (Saniya v2.2) ───────────────────────
+        self.visited_tasks = []  # Tasks that have completed deep dives
+        self.active_deep_dive_task = None  # The task currently being deep-dived
+
         # Cached joined user-text for duplicate scan avoidance
         self._user_history_text_cache = None
 
@@ -145,6 +149,8 @@ class SessionMemory:
             "completion_percentage": self.progress.get("completion_percentage", 0),
             "depth_scores": self.progress.get("depth_scores", {}),
             "status": self.progress.get("status", "collecting"),
+            "visited_tasks": self.visited_tasks,
+            "active_deep_dive_task": self.active_deep_dive_task,
         }
 
     def from_dict(self, data: dict):
@@ -156,6 +162,8 @@ class SessionMemory:
         self.questions_asked = data.get("questions_asked", [])
         self.agent_transition_log = data.get("agent_transition_log", [])
         self.current_stage_question_count = data.get("current_stage_question_count", 0)
+        self.visited_tasks = data.get("visited_tasks", [])
+        self.active_deep_dive_task = data.get("active_deep_dive_task")
         
         # Sync progress object
         self.progress.update({

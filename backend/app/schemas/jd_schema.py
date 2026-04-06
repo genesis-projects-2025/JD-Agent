@@ -152,3 +152,7 @@ class CreateReviewRequest(BaseModel):
 
 class ConfirmSkillsRequest(BaseModel):
     skills: List[str]
+
+
+class ConfirmToolsRequest(BaseModel):
+    tools: List[str]

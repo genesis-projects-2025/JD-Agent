@@ -129,6 +129,34 @@ def _safe_uuid(val: str) -> uuid.UUID:
     return uuid.UUID(val)
 
 
+def _trigger_rag_indexing(record: JDSession):
+    """Fire-and-forget indexing task for approved JDs."""
+    if not record or record.status != "approved" or not record.jd_structured:
+        return
+
+    from app.services.vector_service import index_approved_jd
+    import asyncio
+
+    # Try to extract experience level for metadata
+    exp_text = str(record.jd_structured.get("experience", "")).lower()
+    exp_level = "Mid"
+    if any(k in exp_text for k in ["junior", "0-2", "entry"]):
+        exp_level = "Junior"
+    elif any(k in exp_text for k in ["senior", "lead", "sr.", "5+"]):
+        exp_level = "Senior"
+    elif any(k in exp_text for k in ["principal", "architect", "staff", "10+"]):
+        exp_level = "Expert"
+
+    asyncio.create_task(
+        index_approved_jd(
+            jd_id=str(record.id),
+            structured_data=record.jd_structured,
+            department=record.department or "General",
+            experience_level=exp_level,
+        )
+    )
+
+
 async def _harvest_organic_skills(
     db: AsyncSession, jd_structured: dict, session_id: str, employee_id: str
 ):
@@ -571,6 +599,9 @@ async def update_questionnaire_status(
     await db.commit()
     await db.refresh(record)
 
+    if new_status == "approved":
+        _trigger_rag_indexing(record)
+
     await invalidate_pattern(f"jds:employee:{record.employee_id}")
 
     print(f"✅ JD status updated — id={record.id}, status={record.status}")
@@ -618,6 +649,8 @@ async def approve_questionnaire(
 
     await db.commit()
     await db.refresh(record)
+
+    _trigger_rag_indexing(record)
 
     await invalidate_pattern(f"jds:employee:{record.employee_id}")
     return record
@@ -785,6 +818,7 @@ async def create_review_comment(
                 record.status = "manager_rejected"
         elif action == "approved":
             record.status = "approved"
+            _trigger_rag_indexing(record)
 
     await db.commit()
     await db.refresh(review)

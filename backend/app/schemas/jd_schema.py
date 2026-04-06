@@ -5,14 +5,31 @@ from typing import List, Dict, Optional, Literal
 
 
 class EmployeeRoleInsights(BaseModel):
-    identity_context: Dict = Field(default_factory=dict)
+    # Shared Memory Data
+    basic_info: Dict = Field(default_factory=dict)         # title, dept, location, reports_to, band, etc.
     purpose: str = Field(default="")
+    tasks: List[str] = Field(default_factory=list)         # Replaced daily/weekly tasks
+    priority_tasks: List[str] = Field(default_factory=list)# Stage 3 Priority Ranking
+    workflows: Dict = Field(default_factory=dict)          # Deep Dive: {task_name: {frequency, trigger, steps, tools, output}}
+    tools: List[str] = Field(default_factory=list)         # Software/Hardware
+    technologies: List[str] = Field(default_factory=list)  # Frameworks/Platforms
+    skills: List[str] = Field(default_factory=list)        # Technical/Domain skills
+    qualifications: Dict = Field(default_factory=dict)     # {"education": [], "certifications": []}
+    
+    # Deprecated fields (kept for backward compatibility during transition if needed)
+    identity_context: Dict = Field(default_factory=dict)
     responsibilities: List[str] = Field(default_factory=list)
     working_relationships: Dict = Field(default_factory=dict)
-    skills: List[str] = Field(default_factory=list)
-    tools: List[str] = Field(default_factory=list)
     education: str = Field(default="")
     experience: str = Field(default="")
+    daily_tasks: List[str] = Field(default_factory=list)
+    weekly_tasks: List[str] = Field(default_factory=list)
+
+class DepthTracking(BaseModel):
+    category: str
+    count: int
+    is_complete: bool
+    threshold: int
 
 
 class JDStructuredData(BaseModel):
@@ -37,6 +54,9 @@ class Progress(BaseModel):
         "approval_pending",
         "approved",
     ] = "collecting"
+    current_phase: int = 1
+    current_agent: str = "BasicInfoAgent"
+    depth_scores: Dict[str, int] = Field(default_factory=dict)
 
 
 class Analytics(BaseModel):
@@ -132,3 +152,7 @@ class CreateReviewRequest(BaseModel):
 
 class ConfirmSkillsRequest(BaseModel):
     skills: List[str]
+
+
+class ConfirmToolsRequest(BaseModel):
+    tools: List[str]

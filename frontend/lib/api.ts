@@ -260,6 +260,16 @@ export async function confirmSkills(jdId: string, skills: string[]) {
   return res.json();
 }
 
+export async function confirmTools(jdId: string, tools: string[]) {
+  const res = await fetch(`${API_URL}/jd/${jdId}/confirm-tools`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ tools }),
+  });
+  if (!res.ok) throw new Error("Failed to confirm tools");
+  return res.json();
+}
+
 export async function fetchJD(jdId: string) {
   const res = await fetch(`${API_URL}/jd/${jdId}`);
   if (!res.ok) throw new Error("Failed to fetch JD");
@@ -387,7 +397,15 @@ export async function sendMessage(
     body: JSON.stringify({ message, history, id: sessionId }),
   });
   if (!res.ok) throw new Error("Failed to send message");
-  return res.json();
+  const data = await res.json();
+  
+  console.group("🧠 JD-Agent Memory (Sync)");
+  console.log("Agent:", data.current_agent);
+  console.log("Insights:", data.employee_role_insights);
+  console.log("Progress:", data.progress);
+  console.groupEnd();
+
+  return data;
 }
 
 export async function sendMessageStream(
@@ -441,6 +459,12 @@ export async function sendMessageStream(
           if (parsed.type === "chunk" && parsed.content) {
             onChunk(parsed.content);
           } else if (parsed.type === "done") {
+            console.group("🧠 JD-Agent Memory (Stream)");
+            console.log("Agent:", parsed.parsed.current_agent);
+            console.log("Insights:", parsed.parsed.employee_role_insights);
+            console.log("Progress:", parsed.parsed.progress);
+            console.groupEnd();
+            
             onDone(parsed.parsed);
             return; // clean exit
           } else if (parsed.type === "error") {

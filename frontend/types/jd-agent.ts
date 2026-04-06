@@ -12,16 +12,20 @@ export interface JDStructuredData {
 }
 
 export interface EmployeeRoleInsights {
-  identity_context: Record<string, any>;
-  daily_activities: string[];
-  execution_processes: string[];
-  tools_and_platforms: string[];
-  team_collaboration: Record<string, any>;
-  stakeholder_interactions: Record<string, any>;
-  decision_authority: Record<string, any>;
-  performance_metrics: string[];
-  work_environment: Record<string, any>;
-  special_contributions: string[];
+  basic_info: Record<string, any>;
+  purpose: string;
+  daily_tasks: string[];
+  weekly_tasks: string[];
+  workflows: string[];
+  tools: string[];
+  technologies: string[];
+  skills: string[];
+  // Deprecated — kept for backward compatibility
+  identity_context?: Record<string, any>;
+  responsibilities?: string[];
+  working_relationships?: Record<string, any>;
+  education?: string;
+  experience?: string;
 }
 
 export interface Progress {
@@ -33,6 +37,8 @@ export interface Progress {
     | "jd_generated"
     | "approval_pending"
     | "approved";
+  current_agent?: string;
+  depth_scores?: Record<string, number>;
 }
 
 export interface Analytics {
@@ -48,12 +54,14 @@ export interface Approval {
 }
 
 export interface JDAgentResponse {
-  conversation_response: string;
+  next_question: string;
   progress: Progress;
   employee_role_insights: EmployeeRoleInsights;
   jd_structured_data: JDStructuredData;
   jd_text_format: string;
   suggested_skills?: string[];
+  suggested_tools?: string[];
+  current_agent?: string;
   analytics: Analytics;
   approval: Approval;
 }

@@ -14,6 +14,7 @@ from app.schemas.jd_schema import (
     UpdateStatusRequest,
     GenerateJDRequest,
     ConfirmSkillsRequest,
+    ConfirmToolsRequest,
 )
 from app.services.jd_service import (
     handle_conversation,
@@ -70,7 +71,10 @@ def _session_to_cache_dict(memory: SessionMemory) -> dict:
         "generated_jd": memory.generated_jd,
         "jd_structured": memory.jd_structured,
         "recent_messages": memory.recent_messages,
-        "full_history": memory.full_history[-10:],  # Only cache recent turns
+        "full_history": memory.full_history[-6:],  # Only cache recent turns
+        "current_phase": memory.current_phase,
+        "current_agent": memory.current_agent,
+        "working_memory": memory.to_dict(),  # Include everything (questions_asked, etc)
     }
 
 
@@ -83,9 +87,13 @@ def _session_from_cache_dict(data: dict) -> SessionMemory:
     memory.insights = data.get("insights", {})
     memory.progress = data.get("progress", {})
     memory.generated_jd = data.get("generated_jd")
-    memory.jd_structured = data.get("jd_structured")
+    memory.current_agent = data.get("current_agent", "BasicInfoAgent")
     history = data.get("full_history", [])
-    memory.load_history_from_db(history, llm_limit=10)
+    memory.load_history_from_db(history, llm_limit=6)
+    
+    # Restore working memory if present
+    if "working_memory" in data:
+        memory.from_dict(data["working_memory"])
     return memory
 
 
@@ -133,7 +141,8 @@ async def hydrate_session_from_db(session_id: str, db: AsyncSession) -> SessionM
             else None
         )
         memory.insights = record.insights or {}
-        memory.progress = record.conversation_state or {}
+        # Restore full session state (questions_asked, progress, etc)
+        memory.from_dict(record.conversation_state or {})
         memory.generated_jd = record.jd_text
         memory.jd_structured = record.jd_structured
 
@@ -141,11 +150,11 @@ async def hydrate_session_from_db(session_id: str, db: AsyncSession) -> SessionM
             fut_select(ConversationTurn)
             .where(ConversationTurn.session_id == record.id)
             .order_by(ConversationTurn.turn_index.desc())
-            .limit(10)
+            .limit(6)
         )
         recent_turns = list(reversed(turns_result.scalars().all()))
         history = [{"role": t.role, "content": t.content} for t in recent_turns]
-        memory.load_history_from_db(history, llm_limit=10)
+        memory.load_history_from_db(history, llm_limit=6)
 
     # Cache for next request
     await _cache_session(memory)
@@ -220,11 +229,7 @@ async def init_jd(request: InitJDRequest, db: AsyncSession = Depends(get_db)):
         db=db,
         session_id=new_id,
         insights=starting_insights,
-        progress={
-            "completion_percentage": 5,
-            "status": "collecting",
-            "missing_insight_areas": [],
-        },
+        progress=memory.to_dict(),
         conversation_history=[],
         employee_id=request.employee_id,
         employee_name=request.employee_name,
@@ -256,7 +261,7 @@ async def chat(request: ChatRequest, db: AsyncSession = Depends(get_db)):
         db=db,
         session_id=session_id,
         insights=session_memory.insights,
-        progress=session_memory.progress,
+        progress=session_memory.to_dict(), # Persistence: Sync full state
         conversation_history=session_memory.full_history,
         employee_id=session_memory.employee_id,
         employee_name=session_memory.employee_name,
@@ -292,7 +297,7 @@ async def chat_stream(request: ChatRequest, db: AsyncSession = Depends(get_db)):
                 db=db,
                 session_id=session_id,
                 insights=session_memory.insights,
-                progress=session_memory.progress,
+                progress=session_memory.to_dict(),  # Persistence: Sync full state
                 conversation_history=session_memory.full_history,
                 employee_id=session_memory.employee_id,
                 employee_name=session_memory.employee_name,
@@ -426,9 +431,32 @@ async def confirm_skills(
 
     # Update insights with confirmed skills
     session_memory.insights["skills"] = request.skills
+    session_memory.insights["skills_confirmed"] = True
 
-    # Update status to ready_for_generation
-    session_memory.progress["status"] = "ready_for_generation"
+    # Do NOT hardcode status; let the router/sync logic recalculate it
+    await sync_session_to_db(
+        db=db,
+        session_id=jd_id,
+        insights=session_memory.insights,
+        progress=session_memory.progress,
+        conversation_history=session_memory.full_history,
+        employee_id=session_memory.employee_id,
+    )
+
+    return {"status": "success", "message": "Skills confirmed and stored."}
+
+
+@router.post("/{jd_id}/confirm-tools")
+async def confirm_tools(
+    jd_id: str, request: ConfirmToolsRequest, db: AsyncSession = Depends(get_db)
+):
+    session_memory = await hydrate_session_from_db(jd_id, db)
+    if not session_memory.insights:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    # Update insights with confirmed tools
+    session_memory.insights["tools"] = request.tools
+    session_memory.insights["tools_confirmed"] = True
 
     await sync_session_to_db(
         db=db,
@@ -437,10 +465,9 @@ async def confirm_skills(
         progress=session_memory.progress,
         conversation_history=session_memory.full_history,
         employee_id=session_memory.employee_id,
-        status="ready_for_generation",
     )
 
-    return {"status": "success", "message": "Skills confirmed and stored."}
+    return {"status": "success", "message": "Tools confirmed and stored."}
 
 
 @router.get("/")

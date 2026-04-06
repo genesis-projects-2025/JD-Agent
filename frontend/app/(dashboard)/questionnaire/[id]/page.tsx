@@ -41,6 +41,8 @@ export default function QuestionnairePage() {
     handleGenerateJD,
     handleSaveJD,
     progress,
+    depthScores,
+    currentAgent,
     status,
     structuredData,
     isRateLimited,
@@ -48,6 +50,7 @@ export default function QuestionnairePage() {
     updateJd,
     updateStructuredData,
     confirmSkillsAction,
+    confirmToolsAction,
   } = useChat(() => {
     // Component stays on page; the JDPreviewPanel handles UI view
   }, true);
@@ -68,6 +71,10 @@ export default function QuestionnairePage() {
 
   const handleSkillSelect = (skills: string[]) => {
     confirmSkillsAction(skills);
+  };
+
+  const handleToolSelect = (tools: string[]) => {
+    confirmToolsAction(tools);
   };
 
   const handleContinue = () => {
@@ -101,7 +108,7 @@ export default function QuestionnairePage() {
               router.push("/");
             }
           }}
-          className="flex items-center gap-1.5 sm:gap-2 text-surface-400 hover:text-primary-600 transition-colors text-[10px] sm:text-[11px] font-black uppercase tracking-widest group whitespace-nowrap shrink-0"
+          className="flex items-center gap-1.5 sm:gap-2 text-surface-400 hover:text-primary-600 transition-colors text-[10px] sm:text-[11px] font-medium group whitespace-nowrap shrink-0"
         >
           <ArrowLeft className="w-4 h-4" />
           <span className="hidden sm:inline">Back</span>
@@ -111,7 +118,7 @@ export default function QuestionnairePage() {
 
         <div className="flex items-center gap-2 shrink-0">
           <FileText className="w-4 h-4 text-primary-600" />
-          <span className="text-[10px] sm:text-[11px] font-black text-surface-600 uppercase tracking-widest whitespace-nowrap">
+          <span className="text-[10px] sm:text-[11px] font-medium text-surface-600 whitespace-nowrap">
             JD Interview
           </span>
         </div>
@@ -123,7 +130,7 @@ export default function QuestionnairePage() {
           {jd && status === "jd_generated" && (
             <button
               onClick={() => setShowPanel((p) => !p)}
-              className="flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-1.5 sm:py-2 bg-primary-600 text-white rounded-xl text-[10px] sm:text-[11px] font-black uppercase tracking-widest hover:bg-primary-700 transition-all shadow-lg shadow-primary-500/20 active:scale-95 whitespace-nowrap"
+              className="flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-1.5 sm:py-2 bg-primary-600 text-white rounded-md text-[10px] sm:text-[11px] font-medium hover:bg-primary-700 transition-all shadow-md shadow-primary-500/20 active:scale-95 whitespace-nowrap"
             >
               <Sparkles className="w-3.5 h-3.5 hidden sm:block" />
               {showPanel ? "Hide JD" : "View JD"}
@@ -149,7 +156,7 @@ export default function QuestionnairePage() {
 
         {/* Generating indicator */}
         {isGeneratingJD && (
-          <div className="flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-1.5 sm:py-2 bg-primary-50 text-primary-700 rounded-xl text-[10px] sm:text-[11px] font-black uppercase tracking-widest border border-primary-100 whitespace-nowrap shrink-0">
+          <div className="flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-1.5 sm:py-2 bg-primary-50 text-primary-700 rounded-md text-[10px] sm:text-[11px] font-medium border border-primary-100 whitespace-nowrap shrink-0">
             <Loader2 className="w-3.5 h-3.5 animate-spin" />
             <span className="hidden sm:inline">Generating JD...</span>
             <span className="sm:hidden">Gen JD...</span>
@@ -162,15 +169,18 @@ export default function QuestionnairePage() {
         {/* Chat column — hidden on mobile when JD panel is open */}
         <div
           className={`flex flex-col min-h-0 transition-all duration-500 ease-out bg-surface-50 w-full ${showPanel
-              ? "hidden md:flex md:h-auto md:w-1/2 md:border-r border-surface-200"
-              : "h-full"
+            ? "hidden md:flex md:h-auto md:w-1/2 md:border-r border-surface-200"
+            : "h-full"
             }`}
         >
           <ChatWindow
             messages={messages}
             isGenerating={isGenerating}
             progress={progress}
+            depthScores={depthScores}
+            currentAgent={currentAgent}
             onSkillSelect={handleSkillSelect}
+            onToolSelect={handleToolSelect}
             onGenerateJD={() => {
               setShowPanel(true);
               handleGenerateJD();
@@ -180,9 +190,9 @@ export default function QuestionnairePage() {
 
           {/* Rate limit banner */}
           {isRateLimited && retryTimer > 0 && (
-            <div className="flex-shrink-0 mx-6 mb-3 px-5 py-3 bg-amber-50 border border-amber-200 rounded-xl flex items-center gap-3">
-              <div className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
-              <span className="text-[11px] font-bold text-amber-700 uppercase tracking-widest">
+            <div className="flex-shrink-0 mx-6 mb-3 px-5 py-3 bg-amber-50 border border-amber-200 rounded-md flex items-center gap-3">
+              <div className="w-2 h-2 rounded-md bg-amber-500 animate-pulse" />
+              <span className="text-[11px] font-medium text-amber-700 ">
                 Rate limited — resuming in {retryTimer}s
               </span>
             </div>

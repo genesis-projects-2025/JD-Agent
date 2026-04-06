@@ -129,6 +129,34 @@ def _safe_uuid(val: str) -> uuid.UUID:
     return uuid.UUID(val)
 
 
+def _trigger_rag_indexing(record: JDSession):
+    """Fire-and-forget indexing task for approved JDs."""
+    if not record or record.status != "approved" or not record.jd_structured:
+        return
+
+    from app.services.vector_service import index_approved_jd
+    import asyncio
+
+    # Try to extract experience level for metadata
+    exp_text = str(record.jd_structured.get("experience", "")).lower()
+    exp_level = "Mid"
+    if any(k in exp_text for k in ["junior", "0-2", "entry"]):
+        exp_level = "Junior"
+    elif any(k in exp_text for k in ["senior", "lead", "sr.", "5+"]):
+        exp_level = "Senior"
+    elif any(k in exp_text for k in ["principal", "architect", "staff", "10+"]):
+        exp_level = "Expert"
+
+    asyncio.create_task(
+        index_approved_jd(
+            jd_id=str(record.id),
+            structured_data=record.jd_structured,
+            department=record.department or "General",
+            experience_level=exp_level,
+        )
+    )
+
+
 async def _harvest_organic_skills(
     db: AsyncSession, jd_structured: dict, session_id: str, employee_id: str
 ):
@@ -261,6 +289,8 @@ async def save_questionnaire_jd(
             record.jd_structured = safe_structured
 
         record.insights = safe_insights
+        # Handle both legacy progress dicts and new full session state dicts
+        # Save working memory (questions_asked) into conversation_state JSONB
         record.conversation_state = safe_progress
 
         if status:
@@ -390,6 +420,7 @@ async def sync_session_to_db(
 
     if record:
         record.insights = safe_insights
+        # Persistence: Save full session progress/state including questions_asked
         record.conversation_state = safe_progress
         if generated_jd:
             record.jd_text = generated_jd
@@ -568,6 +599,9 @@ async def update_questionnaire_status(
     await db.commit()
     await db.refresh(record)
 
+    if new_status == "approved":
+        _trigger_rag_indexing(record)
+
     await invalidate_pattern(f"jds:employee:{record.employee_id}")
 
     print(f"✅ JD status updated — id={record.id}, status={record.status}")
@@ -615,6 +649,8 @@ async def approve_questionnaire(
 
     await db.commit()
     await db.refresh(record)
+
+    _trigger_rag_indexing(record)
 
     await invalidate_pattern(f"jds:employee:{record.employee_id}")
     return record
@@ -767,31 +803,22 @@ async def create_review_comment(
         record.reviewer_comment = comment
         record.reviewed_at = _now().replace(tzinfo=None)
 
-        if action == "rejected":
+        if action in ["rejected", "revision_requested"]:
             from app.models.user_model import Employee
-
             reviewer_res = await db.execute(
                 select(Employee).where(Employee.id == reviewer_id)
             )
             reviewer = reviewer_res.scalar_one_or_none()
+            
+            # If rejected by HR, status is hr_rejected.
+            # Otherwise (Manager/Head), status is manager_rejected.
             if reviewer and reviewer.role == "hr":
                 record.status = "hr_rejected"
-            elif reviewer and reviewer.role == "manager":
-                record.status = "manager_rejected"
-        elif action == "revision_requested":
-            # Same as rejected — send it back to the appropriate party
-            from app.models.user_model import Employee
-
-            reviewer_res = await db.execute(
-                select(Employee).where(Employee.id == reviewer_id)
-            )
-            reviewer = reviewer_res.scalar_one_or_none()
-            if reviewer and reviewer.role == "hr":
-                record.status = "hr_rejected"
-            elif reviewer and reviewer.role == "manager":
+            else:
                 record.status = "manager_rejected"
         elif action == "approved":
             record.status = "approved"
+            _trigger_rag_indexing(record)
 
     await db.commit()
     await db.refresh(review)
@@ -873,7 +900,7 @@ async def get_unread_feedback_for_user(
             )
             .order_by(JDReviewComment.created_at.desc())
         )
-    elif user_role == "manager":
+    elif user_role in ["manager", "head"]:
         result = await db.execute(
             select(JDReviewComment, JDSession, Employee)
             .join(JDSession, JDReviewComment.jd_session_id == JDSession.id)
@@ -933,8 +960,10 @@ async def get_all_feedback_for_user(
             .outerjoin(EmpReviewer, JDReviewComment.reviewer_id == EmpReviewer.id)
             .outerjoin(EmpOwner, JDSession.employee_id == EmpOwner.id)
             .where(
+                # If I own the JD, I see ALL feedback for it
                 (JDSession.employee_id == employee_id)
-                & (JDReviewComment.target_role == "employee")
+                # OR if it was specifically targeted at the employee role and it's my JD
+                | ((JDSession.employee_id == employee_id) & (JDReviewComment.target_role == "employee"))
             )
             .order_by(JDReviewComment.created_at.desc())
         )
@@ -962,7 +991,7 @@ async def get_all_feedback_for_user(
             )
         return serialized
 
-    elif user_role == "manager":
+    elif user_role in ["manager", "head"]:
         EmpCreator = Employee.__class__  # alias not needed; use a labeled join below
         from sqlalchemy.orm import aliased
 
@@ -975,11 +1004,10 @@ async def get_all_feedback_for_user(
             .outerjoin(EmpCreator, JDSession.employee_id == EmpCreator.id)
             .outerjoin(EmpReviewer, JDReviewComment.reviewer_id == EmpReviewer.id)
             .where(
-                (JDReviewComment.target_role == "manager")
-                & (
-                    (EmpCreator.reporting_manager_code == employee_id)
-                    | (JDSession.employee_id == employee_id)
-                )
+                # I see feedback for JDs I own
+                (JDSession.employee_id == employee_id)
+                # OR feedback targeted at managers for my team members
+                | ((EmpCreator.reporting_manager_code == employee_id) & (JDReviewComment.target_role == "manager"))
             )
             .order_by(JDReviewComment.created_at.desc())
         )
@@ -1015,7 +1043,10 @@ async def get_all_feedback_for_user(
             .join(JDSession, JDReviewComment.jd_session_id == JDSession.id)
             .outerjoin(EmpCreator, JDSession.employee_id == EmpCreator.id)
             .outerjoin(EmpReviewer, JDReviewComment.reviewer_id == EmpReviewer.id)
-            .where(JDReviewComment.reviewer_id == employee_id)
+            .where(
+                (JDReviewComment.reviewer_id == employee_id)
+                | (JDSession.employee_id == employee_id)
+            )
             .order_by(JDReviewComment.created_at.desc())
         )
         rows = result.all()

@@ -286,7 +286,6 @@ def _ensure_ends_with_question(
     return f"{stripped}. {fallback}"
 
 
-
 def _get_basic_info_fallback_question(insights: dict) -> str:
     """Generate a contextual fallback question for the BasicInfoAgent."""
     if not insights.get("purpose"):
@@ -311,7 +310,7 @@ def _get_workflow_fallback_question(insights: dict) -> str:
     """Generate a contextual fallback question for the DeepDiveAgent."""
     active_task = insights.get("active_deep_dive_task", "")
     completed = insights.get("_completed_task", "")
-    
+
     if completed and active_task:
         return f"Since we have everything for '{completed}', how do you normally execute '{active_task}'?"
     elif completed and not active_task:
@@ -422,7 +421,9 @@ def _truncate_if_too_long(response_text: str) -> str:
     if len(words) <= 90:
         return response_text
 
-    logger.info(f"  [VALIDATE] ⚠ Response is {len(words)} words (target: <90). Trimming.")
+    logger.info(
+        f"  [VALIDATE] ⚠ Response is {len(words)} words (target: <90). Trimming."
+    )
 
     sentences = re.split(r"(?<=[.!?])\s+", response_text.strip())
     if len(sentences) <= 3:
@@ -649,28 +650,36 @@ class InterviewEngine:
             top_k=5,
         )
 
-    async def _auto_populate_inventory(self, insights: dict, agent_name: str, rag_context: list[str]) -> dict:
+    async def _auto_populate_inventory(
+        self, insights: dict, agent_name: str, rag_context: list[str]
+    ) -> dict:
         """Automatically populate tools/skills from RAG and collected context if they are empty."""
         if agent_name not in ["ToolsAgent", "SkillsAgent"]:
             return insights
 
         field = "tools" if agent_name == "ToolsAgent" else "skills"
         existing = insights.get(field) or []
-        
+
         # Only auto-populate if we have very little data (less than 3 items)
         if len(existing) >= 8:
             return insights
 
-        logger.info(f"[Auto-Populate] Generating {field} from RAG and collected context...")
-        
+        logger.info(
+            f"[Auto-Populate] Generating {field} from RAG and collected context..."
+        )
+
         # Build a prompt to extract items from RAG and collected workflows
         workflows = insights.get("workflows") or {}
         workflow_texts = []
         for task, wf in workflows.items():
-            workflow_texts.append(f"Task: {task}\nSteps: {wf.get('steps', '')}\nTools: {wf.get('tools', '')}")
-        
-        context_text = "\n\n".join(workflow_texts) + "\n\nRAG CONTEXT:\n" + "\n".join(rag_context)
-        
+            workflow_texts.append(
+                f"Task: {task}\nSteps: {wf.get('steps', '')}\nTools: {wf.get('tools', '')}"
+            )
+
+        context_text = (
+            "\n\n".join(workflow_texts) + "\n\nRAG CONTEXT:\n" + "\n".join(rag_context)
+        )
+
         prompt = f"""Extract a concise list of the most relevant {field} for this role from the context below.
         
         CONTEXT:
@@ -679,9 +688,10 @@ class InterviewEngine:
         Respond with ONLY a JSON list of strings, e.g. ["Item 1", "Item 2"]. 
         Focus on technical/professional items. Do NOT include generic soft skills for 'tools'.
         """
-        
+
         try:
             from langchain_core.messages import HumanMessage
+
             response = await _interview_llm.ainvoke([HumanMessage(content=prompt)])
             content = response.content.strip()
             # Clean possible markdown wrap
@@ -689,17 +699,18 @@ class InterviewEngine:
                 content = content.split("```")[1]
                 if content.startswith("json"):
                     content = content[4:]
-            
+
             new_items = json.loads(content)
             if isinstance(new_items, list):
                 # Professionalize and merge
                 from app.agents.semantic_cleaner import deduplicate_and_professionalize
+
                 merged = list(set(existing) | set(new_items))
                 insights[field] = await deduplicate_and_professionalize(merged, field)
                 logger.info(f"[Auto-Populate] Added {len(new_items)} items to {field}.")
         except Exception as e:
             logger.error(f"[Auto-Populate] Failed: {e}")
-            
+
         return insights
 
     def _pre_process_iteration_state(self, insights: dict, agent_name: str) -> dict:
@@ -772,86 +783,79 @@ class InterviewEngine:
     ) -> dict:
         """Consolidated logic to merge newly extracted data into existing session insights.
 
-        Args:
-            extracted: The new data to merge.
-            insights: The existing state.
-            overwrite: If True, extracted lists/dicts will REPLACE existing ones instead of merging.
-                       Useful for cleaning/synthesis passes.
+        HARDENING: Uses the non-destructive merge logic from extraction_engine.
         """
-        import json
+        from app.agents.extraction_engine import merge_extracted
 
-        for key, value in extracted.items():
-            if value in (None, "", [], {}):
-                continue
+        if overwrite:
+            # For synthesis passes where we trust the LLM's full cleanup
+            for key, value in extracted.items():
+                if value not in (None, "", [], {}):
+                    insights[key] = value
+            return insights
 
-            # If overwrite is requested, replace and move to next key
-            if overwrite:
-                insights[key] = value
-                continue
+        # Default: Use the hardened non-destructive logic
+        return merge_extracted(insights, extracted)
 
-            existing = insights.get(key)
+        existing = insights.get(key)
 
-            # Defense mechanism: If workflows comes in as a list, dynamically convert it to a dict
-            if key == "workflows" and isinstance(value, list):
-                converted = {}
-                for idx, item in enumerate(value):
-                    if isinstance(item, dict):
-                        # Use the active deep dive task, or a task name, or a fallback generator
-                        task_name = (
-                            item.get("task")
-                            or insights.get("active_deep_dive_task")
-                            or f"Task_{idx + 1}"
-                        )
-                        converted[task_name] = item
-                value = converted
+        # Defense mechanism: If workflows comes in as a list, dynamically convert it to a dict
+        if key == "workflows" and isinstance(value, list):
+            converted = {}
+            for idx, item in enumerate(value):
+                if isinstance(item, dict):
+                    # Use the active deep dive task, or a task name, or a fallback generator
+                    task_name = (
+                        item.get("task")
+                        or insights.get("active_deep_dive_task")
+                        or f"Task_{idx + 1}"
+                    )
+                    converted[task_name] = item
+            value = converted
 
-            if isinstance(value, list) and isinstance(existing, list):
-                # Intelligent list deduplication merge
-                if key in ["tasks", "tools", "skills", "priority_tasks"]:
-                    # Semantic deduplication for known list types
-                    seen_normalized = set()
-                    for item in existing:
-                        text = (
-                            item.get("description")
-                            if isinstance(item, dict)
-                            else str(item)
-                        )
-                        seen_normalized.add(self._normalize_item_text(text))
+        if isinstance(value, list) and isinstance(existing, list):
+            # Intelligent list deduplication merge
+            if key in ["tasks", "tools", "skills", "priority_tasks"]:
+                # Semantic deduplication for known list types
+                seen_normalized = set()
+                for item in existing:
+                    text = (
+                        item.get("description") if isinstance(item, dict) else str(item)
+                    )
+                    seen_normalized.add(self._normalize_item_text(text))
 
-                    for item in value:
-                        text = (
-                            item.get("description")
-                            if isinstance(item, dict)
-                            else str(item)
-                        )
-                        norm = self._normalize_item_text(text)
-                        if norm not in seen_normalized:
-                            existing.append(item)
-                            seen_normalized.add(norm)
-                else:
-                    # Fallback to exact JSON match deduplication
-                    seen = {
-                        json.dumps(v, sort_keys=True, default=str)
-                        if isinstance(v, dict)
-                        else str(v)
-                        for v in existing
-                    }
-                    for item in value:
-                        item_key = (
-                            json.dumps(item, sort_keys=True, default=str)
-                            if isinstance(item, dict)
-                            else str(item)
-                        )
-                        if item_key not in seen:
-                            existing.append(item)
-                            seen.add(item_key)
-                insights[key] = existing
-            elif isinstance(value, dict) and isinstance(existing, dict):
-                # Deep Merge dictionaries
-                insights[key] = self._deep_merge_dicts(existing, value)
+                for item in value:
+                    text = (
+                        item.get("description") if isinstance(item, dict) else str(item)
+                    )
+                    norm = self._normalize_item_text(text)
+                    if norm not in seen_normalized:
+                        existing.append(item)
+                        seen_normalized.add(norm)
             else:
-                # Overwrite primitives
-                insights[key] = value
+                # Fallback to exact JSON match deduplication
+                seen = {
+                    json.dumps(v, sort_keys=True, default=str)
+                    if isinstance(v, dict)
+                    else str(v)
+                    for v in existing
+                }
+                for item in value:
+                    item_key = (
+                        json.dumps(item, sort_keys=True, default=str)
+                        if isinstance(item, dict)
+                        else str(item)
+                    )
+                    if item_key not in seen:
+                        existing.append(item)
+                        seen.add(item_key)
+                insights[key] = existing
+        elif isinstance(value, dict) and isinstance(existing, dict):
+            # Deep Merge dictionaries
+            insights[key] = self._deep_merge_dicts(existing, value)
+        else:
+            # Overwrite primitives
+            insights[key] = value
         return insights
 
     def _compress_memory(self, recent_messages: list, turn_count: int) -> list:
@@ -1081,7 +1085,9 @@ Keep it professional and brief."""
 
         # Step 0c: Auto-populate Inventory (Tools/Skills) if transitioning
         if agent_name in ["ToolsAgent", "SkillsAgent"]:
-            insights = await self._auto_populate_inventory(insights, agent_name, retrieved_context)
+            insights = await self._auto_populate_inventory(
+                insights, agent_name, retrieved_context
+            )
 
         # Step 0c: Update conversation summary (every turn)
         insights["conversation_summary"] = self._build_conversation_summary(
@@ -1273,7 +1279,9 @@ Keep it professional and brief."""
                 insights["tasks"] = await deduplicate_and_professionalize(
                     raw_tasks, "tasks"
                 )
-                logger.debug(f"[DEBUG] Tasks after cleaning: {len(insights['tasks'])} items")
+                logger.debug(
+                    f"[DEBUG] Tasks after cleaning: {len(insights['tasks'])} items"
+                )
             elif new_agent == "DeepDiveAgent":
                 insights["priority_tasks"] = await deduplicate_and_professionalize(
                     insights.get("priority_tasks", []), "priority_tasks"
@@ -1294,7 +1302,9 @@ Keep it professional and brief."""
 
         # Step 0c: Auto-populate Inventory (Tools/Skills) if transitioning
         if agent_name in ["ToolsAgent", "SkillsAgent"]:
-            insights = await self._auto_populate_inventory(insights, agent_name, retrieved_context)
+            insights = await self._auto_populate_inventory(
+                insights, agent_name, retrieved_context
+            )
 
         # Step 0c: Update conversation summary (every turn)
         insights["conversation_summary"] = self._build_conversation_summary(
@@ -1325,9 +1335,11 @@ Keep it professional and brief."""
         )
 
         response_text = ""
-        
+
         if agent_name in SILENT_AGENT_RESPONSES:
-            logger.info(f"[Interview Stream] Bypassing LLM for Silent Agent: {agent_name}")
+            logger.info(
+                f"[Interview Stream] Bypassing LLM for Silent Agent: {agent_name}"
+            )
             response_text = SILENT_AGENT_RESPONSES[agent_name]
         else:
             response_chunks = []
@@ -1366,7 +1378,9 @@ Keep it professional and brief."""
 
         full_text = response_text.strip()
 
-        logger.debug(f"====== RAW SET RESPONSE (BEFORE PROCESSING) ======\n{repr(full_text)}")
+        logger.debug(
+            f"====== RAW SET RESPONSE (BEFORE PROCESSING) ======\n{repr(full_text)}"
+        )
 
         # --- APPLY STRICT VALIDATION PIPELINE ---
         full_text = _strip_tool_code_leaks(full_text)
@@ -1391,7 +1405,9 @@ Keep it professional and brief."""
         if agent_name not in SILENT_AGENT_RESPONSES and _is_question_repeated(
             full_text, questions_asked, previous_questions_text
         ):
-            logger.info("  [DEDUP STREAM] ⚠ Question is repeated! Generating alternative.")
+            logger.info(
+                "  [DEDUP STREAM] ⚠ Question is repeated! Generating alternative."
+            )
             dedup_msgs = messages + [
                 AIMessage(content=full_text),
                 HumanMessage(
@@ -1444,6 +1460,7 @@ Keep it professional and brief."""
             "full_text": full_text,
             "questions_asked": questions_asked,
         }
+
 
 # Singleton engine
 engine = InterviewEngine()

@@ -501,70 +501,84 @@ async def extract_information(
 
 
 def _deep_merge_dict(d1: dict, d2: dict) -> dict:
+    """Recursively merge d2 into d1 with non-destructive rules."""
     import json
 
     for k, v in d2.items():
+        # If value is empty/None, do NOT overwrite (Guardrail 1)
+        if v in (None, "", [], {}):
+            continue
+
         if isinstance(v, dict) and k in d1 and isinstance(d1[k], dict):
             d1[k] = _deep_merge_dict(d1[k], v)
         elif isinstance(v, list) and k in d1 and isinstance(d1[k], list):
+            # Unique merge for lists
             seen = {
                 json.dumps(item, sort_keys=True, default=str)
                 if isinstance(item, dict)
-                else str(item)
+                else str(item).lower().strip()
                 for item in d1[k]
             }
             for item in v:
                 item_key = (
                     json.dumps(item, sort_keys=True, default=str)
                     if isinstance(item, dict)
-                    else str(item)
+                    else str(item).lower().strip()
                 )
                 if item_key not in seen:
                     d1[k].append(item)
                     seen.add(item_key)
         else:
-            d1[k] = v
+            # Overwrite only if v is meaningful (Guardrail 1)
+            if v not in (None, "", [], {}):
+                d1[k] = v
     return d1
 
 
 def merge_extracted(current_state: dict, extracted: dict) -> dict:
     """
-    Merge extracted data into current state with deduplication.
+    Merge extracted data into current state with STRICT non-destructive guardrails.
 
     Rules:
-    - Never overwrite existing data with empty data
-    - Deduplicate lists
-    - Deep merge dictionaries
+    - Never overwrite existing value with None/Empty
+    - Deep merge workflows and qualifications
+    - Unique-append for lists (tasks, tools, skills)
     """
     import json
 
     merged = dict(current_state)
 
     for key, value in extracted.items():
+        # GUARDRAIL 1: Never overwrite meaningful data with empty values
         if value in (None, "", [], {}):
             continue
 
         existing = merged.get(key)
 
+        # Handle specific complex merges
         if isinstance(value, list) and isinstance(existing, list):
-            # Deduplicate list
+            # Unique-append merge
             seen = set()
             result = []
-            for item in existing + value:
-                item_key = (
-                    json.dumps(item, sort_keys=True, default=str)
-                    if isinstance(item, dict)
-                    else str(item)
-                )
+            # Add existing first
+            for item in existing:
+                item_key = json.dumps(item, sort_keys=True, default=str) if isinstance(item, dict) else str(item).lower().strip()
+                if item_key not in seen:
+                    seen.add(item_key)
+                    result.append(item)
+            # Add new ones
+            for item in value:
+                item_key = json.dumps(item, sort_keys=True, default=str) if isinstance(item, dict) else str(item).lower().strip()
                 if item_key not in seen:
                     seen.add(item_key)
                     result.append(item)
             merged[key] = result
+            
         elif isinstance(value, dict) and isinstance(existing, dict):
-            # Deep merge dicts
+            # Recursive deep merge
             merged[key] = _deep_merge_dict(dict(existing), value)
         else:
-            # Overwrite with new value
+            # Atomic overwrite (only because we already checked for empty 'value')
             merged[key] = value
 
     return merged

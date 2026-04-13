@@ -23,6 +23,7 @@ export default function MessageBubble({
   onPriorityTaskSelect,
   onGenerateJD,
   onContinue,
+  isLast,
 }: {
   message: Message;
   onSkillSelect?: (selectedSkills: string[]) => void;
@@ -30,6 +31,7 @@ export default function MessageBubble({
   onPriorityTaskSelect?: (selectedTasks: string[]) => void;
   onGenerateJD?: () => void;
   onContinue?: () => void;
+  isLast?: boolean;
 }) {
   const isAgent = message.sender === "agent";
 

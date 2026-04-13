@@ -29,26 +29,43 @@ AGENT_ORDER = [
 
 AGENT_CRITERIA = {
     "BasicInfoAgent": lambda ins: (
-        len(ins.get("purpose") or "") >= 10 
-        and (ins.get("agent_turn_counts") or {}).get("BasicInfoAgent", 0) >= 3
+        # Ideal: Purpose length >= 10 and at least 3 turns
+        (len(ins.get("purpose") or "") >= 10 and (ins.get("agent_turn_counts") or {}).get("BasicInfoAgent", 0) >= 3)
+        # GUARDRAIL: Hard stop after 5 turns to prevent looping on Purpose
+        or (ins.get("agent_turn_counts") or {}).get("BasicInfoAgent", 0) >= 5
     ),
-    "WorkflowIdentifierAgent": lambda ins: len(ins.get("priority_tasks") or []) >= 3,
+    "WorkflowIdentifierAgent": lambda ins: (
+        # Ideal: 3 priority tasks
+        len(ins.get("priority_tasks") or []) >= 3
+        # GUARDRAIL: Hard stop after 4 turns if user insists on fewer tasks
+        or (ins.get("agent_turn_counts") or {}).get("WorkflowIdentifierAgent", 0) >= 4
+    ),
     "DeepDiveAgent": lambda ins: (
-        # RELAXED CRITERIA: A phase is complete if all priority tasks are visited.
-        # This prevents the "Deadlock" where a task is missing 'tools' but has reached its turn limit.
+        # Phase is complete if all priority tasks are visited.
         all(
             pt in (ins.get("visited_tasks") or [])
             for pt in (ins.get("priority_tasks") or [])
         )
         if ins.get("priority_tasks")
-        else False
+        else True # Skip if no tasks identified
     ),
-    "ToolsAgent": lambda ins: ins.get("tools_confirmed", False),
-    "SkillsAgent": lambda ins: ins.get("skills_confirmed", False),
+    "ToolsAgent": lambda ins: (
+        ins.get("tools_confirmed", False)
+        or (ins.get("agent_turn_counts") or {}).get("ToolsAgent", 0) >= 3
+    ),
+    "SkillsAgent": lambda ins: (
+        ins.get("skills_confirmed", False)
+        or (ins.get("agent_turn_counts") or {}).get("SkillsAgent", 0) >= 3
+    ),
     "QualificationAgent": lambda ins: (
-        (ins.get("qualifications") or {}).get("education")
-        and len(str((ins.get("qualifications") or {}).get("education"))) > 5
-        and (ins.get("qualifications") or {}).get("experience_years")
+        # Ideal: Education and Experience captured
+        (
+            (ins.get("qualifications") or {}).get("education")
+            and len(str((ins.get("qualifications") or {}).get("education"))) > 5
+            and (ins.get("qualifications") or {}).get("experience_years")
+        )
+        # GUARDRAIL: Hard stop after 4 turns to prevent looping on Background
+        or (ins.get("agent_turn_counts") or {}).get("QualificationAgent", 0) >= 4
     ),
 }
 

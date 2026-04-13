@@ -52,6 +52,7 @@ export default function QuestionnairePage() {
     confirmSkillsAction,
     confirmToolsAction,
     confirmPriorityTasksAction,
+    hydrated,
   } = useChat(() => {
     // Component stays on page; the JDPreviewPanel handles UI view
   }, true);
@@ -182,6 +183,7 @@ export default function QuestionnairePage() {
           <ChatWindow
             messages={messages}
             isGenerating={isGenerating}
+            hydrated={hydrated}
             progress={progress}
             depthScores={depthScores}
             currentAgent={currentAgent}

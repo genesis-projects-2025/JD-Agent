@@ -63,7 +63,7 @@ export default function ChatWindow({
       <div className="flex-1 flex flex-col min-h-0 bg-white">
         {/* Premium Glass Header */}
         <div className="flex-shrink-0 relative z-20">
-          <div className="px-4 sm:px-8 py-3 sm:py-5 glass border-b border-surface-200 shadow-sm">
+          <div className="px-4 sm:px-8 py-2 sm:py-3 glass border-b border-surface-200 shadow-sm">
             <div className="flex items-center justify-between gap-2">
               <div className="flex items-center gap-2 sm:gap-4">
                 <div className="w-8 h-8 sm:w-12 sm:h-12 bg-primary-600 rounded-lg sm:rounded-md flex items-center justify-center shadow-md shadow-primary-500/20 shrink-0">
@@ -97,7 +97,7 @@ export default function ChatWindow({
             </div>
 
             {/* Integrated Progress Tracker */}
-            <div className="mt-3 sm:mt-5 relative">
+            <div className="mt-1.5 sm:mt-2 relative">
               <div className="flex items-center justify-between text-[8px] sm:text-[10px] font-medium tracking-[0.2em] text-surface-400 mb-1.5 sm:mb-2">
                 <span className="hidden sm:inline">
                   Interview completion depth
@@ -123,7 +123,7 @@ export default function ChatWindow({
       <div
         ref={scrollContainerRef}
         onScroll={handleScroll}
-        className="flex-1 min-h-0 overflow-y-auto px-4 sm:px-8 py-4 sm:py-8 space-y-2 bg-[#fdfdfe]"
+        className="flex-1 min-h-0 overflow-y-auto px-4 sm:px-8 py-2 sm:py-4 space-y-2 bg-[#fdfdfe]"
         style={{ overscrollBehavior: "contain" }}
       >
         {messages.length === 0 ? (

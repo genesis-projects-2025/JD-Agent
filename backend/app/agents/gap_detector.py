@@ -75,8 +75,8 @@ async def gap_detector_node(state: AgentState) -> dict:
     suggested_skills = []
     suggested_tools = []
     
-    mem_skills = insights.get("skills", [])
-    mem_tools = insights.get("tools", [])
+    mem_skills = insights.get("skills") or []
+    mem_tools = insights.get("tools") or []
     
     # 1. Skills/Tools from memory (manual or previously detected)
     if isinstance(mem_skills, list):
@@ -85,7 +85,7 @@ async def gap_detector_node(state: AgentState) -> dict:
         suggested_tools.extend(mem_tools)
         
     # 2. Extract Tools and Skills from workflows (Intelligent scanning)
-    workflows = insights.get("workflows", {})
+    workflows = insights.get("workflows") or {}
     if isinstance(workflows, dict):
         for wf in workflows.values():
             # Extract tools from workflows
@@ -127,7 +127,7 @@ async def gap_detector_node(state: AgentState) -> dict:
             suggested_skills.extend(items)
 
     # 4. Extract from simple tasks
-    tasks = insights.get("tasks", [])
+    tasks = insights.get("tasks") or []
     for t in tasks:
         t_str = str(t).lower()
         if "using" in t_str or "with" in t_str or "software" in t_str:

@@ -156,3 +156,7 @@ class ConfirmSkillsRequest(BaseModel):
 
 class ConfirmToolsRequest(BaseModel):
     tools: List[str]
+
+
+class ConfirmPriorityTasksRequest(BaseModel):
+    priority_tasks: List[str]

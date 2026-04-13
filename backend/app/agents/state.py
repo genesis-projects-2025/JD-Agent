@@ -52,9 +52,13 @@ class AgentState(TypedDict):
     next_question: str       # The conversational response to send to user
     suggested_skills: list   # Skills panel for frontend
 
-    # ── NEW: Iterative Deep Dive Helpers ──────────────────────────────────
+    # ── Iterative Deep Dive Helpers ───────────────────────────────────────
     visited_tasks: list[str]  # Tasks that have completed deep dives
     active_deep_dive_task: str | None  # The task currently being deep-dived
+
+    # ── Conversation Intelligence ─────────────────────────────────────────
+    conversation_summary: str  # Rolling compressed summary of the interview
+    agent_turn_counts: dict    # Per-agent turn counter {agent_name: int} for loop control
 
 
 def create_initial_state(
@@ -70,6 +74,8 @@ def create_initial_state(
     agent_transition_log: list | None = None,
     visited_tasks: list | None = None,
     active_deep_dive_task: str | None = None,
+    conversation_summary: str = "",
+    agent_turn_counts: dict | None = None,
 ) -> AgentState:
     """Create a fresh AgentState for a new turn."""
     return AgentState(
@@ -96,4 +102,6 @@ def create_initial_state(
         suggested_skills=[],
         visited_tasks=visited_tasks or [],
         active_deep_dive_task=active_deep_dive_task,
+        conversation_summary=conversation_summary,
+        agent_turn_counts=agent_turn_counts or {},
     )

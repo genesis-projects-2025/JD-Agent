@@ -51,6 +51,7 @@ export default function QuestionnairePage() {
     updateStructuredData,
     confirmSkillsAction,
     confirmToolsAction,
+    confirmPriorityTasksAction,
   } = useChat(() => {
     // Component stays on page; the JDPreviewPanel handles UI view
   }, true);
@@ -77,9 +78,14 @@ export default function QuestionnairePage() {
     confirmToolsAction(tools);
   };
 
+  const handlePriorityTasksSelect = (tasks: string[]) => {
+    confirmPriorityTasksAction(tasks);
+  };
+
   const handleContinue = () => {
     sendMessage("Please continue the interview with more questions.");
   };
+
 
   const handleConfirmDelete = async () => {
     setIsDeleting(true);
@@ -181,6 +187,7 @@ export default function QuestionnairePage() {
             currentAgent={currentAgent}
             onSkillSelect={handleSkillSelect}
             onToolSelect={handleToolSelect}
+            onPriorityTaskSelect={handlePriorityTasksSelect}
             onGenerateJD={() => {
               setShowPanel(true);
               handleGenerateJD();

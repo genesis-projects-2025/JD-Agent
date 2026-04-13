@@ -8,6 +8,7 @@ import {
   generateJD as apiGenerateJD,
   confirmSkills as apiConfirmSkills,
   confirmTools as apiConfirmTools,
+  confirmPriorityTasks as apiConfirmPriorityTasks,
 } from "../lib/api";
 import { JDAgentResponse } from "../types/jd-agent";
 import { getOrCreateEmployeeId } from "@/lib/auth";
@@ -71,11 +72,17 @@ export function useChat(onSaveSuccess?: () => void, autoInit: boolean = true) {
         ? parsed.suggested_tools
         : undefined;
 
+    const taskList =
+      parsed.task_list && Array.isArray(parsed.task_list) && parsed.task_list.length > 0
+        ? parsed.task_list
+        : undefined;
+
     const newStatus = parsed.progress?.status ?? "collecting";
     const agent = parsed.current_agent || parsed.progress?.current_agent || "BasicInfoAgent";
     const scores = parsed.progress?.depth_scores || {};
 
-    setProgress(parsed.progress?.completion_percentage ?? 0);
+    const newProgress = parsed.progress?.completion_percentage ?? 0;
+    setProgress((prev) => Math.max(prev, newProgress));
     setStatus(newStatus);
     setCurrentAgent(agent);
     setDepthScores(scores);
@@ -93,6 +100,7 @@ export function useChat(onSaveSuccess?: () => void, autoInit: boolean = true) {
           text: parsed.next_question,
           skills: suggestedSkills,
           tools: suggestedTools,
+          tasks: taskList,
           isSkillSelection:
             agent === "SkillsAgent" &&
             !!suggestedSkills &&
@@ -101,6 +109,10 @@ export function useChat(onSaveSuccess?: () => void, autoInit: boolean = true) {
             agent === "ToolsAgent" &&
             !!suggestedTools &&
             suggestedTools.length > 0,
+          isPrioritySelection:
+            (agent === "WorkflowIdentifierAgent" || (agent === "DeepDiveAgent" && !!taskList && taskList.length > 0)) &&
+            !!taskList &&
+            taskList.length > 0,
           isReadySelection: newStatus === "ready_for_generation",
           currentAgent: agent,
         },
@@ -115,6 +127,7 @@ export function useChat(onSaveSuccess?: () => void, autoInit: boolean = true) {
             text: parsed.next_question,
             skills: suggestedSkills,
             tools: suggestedTools,
+            tasks: taskList,
             isStreaming: false,
             isSkillSelection:
               agent === "SkillsAgent" &&
@@ -124,6 +137,10 @@ export function useChat(onSaveSuccess?: () => void, autoInit: boolean = true) {
               agent === "ToolsAgent" &&
               !!suggestedTools &&
               suggestedTools.length > 0,
+            isPrioritySelection:
+              (agent === "WorkflowIdentifierAgent" || (agent === "DeepDiveAgent" && !!taskList && taskList.length > 0)) &&
+              !!taskList &&
+              taskList.length > 0,
             isReadySelection: newStatus === "ready_for_generation",
             currentAgent: agent,
           };
@@ -180,8 +197,10 @@ export function useChat(onSaveSuccess?: () => void, autoInit: boolean = true) {
               let tools: string[] | undefined;
               let isSkillSelection = false;
               let isToolSelection = false;
+              let isPrioritySelection = false;
               let isReadySelection = false;
               let msgAgent = "BasicInfoAgent";
+              let taskList: any[] | undefined = undefined;
 
               try {
                 const parsed = JSON.parse(h.content);
@@ -189,6 +208,7 @@ export function useChat(onSaveSuccess?: () => void, autoInit: boolean = true) {
                 text = parsed.next_question ?? h.content;
                 skills = parsed.suggested_skills;
                 tools = parsed.suggested_tools;
+                taskList = parsed.task_list;
 
                 const dbAgent = parsed.current_agent || parsed.progress?.current_agent || "BasicInfoAgent";
                 const dbStatus = parsed.progress?.status ?? "collecting";
@@ -201,6 +221,10 @@ export function useChat(onSaveSuccess?: () => void, autoInit: boolean = true) {
                   dbAgent === "ToolsAgent" &&
                   !!tools &&
                   tools.length > 0;
+                isPrioritySelection = 
+                  dbAgent === "WorkflowIdentifierAgent" && 
+                  !!taskList && 
+                  taskList.length > 0;
                 isReadySelection =
                   dbStatus === "ready_for_generation";
                 msgAgent = dbAgent;
@@ -213,8 +237,10 @@ export function useChat(onSaveSuccess?: () => void, autoInit: boolean = true) {
                 text,
                 skills,
                 tools,
+                tasks: taskList,
                 isSkillSelection,
                 isToolSelection,
+                isPrioritySelection,
                 isReadySelection,
                 currentAgent: msgAgent,
               };
@@ -456,6 +482,35 @@ export function useChat(onSaveSuccess?: () => void, autoInit: boolean = true) {
 
   const handleApproveJD = () => sendMessage("I approve this Job Description.");
 
+  const confirmPriorityTasksAction = async (priorityTasks: string[]) => {
+    const id = window.location.pathname.split("/").pop();
+    if (!id) return;
+
+    await apiConfirmPriorityTasks(id, priorityTasks);
+
+    // Clear priority selection visually
+    setMessages((prev) => {
+      const newMessages = [...prev];
+      for (let i = newMessages.length - 1; i >= 0; i--) {
+        if (newMessages[i].sender === "agent" && newMessages[i].isPrioritySelection) {
+          newMessages[i] = {
+            ...newMessages[i],
+            isPrioritySelection: false,
+            text: newMessages[i].text + "\n\n✅ Priority tasks confirmed.",
+          };
+          break;
+        }
+      }
+      return newMessages;
+    });
+
+    // Advance interview to DeepDive phase
+    // Small timeout ensures setMessages above is processed and API state is synced
+    setTimeout(() => {
+      sendMessage("The priority tasks are confirmed. Let's start the deep dive.");
+    }, 500);
+  };
+
   const confirmSkillsAction = async (skills: string[]) => {
     const id = window.location.pathname.split("/").pop();
     if (!id) return;
@@ -533,10 +588,11 @@ export function useChat(onSaveSuccess?: () => void, autoInit: boolean = true) {
     depthScores,
     isRateLimited,
     retryTimer,
-    hydrated, // ✅ NEW — use this in the chat page to show a loading skeleton
+    hydrated,
     updateJd: setJd,
     updateStructuredData: setStructuredData,
     confirmSkillsAction,
     confirmToolsAction,
+    confirmPriorityTasksAction,
   };
 }

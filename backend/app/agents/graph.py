@@ -118,6 +118,8 @@ async def run_interview_turn(
         agent_transition_log=list(getattr(session_memory, 'agent_transition_log', []) or []),
         visited_tasks=list(getattr(session_memory, 'visited_tasks', []) or []),
         active_deep_dive_task=getattr(session_memory, 'active_deep_dive_task', None),
+        conversation_summary=getattr(session_memory, 'conversation_summary', ""),
+        agent_turn_counts=dict(getattr(session_memory, 'agent_turn_counts', {}) or {}),
     )
 
     # Run the graph
@@ -137,6 +139,8 @@ async def run_interview_turn(
     session_memory.questions_asked = result.get("questions_asked", session_memory.questions_asked)
     session_memory.visited_tasks = result.get("visited_tasks", [])
     session_memory.active_deep_dive_task = result.get("active_deep_dive_task")
+    session_memory.conversation_summary = result.get("conversation_summary", "")
+    session_memory.agent_turn_counts = result.get("agent_turn_counts", {})
 
     # Record the question
     next_q = result.get("next_question", "")
@@ -212,6 +216,8 @@ async def run_interview_turn_stream(
                 # Update iterative helpers
                 session_memory.visited_tasks = insights.get("visited_tasks", [])
                 session_memory.active_deep_dive_task = insights.get("active_deep_dive_task")
+                session_memory.conversation_summary = insights.get("conversation_summary", "")
+                session_memory.agent_turn_counts = insights.get("agent_turn_counts", {})
                 session_memory.insights = insights
 
         # 7. Run gap detection (lightweight, no LLM call)
@@ -283,16 +289,55 @@ def _build_frontend_response(result: dict, session_memory) -> dict:
     """
     insights = result.get("insights", {})
     progress = result.get("progress", session_memory.progress)
+    current_agent = result.get("current_agent", session_memory.current_agent)
 
+    # Build task_list for WorkflowIdentifierAgent phase
+    # Priority Task Selection logic
+    task_list = []
+    logger.debug(f"[Graph] Building response. Current Agent: {current_agent}")
+    if current_agent == "WorkflowIdentifierAgent":
+        raw_tasks = insights.get("tasks", [])
+        logger.debug(f"[Graph] Found {len(raw_tasks)} raw tasks in insights.")
+        logger.info(f"[Graph] Building task list for WorkflowIdentifierAgent. Raw count: {len(raw_tasks)}")
+        if not raw_tasks:
+             # Defensive: check if they are in basic_info or separate fields
+             raw_tasks = insights.get("basic_info", {}).get("tasks", [])
+        
+        for t in raw_tasks:
+            desc = ""
+            if isinstance(t, dict):
+                desc = t.get("description") or t.get("name") or t.get("task") or ""
+            else:
+                desc = str(t)
+                
+            if not desc.strip():
+                continue
+            
+            # SANITIZATION: Filter out items that look like agent questions or conversational leaks
+            if "?" in desc or any(kw in desc.lower() for kw in ["would you", "can you", "please tell", "tell me about", "should i"]):
+                logger.warning(f"[Graph] Filtering conversational leak from task_list: {desc}")
+                continue
+
+            if isinstance(t, dict):
+                task_list.append({
+                    "description": desc,
+                    "frequency": t.get("frequency", "regular"),
+                    "category": t.get("category", "technical")
+                })
+            else:
+                task_list.append({"description": desc, "frequency": "regular", "category": "operational"})
+
+    final_jd = insights.get("final_jd", {})
     return {
         "next_question": result.get("next_question", ""),
         "progress": progress,
         "employee_role_insights": insights,
-        "jd_structured_data": {},
-        "jd_text_format": "",
+        "jd_structured_data": final_jd.get("jd_structured_data", {}),
+        "jd_text_format": final_jd.get("jd_text_format", ""),
         "suggested_skills": result.get("suggested_skills", []),
         "suggested_tools": result.get("suggested_tools", []),
-        "current_agent": result.get("current_agent", session_memory.current_agent),
+        "task_list": task_list,
+        "current_agent": current_agent,
         "analytics": {
             "questions_asked": len(session_memory.full_history) // 2,
             "questions_answered": len([
@@ -308,3 +353,4 @@ def _build_frontend_response(result: dict, session_memory) -> dict:
             "approval_status": "pending",
         },
     }
+

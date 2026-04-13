@@ -199,7 +199,7 @@ def merge_tool_call_into_insights(tool_name: str, tool_args: dict, insights: dic
         insights["priority_tasks"] = list(existing)
 
     elif tool_name == "save_workflow":
-        workflows = insights.get("workflows", {})
+        workflows = insights.get("workflows") or {}
         task_name = tool_args.get("task_name", "")
         if task_name:
             wf = workflows.get(task_name, {})

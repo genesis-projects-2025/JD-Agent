@@ -62,6 +62,10 @@ class SessionMemory:
         self.visited_tasks = []  # Tasks that have completed deep dives
         self.active_deep_dive_task = None  # The task currently being deep-dived
 
+        # ── Conversation Intelligence (v2.2) ──────────────────────────────
+        self.conversation_summary = ""  # Rolling compressed summary
+        self.agent_turn_counts = {}  # {agent_name: int} for loop control
+
         # Cached joined user-text for duplicate scan avoidance
         self._user_history_text_cache = None
 
@@ -151,6 +155,8 @@ class SessionMemory:
             "status": self.progress.get("status", "collecting"),
             "visited_tasks": self.visited_tasks,
             "active_deep_dive_task": self.active_deep_dive_task,
+            "conversation_summary": self.conversation_summary,
+            "agent_turn_counts": self.agent_turn_counts,
         }
 
     def from_dict(self, data: dict):
@@ -164,6 +170,8 @@ class SessionMemory:
         self.current_stage_question_count = data.get("current_stage_question_count", 0)
         self.visited_tasks = data.get("visited_tasks", [])
         self.active_deep_dive_task = data.get("active_deep_dive_task")
+        self.conversation_summary = data.get("conversation_summary", "")
+        self.agent_turn_counts = data.get("agent_turn_counts", {})
         
         # Sync progress object
         self.progress.update({

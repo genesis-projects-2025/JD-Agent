@@ -12,6 +12,9 @@ from typing import Optional
 import datetime
 import json
 import uuid
+import logging
+
+logger = logging.getLogger(__name__)
 from sqlalchemy.dialects.postgresql import insert
 from app.models.taxonomy_model import Skill, JDSessionSkill, EmployeeSkill
 from app.core.cache import get_cache, set_cache, invalidate_pattern
@@ -347,11 +350,10 @@ async def save_questionnaire_jd(
             await db.commit()
     except Exception as e:
         import traceback
-
         traceback.print_exc()
-        print(f"Failed to harvest skills: {e}")
+        logger.error(f"[CRUD] Failed to harvest skills: {e}")
 
-    print(
+    logger.info(
         f"✅ JD saved — id={record.id}, employee={record.employee_id}, title={record.title}"
     )
     return record
@@ -475,9 +477,8 @@ async def sync_session_to_db(
             await db.commit()
     except Exception as e:
         import traceback
-
         traceback.print_exc()
-        print(f"Failed to harvest skills: {e}")
+        logger.error(f"[CRUD] Failed to harvest skills: {e}")
 
     return record
 
@@ -554,7 +555,7 @@ async def update_questionnaire_jd(
 
     await invalidate_pattern(f"jds:employee:{record.employee_id}")
 
-    print(f"✅ JD updated — id={record.id}, new version={record.version}")
+    logger.info(f"✅ JD updated — id={record.id}, new version={record.version}")
     return record
 
 
@@ -604,7 +605,7 @@ async def update_questionnaire_status(
 
     await invalidate_pattern(f"jds:employee:{record.employee_id}")
 
-    print(f"✅ JD status updated — id={record.id}, status={record.status}")
+    logger.info(f"✅ JD status updated — id={record.id}, status={record.status}")
     return record
 
 
@@ -768,7 +769,7 @@ async def delete_questionnaire(
 
     await invalidate_pattern(f"jds:employee:{employee_id}")
 
-    print(f"🗑️ JD deleted — id={record.id}")
+    logger.info(f"🗑️ JD deleted — id={record.id}")
     return True
 
 

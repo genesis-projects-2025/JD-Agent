@@ -61,7 +61,9 @@ export interface JDAgentResponse {
   jd_text_format: string;
   suggested_skills?: string[];
   suggested_tools?: string[];
+  task_list?: Array<{ description: string; frequency?: string; category?: string } | string>;
   current_agent?: string;
   analytics: Analytics;
   approval: Approval;
 }
+

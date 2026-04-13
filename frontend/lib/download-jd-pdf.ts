@@ -206,4 +206,5 @@ export function downloadJDPdfClient(data: any, roleTitle?: string, dept?: string
   win.document.write(html);
   win.document.close();
   win.focus();
+  setTimeout(() => win.print(), 500);
 }

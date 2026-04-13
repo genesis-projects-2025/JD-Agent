@@ -5,11 +5,12 @@ from sqlalchemy import text
 from app.core.database import get_db
 from app.core.cache import cached_response
 from app.services.dashboard_service import DashboardService
+from app.core.auth import hr_required, manager_required
 
 
 router = APIRouter()
 
-@router.get("/department-stats")
+@router.get("/department-stats", dependencies=[Depends(hr_required)])
 @cached_response("dept_stats", ttl=300)
 async def get_department_stats(db: AsyncSession = Depends(get_db)):
     """
@@ -157,7 +158,7 @@ async def get_department_employees(
 
 
 
-@router.get("/my-team-stats")
+@router.get("/my-team-stats", dependencies=[Depends(manager_required)])
 async def get_my_team_stats(emp_code: str, db: AsyncSession = Depends(get_db)):
     """
     Detects if the user is a Department Head or a Manager and returns 

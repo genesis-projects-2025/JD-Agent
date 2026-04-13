@@ -29,17 +29,16 @@ AGENT_ORDER = [
 
 AGENT_CRITERIA = {
     "BasicInfoAgent": lambda ins: (
-        len(ins.get("purpose", "")) >= 20 and len(ins.get("tasks", [])) >= 6
+        len(ins.get("purpose") or "") >= 10 
+        and (ins.get("agent_turn_counts") or {}).get("BasicInfoAgent", 0) >= 3
     ),
-    "WorkflowIdentifierAgent": lambda ins: len(ins.get("priority_tasks", [])) >= 3,
+    "WorkflowIdentifierAgent": lambda ins: len(ins.get("priority_tasks") or []) >= 3,
     "DeepDiveAgent": lambda ins: (
+        # RELAXED CRITERIA: A phase is complete if all priority tasks are visited.
+        # This prevents the "Deadlock" where a task is missing 'tools' but has reached its turn limit.
         all(
-            pt in ins.get("workflows", {})
-            and ins["workflows"][pt].get("trigger")
-            and ins["workflows"][pt].get("steps")
-            and ins["workflows"][pt].get("output")
-            and ins["workflows"][pt].get("tools")
-            for pt in ins.get("priority_tasks", [])
+            pt in (ins.get("visited_tasks") or [])
+            for pt in (ins.get("priority_tasks") or [])
         )
         if ins.get("priority_tasks")
         else False
@@ -47,21 +46,39 @@ AGENT_CRITERIA = {
     "ToolsAgent": lambda ins: ins.get("tools_confirmed", False),
     "SkillsAgent": lambda ins: ins.get("skills_confirmed", False),
     "QualificationAgent": lambda ins: (
-        ins.get("qualifications", {}).get("education") and
-        len(str(ins.get("qualifications", {}).get("education"))) > 5 and
-        ins.get("qualifications", {}).get("experience_years")
+        (ins.get("qualifications") or {}).get("education")
+        and len(str((ins.get("qualifications") or {}).get("education"))) > 5
+        and (ins.get("qualifications") or {}).get("experience_years")
     ),
 }
 
 # ── Transition Messages ──────────────────────────────────────────────────────
 
 TRANSITION_MESSAGES = {
-    ("BasicInfoAgent", "WorkflowIdentifierAgent"): "That's a very clear picture of your mission and daily activities.",
-    ("WorkflowIdentifierAgent", "DeepDiveAgent"): "Perfect roadmap! Now, let's dive into each of these tasks one by one to capture your expertise.",
-    ("DeepDiveAgent", "ToolsAgent"): "Those deep dives were incredibly insightful. Now, let's quickly inventory the tools you use.",
-    ("ToolsAgent", "SkillsAgent"): "Great. Now, what technical expertise is really required to do all this?",
-    ("SkillsAgent", "QualificationAgent"): "Lastly, what academic or experience background would a newcomer need?",
-    ("QualificationAgent", "JDGeneratorAgent"): "We've captured everything! I'm ready to generate your comprehensive Job Description.",
+    (
+        "BasicInfoAgent",
+        "WorkflowIdentifierAgent",
+    ): "PIVOT: Directly transition to identifying the user's core responsibilities and tasks.",
+    (
+        "WorkflowIdentifierAgent",
+        "DeepDiveAgent",
+    ): "PIVOT: Directly move to a deep-dive analysis of the individual priority tasks.",
+    (
+        "DeepDiveAgent",
+        "ToolsAgent",
+    ): "PIVOT: Shift focus directly to the inventory of software and technical tools used.",
+    (
+        "ToolsAgent",
+        "SkillsAgent",
+    ): "PIVOT: Transition directly to confirming the core technical and domain skills required.",
+    (
+        "SkillsAgent",
+        "QualificationAgent",
+    ): "PIVOT: Move directly to a check of the required education and experience background.",
+    (
+        "QualificationAgent",
+        "JDGeneratorAgent",
+    ): "PIVOT: Confirm that all information is captured and move to the final JD generation.",
 }
 
 
@@ -70,21 +87,42 @@ def compute_current_agent(insights: dict, current_agent: str = "BasicInfoAgent")
 
     ENFORCES A LINEAR FLOW: Finds the index of the `current_agent` in `AGENT_ORDER`
     and only checks criteria for agents at or after that index.
+
+    STICKY COMPLETION: If an agent is in `insights["completed_phases"]`, skip it.
     """
+    completed_phases = insights.get("completed_phases") or []
+    
     # Find the starting index (default to 0 if not found)
     try:
         start_idx = AGENT_ORDER.index(current_agent)
     except ValueError:
         start_idx = 0
 
+    # Force-advance: skip current agent if stalled
+    if insights.get("_force_advance"):
+        logger.warning(f"[Router] Force-advancing past {current_agent} (loop control)")
+        start_idx = min(start_idx + 1, len(AGENT_ORDER) - 1)
+        # Reset stall counts for the stalled agent
+        agent_stalls = insights.get("agent_stall_counts", {})
+        agent_stalls[current_agent] = 0
+        insights["agent_stall_counts"] = agent_stalls
+        insights["_force_advance"] = False # Reset flag
+
     # Only check agents from current_agent onwards
     for agent_name in AGENT_ORDER[start_idx:-1]:  # Exclude JDGeneratorAgent
+        # Skip if explicitly marked complete
+        if agent_name in completed_phases:
+            continue
+            
         criteria_fn = AGENT_CRITERIA.get(agent_name)
         if criteria_fn and not criteria_fn(insights):
             return agent_name
-            
-    # Once we move past an agent, we never go back
-    return max(current_agent, "JDGeneratorAgent", key=lambda x: AGENT_ORDER.index(x) if x in AGENT_ORDER else -1)
+
+    return max(
+        current_agent,
+        "JDGeneratorAgent",
+        key=lambda x: AGENT_ORDER.index(x) if x in AGENT_ORDER else -1,
+    )
 
 
 def get_transition_message(from_agent: str, to_agent: str) -> str:
@@ -93,61 +131,109 @@ def get_transition_message(from_agent: str, to_agent: str) -> str:
 
 
 def compute_progress(insights: dict, current_agent: str = "BasicInfoAgent") -> dict:
-    """Compute weighted progress and depth scores for 7 agents.
-    
-    Weights:
-      BasicInfo: 10%, WorkflowID: 10%, DeepDive: 50%, Tools: 10%, Skills: 10%, Quals: 5%, JDReady: 5%
+    """Monotonic progress computation with strict per-phase windows.
+
+    Phase ranges (floor → ceiling):
+      BasicInfoAgent:          0  → 15%
+      WorkflowIdentifierAgent: 15 → 25%
+      DeepDiveAgent:           25 → 85%  (60% window split per task)
+      ToolsAgent:              85 → 90%
+      SkillsAgent:             90 → 95%
+      QualificationAgent:      95 → 99%
+      JDGeneratorAgent:       100%
+
+    Progress within each phase is interpolated from 0.0→1.0 using real data,
+    then scaled to that phase's window. This guarantees the bar NEVER goes down.
     """
-    try:
-        current_idx = AGENT_ORDER.index(current_agent)
-    except ValueError:
-        current_idx = 0
-
-    # Progressive percentage floor based on phase index
-    phase_floors = [0, 10, 20, 70, 80, 90, 95]
-    progress_floor = phase_floors[current_idx] if current_idx < len(phase_floors) else 95
-
-    tasks_count = len(insights.get("tasks", []))
-    tools_count = len(insights.get("tools", []))
-    skills_count = len(insights.get("skills", []))
-    priorities_count = len(insights.get("priority_tasks", []))
-    workflows = insights.get("workflows", {})
-
-    # Map to frontend keys: "tasks", "tools", "skills"
-    depth_scores = {
-        "tasks": 100 if AGENT_CRITERIA["BasicInfoAgent"](insights) else min(100, int((len(insights.get("purpose", "")) / 20 * 50) + (tasks_count / 6 * 50))),
-        "workflow_id": min(100, int((priorities_count / 3) * 100)),
-        "deep_dive": min(100, int((len(workflows) / max(priorities_count, 3)) * 100)) if priorities_count > 0 else 0,
-        "tools": 100 if insights.get("tools_confirmed") else min(100, int((tools_count / 3) * 100)),
-        "skills": 100 if insights.get("skills_confirmed") else min(100, int((skills_count / 4) * 100)),
+    PHASE_RANGES: dict[str, tuple[float, float]] = {
+        "BasicInfoAgent":          (0.0,  15.0),
+        "WorkflowIdentifierAgent": (15.0, 25.0),
+        "DeepDiveAgent":           (25.0, 85.0),
+        "ToolsAgent":              (85.0, 90.0),
+        "SkillsAgent":             (90.0, 95.0),
+        "QualificationAgent":      (95.0, 99.0),
+        "JDGeneratorAgent":        (100.0, 100.0),
     }
-    # Keep 'basic_info' for internal score weighting (line 125)
-    depth_scores["basic_info"] = depth_scores["tasks"]
 
-    # Weighting logic
-    basic_score = min(10, depth_scores["basic_info"] * 0.10)
-    workflow_id_score = min(10, depth_scores["workflow_id"] * 0.10)
-    
-    if priorities_count > 0:
-        workflows_done = sum(1 for p in insights.get("priority_tasks", []) if p in workflows and workflows[p].get("output"))
-        deep_dive_score = (workflows_done / max(priorities_count, 3)) * 50 # Up to 50%
+    floor, ceiling = PHASE_RANGES.get(current_agent, (0.0, 99.0))
+
+    priorities_count = len(insights.get("priority_tasks") or [])
+    workflows = insights.get("workflows") or {}
+    tasks_count = len(insights.get("tasks") or [])
+    tools_count = len(insights.get("tools") or [])
+    skills_count = len(insights.get("skills") or [])
+
+    # ── Phase-local progress [0.0, 1.0] ─────────────────────────────────────
+    if current_agent == "BasicInfoAgent":
+        purpose_score = min(1.0, len(insights.get("purpose") or "") / 50)
+        task_score = min(1.0, tasks_count / 6)
+        phase_progress = (purpose_score * 0.5) + (task_score * 0.5)
+
+    elif current_agent == "WorkflowIdentifierAgent":
+        phase_progress = min(1.0, priorities_count / 3)
+
+    elif current_agent == "DeepDiveAgent":
+        if priorities_count == 0:
+            phase_progress = 0.0
+        else:
+            # Done tasks (based on visited_tasks)
+            visited = insights.get("visited_tasks") or []
+            done_tasks_count = sum(1 for p in (insights.get("priority_tasks") or []) if p in visited)
+            
+            # Partial progress for the current active task (0.33 per turn)
+            active_task = insights.get("active_deep_dive_task")
+            active_turn = insights.get("deep_dive_turn_count") or 0
+            partial_progress = 0.0
+            if active_task and active_task not in visited:
+                # 3 turns max per task, so each turn adds 1/3 of a task's progress
+                partial_progress = min(0.9, active_turn / 3) 
+            
+            phase_progress = min(1.0, (done_tasks_count + partial_progress) / priorities_count)
+
+    elif current_agent == "ToolsAgent":
+        phase_progress = 1.0 if insights.get("tools_confirmed") else min(1.0, tools_count / 3)
+
+    elif current_agent == "SkillsAgent":
+        phase_progress = 1.0 if insights.get("skills_confirmed") else min(1.0, skills_count / 4)
+
+    elif current_agent == "QualificationAgent":
+        quals = insights.get("qualifications") or {}
+        has_edu = bool(quals.get("education"))
+        has_exp = bool(quals.get("experience_years"))
+        phase_progress = (0.5 if has_edu else 0.0) + (0.5 if has_exp else 0.0)
+
+    elif current_agent == "JDGeneratorAgent":
+        phase_progress = 1.0
+
     else:
-        deep_dive_score = 0
+        phase_progress = 0.0
 
-    tools_score = 10 if insights.get("tools_confirmed") else min(10, depth_scores["tools"] * 0.10)
-    skills_score = 10 if insights.get("skills_confirmed") else min(10, depth_scores["skills"] * 0.10)
-    quals_score = 5 if AGENT_CRITERIA["QualificationAgent"](insights) else 0
-
-    total = basic_score + workflow_id_score + deep_dive_score + tools_score + skills_score + quals_score
-    
-    # Force 100% only if in JDGenerator phase
+    # ── Final percentage (clamped to the phase window) ───────────────────────
     if current_agent == "JDGeneratorAgent":
         final_percentage = 100.0
     else:
-        final_percentage = max(progress_floor, min(round(total, 1), 99.0))
+        width = ceiling - floor
+        final_percentage = min(ceiling, max(floor, floor + width * phase_progress))
+
+    # ── Depth scores for UI pills ─────────────────────────────────────────────
+    depth_scores: dict[str, int] = {
+        "tasks": min(100, int((tasks_count / 6) * 100)),
+        "tools": 100 if insights.get("tools_confirmed") else min(100, int((tools_count / 3) * 100)),
+        "skills": 100 if insights.get("skills_confirmed") else min(100, int((skills_count / 4) * 100)),
+        "workflow_id": min(100, int((priorities_count / 3) * 100)),
+        "deep_dive": 0,
+    }
+    if priorities_count > 0:
+        done = sum(
+            1 for p in (insights.get("priority_tasks") or [])
+            if p in workflows and workflows[p].get("output")
+        )
+        depth_scores["deep_dive"] = min(100, int((done / priorities_count) * 100))
+
+    depth_scores["basic_info"] = depth_scores["tasks"]
 
     return {
-        "completion_percentage": final_percentage,
+        "completion_percentage": round(final_percentage, 1),
         "depth_scores": depth_scores,
         "current_agent": current_agent,
         "status": "ready_for_generation" if current_agent == "JDGeneratorAgent" else "collecting",
@@ -168,7 +254,9 @@ def router_node(state: AgentState) -> dict:
     if agent != previous_agent:
         logger.info(f"[Router] TRANSITION: {previous_agent} → {agent}")
 
-    logger.info(f"[Router] Selected agent: {agent} | Progress: {progress['completion_percentage']:.0f}%")
+    logger.info(
+        f"[Router] Selected agent: {agent} | Progress: {progress['completion_percentage']:.0f}%"
+    )
 
     return {
         "current_agent": agent,

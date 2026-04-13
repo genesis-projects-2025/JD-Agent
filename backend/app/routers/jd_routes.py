@@ -15,6 +15,7 @@ from app.schemas.jd_schema import (
     GenerateJDRequest,
     ConfirmSkillsRequest,
     ConfirmToolsRequest,
+    ConfirmPriorityTasksRequest,
 )
 from app.services.jd_service import (
     handle_conversation,
@@ -468,6 +469,41 @@ async def confirm_tools(
     )
 
     return {"status": "success", "message": "Tools confirmed and stored."}
+
+
+@router.post("/{jd_id}/confirm-priority-tasks")
+async def confirm_priority_tasks(
+    jd_id: str, request: ConfirmPriorityTasksRequest, db: AsyncSession = Depends(get_db)
+):
+    session_memory = await hydrate_session_from_db(jd_id, db)
+    if not session_memory.insights:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    # Save priority tasks directly into insights so WorkflowIdentifierAgent criteria is met
+    existing = set(session_memory.insights.get("priority_tasks", []))
+    for pt in request.priority_tasks:
+        existing.add(pt)
+    final_priorities = list(existing)
+    session_memory.insights["priority_tasks"] = final_priorities
+
+    # Pre-initialize Deep Dive active task to prevent "silent" phase hangs
+    if final_priorities and not session_memory.insights.get("active_deep_dive_task"):
+        session_memory.insights["active_deep_dive_task"] = final_priorities[0]
+        session_memory.insights["deep_dive_turn_count"] = 1
+        logger.info(f"[Routes] Initialized Deep Dive with task: {final_priorities[0]}")
+
+    await sync_session_to_db(
+        db=db,
+        session_id=jd_id,
+        insights=session_memory.insights,
+        progress=session_memory.progress,
+        conversation_history=session_memory.full_history,
+        employee_id=session_memory.employee_id,
+    )
+    await invalidate_pattern(f"cache:jd_detail:*{jd_id}*")
+    await _cache_session(session_memory)
+
+    return {"status": "success", "message": "Priority tasks saved.", "priority_tasks": list(existing)}
 
 
 @router.get("/")

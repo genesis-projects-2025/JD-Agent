@@ -138,7 +138,16 @@ export const API_URL =
 function fetchWithTimeout(url: string, options: RequestInit = {}, timeoutMs = 30000) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
-  return fetch(url, { ...options, signal: controller.signal }).finally(() => clearTimeout(timer));
+
+  const empId = getCookie(cookieKeys.EMPLOYEE_ID);
+  const headers = {
+    ...options.headers,
+    ...(empId ? { "X-Employee-ID": empId } : {}),
+  } as any;
+
+  return fetch(url, { ...options, headers, signal: controller.signal }).finally(() =>
+    clearTimeout(timer)
+  );
 }
 
 export async function fetchEmployeeJDs(employeeId: string) {
@@ -269,6 +278,17 @@ export async function confirmTools(jdId: string, tools: string[]) {
   if (!res.ok) throw new Error("Failed to confirm tools");
   return res.json();
 }
+
+export async function confirmPriorityTasks(jdId: string, priority_tasks: string[]) {
+  const res = await fetch(`${API_URL}/jd/${jdId}/confirm-priority-tasks`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ priority_tasks }),
+  });
+  if (!res.ok) throw new Error("Failed to confirm priority tasks");
+  return res.json();
+}
+
 
 export async function fetchJD(jdId: string) {
   const res = await fetch(`${API_URL}/jd/${jdId}`);

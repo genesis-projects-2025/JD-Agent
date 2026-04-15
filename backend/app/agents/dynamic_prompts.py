@@ -13,38 +13,26 @@ from typing import List
 # ── Base Persona ───────────────────────────────────────────────────────────
 
 
-BASE_PERSONA = """You are a professional HR Interview Partner. Your goal is to work with employees to build a clear and helpful Job Description. You should sound like a professional colleague—friendly, direct, and easy to understand.
+BASE_PERSONA = """You are a Professional Job Analyst conducting a structured interview to build a high-fidelity Job Description. You sound like a knowledgeable colleague — direct, expert, and focused.
 
-# RULE 1: NO REPETITION
-- Once a user mentions something, it's saved.
-- Don't ask them to confirm things they just said. Just keep going.
+BEHAVIORAL CONTRACT (ABSOLUTE — VIOLATING ANY RULE IS A CRITICAL FAILURE):
 
-# RULE 2: NO PROACTIVE SUGGESTIONS (Per User Requirement)
-- Do NOT include suggestions or examples in your questions.
-- Do NOT say "Since you're using X, should we add Y?"
-- Simply ask intelligent, open-ended questions that align with the flow of the interview.
+RULE 1 — RESPONSE = EXACTLY ONE QUESTION. NOTHING ELSE.
+No greeting. No acknowledgment. No "Got it". No "Great". No "I understand".
+No summary of what the user said. No bridge sentences like "Since we discussed X...".
+No examples. No suggestions. No "For instance...". No "Such as...".
+Start directly with the question. End with a question mark. That is your entire response.
 
-# RULE 3: SPEAK LIKE A COLLEAGUE (PROFESSIONAL DEPTH)
-- Use expert, professional English. Avoid "business speak" or complex jargon, but maintain high technical standards.
-- WRONG: "What is the primary strategic impact of this activity?"
-- RIGHT: "How does this work contribute to the team's success? What is the core technical value you deliver through this task?"
-- AVOID: "methodology", "deep-dive", "strategic outcomes", "processes", "fidelity".
+RULE 2 — NEVER ASK ABOUT DATA ALREADY COLLECTED.
+Before asking anything, read the DATA ALREADY COLLECTED section below.
+If a piece of information appears there, it is saved. Do not ask for it again.
+Do not ask the user to confirm data they already provided. Just move forward.
 
-# RULE 4: NAKED QUESTIONS (STRICT)
-- Start your response DIRECTLY with the question or greeting (if first turn).
-- DO NOT say "I understand", "Got it", or "Continuing our conversation".
-- Provide EXACTLY ONE clear, surgical question at a time.
-- Do NOT provide examples unless the user asks.
-- Do NOT explain why you are asking. Just ask.
-
-# RULE 5: ZERO FILLER OR ACKNOWLEDGMENTS (ABSOLUTE)
-- ABSOLUTELY NO conversational filler like "Got it," "Understood," "Great," or "Perfect."
-- NO feedback on the user's previous answer. NO "That sounds interesting" or "I see."
-- PIVOT IMMEDIATELY to the next technical goal without any bridge sentences.
-
-# RULE 6: QUESTION DEPTH
-- Questions should be 2 to 4 sentences long. 
-- Frame questions to explore the technical complexity, impact, and standard of achievement required for the role.
+RULE 3 — SPEAK LIKE A DOMAIN EXPERT, NOT A GENERIC INTERVIEWER.
+Adapt your language and technical depth to match the user's role and industry.
+Use grounded, plain professional English. No consulting jargon.
+BANNED phrases: "strategic impact", "actionable initiatives", "human capital strategy",
+"competitive advantage", "KPI", "ROI", "metrics", "targets", "data tracking".
 """
 
 
@@ -87,55 +75,206 @@ def _get_industry_strategy(insights: dict) -> str:
 
 # ── Phase-Specific Instructions ──────────────────────────────────────────────
 
+
+def _build_basic_info_instruction(insights: dict) -> str:
+    """Dynamically generate BasicInfoAgent instructions based on what's missing."""
+    purpose = insights.get("purpose") or ""
+    tasks = insights.get("tasks") or []
+    turns = (insights.get("agent_turn_counts") or {}).get("BasicInfoAgent", 0)
+
+    role_title = (
+        insights.get("identity_context", {}).get("title", "")
+        or insights.get("role", "")
+        or "this role"
+    )
+
+    # Scope boundary — absolutely critical
+    scope = (
+        "\n\nSCOPE BOUNDARY (ABSOLUTE):"
+        "\n- You MUST NOT ask about tools, software, platforms, skills, certifications, or any deep process details."
+        "\n- You MUST NOT ask about challenges, problem-solving approaches, or quality standards."
+        "\n- Your domain is ONLY: role purpose, daily work, weekly work, monthly work, and regular responsibilities."
+        "\n- If the user mentions tools or skills, silently note them but do NOT follow up on them."
+    )
+
+    if len(purpose) < 10:
+        # No purpose captured yet — ask about role mission
+        return (
+            f"Your goal: Understand why the role '{role_title}' exists."
+            f"\nAsk ONE intelligent question about the core mission or primary purpose of this role."
+            f"\nDo NOT use jargon. Ask in plain, grounded language."
+            f"{scope}"
+        )
+
+    if len(tasks) < 3:
+        # Purpose captured, need tasks
+        return (
+            f"Your goal: Map the regular work activities for '{role_title}'."
+            f"\nAsk ONE question about what the person does on a daily, weekly, or monthly basis."
+            f"\nFocus on breadth — get a wide view of all their regular responsibilities."
+            f"\nDo NOT repeat tasks already listed in DATA ALREADY COLLECTED."
+            f"{scope}"
+        )
+
+    if len(tasks) < 6 and turns < 4:
+        # Have some tasks, need more
+        return (
+            f"Your goal: Expand the task list for '{role_title}' (currently {len(tasks)} tasks, need ~6+)."
+            f"\nAsk ONE question about any ad-hoc, periodic, or less frequent responsibilities not yet captured."
+            f"\nDo NOT repeat any tasks already listed in DATA ALREADY COLLECTED."
+            f"\nIf the user has shared enough, the system will automatically move forward."
+            f"{scope}"
+        )
+
+    # Tasks are sufficient — finalize
+    return (
+        f"Your goal: Final check for '{role_title}'."
+        f"\nAsk ONE brief question about any remaining important aspects of the role not yet discussed."
+        f"\nKeep it short. The system will transition to the next phase soon."
+        f"{scope}"
+    )
+
+
+def _build_deep_dive_instruction(insights: dict) -> str:
+    """Dynamically generate DeepDiveAgent instructions based on active task and turn."""
+    active = insights.get("active_deep_dive_task")
+    completed = insights.get("_completed_task")
+    turn_number = insights.get("deep_dive_turn_count", 1)
+    visited = insights.get("visited_tasks") or []
+
+    # Scope boundary
+    scope = (
+        "\n\nDEEP DIVE RULES:"
+        "\n- Every question MUST explicitly name the task you are asking about."
+        "\n- Do NOT say 'I am recording' or 'I have noted'. Just ask the next question."
+        "\n- Do NOT ask the user which task to discuss. YOU lead the conversation."
+    )
+
+    if completed and active:
+        # Transitioning from one task to the next
+        return (
+            f"'{completed}' is captured. Now deep-diving: '{active}'."
+            f"\nAsk exactly ONE question about how '{active}' begins — what triggers it and what inputs are needed to start?"
+            f"{scope}"
+        )
+
+    if completed and not active:
+        # All tasks are done
+        return (
+            "All priority tasks have been deep-dived."
+            "\nThe system will transition to the Tools phase automatically."
+            "\nSay: 'All priority tasks have been mapped in detail.'"
+        )
+
+    if not active or active == "None":
+        # Pick the first unvisited priority task
+        priority_tasks = insights.get("priority_tasks") or []
+        for pt in priority_tasks:
+            if pt not in visited:
+                active = pt
+                break
+        if not active:
+            return "All tasks are visited. Say: 'All priority tasks have been mapped.'"
+
+        return (
+            f"Your goal: Begin deep-diving task: '{active}'."
+            f"\nAsk exactly ONE question about how '{active}' begins — what triggers it and what inputs are needed?"
+            f"{scope}"
+        )
+
+    # Active task in progress — turn-based protocol
+    if turn_number <= 1:
+        return (
+            f"CURRENT TASK: '{active}' — Turn {turn_number}/3"
+            f"\nAsk about how '{active}' begins — what triggers this task and what are the initial inputs or requests needed to start it?"
+            f"{scope}"
+        )
+    elif turn_number == 2:
+        return (
+            f"CURRENT TASK: '{active}' — Turn {turn_number}/3"
+            f"\nAsk about the challenges and quality standards in '{active}' — what are the most difficult aspects, and what defines an expert-level outcome for this specific task?"
+            f"{scope}"
+        )
+    else:
+        # Turn 3 — conditional, focus on gaps
+        wf = (insights.get("workflows") or {}).get(active, {})
+        missing = []
+        if not wf.get("trigger"):
+            missing.append("how it starts")
+        if not wf.get("steps"):
+            missing.append("the step-by-step process")
+        if not wf.get("output"):
+            missing.append("the final output or deliverable")
+
+        if missing:
+            missing_str = ", ".join(missing)
+            return (
+                f"CURRENT TASK: '{active}' — Turn {turn_number}/3 (FINAL)"
+                f"\nWe still need: {missing_str} for '{active}'."
+                f"\nAsk ONE targeted question to capture the missing information."
+                f"{scope}"
+            )
+        else:
+            return (
+                f"CURRENT TASK: '{active}' — All data captured."
+                f"\nSay: 'Details for {active} are complete.'"
+                f"{scope}"
+            )
+
+
+def _build_qualification_instruction(insights: dict) -> str:
+    """Dynamically generate QualificationAgent instructions."""
+    quals = insights.get("qualifications", {})
+    edu = quals.get("education", "")
+    exp = quals.get("experience_years", "")
+    certs = quals.get("certifications", [])
+    turns = (insights.get("agent_turn_counts") or {}).get("QualificationAgent", 0)
+
+    role_title = (
+        insights.get("identity_context", {}).get("title", "")
+        or insights.get("role", "")
+        or "this role"
+    )
+
+    if not edu or not exp:
+        return (
+            f"Your goal: Capture the minimum qualifications for '{role_title}'."
+            f"\nAsk ONE question about the minimum educational background and years of relevant professional experience required for this role."
+        )
+
+    if (not certs or len(certs) == 0) and turns < 3:
+        return (
+            f"Your goal: Identify certifications that help grow in '{role_title}'."
+            f"\nAsk ONE question: Are there any professional certifications or specialized training programs that would help someone grow and excel in this role?"
+            f"\nFrame it as growth-oriented, not mandatory."
+        )
+
+    return (
+        f"Your goal: Finalize qualifications for '{role_title}'."
+        f"\nAll key qualifications are captured. The system will advance soon."
+    )
+
+
 PHASE_INSTRUCTIONS = {
-    "BasicInfoAgent": """
-Your goal: Establish why this role is mission-critical to the organization.
-Strategy: Ask an in-depth question about the role's primary goals. Use the provided strategic focus (e.g., HR, Sales, Engineering) to tailor your language.
-- "As we begin, help me understand the core professional mission of your position. What is the primary value you deliver within your department, and how does your output directly contribute to the company's broader success?"
-""",
-    "task_collection": """
-Your goal: Map the key responsibilities and activities handled in your daily work.
-Strategy: Request a detailed list of core activities. Tailor your terminology to the employee's industry strategy.
-- "Reflecting on your typical work week, what are the primary responsibilities and core activities that define your contribution to the team? Please describe the regular tasks that consume the majority of your professional focus."
-""",
+    "BasicInfoAgent": "",  # Dynamically generated via _build_basic_info_instruction
     "WorkflowIdentifierAgent": """
-Your goal: Prioritize the most complex or high-impact tasks for detailed analysis.
-Strategy: Present the list and ask for the top 3-5 priority items.
-- "Based on the work we've identified, which three to five responsibilities do you consider the most complex or critical to your success in this role? We will examine these in detail to ensure the Job Description captures the true depth and impact of your work."
+Your goal: Confirm the priority tasks for deep-dive analysis.
+Strategy: Present the top identified tasks based on strategic importance and ask for confirmation.
+- "Reviewing the activities we've identified, which tasks are most critical to your role's success? We will examine these in detail for the Job Description."
 """,
-    "DeepDiveAgent": """
-Your goal: Build a high-fidelity operational workflow for the '{active_task}' by probing deeply into execution mechanics.
-
-STRICT BEHAVIORAL PROTOCOL (Turn {turn_number}/3):
-- ANALYZE: Review the existing DATA for '{active_task}'. Do not re-ask basic details.
-- TURN 1 GOAL (THE TRIGGER): How does this task actually begin, and what are the initial inputs or requests you need to start? Ask about the triggers and the complexity of the initial setup.
-- TURN 2 GOAL (SURGICAL DEPTH): What are the most difficult steps in this process, and how do you handle challenges or quality checks? Probe for the "hidden" complexity that defines an expert performance in your field.
-- TURN 3 GOAL (IMPACT & OUTCOME): How does this task conclude, and what defines a successful output? Ask about the final deliverable and its significance to the next stage of the internal workflow.
-
-CRITICAL RULES:
-- CONTEXTUAL THEME: Integrate '{active_task}' naturally into a 2-4 sentence professional query.
-- SURGICAL QUESTIONS: Avoid generic 'walk me through it'. Use language appropriate for the user's industry focus.
-- NO FILLER: Start immediately with the question. 
-""",
+    "DeepDiveAgent": "",  # Dynamically generated via _build_deep_dive_instruction
     "ToolsAgent": """
 Your goal: Finalize the inventory of professional platforms, software, or internal systems.
-Strategy: Review the predicted list for accuracy and completeness.
-- "I have analyzed your workflows and identified the following platforms and systems as central to your work. Are there any specific professional tools or internal software packages that we should add or remove to accurately reflect your daily toolkit?"
+Strategy: Present the suggested toolkit based on identified workflows for confirmation.
 """,
     "SkillsAgent": """
 Your goal: Define the core competencies and professional skills required for success.
 Strategy: Refine the suggested skill set based on the mapped workflows and industry focus.
-- "Examining the professional demands of your role, which underlying competencies and expertise are most essential for performing these duties at an expert level? Please review the list below and indicate any missing or high-priority skills."
 """,
-    "QualificationAgent": """
-Your goal: Establish the necessary professional background and prerequisites.
-Strategy: Ask for education and experience credentials in a single, direct query.
-- "What specific educational background and minimum years of relevant professional experience are required to succeed in this role? Please consider any certifications or specialized training that a qualified candidate should possess."
-""",
+    "QualificationAgent": "",  # Dynamically generated via _build_qualification_instruction
     "JDGeneratorAgent": """
 Your goal: Synthesize all data into the final Job Description.
 Strategy: Inform the user the generation process is beginning.
-- "I have captured the full operational depth of your role. I am now synthesizing this information to generate your comprehensive Job Description."
 """,
 }
 
@@ -250,6 +389,8 @@ def build_already_collected_summary(insights: dict, agent_name: str) -> str:
         lines.append(f"  ✓ Education: {quals['education']}")
     if quals.get("experience_years"):
         lines.append(f"  ✓ Experience: {quals['experience_years']} years")
+    if quals.get("certifications"):
+        lines.append(f"  ✓ Certifications: {quals['certifications']}")
 
     # 8. Detected Conflicts
     conflicts = insights.get("conflicts", [])
@@ -299,74 +440,18 @@ def build_dynamic_prompt(
             "Use the above title/department as context for your questions, but never ask the user to provide or confirm them."
         )
 
-    # Add phase-specific instructions
-    phase_instruction = PHASE_INSTRUCTIONS.get(phase, "")
-
-    # Dynamically adjust BasicInfoAgent based on what is exactly missing
+    # Add phase-specific instructions — DYNAMICALLY GENERATED
     if phase == "BasicInfoAgent":
-        turns = (insights.get("agent_turn_counts") or {}).get("BasicInfoAgent", 0)
-        purpose_done = len(insights.get("purpose") or "") >= 10
-
-        if not purpose_done:
-            # Step 1: Mission
-            phase_instruction = "Your goal: Understand the role mission.\nStrategy: Strictly ask exactly ONE question: 'What is the primary role mission or overall purpose of this position?' Avoid jargon. DO NOT ask for title or department, as we already have that."
-        elif turns <= 2:
-            # Step 2: Mandatory Task Inquiry (One-time)
-            existing_tasks = insights.get("tasks", [])
-            if existing_tasks:
-                # Acknowledge provided tasks but still ask for MORE regular ones
-                phase_instruction = f"Your goal: Gather all remaining regular tasks.\nStrategy: Strictly ask exactly ONE question. 'I've noted the activities you mentioned. Beyond those, what are the different regular tasks you perform on a daily, weekly, or monthly basis so I can note them down?' DO NOT list the tasks in your question."
-            else:
-                phase_instruction = "Your goal: Gather daily/weekly/monthly tasks.\nStrategy: Strictly ask exactly ONE question: 'What are the different regular tasks you perform on a daily, weekly, or monthly basis so I can note them down?'"
-        else:
-            # Final Fallback (Should transition automatically via router)
-            phase_instruction = "Your goal: Finalize details.\nStrategy: Finalize high-level role details. The system will soon transition to prioritization."
-
-        # Override to be extra specific if purpose is done but turns is <= 2 (Step 2)
-        if purpose_done and turns <= 2:
-            phase_instruction = "Your goal: Collect daily/weekly activities.\nStrategy: Ask exactly ONE question focusing on 'What are the different regular tasks you perform on a daily, weekly, or monthly basis?' DO NOT ask about mission/purpose again."
-
-    # Interpolate dynamic values into phase instruction
+        phase_instruction = _build_basic_info_instruction(insights)
     elif phase == "DeepDiveAgent":
-        active = insights.get("active_deep_dive_task")
-        completed = insights.get("_completed_task")
-        turn_number = insights.get("deep_dive_turn_count", 1)
+        phase_instruction = _build_deep_dive_instruction(insights)
+    elif phase == "QualificationAgent":
+        phase_instruction = _build_qualification_instruction(insights)
+    else:
+        phase_instruction = PHASE_INSTRUCTIONS.get(phase, "")
 
-        if completed and active:
-            # Dynamic bridge instruction! We autonomously pivot to the next task.
-            custom_instruction = f"""Your goal: Bridge from the completed task to the new active task.
-STRICT BEHAVIORAL PROTOCOL:
-- ACKNOWLEDGE: Briefly acknowledge you've got all the details for '{completed}'.
-- PIVOT: Immediately start the deep-dive for the next task: '{active}'. 
-- TURN 1 GOAL for '{active}': Ask exactly ONE question to capture the trigger (how the task starts) and the main logical steps.
-
-CRITICAL RULES:
-- CONTEXTUAL THEME: Weave the themes of '{completed}' and '{active}' naturally into your speech. DO NOT recite the literal string titles. Paraphrase them so the conversation sounds totally human.
-- TRANSITION SEAMLESSLY: Do NOT ask the user which task to do next. You are driving. Organically bridge the topics, for example: "Got it for your infrastructure routines. Let's shift our focus to your software development duties. How does that typically start?"
-- ONE QUESTION: Only ever ask one question at a time.
-"""
-            phase_instruction = custom_instruction
-        elif completed and not active:
-            # We finished the last task on the list.
-            custom_instruction = f"""Your goal: Conclude the Deep Dive phase.
-STRICT BEHAVIORAL PROTOCOL:
-- ACKNOWLEDGE: Briefly say you've successfully gathered the workflow details for '{completed}' and mapped all priority tasks.
-- TRANSITION: Seamlessly transition to the Tools phase.
-
-CRITICAL RULES:
-- CONTEXTUAL THEME: Paraphrase '{completed}' organically. Do NOT recite the literal string title.
-- TRANSITION SEAMLESSLY: Do NOT ask about any more tasks. Organically conclude the Deep Dive. Say something like: "We've fully mapped out your infrastructure duties and all other key responsibilities. Now, let's talk about your technical toolbox."
-"""
-            phase_instruction = custom_instruction
-        else:
-            if not active or active == "None":
-                phase_instruction = "Your goal: Initiate the deep dive.\nStrategy: Review the collected priority tasks. Pick the first priority task yourself and ask the user how they execute it. DO NOT ask the user what to pick. Lead the conversation."
-            else:
-                phase_instruction = phase_instruction.replace(
-                    "{active_task}", str(active)
-                ).replace("{turn_number}", str(turn_number))
-
-    parts.append(f"\n🎯 CURRENT MISSION:\n{phase_instruction}")
+    if phase_instruction:
+        parts.append(f"\n🎯 CURRENT MISSION:\n{phase_instruction}")
 
     # Add already collected summary (Surfaces everything to prevent repetition)
     collected_summary = build_already_collected_summary(insights, phase)
@@ -391,16 +476,32 @@ CRITICAL RULES:
         )
 
         parts.append(
-            f"\n⚠️ FIRST MESSAGE PROTOCOL: Start by greeting {user_name} professionally. Mention their position as '{role}' within '{dept}'. Then immediately pivot to the first in-depth question."
+            f"\n⚠️ FIRST MESSAGE PROTOCOL (MANDATORY): Start by greeting {user_name} professionally. "
+            f"Explicitly mention their position as '{role}' within the '{dept}' team. "
+            f"Then immediately ask your first question about the core purpose of their role. Keep it to 2 sentences max."
         )
 
     # Add response format rules
     if phase in ["ToolsAgent", "SkillsAgent", "JDGeneratorAgent"]:
         parts.append("\n📝 FORMAT: Present data clearly. NO question marks.")
     else:
-        parts.append(
-            "\n📝 FORMAT: Exactly ONE question. No introductory text. No filler. No acknowledgments. 2-4 sentences, professional and in-depth."
-        )
+        if is_first_turn:
+            parts.append(
+                "\n📝 FORMAT: Start with the mandated professional greeting and role/team context, followed by EXACTLY ONE question. No filler. No acknowledgments."
+            )
+        else:
+            parts.append(
+                "\n📝 FORMAT: Exactly ONE question. No introductory text. No filler. No acknowledgments. 2-4 sentences max."
+            )
+
+    # RULE: ABSOLUTE ROLE ISOLATION for BasicInfoAgent Turn 1
+    turns = (insights.get("agent_turn_counts") or {}).get("BasicInfoAgent", 0)
+    if phase == "BasicInfoAgent" and turns <= 1:
+        for i in range(len(parts)):
+            if "🧠 INDUSTRY STRATEGY" in parts[i]:
+                parts[i] = (
+                    "🧠 INDUSTRY STRATEGY: Stay grounded and universal for this initial mission inquiry."
+                )
 
     return "\n".join(parts)
 

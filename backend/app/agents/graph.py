@@ -188,10 +188,11 @@ async def run_interview_turn_stream(
         session_memory.current_agent = agent_name
 
         # 3. Get recent messages for context
-        recent_messages = session_memory.recent_messages[-6:]
+        recent_messages = session_memory.recent_messages[-10:]
 
         # 4. Get questions already asked (for deduplication)
         questions_asked = list(getattr(session_memory, 'questions_asked', []) or [])
+        previous_questions_text = list(getattr(session_memory, 'previous_questions_text', []) or [])
 
         # 5. Stream the interview turn
         full_text = ""
@@ -203,6 +204,7 @@ async def run_interview_turn_stream(
             user_message=user_message,
             questions_asked=questions_asked,
             transition_context=transition_context,
+            previous_questions_text=previous_questions_text,
         ):
             if event["type"] == "chunk":
                 yield f"data: {json.dumps({'type': 'chunk', 'content': event['content']}, separators=(',', ':'))}\n\n"
@@ -210,8 +212,13 @@ async def run_interview_turn_stream(
             elif event["type"] == "done":
                 insights = event.get("insights", session_memory.insights)
                 full_text = event.get("full_text", "")
-                # Update questions_asked from engine
+                # Update questions_asked and previous_questions_text from engine
                 session_memory.questions_asked = event.get("questions_asked", questions_asked)
+                # Persist question texts for cross-session semantic dedup
+                if full_text:
+                    session_memory.previous_questions_text.append(full_text)
+                    # Keep bounded to last 20
+                    session_memory.previous_questions_text = session_memory.previous_questions_text[-20:]
                 
                 # Update iterative helpers
                 session_memory.visited_tasks = insights.get("visited_tasks", [])

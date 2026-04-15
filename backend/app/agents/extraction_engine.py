@@ -113,9 +113,10 @@ RULES:
 5. CONFLICT DETECTION: If the user provides data that contradicts their role level (e.g., Senior tasks for a Junior title), output an object `conflicts: [{{ "description": "The user is entry-level but described handling architecture design." }}]`. Do not ask the user; silently record it.
 6. PROFESSIONALIZATION: Translate all user inputs into formal, enterprise-grade business terminology. Fix typos and grammar. (e.g., "doing payroll" -> "Payroll Processing & Management")
 7. STRICT SKILL FILTERING: For `skills`, absolutely prohibit extracting soft skills. DO NOT extract "communication", "leadership", "hardworking", "mentorship", etc. ONLY extract formal, hard, technical/domain specific skills.
-8. SEMANTIC DEDUPLICATION: If a task, tool, or skill the user mentions is semantically the same as an item already in CURRENT MEMORY, DO NOT extract it as a new item. Either ignore it, or use the EXACT same name from memory to trigger an update.
+8. SEMANTIC FOLDING & DEDUPLICATION: Group highly similar skills/tools into a single, professional "Expertise Pillar" if they share >70% semantic intent. Example: ["Data Validation", "Data Verification", "Data Reconciliation"] -> "Data Integrity & Reconciliation".
 9. ANTI-LEAK RULE: Absolutely DO NOT extract agent questions, system instructions, or conversational filler from the message history as if they were user data. (e.g. If the history shows an agent asking 'What are your tasks?', do NOT extract 'What are your tasks?' as a new task).
 10. If CURRENT AGENT MISSION is listed below, heavily prioritize extracting data for that mission!
+11. SMARTER PRE-RANKING: When extracting or updating `tasks`, always sort them by strategic importance (Strategic/Architecture > Operational/Implementation > Administrative/Support). List the most critical tasks first.
 
 CURRENT AGENT MISSION:
 {current_agent}
@@ -394,12 +395,9 @@ async def extract_with_llm(
 ) -> dict:
     """Use LLM for comprehensive extraction."""
     try:
-        # Build extraction prompt
-        state_summary = json.dumps(
-            {k: v for k, v in current_state.items() if v not in (None, {}, [], "")},
-            indent=2,
-            default=str,
-        )
+        # PERFORMANCE UPGRADE: Truncate history passed to extraction LLM (last 4 messages ONLY)
+        # Utility extraction does not need full context, saving tokens and processing time.
+        state_summary = serialize_insights(current_state)
 
         prompt = EXTRACTION_PROMPT.format(
             current_agent=current_agent,
@@ -497,6 +495,32 @@ async def extract_information(
     # Clean up extracted data
     extracted = {k: v for k, v in extracted.items() if v not in (None, "", [], {})}
 
+    # ── AGENT-SCOPED EXTRACTION FILTER ──────────────────────────────────────
+    # Prevent cross-agent data pollution by limiting which fields each agent
+    # can extract. This stops BasicInfoAgent from accidentally extracting skills,
+    # and keeps DeepDive focused on workflows.
+    AGENT_ALLOWED_FIELDS = {
+        "BasicInfoAgent": {"role", "department", "reports_to", "purpose", "tasks", "user_wants_to_proceed"},
+        "WorkflowIdentifierAgent": {"priority_tasks", "tasks", "user_wants_to_proceed"},
+        "DeepDiveAgent": {"workflows", "tools", "tasks", "purpose"},
+        "ToolsAgent": {"tools", "technologies", "tools_confirmed"},
+        "SkillsAgent": {"skills", "skills_confirmed"},
+        "QualificationAgent": {"qualifications"},
+    }
+
+    allowed = AGENT_ALLOWED_FIELDS.get(current_agent)
+    if allowed:
+        filtered = {}
+        for key, value in extracted.items():
+            if key in allowed:
+                filtered[key] = value
+            else:
+                # Silently drop fields outside this agent's scope
+                logger.debug(
+                    f"[Extraction] Dropped '{key}' from {current_agent} (out of scope)"
+                )
+        extracted = filtered
+
     return extracted
 
 
@@ -562,18 +586,26 @@ def merge_extracted(current_state: dict, extracted: dict) -> dict:
             result = []
             # Add existing first
             for item in existing:
-                item_key = json.dumps(item, sort_keys=True, default=str) if isinstance(item, dict) else str(item).lower().strip()
+                item_key = (
+                    json.dumps(item, sort_keys=True, default=str)
+                    if isinstance(item, dict)
+                    else str(item).lower().strip()
+                )
                 if item_key not in seen:
                     seen.add(item_key)
                     result.append(item)
             # Add new ones
             for item in value:
-                item_key = json.dumps(item, sort_keys=True, default=str) if isinstance(item, dict) else str(item).lower().strip()
+                item_key = (
+                    json.dumps(item, sort_keys=True, default=str)
+                    if isinstance(item, dict)
+                    else str(item).lower().strip()
+                )
                 if item_key not in seen:
                     seen.add(item_key)
                     result.append(item)
             merged[key] = result
-            
+
         elif isinstance(value, dict) and isinstance(existing, dict):
             # Recursive deep merge
             merged[key] = _deep_merge_dict(dict(existing), value)
@@ -659,6 +691,7 @@ def serialize_insights(insights: dict) -> str:
         "agent_stall_counts",
         "completed_phases",
         "agent_transition_log",
+        "final_jd",
     }
     view = {
         k: v

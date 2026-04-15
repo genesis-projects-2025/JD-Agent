@@ -258,9 +258,6 @@ export default function MessageBubble({
                 </div>
                 <span className="text-[10px] font-medium text-surface-400">
                   {selectedTasks.length} selected
-                  {selectedTasks.length < 3 && !isTasksConfirmed && (
-                    <span className="ml-1 text-amber-500">(pick at least 3)</span>
-                  )}
                 </span>
               </div>
 

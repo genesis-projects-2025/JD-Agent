@@ -18,6 +18,7 @@ import hashlib
 import json
 import logging
 import re
+import time
 from typing import AsyncIterator
 
 from langchain_google_genai import ChatGoogleGenerativeAI
@@ -578,22 +579,21 @@ def build_interview_messages(
 # Configuration for silent agents that provide static instructions rather than LLM-generated questions
 SILENT_AGENT_RESPONSES = {
     "WorkflowIdentifierAgent": (
-        "Based on our conversation, I have populated the list of priority tasks below. "
-        "These are the list of priority tasks—please select the 3 to 5 most critical, high-impact tasks from your role. "
-        "These will be deep-dived for the Job Description. You can also add any missing tasks if needed."
+        "Here are the tasks identified from your role. "
+        "Select the most critical, high-impact tasks — these will be analyzed in detail for the Job Description. "
+        "You can also add any missing tasks."
     ),
     "ToolsAgent": (
-        "Based on all the work processes we've mapped, I have generated a list of technical tools you use. "
-        "Please review the tools populated in the panel. You can add any missing tools or deselect any incorrect ones. "
-        "Once you are ready, please click Confirm."
+        "Here are the tools and platforms identified from your workflows. "
+        "Review, add, or remove as needed, then confirm."
     ),
     "SkillsAgent": (
-        "Based on your responsibilities and tools, I have also populated the core skills required for this role. "
-        "Please review them, add or remove as necessary, and click Confirm to proceed."
+        "Here are the core technical skills for this role. "
+        "Review, add, or remove as needed, then confirm."
     ),
     "JDGeneratorAgent": (
-        "Thank you for the detailed information. We have captured all aspects of your role. "
-        "Your Job Description is ready for generation. Review the preview pane to your right."
+        "All aspects of your role have been captured. "
+        "Your Job Description is ready for generation."
     ),
 }
 
@@ -716,9 +716,11 @@ class InterviewEngine:
     def _pre_process_iteration_state(self, insights: dict, agent_name: str) -> dict:
         """Manage active_deep_dive_task and visited_tasks for iterative workflow.
 
-        STRICT RULES:
-        - Each task gets exactly 3 turns max, regardless of data completeness.
-        - A task is marked visited after 3 turns OR when trigger+steps+output are all saved.
+        STRICT 2+1 TURN PROTOCOL:
+        - Turn 1 (compulsory): How the task begins — triggers and inputs.
+        - Turn 2 (compulsory): Challenges, quality standards, and expert-level outcomes.
+        - Turn 3 (conditional): Only if extraction is incomplete (missing trigger/steps/output).
+        - After turn 3 OR if data is complete at turn 2: mark visited, advance.
         - Once visited, a task is NEVER revisited.
         """
         if agent_name != "DeepDiveAgent":
@@ -740,8 +742,14 @@ class InterviewEngine:
             return bool(wf.get("trigger") and wf.get("steps") and wf.get("output"))
 
         if active_task:
-            # Hard limit: mark visited after >= 3 turns OR if workflow is already complete
-            if turn_count >= 3 or _is_task_complete(active_task):
+            # Hard ceiling: ALWAYS mark visited after >= 3 turns
+            if turn_count >= 3:
+                _mark_visited(active_task)
+                insights["_completed_task"] = active_task
+                active_task = None
+                turn_count = 0
+            # After 2 compulsory turns: mark visited ONLY if data is complete
+            elif turn_count >= 2 and _is_task_complete(active_task):
                 _mark_visited(active_task)
                 insights["_completed_task"] = active_task
                 active_task = None
@@ -757,7 +765,7 @@ class InterviewEngine:
                     active_task = pt
                     break
 
-        # If a new active task was picked and it wasn't there before, it means turn count should be 1
+        # If a new active task was picked and turn was reset, start at 1
         if active_task and turn_count == 0:
             turn_count = 1
 
@@ -859,10 +867,10 @@ class InterviewEngine:
         return insights
 
     def _compress_memory(self, recent_messages: list, turn_count: int) -> list:
-        """Compress old messages, keeping the last 12 messages (approx 6 complete turns) for stronger short-term memory."""
-        if len(recent_messages) <= 12:
+        """Compress old messages, keeping the last 16 messages (approx 8 complete turns) for stronger short-term memory."""
+        if len(recent_messages) <= 16:
             return recent_messages
-        return recent_messages[-12:]
+        return recent_messages[-16:]
 
     def _build_conversation_summary(self, insights: dict, agent_name: str) -> str:
         """Build a lightweight rolling summary from collected insights.
@@ -1207,10 +1215,21 @@ Keep it professional and brief."""
         agent_turns[agent_name] = agent_turns.get(agent_name, 0) + 1
         insights["agent_turn_counts"] = agent_turns
 
-        # Step 0a: Robust Two-Pass Extraction Pipeline
+        # Step 0a: Parallel Extraction & RAG Pipeline
         from app.agents.extraction_engine import extract_information
+        
+        # Performance Tracking
+        start_time = time.perf_counter()
+        
+        # Run Extraction and RAG Retrieval in parallel to save ~3-5s
+        extraction_task = extract_information(user_message, insights, agent_name)
+        rag_task = self._get_rag_context(insights, agent_name)
+        
+        extracted, retrieved_context = await asyncio.gather(extraction_task, rag_task)
+        
+        parallel_time = time.perf_counter() - start_time
+        logger.info(f"[Perf] Extraction + RAG took {parallel_time:.2f}s")
 
-        extracted = await extract_information(user_message, insights, agent_name)
         if extracted:
             # PHASE ADVANCEMENT: If user explicitly wants to proceed, mark phase complete
             if (
@@ -1231,24 +1250,8 @@ Keep it professional and brief."""
                 f"[Interview Stream] Data Extracted & Merged: {list(extracted.keys())}"
             )
 
-        # Step 0b: Critic Pass (Semantic Folding & Cleaning)
-        # We run this after extraction to organize the newly collected data
-        from app.agents.critic_engine import run_critic_pass
-
-        clean_delta = await run_critic_pass(insights)
-        if clean_delta:
-            logger.info(
-                f"[Critic Engine] Folding and Cleaning data: {list(clean_delta.keys())}"
-            )
-            insights = self._merge_extracted_to_insights(
-                clean_delta, insights, overwrite=True
-            )
-
-            # Yield extraction chunk for UI visibility of folding
-            yield {"type": "extraction", "data": clean_delta}
-
-        # Pre-process iteration state BEFORE routing
-        # (This ensures marking tasks complete updates state before the router evaluates it)
+        # Step 0b: Pre-process iteration state BEFORE routing
+        # (This avoids a redundant Critic Engine LLM call, shifting synthesis to Extraction Engine)
         insights = self._pre_process_iteration_state(insights, agent_name)
 
         # Step 0c: Mid-Turn Routing
@@ -1298,7 +1301,7 @@ Keep it professional and brief."""
             agent_name = new_agent
 
         # Step 0b: Advanced RAG Retrieval
-        retrieved_context = await self._get_rag_context(insights, agent_name)
+
 
         # Step 0c: Auto-populate Inventory (Tools/Skills) if transitioning
         if agent_name in ["ToolsAgent", "SkillsAgent"]:
@@ -1344,17 +1347,23 @@ Keep it professional and brief."""
         else:
             response_chunks = []
             is_first_chunk = True
+            llm_start_time = time.perf_counter()
 
             try:
                 async for chunk in _interview_llm.astream(messages):
-                    # We do NOT yield chunk here because it's a raw AIMessageChunk, and
-                    # the graph expects formatted dictionaries. We buffer it, validate it,
-                    # and then stream the validated text at the end.
                     if chunk.content:
                         if is_first_chunk:
-                            logger.debug("[LLM Stream] Generating response...")
+                            ttfb = time.perf_counter() - llm_start_time
+                            logger.info(f"[Perf] LLM Time to First Byte: {ttfb:.2f}s")
                             is_first_chunk = False
                         response_chunks.append(chunk.content)
+                        
+                        # Yield cumulative chunk immediately for real-time streaming
+                        # (Frontend expects cumulative text in setStreamingQuestion)
+                        yield {
+                            "type": "chunk",
+                            "content": "".join(response_chunks)
+                        }
             except Exception as e:
                 logger.error(f"[Interview] Streaming failed: {e}")
                 yield {
@@ -1446,12 +1455,8 @@ Keep it professional and brief."""
         insights.pop("_deep_dive_turn_number", None)
         insights.pop("_force_advance", None)
 
-        # Stream the exact validated string smoothly (cumulative)
-        chunk_size = 30
-        for i in range(0, len(full_text), chunk_size):
-            cumulative_chunk = full_text[: i + chunk_size]
-            yield {"type": "chunk", "content": cumulative_chunk}
-            await asyncio.sleep(0.02)
+        # Yield to ensure validated/final text is sent before 'done'
+        yield {"type": "chunk", "content": full_text}
 
         yield {
             "type": "done",

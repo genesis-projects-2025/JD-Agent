@@ -437,7 +437,7 @@ export async function sendMessageStream(
   onError: (error: any) => void
 ) {
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 90_000); // 90s hard timeout
+  const timeoutId = setTimeout(() => controller.abort(), 300_000); // 5 min hard timeout — covers LLM extraction + RAG + generation
 
   try {
     const res = await fetch(`${API_URL}/jd/chat/stream`, {
@@ -501,7 +501,7 @@ export async function sendMessageStream(
     }
   } catch (err: any) {
     if (err.name === "AbortError") {
-      onError(new Error("Stream timed out after 90 seconds"));
+      onError(new Error("Stream timed out. The server is taking too long to respond. Please try again."));
     } else {
       onError(err);
     }

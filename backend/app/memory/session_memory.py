@@ -49,6 +49,7 @@ class SessionMemory:
         # ── Working Memory ────────────────────────────────────────────────
         # Tracks question fingerprints to prevent repetition
         self.questions_asked = []  # list of question hashes
+        self.previous_questions_text = []  # list of actual question texts for semantic dedup
         self.agent_transition_log = []  # list of {"from": ..., "to": ..., "turn": ...}
         self.current_stage_question_count = 0  # questions asked in current agent stage
 
@@ -116,7 +117,7 @@ class SessionMemory:
         })
         self.current_stage_question_count = 0  # Reset per-stage counter
 
-    def add_turn(self, role: str, content: str, llm_limit: int = 6):
+    def add_turn(self, role: str, content: str, llm_limit: int = 10):
         """
         Add one conversation turn.
         - full_history: always appended (goes to DB)
@@ -129,11 +130,11 @@ class SessionMemory:
         # Invalidate cached text when new turns are added
         self._user_history_text_cache = None
 
-    def update_recent(self, role: str, content: str, limit: int = 6):
+    def update_recent(self, role: str, content: str, limit: int = 10):
         """Backward-compatible alias for add_turn."""
         self.add_turn(role, content, llm_limit=limit)
 
-    def load_history_from_db(self, db_history: list, llm_limit: int = 6):
+    def load_history_from_db(self, db_history: list, llm_limit: int = 10):
         """
         Called during cold-start hydration from DB.
         Restores full_history completely, recent_messages as sliding window.
@@ -148,6 +149,7 @@ class SessionMemory:
             "current_agent": self.current_agent,
             "current_phase": self.current_phase,
             "questions_asked": self.questions_asked,
+            "previous_questions_text": self.previous_questions_text[-20:],  # Keep last 20 for dedup
             "agent_transition_log": self.agent_transition_log,
             "current_stage_question_count": self.current_stage_question_count,
             "completion_percentage": self.progress.get("completion_percentage", 0),
@@ -166,6 +168,7 @@ class SessionMemory:
         self.current_agent = data.get("current_agent", "BasicInfoAgent")
         self.current_phase = data.get("current_phase", 1)
         self.questions_asked = data.get("questions_asked", [])
+        self.previous_questions_text = data.get("previous_questions_text", [])
         self.agent_transition_log = data.get("agent_transition_log", [])
         self.current_stage_question_count = data.get("current_stage_question_count", 0)
         self.visited_tasks = data.get("visited_tasks", [])

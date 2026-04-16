@@ -65,8 +65,8 @@ INSTRUCTIONS:
     "SkillsAgent": """AGENT ROLE: Competency & Expertise Specialist
 MISSION: Validate skills profile.
 INSTRUCTIONS:
-1. Present identified technical skills.
-2. Ask: "Please review and confirm these technical skills."
+1. Present identified skills.
+2. Ask: "Please review and confirm these skills."
 """,
 
     "QualificationAgent": """AGENT ROLE: Talent Bar Specialist
@@ -104,7 +104,7 @@ Generate a complete, professional Job Description.
 # MANDATORY INCLUSIONS (BEYOND DYNAMIC SECTIONS)
 - Your output MUST clearly define sections for:
   1. **Responsibilities** (Synthesized from workflows)
-  2. **Technical Skills** (Foundational competencies)
+  2. **Skills** (Foundational competencies)
   3. **Tools used** (The full tech stack discovered)
 
 OUTPUT — RETURN ONLY THIS JSON:
@@ -113,7 +113,7 @@ OUTPUT — RETURN ONLY THIS JSON:
     "employee_information": {"title": "", "department": "", "location": "", "reports_to": ""},
     "role_summary": "High-level strategic impact statement.",
     "responsibilities": ["List of core responsibilities grouped by impact"],
-    "technical_skills": ["List of skills required"],
+    "skills": ["List of skills required"],
     "tools_used": ["Full tech stack list"],
     "dynamic_sections": [
       {
@@ -123,6 +123,6 @@ OUTPUT — RETURN ONLY THIS JSON:
     ],
     "talent_bar": {"education": "", "experience": ""}
   },
-  "jd_text_format": "<Full markdown JD string using Pulse Pharma professional styling. Ensure Responsibilities, Technical Skills, and Tools are distinct headers.>"
+  "jd_text_format": "<Full markdown JD string using Pulse Pharma professional styling. Ensure Responsibilities, Skills, and Tools are distinct headers.>"
 }
 """

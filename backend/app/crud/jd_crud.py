@@ -166,7 +166,7 @@ async def _harvest_organic_skills(
     if not jd_structured or not session_id or not employee_id:
         return
 
-    req_skills = jd_structured.get("required_skills", [])
+    req_skills = jd_structured.get("skills", []) or jd_structured.get("technical_skills", []) or jd_structured.get("required_skills", [])
     if not isinstance(req_skills, list):
         req_skills = []
 

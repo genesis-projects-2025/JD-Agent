@@ -36,6 +36,7 @@ import {
 
 import FeedbackModal from "@/components/feedback/FeedbackModal";
 import { ReviewRejectModal } from "@/components/ui/review-reject-modal";
+import { PdfDocumentView } from "@/components/jd/pdf-document-view";
 
 export default function JDPage() {
  const params = useParams();
@@ -154,6 +155,9 @@ export default function JDPage() {
  // Map legacy/LLM keys to new keys if they exist and new keys are empty
  if (pStruct.key_responsibilities && !pStruct.responsibilities) {
  pStruct.responsibilities = pStruct.key_responsibilities;
+ }
+ if (pStruct.technical_skills && !pStruct.skills) {
+ pStruct.skills = pStruct.technical_skills;
  }
  if (pStruct.required_skills && !pStruct.skills) {
  pStruct.skills = pStruct.required_skills;
@@ -1009,29 +1013,11 @@ export default function JDPage() {
  </div>
  </div>
  ) : (
- <div className="animate-in fade-in zoom-in-[0.98] duration-500">
- <div className="p-6 sm:p-8 md:p-12">
- <div className="border-b border-surface-200/60 pb-6 sm:pb-8 mb-6 sm:mb-10">
- <div className="flex items-center gap-3 mb-4 sm:mb-6">
- <div className="h-10 w-10 bg-primary-50 rounded-md flex items-center justify-center border border-primary-100">
- <FileText className="w-5 h-5 text-primary-600" />
+ <div className="animate-in fade-in zoom-in-[0.98] duration-500 bg-surface-100/50 py-10 rounded-b-md md:rounded-b-[32px]">
+ <div className="p-4 sm:p-6 md:p-8 flex justify-center">
+ <div className="w-full max-w-[860px]">
+ <PdfDocumentView data={editedData} roleTitle={jd.title} dept={jd.department} />
  </div>
- <div>
- <h4 className="text-[11px] font-medium text-primary-600 ">
- Official Document
- </h4>
- <p className="text-sm font-medium text-surface-500">
- {jd.department || "Organization"} • Ref: JD-
- {jd.id.split("-")[0].toUpperCase()}
- </p>
- </div>
- </div>
- <h1 className="text-3xl md:text-5xl font-medium text-surface-900 leading-[1.1]">
- {jd.title || "Job Description"}
- </h1>
- </div>
-
- <JDDocumentView data={editedData} />
  </div>
  </div>
  )}
@@ -1052,135 +1038,6 @@ export default function JDPage() {
  jdTitle={jd?.title || ""}
  />
  </div>
- </div>
- );
-}
-// ── Structured Document View ──────────────────────────────────────────────────
-
-function JDDocumentView({ data }: { data: any }) {
- const Section = ({ title, children }: { title: string; children: React.ReactNode }) => (
- <div className="py-4 sm:py-6 border-b border-surface-100 last:border-0">
- <div className="grid grid-cols-1 lg:grid-cols-4 gap-2 lg:gap-8">
- <div className="lg:col-span-1">
- <h3 className="text-[10px] sm:text-[11px] font-medium text-surface-400 tracking-[0.2em] mb-2 lg:mb-0">
- {title}
- </h3>
- </div>
- <div className="lg:col-span-3 space-y-3">
- {children}
- </div>
- </div>
- </div>
- );
-
- const ListItem = ({ children }: { children: React.ReactNode }) => (
- <div className="flex gap-3 group items-start">
- <div className="w-1.5 h-1.5 rounded-md bg-primary-400 mt-2 flex-shrink-0 group-hover:scale-150 transition-transform duration-300" />
- <p className="text-[14px] sm:text-[15px] leading-relaxed text-surface-700 font-medium">
- {children}
- </p>
- </div>
- );
-
- return (
- <div className="space-y-2">
- {/* Purpose */}
- <Section title="Role Summary">
- <p className="text-[17px] leading-relaxed text-surface-800 font-medium whitespace-pre-wrap">
- {data.purpose || "Strategic role overview to be confirmed."}
- </p>
- </Section>
-
- {/* Responsibilities */}
- {data.responsibilities && data.responsibilities.length > 0 && (
- <Section title="Key Responsibilities">
- <div className="space-y-4">
- {data.responsibilities.map((r: string, i: number) => (
- <ListItem key={i}>{r}</ListItem>
- ))}
- </div>
- </Section>
- )}
-
- {/* Skills */}
- {(data.skills?.length > 0 || data.tools?.length > 0) && (
- <Section title="Expertise & Tools">
- <div className="flex flex-wrap gap-2">
- {[...(data.skills || []), ...(data.tools || [])].map((s: string, i: number) => (
- <span key={i} className="px-3 py-1 bg-surface-50 text-surface-700 border border-surface-200 rounded-lg text-xs font-medium shadow-sm">
- {s}
- </span>
- ))}
- </div>
- </Section>
- )}
-
- {/* Team & Environment */}
- <Section title="Environment & Team">
- <div className="grid grid-cols-1 sm:grid-cols-2 gap-8">
- {data.team_structure && (
- <div className="space-y-4">
- <h4 className="text-[10px] font-medium text-surface-400 tracking-wider">Team Structure</h4>
- <div className="space-y-2">
- {data.team_structure.team_size && (
- <p className="text-sm text-surface-700 font-medium">Team Size: <span className="text-surface-900 font-medium">{data.team_structure.team_size}</span></p>
- )}
- {data.team_structure.collaborates_with && (
- <p className="text-sm text-surface-700 font-medium">Collaborates with: <span className="text-surface-900 font-medium">{Array.isArray(data.team_structure.collaborates_with) ? data.team_structure.collaborates_with.join(", ") : data.team_structure.collaborates_with}</span></p>
- )}
- </div>
- </div>
- )}
- {data.work_environment && (
- <div className="space-y-4">
- <h4 className="text-[10px] font-medium text-surface-400 tracking-wider">Culture & Style</h4>
- <div className="space-y-2">
- <p className="text-sm text-surface-700 font-medium leading-relaxed italic border-l-2 border-primary-200 pl-4 py-1 bg-primary-50/30 rounded-r-lg">
- {data.work_environment.culture || "Highly collaborative environment Focused on results."}
- </p>
- </div>
- </div>
- )}
- </div>
- </Section>
-
- {/* Metrics */}
- {data.metrics && data.metrics.length > 0 && (
- <Section title="Performance Metrics">
- <div className="grid grid-cols-1 gap-4">
- {data.metrics.map((m: string, i: number) => (
- <div key={i} className="p-4 bg-emerald-50/50 border border-emerald-100 rounded-md flex items-center gap-4">
- <div className="w-8 h-8 bg-emerald-100 rounded-md flex items-center justify-center text-emerald-600 font-medium text-xs">
- {i + 1}
- </div>
- <p className="text-sm font-medium text-emerald-900 leading-tight">
- {m}
- </p>
- </div>
- ))}
- </div>
- </Section>
- )}
-
- {/* Additional Details */}
- {data.additional && (data.additional.special_projects?.length > 0 || data.additional.unique_contributions) && (
- <Section title="Special Projects">
- {data.additional.special_projects?.length > 0 && (
- <div className="flex flex-wrap gap-2 mb-4">
- {data.additional.special_projects.map((p: string, i: number) => (
- <span key={i} className="px-3 py-1 bg-amber-50 text-amber-700 border border-amber-200 rounded-lg text-xs font-medium shadow-sm ">
- {p}
- </span>
- ))}
- </div>
- )}
- {data.additional.unique_contributions && (
- <p className="text-sm text-surface-600 font-medium leading-relaxed italic">
- Contribution Insights: {data.additional.unique_contributions}
- </p>
- )}
- </Section>
- )}
  </div>
  );
 }

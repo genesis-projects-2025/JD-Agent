@@ -107,8 +107,9 @@ async def index_approved_jd(
             add_chunk("tools", f"Role: {jd_title} Tools: {', '.join(tools)}")
             
         # skills
-        skills = (structured_data.get("required_skills", []) or 
-                  structured_data.get("skills", []))
+        skills = (structured_data.get("skills", []) or 
+                  structured_data.get("technical_skills", []) or 
+                  structured_data.get("required_skills", []))
         if skills:
             add_chunk("skills", f"Role: {jd_title} Skills: {', '.join(skills)}")
             

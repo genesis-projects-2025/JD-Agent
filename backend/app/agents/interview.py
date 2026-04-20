@@ -437,7 +437,9 @@ def _truncate_if_too_long(response_text: str) -> str:
 
 # ── LLM Instances ─────────────────────────────────────────────────────────────
 
-# Interview LLM — used for tool-calling extraction + conversation
+# Interview LLM — used for streaming conversational questions
+# Using gemini-2.0-flash for lower TTFB: 2.5-flash has internal thinking mode
+# that causes 3-6s delays. 2.0-flash streams first byte in ~0.5-1.5s.
 _interview_llm = ChatGoogleGenerativeAI(
     google_api_key=settings.GEMINI_API_KEY,
     model="gemini-2.5-flash",
@@ -445,7 +447,8 @@ _interview_llm = ChatGoogleGenerativeAI(
 )
 
 
-# Plain LLM for follow-up responses (no tools, no JSON mode)
+# Dedup retry LLM — used only when a question is detected as repeated
+# Also on 2.0-flash for consistent low latency
 _response_llm = ChatGoogleGenerativeAI(
     google_api_key=settings.GEMINI_API_KEY,
     model="gemini-2.5-flash",
@@ -543,9 +546,9 @@ def build_interview_messages(
     messages.append(SystemMessage(content=system_content))
 
     # 2. Append recent history (Conversational Context)
-    # OPTIMIZATION: Truncate history to the last 6 messages. 
-    # Global memory is safely stored in the `insights` dictionary, 
-    # so keeping the raw transcript small speeds up response times infinitely.
+    # OPTIMIZATION: Truncate history to the last 6 messages.
+    # Global memory is safely stored in the `insights` dictionary,
+    # so keeping the raw transcript small speeds up response times.
     for msg in recent_messages[-6:]:
         role = msg.get("role")
         content = msg.get("content", "")
@@ -767,7 +770,9 @@ class InterviewEngine:
                 if pt not in (insights.get("visited_tasks") or []):
                     active_task = pt
                     remaining = len(priority_tasks) - len(visited_tasks)
-                    logger.info(f"[DeepDive] Moving to next task: {active_task}. {remaining} remaining.")
+                    logger.info(
+                        f"[DeepDive] Moving to next task: {active_task}. {remaining} remaining."
+                    )
                     break
 
         # If a new active task was picked and turn was reset, start at 1
@@ -1051,7 +1056,9 @@ Keep it professional and brief."""
         # Runs the user message through LLM to extract data BEFORE the conversational agent sees it
         from app.agents.extraction_engine import extract_information
 
-        extracted = await extract_information(user_message, insights, agent_name, recent_messages)
+        extracted = await extract_information(
+            user_message, insights, agent_name, recent_messages
+        )
         if extracted:
             insights = self._merge_extracted_to_insights(extracted, insights)
             logger.info(
@@ -1225,17 +1232,19 @@ Keep it professional and brief."""
 
         # Step 0a: Parallel Extraction & RAG Pipeline
         from app.agents.extraction_engine import extract_information
-        
+
         # Performance Tracking
         start_time = time.perf_counter()
-        
+
         # Run Extraction and RAG Retrieval in parallel to save ~3-5s
         yield {"type": "status", "content": "Analyzing your input..."}
-        extraction_task = extract_information(user_message, insights, agent_name, recent_messages)
+        extraction_task = extract_information(
+            user_message, insights, agent_name, recent_messages
+        )
         rag_task = self._get_rag_context(insights, agent_name)
-        
+
         extracted, retrieved_context = await asyncio.gather(extraction_task, rag_task)
-        
+
         parallel_time = time.perf_counter() - start_time
         logger.info(f"[Perf] Extraction + RAG took {parallel_time:.2f}s")
 
@@ -1285,21 +1294,38 @@ Keep it professional and brief."""
 
             # Parallelize insights cleaning and enrichment tasks
             from app.agents.semantic_cleaner import deduplicate_and_professionalize
-            
+
             cleaning_tasks = []
-            
+
             if new_agent == "WorkflowIdentifierAgent":
-                yield {"type": "status", "content": "Professionalizing your task list..."}
-                cleaning_tasks.append(deduplicate_and_professionalize(insights.get("tasks") or [], "tasks"))
+                yield {
+                    "type": "status",
+                    "content": "Professionalizing your task list...",
+                }
+                cleaning_tasks.append(
+                    deduplicate_and_professionalize(
+                        insights.get("tasks") or [], "tasks"
+                    )
+                )
             elif new_agent == "DeepDiveAgent":
                 yield {"type": "status", "content": "Analyzing priority tasks..."}
-                cleaning_tasks.append(deduplicate_and_professionalize(insights.get("priority_tasks", []), "priority_tasks"))
+                cleaning_tasks.append(
+                    deduplicate_and_professionalize(
+                        insights.get("priority_tasks", []), "priority_tasks"
+                    )
+                )
             elif new_agent == "ToolsAgent":
                 yield {"type": "status", "content": "Refining technical toolset..."}
-                cleaning_tasks.append(deduplicate_and_professionalize(insights.get("tools", []), "tools"))
+                cleaning_tasks.append(
+                    deduplicate_and_professionalize(insights.get("tools", []), "tools")
+                )
             elif new_agent == "SkillsAgent":
                 yield {"type": "status", "content": "Validating technical skills..."}
-                cleaning_tasks.append(deduplicate_and_professionalize(insights.get("skills", []), "skills"))
+                cleaning_tasks.append(
+                    deduplicate_and_professionalize(
+                        insights.get("skills", []), "skills"
+                    )
+                )
 
             if cleaning_tasks:
                 cleaning_results = await asyncio.gather(*cleaning_tasks)
@@ -1319,7 +1345,10 @@ Keep it professional and brief."""
 
         # Step 0c: Auto-populate Inventory (Tools/Skills) if transitioning
         if agent_name in ["ToolsAgent", "SkillsAgent"]:
-            yield {"type": "status", "content": f"Detecting relevant {agent_name.replace('Agent', '').lower()}..."}
+            yield {
+                "type": "status",
+                "content": f"Detecting relevant {agent_name.replace('Agent', '').lower()}...",
+            }
             insights = await self._auto_populate_inventory(
                 insights, agent_name, retrieved_context
             )
@@ -1364,6 +1393,10 @@ Keep it professional and brief."""
             is_first_chunk = True
             llm_start_time = time.perf_counter()
 
+            # Signal to frontend that the agent is actively formulating
+            # This covers the TTFB gap while the LLM is generating
+            yield {"type": "status", "content": "Formulating next question..."}
+
             try:
                 async for chunk in _interview_llm.astream(messages):
                     if chunk.content:
@@ -1372,13 +1405,10 @@ Keep it professional and brief."""
                             logger.info(f"[Perf] LLM Time to First Byte: {ttfb:.2f}s")
                             is_first_chunk = False
                         response_chunks.append(chunk.content)
-                        
+
                         # Yield cumulative chunk immediately for real-time streaming
                         # (Frontend expects cumulative text in setStreamingQuestion)
-                        yield {
-                            "type": "chunk",
-                            "content": "".join(response_chunks)
-                        }
+                        yield {"type": "chunk", "content": "".join(response_chunks)}
             except Exception as e:
                 logger.error(f"[Interview] Streaming failed: {e}")
                 yield {
@@ -1421,13 +1451,16 @@ Keep it professional and brief."""
         # --- FINAL JD GENERATION BRIDGE ---
         if agent_name == "JDGeneratorAgent":
             logger.info("[JD Fix] Executing final high-fidelity JD generation...")
-            yield {"type": "status", "content": "Architecting your high-fidelity Job Description..."}
+            yield {
+                "type": "status",
+                "content": "Architecting your high-fidelity Job Description...",
+            }
             jd_payload = await self._generate_final_jd_payload(insights)
             insights["final_jd"] = jd_payload
             full_text = "Your high-fidelity Job Description is architected. Review the preview pane to your right."
 
         # --- SEMANTIC QUESTION DEDUPLICATION STATUS ---
-        # Disabled post-streaming deduplication. 
+        # Disabled post-streaming deduplication.
         # Overwriting text after it has already streamed to the frontend causes a UI glitch.
 
         # Record the question hash + text

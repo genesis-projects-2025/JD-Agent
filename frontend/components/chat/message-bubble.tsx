@@ -13,46 +13,71 @@ import {
   Loader2,
   Wrench,
   Cpu,
+  ListChecks,
 } from "lucide-react";
 
 export default function MessageBubble({
   message,
   onSkillSelect,
   onToolSelect,
+  onPriorityTaskSelect,
   onGenerateJD,
   onContinue,
+  isLast,
 }: {
   message: Message;
   onSkillSelect?: (selectedSkills: string[]) => void;
   onToolSelect?: (selectedTools: string[]) => void;
+  onPriorityTaskSelect?: (selectedTasks: string[]) => void;
   onGenerateJD?: () => void;
   onContinue?: () => void;
+  isLast?: boolean;
 }) {
   const isAgent = message.sender === "agent";
-  
-  // Skills State
+
+  // ── Skills State ──────────────────────────────────────────────────────────
   const [availableSkills, setAvailableSkills] = useState<string[]>(message.skills || []);
   const [selectedSkills, setSelectedSkills] = useState<string[]>(message.skills || []);
   const [newSkill, setNewSkill] = useState("");
   const [isSkillsConfirmed, setIsSkillsConfirmed] = useState(false);
   const [isSkillsConfirming, setIsSkillsConfirming] = useState(false);
 
-  // Tools State
+  // ── Tools State ───────────────────────────────────────────────────────────
   const [availableTools, setAvailableTools] = useState<string[]>(message.tools || []);
   const [selectedTools, setSelectedTools] = useState<string[]>(message.tools || []);
   const [newTool, setNewTool] = useState("");
   const [isToolsConfirmed, setIsToolsConfirmed] = useState(false);
   const [isToolsConfirming, setIsToolsConfirming] = useState(false);
 
+  // ── Priority Tasks State ──────────────────────────────────────────────────
+  const normaliseTasks = (
+    raw: Array<{ description: string; frequency?: string; category?: string } | string> | undefined
+  ): string[] => {
+    if (!raw) return [];
+    return raw
+      .map((t) => (typeof t === "string" ? t.trim() : t.description?.trim() ?? ""))
+      .filter(Boolean);
+  };
+
+  const [availableTasks, setAvailableTasks] = useState<string[]>(() =>
+    normaliseTasks(message.tasks)
+  );
+  const [selectedTasks, setSelectedTasks] = useState<string[]>(() =>
+    normaliseTasks(message.tasks)
+  );
+  const [newTask, setNewTask] = useState("");
+  const [isTasksConfirmed, setIsTasksConfirmed] = useState(false);
+  const [isTasksConfirming, setIsTasksConfirming] = useState(false);
+
   const [isReadyActionTaken, setIsReadyActionTaken] = useState(false);
 
-  // Typewriter effect state
+  // ── Typewriter effect state ───────────────────────────────────────────────
   const [displayText, setDisplayText] = useState(() =>
     !message.isStreaming ? message.text : ""
   );
   const [isTyping, setIsTyping] = useState(false);
   const fullText = message.text;
-  const EFFECT_SPEED = 20; // ms per character
+  const EFFECT_SPEED = 20;
 
   useEffect(() => {
     if (displayText.length < fullText.length) {
@@ -74,7 +99,7 @@ export default function MessageBubble({
     }
   }, [message.isStreaming, fullText]);
 
-  // Sync props to state
+  // ── Sync props to state ───────────────────────────────────────────────────
   useEffect(() => {
     if (message.skills && message.skills.length > 0) {
       setAvailableSkills(message.skills);
@@ -84,9 +109,14 @@ export default function MessageBubble({
       setAvailableTools(message.tools);
       setSelectedTools(message.tools);
     }
-  }, [message.skills, message.tools]);
+    if (message.tasks && message.tasks.length > 0) {
+      const normalised = normaliseTasks(message.tasks);
+      setAvailableTasks(normalised);
+      setSelectedTasks(normalised);
+    }
+  }, [message.skills, message.tools, message.tasks]);
 
-  // Skills Handlers
+  // ── Skills Handlers ───────────────────────────────────────────────────────
   const toggleSkill = (skill: string) => {
     if (isSkillsConfirmed) return;
     setSelectedSkills((prev) =>
@@ -114,7 +144,7 @@ export default function MessageBubble({
     }
   };
 
-  // Tools Handlers
+  // ── Tools Handlers ────────────────────────────────────────────────────────
   const toggleTool = (tool: string) => {
     if (isToolsConfirmed) return;
     setSelectedTools((prev) =>
@@ -139,6 +169,35 @@ export default function MessageBubble({
       setIsToolsConfirmed(true);
     } finally {
       setIsToolsConfirming(false);
+    }
+  };
+
+  // ── Priority Tasks Handlers ───────────────────────────────────────────────
+  const toggleTask = (task: string) => {
+    if (isTasksConfirmed) return;
+    setSelectedTasks((prev) =>
+      prev.includes(task) ? prev.filter((t) => t !== task) : [...prev, task]
+    );
+  };
+
+  const addCustomTask = () => {
+    if (!newTask.trim() || isTasksConfirmed) return;
+    const task = newTask.trim();
+    if (!availableTasks.includes(task)) {
+      setAvailableTasks((prev) => [...prev, task]);
+      setSelectedTasks((prev) => [...prev, task]);
+    }
+    setNewTask("");
+  };
+
+  const handleTasksConfirm = async () => {
+    if (selectedTasks.length < 1 || isTasksConfirming) return;
+    setIsTasksConfirming(true);
+    try {
+      if (onPriorityTaskSelect) await onPriorityTaskSelect(selectedTasks);
+      setIsTasksConfirmed(true);
+    } finally {
+      setIsTasksConfirming(false);
     }
   };
 
@@ -187,7 +246,102 @@ export default function MessageBubble({
             )}
           </div>
 
-          {/* TOOL SELECTION UI */}
+          {/* ── PRIORITY TASK SELECTION UI ──────────────────────────────── */}
+          {message.isPrioritySelection && availableTasks.length > 0 && (
+            <div className="mt-6 space-y-5 pt-5 border-t border-surface-100">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <ListChecks className="w-4 h-4 text-primary-500" />
+                  <h4 className="text-xs font-semibold tracking-wider text-surface-600 uppercase">
+                    Priority Tasks
+                  </h4>
+                </div>
+                <span className="text-[10px] font-medium text-surface-400">
+                  {selectedTasks.length} selected
+                </span>
+              </div>
+
+              <p className="text-[11px] text-surface-500 leading-relaxed">
+                Select the 3–5 most critical, high-impact tasks from your role. These will be deep-dived for the Job Description.
+              </p>
+
+              <div className="flex flex-col gap-2">
+                {availableTasks.map((task, idx) => {
+                  const isSelected = selectedTasks.includes(task);
+                  return (
+                    <button
+                      key={task + idx}
+                      disabled={isTasksConfirmed}
+                      onClick={() => toggleTask(task)}
+                      className={`flex items-start gap-3 px-3 py-3 rounded-md text-[12px] font-medium text-left transition-all duration-200 border ${
+                        isSelected
+                          ? "bg-primary-50 text-primary-900 border-primary-300 shadow-sm"
+                          : "bg-surface-50 text-surface-700 border-surface-200 hover:bg-surface-100"
+                      } ${isTasksConfirmed ? "opacity-60 cursor-not-allowed" : "active:scale-[0.99]"}`}
+                    >
+                      <div
+                        className={`flex-shrink-0 w-4 h-4 mt-0.5 rounded border transition-all ${
+                          isSelected
+                            ? "bg-primary-600 border-primary-600 flex items-center justify-center"
+                            : "border-surface-300 bg-white"
+                        }`}
+                      >
+                        {isSelected && <Check className="w-2.5 h-2.5 text-white" />}
+                      </div>
+                      <span className="leading-relaxed">{task}</span>
+                    </button>
+                  );
+                })}
+              </div>
+
+              {!isTasksConfirmed && (
+                <div className="mt-4 space-y-3">
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={newTask}
+                      onChange={(e) => setNewTask(e.target.value)}
+                      onKeyDown={(e) => e.key === "Enter" && addCustomTask()}
+                      placeholder="Add a missing task..."
+                      className="flex-1 px-4 py-2.5 bg-surface-50 border border-surface-200 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 placeholder:text-surface-400"
+                    />
+                    <button
+                      onClick={addCustomTask}
+                      className="px-4 py-2.5 bg-surface-100 hover:bg-surface-200 text-surface-700 rounded-md text-sm font-medium border border-surface-200 transition-all flex items-center gap-1.5"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      Add
+                    </button>
+                  </div>
+                  <button
+                    onClick={handleTasksConfirm}
+                    disabled={selectedTasks.length < 1 || isTasksConfirming}
+                    className="w-full py-3 bg-primary-600 text-white rounded-md text-sm font-semibold hover:bg-primary-700 transition-all shadow-md shadow-primary-500/10 disabled:opacity-50 flex items-center justify-center gap-2"
+                  >
+                    {isTasksConfirming ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <Check className="w-4 h-4" />
+                    )}
+                    {isTasksConfirming
+                      ? "Confirming Tasks..."
+                      : `Confirm ${selectedTasks.length} Priority Task${selectedTasks.length !== 1 ? "s" : ""}`}
+                  </button>
+                </div>
+              )}
+
+              {isTasksConfirmed && (
+                <div className="mt-2 flex items-center gap-2.5 text-accent-600 bg-accent-50 p-3 rounded-md border border-accent-100">
+                  <Check className="w-4 h-4" />
+                  <span className="text-xs font-semibold uppercase tracking-wide">
+                    Priority Tasks Confirmed — Starting Deep Dive
+                  </span>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ── TOOL SELECTION UI ────────────────────────────────────────── */}
           {message.isToolSelection && (
             <div className="mt-6 space-y-5 pt-5 border-t border-surface-100">
               <div className="flex items-center justify-between">
@@ -268,7 +422,7 @@ export default function MessageBubble({
             </div>
           )}
 
-          {/* SKILL SELECTION UI */}
+          {/* ── SKILL SELECTION UI ───────────────────────────────────────── */}
           {message.isSkillSelection && (
             <div className="mt-6 space-y-5 pt-5 border-t border-surface-100">
               <div className="flex items-center justify-between">
@@ -349,8 +503,8 @@ export default function MessageBubble({
             </div>
           )}
 
-          {/* Ready to Generate JD UI */}
-          {message.isReadySelection && !message.isSkillSelection && !message.isToolSelection && (
+          {/* ── Ready to Generate JD UI ───────────────────────────────────── */}
+          {message.isReadySelection && !message.isSkillSelection && !message.isToolSelection && !message.isPrioritySelection && (
             <div className="mt-6 space-y-3 pt-6 border-t border-surface-100">
               {!isReadyActionTaken ? (
                 <button

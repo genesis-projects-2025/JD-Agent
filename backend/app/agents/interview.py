@@ -18,6 +18,7 @@ import hashlib
 import json
 import logging
 import re
+import time
 from typing import AsyncIterator
 
 from langchain_google_genai import ChatGoogleGenerativeAI
@@ -25,17 +26,12 @@ from langchain_core.messages import (
     SystemMessage,
     HumanMessage,
     AIMessage,
-    ToolMessage,
 )
 
 from app.core.config import settings
 from app.agents.state import AgentState
-from app.agents.prompts import BASE_PROMPT, AGENT_PROMPTS
-from app.agents.tools import (
-    merge_tool_call_into_insights,
-    save_basic_info, save_tasks, save_priority_tasks,
-    save_workflow, save_tools_tech, save_skills, save_qualifications
-)
+from app.agents.dynamic_prompts import build_system_messages
+from app.agents.prompts import JD_GENERATION_PROMPT
 
 logger = logging.getLogger(__name__)
 
@@ -62,13 +58,135 @@ def _extract_text_content(content) -> str:
     return str(content)
 
 
-# ── Question Deduplication ────────────────────────────────────────────────────
+# ── Question Deduplication (Semantic + Hash) ──────────────────────────────────
+
+# Stop words for keyword extraction
+_STOP_WORDS = {
+    "a",
+    "an",
+    "the",
+    "is",
+    "are",
+    "was",
+    "were",
+    "be",
+    "been",
+    "being",
+    "have",
+    "has",
+    "had",
+    "do",
+    "does",
+    "did",
+    "will",
+    "would",
+    "could",
+    "should",
+    "may",
+    "might",
+    "shall",
+    "can",
+    "need",
+    "dare",
+    "to",
+    "of",
+    "in",
+    "for",
+    "on",
+    "with",
+    "at",
+    "by",
+    "from",
+    "as",
+    "into",
+    "about",
+    "like",
+    "through",
+    "after",
+    "over",
+    "between",
+    "out",
+    "against",
+    "during",
+    "without",
+    "before",
+    "under",
+    "around",
+    "among",
+    "and",
+    "but",
+    "or",
+    "nor",
+    "not",
+    "so",
+    "yet",
+    "both",
+    "either",
+    "neither",
+    "each",
+    "every",
+    "all",
+    "any",
+    "few",
+    "more",
+    "most",
+    "other",
+    "some",
+    "such",
+    "no",
+    "only",
+    "own",
+    "same",
+    "than",
+    "too",
+    "very",
+    "just",
+    "because",
+    "if",
+    "when",
+    "while",
+    "where",
+    "how",
+    "what",
+    "which",
+    "who",
+    "whom",
+    "this",
+    "that",
+    "these",
+    "those",
+    "i",
+    "me",
+    "my",
+    "you",
+    "your",
+    "we",
+    "our",
+    "they",
+    "them",
+    "their",
+    "it",
+    "its",
+    "also",
+    "tell",
+    "please",
+    "let",
+    "us",
+    "know",
+    "think",
+    "sure",
+}
+
+
+def _extract_keywords(text: str) -> set:
+    """Extract meaningful keywords from text, removing stop words."""
+    words = re.findall(r"[a-z]+", text.lower())
+    return {w for w in words if w not in _STOP_WORDS and len(w) > 2}
 
 
 def _compute_question_hash(question_text: str) -> str:
     """Compute a normalized hash of a question for deduplication."""
     normalized = question_text.lower().strip()
-    # Remove common filler words
     for word in [
         "could you",
         "can you",
@@ -85,12 +203,42 @@ def _compute_question_hash(question_text: str) -> str:
     return hashlib.md5(normalized.encode()).hexdigest()[:12]
 
 
-def _is_question_repeated(question_text: str, questions_asked: list) -> bool:
-    """Check if question (or very similar) has already been asked."""
+def _is_question_repeated(
+    question_text: str, questions_asked: list, previous_questions_text: list = None
+) -> bool:
+    """Check if question has been asked using hash match + semantic keyword overlap.
+
+    Two-layer check:
+      1. Hash match (fast) — exact normalized match
+      2. Keyword overlap (semantic) — >60% keyword overlap with any previous question
+    """
     if not questions_asked:
         return False
+
+    # Layer 1: Hash match
     q_hash = _compute_question_hash(question_text)
-    return q_hash in questions_asked
+    if q_hash in questions_asked:
+        return True
+
+    # Layer 2: Keyword overlap (only if we have previous question texts)
+    if previous_questions_text:
+        new_keywords = _extract_keywords(question_text)
+        if not new_keywords:
+            return False
+        for prev_q in previous_questions_text[-10:]:  # Check last 10 questions
+            prev_keywords = _extract_keywords(prev_q)
+            if not prev_keywords:
+                continue
+            overlap = len(new_keywords & prev_keywords)
+            max_possible = max(1, min(len(new_keywords), len(prev_keywords)))
+            # Trigger semantic duplicate at 50% overlap instead of 60% for aggressive dupe-catching
+            if (overlap / max_possible) >= 0.50:
+                logger.debug(
+                    f"  [DEDUP] ⚠ Semantic overlap detected ({overlap}/{max_possible} keywords)"
+                )
+                return True
+
+    return False
 
 
 # ── Response Validation ───────────────────────────────────────────────────────
@@ -115,7 +263,7 @@ def _ensure_ends_with_question(
     fallback = fallback_questions.get(agent_name, "Could you tell me more about that?")
 
     if not response_text or not response_text.strip():
-        print(
+        logger.warning(
             f"  [VALIDATE] ⚠ Empty response detected! Using pure fallback (agent={agent_name})"
         )
         return fallback
@@ -130,7 +278,7 @@ def _ensure_ends_with_question(
     if "?" in stripped:
         return response_text
 
-    print(
+    logger.info(
         f"  [VALIDATE] ✗ Response does NOT end with a question! Appending fallback (agent={agent_name})"
     )
 
@@ -142,26 +290,35 @@ def _ensure_ends_with_question(
 def _get_basic_info_fallback_question(insights: dict) -> str:
     """Generate a contextual fallback question for the BasicInfoAgent."""
     if not insights.get("purpose"):
-        return "For example, I help manage vendor relationships. Could you describe the main purpose your role serves?"
+        return "What is the main goal or value that your role provides to the company?"
     if not insights.get("tasks"):
-        return "Could you tell me more about your typical daily, weekly, or occasional tasks?"
-    return "Are there any other key responsibilities we might have missed?"
+        return "What are the most important things you do on a regular basis?"
+    return "Are there any other important parts of your job that we should include?"
 
 
 def _get_task_fallback_question(insights: dict) -> str:
     """Generate a contextual fallback question for the TaskAgent."""
-    tasks = insights.get("tasks", [])
+    tasks = insights.get("tasks") or []
     count = len(tasks)
     if count == 0:
-        return "Could you walk me through what a typical work week looks like for you?"
+        return "What are the core tasks that take up most of your time at work?"
     elif count < 4:
-        return f"We've captured {count} tasks so far. Are there any other weekly or monthly tasks we haven't covered yet?"
-    return "Is there anything else you'd like to add about your responsibilities?"
+        return f"Besides the {count} tasks we've noted, are there any other important parts of your role?"
+    return "Is there anything else you do that is important for your job's success?"
 
 
 def _get_workflow_fallback_question(insights: dict) -> str:
     """Generate a contextual fallback question for the DeepDiveAgent."""
-    return "Could you elaborate on the specific steps, tools used, and the ultimate output of this task?"
+    active_task = insights.get("active_deep_dive_task", "")
+    completed = insights.get("_completed_task", "")
+
+    if completed and active_task:
+        return f"Since we have everything for '{completed}', how do you normally execute '{active_task}'?"
+    elif completed and not active_task:
+        return "Now that we've covered all your priority tasks, what technical tools do you use?"
+    elif active_task:
+        return f"Could you walk me through the main steps and tools you use for the task '{active_task}'?"
+    return "What other important steps should we note?"
 
 
 def _strip_tool_code_leaks(text: str) -> str:
@@ -211,13 +368,13 @@ def _trim_duplicate_response(response_text: str) -> str:
     if len(paragraphs) > 1:
         first_para = paragraphs[0]
         if "?" in first_para:
-            print(
+            logger.info(
                 "  [TRIM] ✓ First paragraph has question — trimming extra paragraphs."
             )
             return first_para
 
         if len(paragraphs) >= 2 and "?" in paragraphs[1]:
-            print("  [TRIM] ✓ Question in 2nd para — keeping first two.")
+            logger.info("  [TRIM] ✓ Question in 2nd para — keeping first two.")
             return paragraphs[0] + "\n\n" + paragraphs[1]
 
     # Strategy 2: Detect transition phrases that signal a "second response"
@@ -243,7 +400,7 @@ def _trim_duplicate_response(response_text: str) -> str:
         if idx > 0:
             before = text[:idx].strip()
             if "?" in before:
-                print(
+                logger.info(
                     f"  [TRIM] ✓ Found transition '{marker}' after question. Trimming."
                 )
                 return before
@@ -265,7 +422,9 @@ def _truncate_if_too_long(response_text: str) -> str:
     if len(words) <= 90:
         return response_text
 
-    print(f"  [VALIDATE] ⚠ Response is {len(words)} words (target: <90). Trimming.")
+    logger.info(
+        f"  [VALIDATE] ⚠ Response is {len(words)} words (target: <90). Trimming."
+    )
 
     sentences = re.split(r"(?<=[.!?])\s+", response_text.strip())
     if len(sentences) <= 3:
@@ -278,27 +437,18 @@ def _truncate_if_too_long(response_text: str) -> str:
 
 # ── LLM Instances ─────────────────────────────────────────────────────────────
 
-# Interview LLM — used for tool-calling extraction + conversation
+# Interview LLM — used for streaming conversational questions
+# Using gemini-2.0-flash for lower TTFB: 2.5-flash has internal thinking mode
+# that causes 3-6s delays. 2.0-flash streams first byte in ~0.5-1.5s.
 _interview_llm = ChatGoogleGenerativeAI(
     google_api_key=settings.GEMINI_API_KEY,
     model="gemini-2.5-flash",
     temperature=0.4,
 )
 
-def _get_tools_for_agent(agent_name: str) -> list:
-    """Return only the tools allowed for the active agent."""
-    mapping = {
-        "BasicInfoAgent": [save_basic_info, save_tasks],
-        "WorkflowIdentifierAgent": [save_priority_tasks],
-        "DeepDiveAgent": [save_workflow],
-        "ToolsAgent": [save_tools_tech],
-        "SkillsAgent": [save_skills],
-        "QualificationAgent": [save_qualifications],
-        "JDGeneratorAgent": []
-    }
-    return mapping.get(agent_name, [])
 
-# Plain LLM for follow-up responses (no tools, no JSON mode)
+# Dedup retry LLM — used only when a question is detected as repeated
+# Also on 2.0-flash for consistent low latency
 _response_llm = ChatGoogleGenerativeAI(
     google_api_key=settings.GEMINI_API_KEY,
     model="gemini-2.5-flash",
@@ -335,61 +485,17 @@ def _compact_insights(insights: dict) -> dict:
 
 
 def _apply_context_filter(insights: dict, agent_name: str) -> dict:
-    """Filter insights to provide only relevant data for the current agent."""
-    if agent_name == "BasicInfoAgent":
-        return {k: insights.get(k) for k in ["purpose", "tasks"] if k in insights}
-    elif agent_name == "WorkflowIdentifierAgent":
-        return {
-            k: insights.get(k)
-            for k in ["purpose", "tasks", "priority_tasks"]
-            if k in insights
-        }
-    elif agent_name == "DeepDiveAgent":
-        return {
-            k: insights.get(k)
-            for k in [
-                "priority_tasks",
-                "workflows",
-                "active_deep_dive_task",
-                "visited_tasks",
-                "deep_dive_turn_count",
-            ]
-            if k in insights
-        }
-    elif agent_name == "ToolsAgent":
-        # Sees workflows, tasks (to context), role title, and currently extracted tools
-        extracted_tools = []
-        for wf in insights.get("workflows", {}).values():
-            if wf.get("tools"):
-                t = wf["tools"]
-                if isinstance(t, list):
-                    extracted_tools.extend(t)
-                else:
-                    extracted_tools.append(t)
-        
-        return {
-            "role_title": insights.get("identity_context", {}).get("title", ""),
-            "previously_mentioned_tools": list(set(extracted_tools)),
-            "workflows": insights.get("workflows", {}),
-            "tools": insights.get("tools", []),
-        }
-    elif agent_name == "SkillsAgent":
-        # Sees everything relevant to infer skills
-        return {
-            "role_title": insights.get("identity_context", {}).get("title", ""),
-            "workflows": insights.get("workflows", {}),
-            "tasks": insights.get("tasks", []),
-            "tools": insights.get("tools", []),
-            "skills": insights.get("skills", []),
-        }
-    elif agent_name == "QualificationAgent":
-        return {k: insights.get(k) for k in ["qualifications"] if k in insights}
+    """Provides the agent with access to relevant data while prioritizing their mission.
+
+    CRITICAL: Relaxed filtering ensures the agent is aware of EVERYTHING
+    collected so far, preventing repetitive questioning across silos.
+    """
     return insights
 
 
 def _build_identity_block(insights: dict) -> str:
     """Build pre-filled identity context block."""
-    identity = insights.get("identity_context", {})
+    identity = insights.get("identity_context") or {}
     if not identity:
         return ""
     lines = ["PRE-FILLED EMPLOYEE INFORMATION (already known — do NOT ask again):"]
@@ -410,103 +516,6 @@ def _build_identity_block(insights: dict) -> str:
     return "\n".join(lines)
 
 
-def _build_already_collected_summary(insights: dict, agent_name: str) -> str:
-    """Build a siloed summary of what data has been collected for the active agent.
-    
-    Ensures that the LLM only sees the 'checkmarks' for the data categories it is 
-    actually responsible for, maintaining the isolation architecture.
-    """
-    lines = [f"MISSION DATA STATUS ({agent_name}):"]
-    has_relevant_data = False
-
-    if agent_name == "BasicInfoAgent":
-        purpose = insights.get("purpose", "")
-        if purpose:
-            lines.append(f'  ✓ Role mission: "{purpose[:60]}..."')
-            has_relevant_data = True
-        tasks = insights.get("tasks", [])
-        if tasks:
-            lines.append(f"  ✓ Activities ({len(tasks)}): {', '.join(str(t)[:40] for t in tasks[:3])}...")
-            if len(tasks) >= 6:
-                lines.append("    [STATUS: MISSION COMPLETE - DO NOT ASK FOR MORE ACTIVITIES]")
-            has_relevant_data = True
-
-    elif agent_name == "WorkflowIdentifierAgent":
-        tasks = insights.get("tasks", [])
-        priorities = insights.get("priority_tasks", [])
-        if tasks:
-            lines.append(f"  ✓ Tasks available: {len(tasks)}")
-        if priorities:
-            lines.append(f"  ✓ Priority selection: {', '.join(str(p)[:40] for p in priorities)}")
-            if len(priorities) >= 3:
-                lines.append("    [STATUS: SELECTION COMPLETE - DO NOT ASK TO PICK MORE]")
-            has_relevant_data = True
-
-    elif agent_name == "DeepDiveAgent":
-        priorities = insights.get("priority_tasks", [])
-        workflows = insights.get("workflows", {})
-        active = insights.get("active_deep_dive_task")
-        if priorities:
-            lines.append(f"  ✓ Total roadmap: {len(priorities)} tasks")
-        if workflows:
-            lines.append(f"  ✓ Deep dives done: {', '.join(str(w)[:30] for w in workflows.keys())}")
-        if active:
-            lines.append(f"  ➜ ACTIVE FOCUS: \"{active}\"")
-        has_relevant_data = True
-
-    elif agent_name == "ToolsAgent":
-        tools = insights.get("tools", [])
-        mentioned = insights.get("previously_mentioned_tools", [])
-        if mentioned:
-            lines.append(f"  ✓ Inferred from workflows: {', '.join(str(m) for m in mentioned[:5])}")
-        if tools:
-            lines.append(f"  ✓ Confirmed inventory: {', '.join(str(t) for t in tools[:5])}")
-        if len(tools) >= 3:
-            lines.append("    [STATUS: SUFFICIENT DATA]")
-        has_relevant_data = True
-
-    elif agent_name == "SkillsAgent":
-        skills = insights.get("skills", [])
-        if skills:
-            lines.append(f"  ✓ Technical skills: {', '.join(str(s) for s in skills[:5])}")
-            if len(skills) >= 3:
-                lines.append("    [STATUS: SUFFICIENT DATA]")
-        has_relevant_data = True
-
-    elif agent_name == "QualificationAgent":
-        quals = insights.get("qualifications", {})
-        if quals:
-            if quals.get("education"):
-                lines.append(f"  ✓ Education: {quals['education']}")
-            if quals.get("experience_years"):
-                lines.append(f"  ✓ Experience: {quals['experience_years']} years")
-            has_relevant_data = True
-
-    if not has_relevant_data:
-        return f"ALREADY COLLECTED ({agent_name}): Nothing yet for this specialist mission."
-
-    return "\n".join(lines)
-
-
-def _build_response_reminder(agent_name: str) -> str:
-    """Build response format reminder."""
-    if agent_name in ["JDGeneratorAgent", "ToolsAgent", "SkillsAgent"]:
-        return (
-            "═══ FINAL FORMAT RULE ═══\n"
-            "The data collection is COMPLETE for this stage. Present the data clearly.\n"
-            "Do NOT ask any more data-collection questions.\n"
-            "Do NOT include any question marks in your response.\n"
-        )
-    return (
-        "═══ FINAL FORMAT RULE ═══\n"
-        "1. Write 2-3 sentences max. ALWAYS include a short example of what you're looking for.\n"
-        "2. Follow immediately with exactly ONE question ending with '?'.\n"
-        "3. NEVER repeat the user's answer back to them.\n"
-        "4. DO NOT ask questions about data marked [COMPLETE] above.\n"
-        "5. DO NOT generate multiple turns — output ONE response only.\n"
-    )
-
-
 def build_interview_messages(
     agent_name: str,
     insights: dict,
@@ -515,210 +524,84 @@ def build_interview_messages(
     transition_context: str = "",
     **kwargs,
 ) -> list:
-    """Build the LLM message stack for the current agent."""
+    """Build the LLM message stack for the current agent using dynamic prompting.
+
+    HARDENING: If user_message is empty (common in automated transitions),
+    we provide a default instruction to avoid the Gemini API error 'contents are required'.
+    """
     messages = []
+    is_first_turn = not recent_messages
 
-    print(f"\n{'=' * 60}")
-    print(f"[BUILD MESSAGES] Agent: {agent_name}")
-    print(f"[BUILD MESSAGES] Turn user message: {user_message[:80]}...")
-    print(f"[BUILD MESSAGES] Recent messages count: {len(recent_messages)}")
-
-    # 1. Base prompt (Orchestrator removed for specialist silos)
-    messages.append(SystemMessage(content=BASE_PROMPT))
-
-    # 2. Active agent prompt (Formatted with real-time state)
-    agent_prompt_raw = AGENT_PROMPTS.get(agent_name, AGENT_PROMPTS["BasicInfoAgent"])
-    
-    # Extract dynamic values for placeholders
-    tasks_list = insights.get("tasks", [])
-    task_count = len(tasks_list)
-    mentioned_tools = _apply_context_filter(insights, agent_name).get("previously_mentioned_tools", [])
-    mentioned_tools_str = ", ".join(mentioned_tools) if mentioned_tools else "the software mentioned"
-    
-    # Apply interpolation
-    agent_prompt = agent_prompt_raw.replace("{task_count}", str(task_count))
-    agent_prompt = agent_prompt.replace("{previously_mentioned_tools}", mentioned_tools_str)
-
-    # 2b. Inject RAG context if available
+    # 1. Generate the Master System Prompt (Persona + State + Mission)
     retrieved_context = kwargs.get("retrieved_context", [])
-    context_block = ""
-    if retrieved_context:
-        examples = "\n\n".join([f"- {ex}" for ex in retrieved_context])
-        context_block = (
-            "\n\n═══ COMPANY STANDARDS & EXAMPLES ═══\n"
-            "Based on other approved JDs in the company/department, here are professional examples. "
-            "Use these to suggest relevant items if the user is unsure or provides shallow answers:\n"
-            f"{examples}\n"
-        )
 
-    messages.append(
-        SystemMessage(
-            content=f"CURRENT ACTIVE AGENT: {agent_name}\n{agent_prompt}{context_block}"
-        )
+    system_content = build_system_messages(
+        phase=agent_name,
+        insights=insights,
+        rag_context=retrieved_context,
+        transition_context=transition_context,
+        is_first_turn=is_first_turn,
     )
 
-    # 3. Identity context
-    identity_block = _build_identity_block(insights)
-    if identity_block:
-        messages.append(SystemMessage(content=identity_block))
+    messages.append(SystemMessage(content=system_content))
 
-    # 4. Already-collected summary (Agent-specific checklist)
-    already_collected = _build_already_collected_summary(insights, agent_name)
-    messages.append(SystemMessage(content=already_collected))
-    print(
-        f"[BUILD MESSAGES] {agent_name} data status injected ({len(already_collected)} chars)"
-    )
-
-    # 5. Transition context (if agent just changed)
-    if transition_context:
-        messages.append(
-            SystemMessage(
-                content=(
-                    f"AGENT TRANSITION: {transition_context}\n"
-                    "Start your response with a brief, natural bridge sentence before "
-                    "asking your first question for this new topic."
-                )
-            )
-        )
-
-    # 6. Response format reminder
-    messages.append(SystemMessage(content=_build_response_reminder(agent_name)))
-
-    # 7. First-turn greeting (if history is empty)
-    if not recent_messages:
-        messages.append(
-            SystemMessage(
-                content=(
-                    "FIRST TURN: This is the very beginning of the interview. "
-                    "GREET the user warmly as Saniya, a Senior HR Specialist at Pulse Pharma. "
-                    "Set a professional yet collaborative tone before asking your first question "
-                    "about the role's primary mission/purpose."
-                )
-            )
-        )
-
-    # 8. Shared memory (Strict Context Isolated — only fields this agent needs)
-    filtered_insights = _apply_context_filter(insights, agent_name)
-    compact = _compact_insights(filtered_insights)
-    
-    state_msg = (
-        f"SPECIALIST MEMORY WINDOW ({agent_name}):\n"
-        f"{json.dumps(compact, indent=2)}\n\n"
-        "You ONLY have access to the data above. Focus strictly on your mission."
-    )
-    messages.append(SystemMessage(content=state_msg))
-
-    # 8. Recent conversation history (last 6 turns)
+    # 2. Append recent history (Conversational Context)
+    # OPTIMIZATION: Truncate history to the last 6 messages.
+    # Global memory is safely stored in the `insights` dictionary,
+    # so keeping the raw transcript small speeds up response times.
     for msg in recent_messages[-6:]:
-        if msg["role"] == "user":
-            messages.append(HumanMessage(content=msg["content"]))
+        role = msg.get("role")
+        content = msg.get("content", "")
+        if not content or not content.strip():
+            continue
+
+        if role == "user":
+            messages.append(HumanMessage(content=content))
         else:
-            # Extract just the conversational text from assistant's JSON response
-            text = ""
-            content = msg.get("content", "")
-            if content:
+            # Strip tool call JSON if present, keep only the question text
+            text = content
+            if "{" in content and "}" in content:
                 try:
                     parsed = json.loads(content)
                     text = (
-                        parsed.get("next_question")
-                        or parsed.get("question")
-                        or parsed.get("response")
-                        or ""
+                        parsed.get("next_question") or parsed.get("question") or content
                     )
-                except (json.JSONDecodeError, TypeError, AttributeError):
-                    text = content
+                except:
+                    pass
+            # HARDENING: Never append an AIMessage with empty content
             if text and text.strip():
-                messages.append(AIMessage(content=text.strip()))
+                messages.append(AIMessage(content=text))
 
-    # 9. Gaps (Strictly Mission-Filtered context — only show gaps this agent can fix)
-    # Mapping of agent to the gap categories it is responsible for
-    mission_categories = {
-        "BasicInfoAgent": ["purpose", "tasks"],
-        "WorkflowIdentifierAgent": ["priority_tasks"],
-        "DeepDiveAgent": ["workflows"],
-        "ToolsAgent": ["tools"],
-        "SkillsAgent": ["skills"],
-        "QualificationAgent": ["qualifications"],
-    }
-    
-    agent_mission_cats = mission_categories.get(agent_name, [])
-    gaps = insights.get("gaps", [])
-    relevant_gaps = [g for g in gaps if g["category"] in agent_mission_cats]
-    
-    if relevant_gaps:
-        gap_block = (
-            "CRITICAL DATA GAPS (YOUR MISSION ONLY):\n"
-            + "\n".join([f"- {g['category']}: {g['reason']}" for g in relevant_gaps])
-            + "\n\nAddress these gaps before proceeding."
-        )
-        messages.append(SystemMessage(content=gap_block))
-        
-    # 10. Current user message
+    # 3. Final instruction for current turn
+    # HARDENING: Use a generic prompt if the user message is empty to avoid crashing the LLM.
+    if not user_message or not user_message.strip():
+        user_message = "[User confirmed. Please proceed with the next strategic question based on your mission.]"
+
     messages.append(HumanMessage(content=user_message))
 
     return messages
 
 
-def _fallback_extraction(agent_name: str, user_message: str) -> dict:
-    """Manual fallback extraction when LLM fails to call tools."""
-    extracted = {}
-    msg = user_message.strip()
-    msg_low = msg.lower()
-
-    # Check for explicit confirmation signals
-    if "confirmed" in msg_low or "proceed" in msg_low:
-        if agent_name == "ToolsAgent":
-            extracted["tools_confirmed"] = True
-        elif agent_name == "SkillsAgent":
-            extracted["skills_confirmed"] = True
-
-    # 1. Global Heuristics (Always check these)
-
-    # Tasks: keywords + length
-    if "task" in msg_low or "responsible" in msg_low or "do " in msg_low:
-        potential_tasks = [t.strip() for t in msg.split(",") if len(t.strip()) > 10]
-        if potential_tasks:
-            extracted["tasks"] = [
-                {"description": t, "frequency": "daily", "category": "technical"}
-                for t in potential_tasks
-            ]
-
-    # Tools/Tech: commas + length
-    if any(k in msg_low for k in ["use", "tool", "software", "tech"]):
-        items = [i.strip() for i in msg.split(",") if 2 < len(i.strip()) < 20]
-        if items:
-            extracted["tools"] = items
-
-    # 2. Agent-Specific Priority (If not already caught)
-
-    if (
-        agent_name == "BasicInfoAgent"
-        and not extracted.get("purpose")
-        and len(msg) >= 15
-    ):
-        extracted["purpose"] = msg
-
-    elif agent_name == "PriorityAgent" and not extracted.get("priority_tasks"):
-        items = [
-            i.strip() for i in msg.replace("\n", ",").split(",") if len(i.strip()) > 5
-        ]
-        if items:
-            extracted["priority_tasks"] = items[:3]
-
-    elif agent_name == "DeepDiveAgent" and not extracted.get("workflows"):
-        steps = [
-            s.strip() for s in msg.replace("\n", ".").split(".") if len(s.strip()) > 8
-        ]
-        if len(steps) >= 2:
-            extracted["workflows"] = {
-                "User Provided": {
-                    "steps": steps,
-                    "trigger": "User indicated",
-                    "output": "Result of process",
-                }
-            }
-
-    return extracted
+# Configuration for silent agents that provide static instructions rather than LLM-generated questions
+SILENT_AGENT_RESPONSES = {
+    "WorkflowIdentifierAgent": (
+        "Here are the tasks identified from your role. "
+        "Select the most critical, high-impact tasks — these will be analyzed in detail for the Job Description. "
+        "You can also add any missing tasks."
+    ),
+    "ToolsAgent": (
+        "Here are the tools and platforms identified from your workflows. "
+        "Review, add, or remove as needed, then confirm."
+    ),
+    "SkillsAgent": (
+        "Here are the core technical skills for this role. "
+        "Review, add, or remove as needed, then confirm."
+    ),
+    "JDGeneratorAgent": (
+        "All aspects of your role have been captured. "
+        "Your Job Description is ready for generation."
+    ),
+}
 
 
 class InterviewEngine:
@@ -732,24 +615,34 @@ class InterviewEngine:
         block_types = {
             "BasicInfoAgent": "role_summary",
             "WorkflowIdentifierAgent": "responsibilities",
-            "DeepDiveAgent": ["responsibilities", "workflow", "performance_metrics", "projects"],
-            "ToolsAgent": ["tools", "workflow"], # Tools often appear in workflows
+            "DeepDiveAgent": [
+                "responsibilities",
+                "workflow",
+                "performance_metrics",
+                "projects",
+            ],
+            "ToolsAgent": ["tools", "workflow"],  # Tools often appear in workflows
             "SkillsAgent": "skills",
             "QualificationAgent": "qualification",
         }
         b_type = block_types.get(agent_name, "role_summary")
 
         # 2. Extract metadata filters from memory
-        id_ctx = insights.get("identity_context", {})
+        id_ctx = insights.get("identity_context") or {}
         role_title = id_ctx.get("title", "") or insights.get("purpose", "")
         dept = id_ctx.get("department")
 
         # Guess experience level for sharper filtering
         exp_level = "Mid"
         title_lower = str(role_title).lower()
-        if any(k in title_lower for k in ["junior", "associate", "trainee", "entry", "intern"]):
+        if any(
+            k in title_lower
+            for k in ["junior", "associate", "trainee", "entry", "intern"]
+        ):
             exp_level = "Junior"
-        elif any(k in title_lower for k in ["senior", "sr.", "lead", "staff", "architect"]):
+        elif any(
+            k in title_lower for k in ["senior", "sr.", "lead", "staff", "architect"]
+        ):
             exp_level = "Senior"
         elif any(k in title_lower for k in ["manager", "head", "director", "vp"]):
             exp_level = "Expert"
@@ -760,89 +653,382 @@ class InterviewEngine:
             block_type=b_type,
             experience_level=exp_level,
             department=dept,
-            top_k=5
+            top_k=5,
         )
 
-    def _pre_process_iteration_state(self, insights: dict, agent_name: str) -> dict:
-        """Manage active_deep_dive_task and visited_tasks for iterative workflow."""
-        if agent_name != "DeepDiveAgent":
+    async def _auto_populate_inventory(
+        self, insights: dict, agent_name: str, rag_context: list[str]
+    ) -> dict:
+        """Automatically populate tools/skills from RAG and collected context if they are empty."""
+        if agent_name not in ["ToolsAgent", "SkillsAgent"]:
             return insights
 
-        priority_tasks = insights.get("priority_tasks", [])
-        visited_tasks = insights.get("visited_tasks", [])
-        active_task = insights.get("active_deep_dive_task")
-        turn_count = insights.get("deep_dive_turn_count", 0)
+        field = "tools" if agent_name == "ToolsAgent" else "skills"
+        existing = insights.get(field) or []
 
-        # 1. If currently in workflows correctly, check for completion
-        if active_task and active_task in insights.get("workflows", {}):
-            wf = insights["workflows"][active_task]
-            # Minimal criteria for "visited": has an output or 3 steps
-            # or we hit the maximum allowed turns per task (2 to 3)
-            if (wf.get("output") and wf.get("tools")) or turn_count >= 2:
-                if active_task not in visited_tasks:
-                    visited_tasks.append(active_task)
-                    insights["visited_tasks"] = visited_tasks
-                # Force pick next one
-                active_task = None
-                turn_count = 0
-            else:
-                turn_count += 1
-        elif active_task:
-            turn_count += 1
+        # Only auto-populate if we have very little data (less than 3 items)
+        if len(existing) >= 8:
+            return insights
 
-        insights["deep_dive_turn_count"] = turn_count
+        logger.info(
+            f"[Auto-Populate] Generating {field} from RAG and collected context..."
+        )
 
-        # 2. If no active task (or just completed one), pick first non-visited priority
-        if not active_task:
-            for pt in priority_tasks:
-                if pt not in visited_tasks:
-                    insights["active_deep_dive_task"] = pt
-                    insights["deep_dive_turn_count"] = 1
-                    break
-        else:
-            # Sync active_task from tool call if insights has it
-            insights["active_deep_dive_task"] = active_task
+        # Build a prompt to extract items from RAG and collected workflows
+        workflows = insights.get("workflows") or {}
+        workflow_texts = []
+        for task, wf in workflows.items():
+            workflow_texts.append(
+                f"Task: {task}\nSteps: {wf.get('steps', '')}\nTools: {wf.get('tools', '')}"
+            )
+
+        context_text = (
+            "\n\n".join(workflow_texts) + "\n\nRAG CONTEXT:\n" + "\n".join(rag_context)
+        )
+
+        prompt = f"""Extract a concise list of the most relevant {field} for this role from the context below.
+        
+        CONTEXT:
+        {context_text}
+        
+        Respond with ONLY a JSON list of strings, e.g. ["Item 1", "Item 2"]. 
+        Focus on technical/professional items. Do NOT include generic soft skills for 'tools'.
+        """
+
+        try:
+            from langchain_core.messages import HumanMessage
+
+            response = await _interview_llm.ainvoke([HumanMessage(content=prompt)])
+            content = response.content.strip()
+            # Clean possible markdown wrap
+            if "```" in content:
+                content = content.split("```")[1]
+                if content.startswith("json"):
+                    content = content[4:]
+
+            new_items = json.loads(content)
+            if isinstance(new_items, list):
+                # Professionalize and merge
+                from app.agents.semantic_cleaner import deduplicate_and_professionalize
+
+                merged = list(set(existing) | set(new_items))
+                insights[field] = await deduplicate_and_professionalize(merged, field)
+                logger.info(f"[Auto-Populate] Added {len(new_items)} items to {field}.")
+        except Exception as e:
+            logger.error(f"[Auto-Populate] Failed: {e}")
 
         return insights
 
-    
-    def _merge_extracted_to_insights(self, extracted: dict, insights: dict) -> dict:
-        """Consolidated logic to merge newly extracted data into existing session insights."""
-        for key, value in extracted.items():
-            if value in (None, "", [], {}):
-                continue
-            
-            existing = insights.get(key)
-            
-            if isinstance(value, list) and isinstance(existing, list):
-                # Standard list deduplication merge
+    def _pre_process_iteration_state(self, insights: dict, agent_name: str) -> dict:
+        """Manage active_deep_dive_task and visited_tasks for iterative workflow.
+
+        STRICT 2+1 TURN PROTOCOL:
+        - Turn 1 (compulsory): How the task begins — triggers and inputs.
+        - Turn 2 (compulsory): Challenges, quality standards, and expert-level outcomes.
+        - Turn 3 (conditional): Only if extraction is incomplete (missing trigger/steps/output).
+        - After turn 3 OR if data is complete at turn 2: mark visited, advance.
+        - Once visited, a task is NEVER revisited.
+        """
+        if agent_name != "DeepDiveAgent":
+            return insights
+
+        priority_tasks = insights.get("priority_tasks") or []
+        visited_tasks = insights.get("visited_tasks") or []
+        active_task = insights.get("active_deep_dive_task")
+        turn_count = insights.get("deep_dive_turn_count") or 0
+
+        def _mark_visited(task: str) -> None:
+            if task and task not in visited_tasks:
+                visited_tasks.append(task)
+                insights["visited_tasks"] = list(visited_tasks)
+
+        def _is_task_complete(task: str) -> bool:
+            """A task is complete if trigger, steps AND output are captured."""
+            wf = (insights.get("workflows") or {}).get(task, {})
+            return bool(wf.get("trigger") and wf.get("steps") and wf.get("output"))
+
+        if active_task:
+            # Hard ceiling: ALWAYS mark visited after >= 3 turns
+            if turn_count >= 3:
+                _mark_visited(active_task)
+                insights["_completed_task"] = active_task
+                active_task = None
+                turn_count = 0
+            # After 2 compulsory turns: mark visited ONLY if data is complete
+            elif turn_count >= 2 and _is_task_complete(active_task):
+                _mark_visited(active_task)
+                insights["_completed_task"] = active_task
+                active_task = None
+                turn_count = 0
+            else:
+                insights.pop("_completed_task", None)
+                turn_count += 1
+
+        # Pick next non-visited priority task
+        if not active_task:
+            for pt in priority_tasks:
+                if pt not in (insights.get("visited_tasks") or []):
+                    active_task = pt
+                    remaining = len(priority_tasks) - len(visited_tasks)
+                    logger.info(
+                        f"[DeepDive] Moving to next task: {active_task}. {remaining} remaining."
+                    )
+                    break
+
+        # If a new active task was picked and turn was reset, start at 1
+        if active_task and turn_count == 0:
+            turn_count = 1
+
+        insights["deep_dive_turn_count"] = turn_count
+        insights["active_deep_dive_task"] = active_task
+        return insights
+
+    def _deep_merge_dicts(self, d1: dict, d2: dict) -> dict:
+        """Recursively merge d2 into d1."""
+
+    def _normalize_item_text(self, text: str) -> str:
+        """Normalize text for semantic deduplication (lowercase, strip, remove extra spaces)."""
+        import re
+
+        if not text:
+            return ""
+        text = text.lower().strip()
+        text = re.sub(r"[^a-z0-9\s]", "", text)  # Remove punctuation
+        return " ".join(text.split())
+
+    def _merge_extracted_to_insights(
+        self, extracted: dict, insights: dict, overwrite: bool = False
+    ) -> dict:
+        """Consolidated logic to merge newly extracted data into existing session insights.
+
+        HARDENING: Uses the non-destructive merge logic from extraction_engine.
+        """
+        from app.agents.extraction_engine import merge_extracted
+
+        if overwrite:
+            # For synthesis passes where we trust the LLM's full cleanup
+            for key, value in extracted.items():
+                if value not in (None, "", [], {}):
+                    insights[key] = value
+            return insights
+
+        # Default: Use the hardened non-destructive logic
+        return merge_extracted(insights, extracted)
+
+        existing = insights.get(key)
+
+        # Defense mechanism: If workflows comes in as a list, dynamically convert it to a dict
+        if key == "workflows" and isinstance(value, list):
+            converted = {}
+            for idx, item in enumerate(value):
+                if isinstance(item, dict):
+                    # Use the active deep dive task, or a task name, or a fallback generator
+                    task_name = (
+                        item.get("task")
+                        or insights.get("active_deep_dive_task")
+                        or f"Task_{idx + 1}"
+                    )
+                    converted[task_name] = item
+            value = converted
+
+        if isinstance(value, list) and isinstance(existing, list):
+            # Intelligent list deduplication merge
+            if key in ["tasks", "tools", "skills", "priority_tasks"]:
+                # Semantic deduplication for known list types
+                seen_normalized = set()
+                for item in existing:
+                    text = (
+                        item.get("description") if isinstance(item, dict) else str(item)
+                    )
+                    seen_normalized.add(self._normalize_item_text(text))
+
+                for item in value:
+                    text = (
+                        item.get("description") if isinstance(item, dict) else str(item)
+                    )
+                    norm = self._normalize_item_text(text)
+                    if norm not in seen_normalized:
+                        existing.append(item)
+                        seen_normalized.add(norm)
+            else:
+                # Fallback to exact JSON match deduplication
                 seen = {
-                    json.dumps(v, sort_keys=True, default=str) if isinstance(v, dict) else str(v)
+                    json.dumps(v, sort_keys=True, default=str)
+                    if isinstance(v, dict)
+                    else str(v)
                     for v in existing
                 }
                 for item in value:
-                    item_key = json.dumps(item, sort_keys=True, default=str) if isinstance(item, dict) else str(item)
+                    item_key = (
+                        json.dumps(item, sort_keys=True, default=str)
+                        if isinstance(item, dict)
+                        else str(item)
+                    )
                     if item_key not in seen:
                         existing.append(item)
                         seen.add(item_key)
                 insights[key] = existing
-            elif isinstance(value, dict) and isinstance(existing, dict):
-                # Merge dictionaries
-                existing.update(value)
-                insights[key] = existing
-            else:
-                # Overwrite primitives
-                insights[key] = value
+        elif isinstance(value, dict) and isinstance(existing, dict):
+            # Deep Merge dictionaries
+            insights[key] = self._deep_merge_dicts(existing, value)
+        else:
+            # Overwrite primitives
+            insights[key] = value
         return insights
 
     def _compress_memory(self, recent_messages: list, turn_count: int) -> list:
-        """Compress old messages if token count or turn count becomes high."""
-        if len(recent_messages) <= 4:
+        """Compress old messages, keeping the last 16 messages (approx 8 complete turns) for stronger short-term memory."""
+        if len(recent_messages) <= 16:
             return recent_messages
+        return recent_messages[-16:]
 
-        # Summary of older turns if needed
-        # For now, just keep the most recent 4 turns to ensure precision
-        return recent_messages[-4:]
+    def _build_conversation_summary(self, insights: dict, agent_name: str) -> str:
+        """Build a lightweight rolling summary from collected insights.
+
+        Uses extracted data to synthesize a compressed summary rather than
+        making an LLM call, keeping latency at zero.
+        """
+        parts = []
+
+        # Role context
+        identity = insights.get("identity_context") or {}
+        title = identity.get("title", "")
+        dept = identity.get("department", "")
+        if title:
+            parts.append(f"Role: {title}")
+        if dept:
+            parts.append(f"Dept: {dept}")
+
+        # Purpose
+        purpose = insights.get("purpose", "")
+        if purpose:
+            parts.append(f"Mission: {purpose[:80]}")
+
+        # Tasks
+        tasks = insights.get("tasks") or []
+        if tasks:
+            parts.append(f"Tasks collected: {len(tasks)}")
+
+        # Priority tasks
+        priorities = insights.get("priority_tasks") or []
+        if priorities:
+            parts.append(
+                f"Priority tasks: {', '.join(str(p)[:25] for p in priorities[:3])}"
+            )
+
+        # Workflows
+        workflows = insights.get("workflows") or {}
+        if workflows:
+            completed_wf = [k for k, v in workflows.items() if v.get("output")]
+            parts.append(f"Workflows done: {len(completed_wf)}/{len(workflows)}")
+
+        # Tools & Skills
+        tools = insights.get("tools") or []
+        skills = insights.get("skills") or []
+        if tools:
+            parts.append(f"Tools: {len(tools)}")
+        if skills:
+            parts.append(f"Skills: {len(skills)}")
+
+        parts.append(f"Active agent: {agent_name}")
+
+        return ". ".join(parts)
+
+    def _check_agent_stall(
+        self, agent_name: str, extracted: dict, insights: dict
+    ) -> bool:
+        """Detect if an agent is stalled (no new data after multiple turns).
+
+        Returns True if the agent should be force-advanced.
+        Implements the spec rule: 'STOP asking after 2 attempts if no new info'.
+        """
+        # Silent/terminal agents are never stalled
+        if agent_name in ["ToolsAgent", "SkillsAgent", "JDGeneratorAgent"]:
+            return False
+
+        agent_stalls = insights.get("agent_stall_counts") or {}
+        current_stall = agent_stalls.get(agent_name, 0)
+
+        # Check if new meaningful data was extracted this turn
+        has_new_data = bool(
+            extracted and any(v not in (None, "", [], {}) for v in extracted.values())
+        )
+
+        # Reset stall counter if we got new data
+        if has_new_data:
+            agent_stalls[agent_name] = 0
+            insights["agent_stall_counts"] = agent_stalls
+            return False
+
+        # Increment stall counter
+        agent_stalls[agent_name] = current_stall + 1
+        insights["agent_stall_counts"] = agent_stalls
+
+        # Force advance after 2 consecutive turns with no new data
+        max_stall_turns = 2
+        if current_stall + 1 >= max_stall_turns:
+            logger.warning(
+                f"[LoopControl] Agent {agent_name} stalled for {current_stall + 1} turns. "
+                "Force-advancing to next agent."
+            )
+            return True
+
+        return False
+
+    async def _generate_snapshot_draft(self, insights: dict) -> str:
+        """Rule 4: Create a high-fidelity snapshot of the JD progress."""
+        from app.agents.extraction_engine import serialize_insights
+
+        snapshot_prompt = f"""Provide a concise 'Snapshot' of the Job Description built so far.
+Focus on the main themes and tools.
+
+INPUT DATA:
+{serialize_insights(insights)}
+
+OUTPUT:
+Return 3-5 bullet points under the heading: "### 🏗️ PROGRESS SNAPSHOT".
+Keep it professional and brief."""
+        try:
+            response = await _invoke_with_retry(
+                _interview_llm,
+                [
+                    SystemMessage(
+                        content="You are a professional Job Description builder. Summarize progress concisely."
+                    ),
+                    HumanMessage(content=snapshot_prompt),
+                ],
+            )
+            return _extract_text_content(response.content).strip()
+        except Exception as e:
+            logger.error(f"[Snapshot] Failed to generate snapshot: {e}")
+            return ""
+
+    async def _generate_final_jd_payload(self, insights: dict) -> dict:
+        """Call the core JD generation prompt to produce the final asset."""
+        from app.agents.extraction_engine import serialize_insights
+
+        response = await _invoke_with_retry(
+            _interview_llm,
+            [
+                SystemMessage(content=JD_GENERATION_PROMPT),
+                HumanMessage(
+                    content=f"Generate the Job Description from this data:\n{serialize_insights(insights)}"
+                ),
+            ],
+        )
+        raw_content = _extract_text_content(response.content).strip()
+
+        # Strip potential markdown code blocks
+        if raw_content.startswith("```"):
+            raw_content = re.sub(
+                r"^```json\n?|\n?```$", "", raw_content, flags=re.MULTILINE
+            )
+
+        try:
+            return json.loads(raw_content)
+        except Exception as e:
+            logger.error(f"Failed to parse JD JSON: {e}")
+            return {"jd_structured_data": {}, "jd_text_format": raw_content}
 
     async def run_turn(
         self,
@@ -852,18 +1038,86 @@ class InterviewEngine:
         user_message: str,
         questions_asked: list | None = None,
         transition_context: str = "",
+        previous_questions_text: list | None = None,
     ) -> tuple[dict, str, list]:
         """Execute one interview turn (non-streaming).
 
-        Returns: (extracted_data, response_text, updated_questions_asked)
+        Returns: (extracted_data, updated_insights, response_text, updated_questions_asked)
         """
         questions_asked = questions_asked or []
+        previous_questions_text = previous_questions_text or []
 
-        # Step 0: Advanced RAG Retrieval
+        # Increment phase turn count for the incoming agent
+        agent_turns = insights.get("agent_turn_counts") or {}
+        agent_turns[agent_name] = agent_turns.get(agent_name, 0) + 1
+        insights["agent_turn_counts"] = agent_turns
+
+        # Step 0a: Robust Two-Pass Extraction Pipeline
+        # Runs the user message through LLM to extract data BEFORE the conversational agent sees it
+        from app.agents.extraction_engine import extract_information
+
+        extracted = await extract_information(
+            user_message, insights, agent_name, recent_messages
+        )
+        if extracted:
+            insights = self._merge_extracted_to_insights(extracted, insights)
+            logger.info(
+                f"[Interview] Data Extracted & Merged: {list(extracted.keys())}"
+            )
+
+            # --- PRE-PROCESS BEFORE MID-TURN ROUTING ---
+            insights = self._pre_process_iteration_state(insights, agent_name)
+
+            # --- MID-TURN ROUTING ---
+            from app.agents.router import compute_current_agent, get_transition_message
+
+            new_agent = compute_current_agent(insights, agent_name)
+            if new_agent != agent_name:
+                logger.info(
+                    f"[Interview] Mid-Turn Transition: {agent_name} -> {new_agent}"
+                )
+                transition_context = get_transition_message(agent_name, new_agent)
+
+                # Clean insights data upon phase transition
+                from app.agents.semantic_cleaner import deduplicate_and_professionalize
+
+                if new_agent == "WorkflowIdentifierAgent":
+                    insights["tasks"] = await deduplicate_and_professionalize(
+                        insights.get("tasks") or [], "tasks"
+                    )
+                elif new_agent == "DeepDiveAgent":
+                    insights["priority_tasks"] = await deduplicate_and_professionalize(
+                        insights.get("priority_tasks") or [], "priority_tasks"
+                    )
+                elif new_agent == "ToolsAgent":
+                    insights["tools"] = await deduplicate_and_professionalize(
+                        insights.get("tools") or [], "tools"
+                    )
+                elif new_agent == "SkillsAgent":
+                    insights["skills"] = await deduplicate_and_professionalize(
+                        insights.get("skills") or [], "skills"
+                    )
+
+                agent_name = new_agent
+
+        # Step 0b: Advanced RAG Retrieval
         retrieved_context = await self._get_rag_context(insights, agent_name)
 
-        # Pre-process iteration state (active_deep_dive_task)
-        insights = self._pre_process_iteration_state(insights, agent_name)
+        # Step 0c: Auto-populate Inventory (Tools/Skills) if transitioning
+        if agent_name in ["ToolsAgent", "SkillsAgent"]:
+            insights = await self._auto_populate_inventory(
+                insights, agent_name, retrieved_context
+            )
+
+        # Step 0c: Update conversation summary (every turn)
+        insights["conversation_summary"] = self._build_conversation_summary(
+            insights, agent_name
+        )
+
+        # Inject deep-dive turn number into insights for prompt context
+        if agent_name == "DeepDiveAgent":
+            turn_count = insights.get("deep_dive_turn_count") or 1
+            insights["_deep_dive_turn_number"] = turn_count
 
         # Apply context filtering and memory compression
         filtered_insights = _apply_context_filter(insights, agent_name)
@@ -878,80 +1132,41 @@ class InterviewEngine:
             retrieved_context=retrieved_context,
         )
 
-        # Step 1: Call LLM with tools — may return tool_calls + content
-        agent_tools = _get_tools_for_agent(agent_name)
-        if agent_tools:
-            agent_specific_llm = _interview_llm.bind_tools(agent_tools)
+        # Step 1: Call Conversational LLM for purely "Zero-Filler Questions"
+        response_text = ""
+        if agent_name in SILENT_AGENT_RESPONSES:
+            logger.info(f"[Interview] Bypassing LLM for Silent Agent: {agent_name}")
+            response_text = SILENT_AGENT_RESPONSES[agent_name]
         else:
-            agent_specific_llm = _interview_llm
-            
-        response = await _invoke_with_retry(agent_specific_llm, messages)
+            response = await _invoke_with_retry(_interview_llm, messages)
+            response_text = _extract_text_content(response.content)
 
-        # Step 2: Process tool calls (data extraction)
-        extracted = {}
-        if response.tool_calls:
-            for tc in response.tool_calls:
-                extracted = merge_tool_call_into_insights(
-                    tc["name"], tc["args"], extracted
-                )
-            logger.info(
-                f"[Interview] Tool calls: {[tc['name'] for tc in response.tool_calls]}"
-            )
-            # Merge extracted data INTO insights immediately so they are available for next turn/logic
-            insights = self._merge_extracted_to_insights(extracted, insights)
-
-        # Fallback manual extraction
-        if not response.tool_calls:
-            extracted = _fallback_extraction(agent_name, user_message)
-
-        # Step 3: Get conversational response
-        response_text = _extract_text_content(response.content)
-
-        # If Gemini only returned tool calls without content, make a follow-up call
-        if not response_text.strip() and response.tool_calls:
-            silent_agents = ["ToolsAgent", "SkillsAgent", "JDGeneratorAgent"]
-            if agent_name in silent_agents:
-                if agent_name == "ToolsAgent":
-                    response_text = "I have extracted the technical infrastructure from your workflow. Please review the populated tools below and confirm."
-                elif agent_name == "SkillsAgent":
-                    response_text = "Based on the technical responsibilities discussed, I have populated the required skills below. Please refine and confirm."
-                elif agent_name == "JDGeneratorAgent":
-                    response_text = "Thank you for the detailed information. We have captured all aspects of your role. Your Job Description is ready for generation."
-            else:
-                follow_up_msgs = messages + [response]
-                for tc in response.tool_calls:
-                    tc_id = tc.get("id") or tc.get("tool_call_id") or f"call_{tc['name']}"
-                    follow_up_msgs.append(
-                        ToolMessage(content="Data saved successfully.", tool_call_id=tc_id)
-                    )
-                follow_up = await _invoke_with_retry(_response_llm, follow_up_msgs)
-                response_text = _extract_text_content(follow_up.content)
+        # Step 2: Loop control — check for agent stall
+        is_stalled = self._check_agent_stall(agent_name, extracted, insights)
+        if is_stalled:
+            # Mark agent as force-completed to trigger router advancement
+            insights["_force_advance"] = True
+            completed = insights.get("completed_phases") or []
+            if agent_name not in completed:
+                completed.append(agent_name)
+                insights["completed_phases"] = completed
 
         # --- APPLY STRICT VALIDATION PIPELINE ---
-        response_text = _strip_tool_code_leaks(response_text)
-        response_text = _trim_duplicate_response(response_text)
-        response_text = _truncate_if_too_long(response_text)
-        
-        silent_agents = ["ToolsAgent", "SkillsAgent", "JDGeneratorAgent"]
-        if agent_name in silent_agents:
-            if agent_name == "ToolsAgent":
-                response_text = "I have extracted the technical infrastructure from your workflow. Please review the populated tools below and confirm."
-            elif agent_name == "SkillsAgent":
-                response_text = "Based on the technical responsibilities discussed, I have populated the required skills below. Please refine and confirm."
-            elif agent_name == "JDGeneratorAgent":
-                response_text = "Thank you for the detailed information. We have captured all aspects of your role. Your Job Description is ready for generation."
-        else:
+        if agent_name not in SILENT_AGENT_RESPONSES:
+            response_text = _strip_tool_code_leaks(response_text)
+            response_text = _trim_duplicate_response(response_text)
+            response_text = _truncate_if_too_long(response_text)
             response_text = _ensure_ends_with_question(
                 response_text, agent_name, insights, {}
             )
 
-        # --- QUESTION DEDUPLICATION ---
+        # --- SEMANTIC QUESTION DEDUPLICATION ---
         response_text = response_text.strip()
-        silent_agents = ["ToolsAgent", "SkillsAgent", "JDGeneratorAgent"]
-        
-        if agent_name not in silent_agents and _is_question_repeated(response_text, questions_asked):
-            print("  [DEDUP] ⚠ Question is repeated! Generating alternative.")
-            # Try to get a new question by adding a strong instruction
+
+        if agent_name not in SILENT_AGENT_RESPONSES and _is_question_repeated(
+            response_text, questions_asked, previous_questions_text
+        ):
+            logger.info("  [DEDUP] ⚠ Question is repeated! Generating alternative.")
             dedup_msgs = messages + [
                 AIMessage(content=response_text),
                 HumanMessage(
@@ -964,7 +1179,9 @@ class InterviewEngine:
             ]
             retry_response = await _invoke_with_retry(_response_llm, dedup_msgs)
             alt_text = _extract_text_content(retry_response.content).strip()
-            if alt_text and not _is_question_repeated(alt_text, questions_asked):
+            if alt_text and not _is_question_repeated(
+                alt_text, questions_asked, previous_questions_text
+            ):
                 response_text = alt_text
                 response_text = _strip_tool_code_leaks(response_text)
                 response_text = _trim_duplicate_response(response_text)
@@ -973,12 +1190,18 @@ class InterviewEngine:
                     response_text, agent_name, insights, {}
                 )
 
-        # Record the question hash
+        # Record the question hash + text
+        response_text = response_text.strip()
         q_hash = _compute_question_hash(response_text)
         if q_hash not in questions_asked:
             questions_asked.append(q_hash)
+        previous_questions_text.append(response_text)
 
-        return extracted, insights, response_text.strip(), questions_asked
+        # Clean up temporary keys
+        insights.pop("_deep_dive_turn_number", None)
+        insights.pop("_force_advance", None)
+
+        return extracted, insights, response_text, questions_asked
 
     async def run_turn_stream(
         self,
@@ -988,6 +1211,7 @@ class InterviewEngine:
         user_message: str,
         questions_asked: list | None = None,
         transition_context: str = "",
+        previous_questions_text: list | None = None,
     ) -> AsyncIterator[dict]:
         """Execute one interview turn with streaming.
 
@@ -996,17 +1220,158 @@ class InterviewEngine:
                 {"type": "done", "extracted": {...}, "full_text": "...", "questions_asked": [...]}
         """
         questions_asked = questions_asked or []
+        previous_questions_text = previous_questions_text or []
 
-        # Step 0: Advanced RAG Retrieval
-        retrieved_context = await self._get_rag_context(insights, agent_name)
+        # ✅ CRITICAL: Yield an immediate heartbeat chunk to prevent frontend timeouts
+        yield {"type": "chunk", "content": ""}
 
-        # Pre-process iteration state (active_deep_dive_task)
+        # Increment phase turn count for the incoming agent
+        agent_turns = insights.get("agent_turn_counts") or {}
+        agent_turns[agent_name] = agent_turns.get(agent_name, 0) + 1
+        insights["agent_turn_counts"] = agent_turns
+
+        # Step 0a: Parallel Extraction & RAG Pipeline
+        from app.agents.extraction_engine import extract_information
+
+        # Performance Tracking
+        start_time = time.perf_counter()
+
+        # Run Extraction and RAG Retrieval in parallel to save ~3-5s
+        yield {"type": "status", "content": "Analyzing your input..."}
+        extraction_task = extract_information(
+            user_message, insights, agent_name, recent_messages
+        )
+        rag_task = self._get_rag_context(insights, agent_name)
+
+        extracted, retrieved_context = await asyncio.gather(extraction_task, rag_task)
+
+        parallel_time = time.perf_counter() - start_time
+        logger.info(f"[Perf] Extraction + RAG took {parallel_time:.2f}s")
+
+        if extracted:
+            # PHASE ADVANCEMENT: If user explicitly wants to proceed, mark phase complete
+            if (
+                extracted.get("user_wants_to_proceed")
+                and agent_name == "BasicInfoAgent"
+                and agent_turns[agent_name] >= 2
+            ):
+                completed = insights.get("completed_phases", [])
+                if agent_name not in completed:
+                    completed.append(agent_name)
+                    insights["completed_phases"] = completed
+                logger.info(
+                    "[Interview Stream] User requested early transition to Priority Selection."
+                )
+
+            insights = self._merge_extracted_to_insights(extracted, insights)
+            logger.info(
+                f"[Interview Stream] Data Extracted & Merged: {list(extracted.keys())}"
+            )
+
+        # Step 0b: Pre-process iteration state BEFORE routing
+        # (This avoids a redundant Critic Engine LLM call, shifting synthesis to Extraction Engine)
         insights = self._pre_process_iteration_state(insights, agent_name)
+
+        # Step 0c: Mid-Turn Routing
+        from app.agents.router import compute_current_agent, get_transition_message
+
+        new_agent = compute_current_agent(insights, agent_name)
+        if new_agent != agent_name:
+            logger.info(
+                f"[Interview Stream] Mid-Turn Transition: {agent_name} -> {new_agent}"
+            )
+
+            # STICKY COMPLETION: Mark current agent as complete
+            completed = insights.get("completed_phases", [])
+            if agent_name not in completed:
+                completed.append(agent_name)
+                insights["completed_phases"] = completed
+
+            transition_context = get_transition_message(agent_name, new_agent)
+
+            # Clean insights data upon phase transition
+            from app.agents.semantic_cleaner import deduplicate_and_professionalize
+
+            # Parallelize insights cleaning and enrichment tasks
+            from app.agents.semantic_cleaner import deduplicate_and_professionalize
+
+            cleaning_tasks = []
+
+            if new_agent == "WorkflowIdentifierAgent":
+                yield {
+                    "type": "status",
+                    "content": "Professionalizing your task list...",
+                }
+                cleaning_tasks.append(
+                    deduplicate_and_professionalize(
+                        insights.get("tasks") or [], "tasks"
+                    )
+                )
+            elif new_agent == "DeepDiveAgent":
+                yield {"type": "status", "content": "Analyzing priority tasks..."}
+                cleaning_tasks.append(
+                    deduplicate_and_professionalize(
+                        insights.get("priority_tasks", []), "priority_tasks"
+                    )
+                )
+            elif new_agent == "ToolsAgent":
+                yield {"type": "status", "content": "Refining technical toolset..."}
+                cleaning_tasks.append(
+                    deduplicate_and_professionalize(insights.get("tools", []), "tools")
+                )
+            elif new_agent == "SkillsAgent":
+                yield {"type": "status", "content": "Validating technical skills..."}
+                cleaning_tasks.append(
+                    deduplicate_and_professionalize(
+                        insights.get("skills", []), "skills"
+                    )
+                )
+
+            if cleaning_tasks:
+                cleaning_results = await asyncio.gather(*cleaning_tasks)
+                # Map results back to insights
+                if new_agent == "WorkflowIdentifierAgent":
+                    insights["tasks"] = cleaning_results[0]
+                elif new_agent == "DeepDiveAgent":
+                    insights["priority_tasks"] = cleaning_results[0]
+                elif new_agent == "ToolsAgent":
+                    insights["tools"] = cleaning_results[0]
+                elif new_agent == "SkillsAgent":
+                    insights["skills"] = cleaning_results[0]
+
+            agent_name = new_agent
+
+        # Step 0b: Advanced RAG Retrieval (Already done in Parallel Pipeline Step 0a)
+
+        # Step 0c: Auto-populate Inventory (Tools/Skills) if transitioning
+        if agent_name in ["ToolsAgent", "SkillsAgent"]:
+            yield {
+                "type": "status",
+                "content": f"Detecting relevant {agent_name.replace('Agent', '').lower()}...",
+            }
+            insights = await self._auto_populate_inventory(
+                insights, agent_name, retrieved_context
+            )
+
+        # Step 0c: Update conversation summary (every turn)
+        insights["conversation_summary"] = self._build_conversation_summary(
+            insights, agent_name
+        )
+
+        # Inject deep-dive turn number into insights for prompt context
+        if agent_name == "DeepDiveAgent":
+            turn_count = insights.get("deep_dive_turn_count") or 1
+            insights["_deep_dive_turn_number"] = turn_count
 
         # Apply context filtering and memory compression
         filtered_insights = _apply_context_filter(insights, agent_name)
         compressed_recent = self._compress_memory(recent_messages, len(recent_messages))
 
+        logger.info(
+            f"[Interview Stream] Agent: {agent_name} | User Message: {repr(user_message)}"
+        )
+
+        # Step 1: Call Conversational LLM for purely "Zero-Filler Questions"
         messages = build_interview_messages(
             agent_name,
             filtered_insights,
@@ -1016,143 +1381,105 @@ class InterviewEngine:
             retrieved_context=retrieved_context,
         )
 
-        # Step 1: Call LLM with tools (NOT streamed — extraction happens fast)
-        agent_tools = _get_tools_for_agent(agent_name)
-        if agent_tools:
-            agent_specific_llm = _interview_llm.bind_tools(agent_tools)
-        else:
-            agent_specific_llm = _interview_llm
-            
-        response = await _invoke_with_retry(agent_specific_llm, messages)
+        response_text = ""
 
-        # Step 2: Process tool calls
-        extracted = {}
-        if response.tool_calls:
-            for tc in response.tool_calls:
-                extracted = merge_tool_call_into_insights(
-                    tc["name"], tc["args"], extracted
-                )
+        if agent_name in SILENT_AGENT_RESPONSES:
             logger.info(
-                f"[Interview Stream] Tool calls: {[tc['name'] for tc in response.tool_calls]}"
+                f"[Interview Stream] Bypassing LLM for Silent Agent: {agent_name}"
             )
+            response_text = SILENT_AGENT_RESPONSES[agent_name]
+        else:
+            response_chunks = []
+            is_first_chunk = True
+            llm_start_time = time.perf_counter()
+
+            # Signal to frontend that the agent is actively formulating
+            # This covers the TTFB gap while the LLM is generating
+            yield {"type": "status", "content": "Formulating next question..."}
+
+            try:
+                async for chunk in _interview_llm.astream(messages):
+                    if chunk.content:
+                        if is_first_chunk:
+                            ttfb = time.perf_counter() - llm_start_time
+                            logger.info(f"[Perf] LLM Time to First Byte: {ttfb:.2f}s")
+                            is_first_chunk = False
+                        response_chunks.append(chunk.content)
+
+                        # Yield cumulative chunk immediately for real-time streaming
+                        # (Frontend expects cumulative text in setStreamingQuestion)
+                        yield {"type": "chunk", "content": "".join(response_chunks)}
+            except Exception as e:
+                logger.error(f"[Interview] Streaming failed: {e}")
+                yield {
+                    "type": "chunk",
+                    "content": "I encountered an error processing your request. Could you rephrase your last point?",
+                }
+                return
+
+            response_text = "".join(response_chunks)
+
+        # Step 2: Loop control — check for agent stall
+        is_stalled = self._check_agent_stall(agent_name, extracted, insights)
+        if is_stalled:
+            insights["_force_advance"] = True
+            completed = insights.get("completed_phases", [])
+            if agent_name not in completed:
+                completed.append(agent_name)
+                insights["completed_phases"] = completed
             # CRITICAL: Merge extracted data INTO insights immediately for streaming persistence
             insights = self._merge_extracted_to_insights(extracted, insights)
-            logger.info(
-                f"[Interview Stream] Tool calls: {[tc['name'] for tc in response.tool_calls]}"
-            )
 
-        # Fallback manual extraction
-        if not response.tool_calls:
-            extracted = _fallback_extraction(agent_name, user_message)
+        full_text = response_text.strip()
 
-        # Step 3: Buffer, Validate, then Stream the conversational response
-        full_text = ""
-        initial_text = _extract_text_content(response.content)
-
-        silent_agents = ["ToolsAgent", "SkillsAgent", "JDGeneratorAgent"]
-        if agent_name in silent_agents:
-            # Deterministic override (bypassing LLM conversation)
-            if agent_name == "ToolsAgent":
-                full_text = "I have extracted the technical infrastructure from your workflow. Please review the populated tools below and confirm."
-            elif agent_name == "SkillsAgent":
-                full_text = "Based on the technical responsibilities discussed, I have populated the required skills below. Please refine and confirm."
-            elif agent_name == "JDGeneratorAgent":
-                full_text = "Thank you for the detailed information. We have captured all aspects of your role. Your Job Description is ready for generation."
-        else:
-            if initial_text.strip():
-                full_text = initial_text.strip()
-            elif response.tool_calls:
-                follow_up_msgs = messages + [response]
-                for tc in response.tool_calls:
-                    tc_id = tc.get("id") or tc.get("tool_call_id") or f"call_{tc['name']}"
-                    follow_up_msgs.append(
-                        ToolMessage(content="Data saved successfully.", tool_call_id=tc_id)
-                    )
-
-                instruction = "Acknowledge the user's input smoothly. Based on your AGENT GOAL, ask the NEXT logical question. YOU MUST ALWAYS INCLUDE A QUESTION IN YOUR RESPONSE."
-                follow_up_msgs.append(SystemMessage(content=instruction))
-
-                follow_up = await _invoke_with_retry(_response_llm, follow_up_msgs)
-                full_text = _extract_text_content(follow_up.content)
-            else:
-                direct_response = await _invoke_with_retry(_interview_llm, messages)
-                full_text = _extract_text_content(direct_response.content)
-
-        print("\n\n" + "*" * 60)
-        print("====== RAW LLM RESPONSE (BEFORE PROCESSING) ======")
-        print(repr(full_text))  # Using repr() to expose invisible characters/newlines
-        print("*" * 60 + "\n\n")
+        logger.debug(
+            f"====== RAW SET RESPONSE (BEFORE PROCESSING) ======\n{repr(full_text)}"
+        )
 
         # --- APPLY STRICT VALIDATION PIPELINE ---
         full_text = _strip_tool_code_leaks(full_text)
         full_text = _trim_duplicate_response(full_text)
         full_text = _truncate_if_too_long(full_text)
 
-        silent_agents = ["ToolsAgent", "SkillsAgent", "JDGeneratorAgent"]
-        if agent_name not in silent_agents:
+        if agent_name not in SILENT_AGENT_RESPONSES:
             full_text = _ensure_ends_with_question(full_text, agent_name, insights, {})
         full_text = full_text.strip()
 
-        # --- QUESTION DEDUPLICATION ---
-        if agent_name not in silent_agents and _is_question_repeated(full_text, questions_asked):
-            print("  [DEDUP STREAM] ⚠ Question is repeated! Generating alternative.")
-            dedup_msgs = messages + [
-                AIMessage(content=full_text),
-                HumanMessage(
-                    content=(
-                        "SYSTEM: Your previous question was already asked. "
-                        "Ask a DIFFERENT question about something NOT yet covered."
-                    )
-                ),
-            ]
-            retry_response = await _invoke_with_retry(_response_llm, dedup_msgs)
-            alt_text = _extract_text_content(retry_response.content).strip()
-            if alt_text and not _is_question_repeated(alt_text, questions_asked):
-                full_text = alt_text
-                full_text = _strip_tool_code_leaks(full_text)
-                full_text = _trim_duplicate_response(full_text)
-                full_text = _truncate_if_too_long(full_text)
-                full_text = _ensure_ends_with_question(
-                    full_text, agent_name, insights, {}
-                )
-                full_text = full_text.strip()
+        # Snapshot generation removed — it was polluting the chat response with
+        # internal analysis blocks that leak into the user-facing conversation.
 
-        # Record the question hash
+        # --- FINAL JD GENERATION BRIDGE ---
+        if agent_name == "JDGeneratorAgent":
+            logger.info("[JD Fix] Executing final high-fidelity JD generation...")
+            yield {
+                "type": "status",
+                "content": "Architecting your high-fidelity Job Description...",
+            }
+            jd_payload = await self._generate_final_jd_payload(insights)
+            insights["final_jd"] = jd_payload
+            full_text = "Your high-fidelity Job Description is architected. Review the preview pane to your right."
+
+        # --- SEMANTIC QUESTION DEDUPLICATION STATUS ---
+        # Disabled post-streaming deduplication.
+        # Overwriting text after it has already streamed to the frontend causes a UI glitch.
+
+        # Record the question hash + text
         q_hash = _compute_question_hash(full_text)
         if q_hash not in questions_asked:
             questions_asked.append(q_hash)
+        previous_questions_text.append(full_text)
 
-        # Print state to console securely for live debugging
-        import pprint
+        # Debug state logging (kept as debug level for development troubleshooting)
+        logger.debug(f">> [USER MESSAGE]: {user_message}")
+        logger.debug(f">> [EXTRACTED DATA]: {list(extracted.keys())}")
+        logger.debug(f">> [AGENT RESPONSE]: {full_text}")
 
-        print("\n" + "=" * 60)
-        print(">>> [USER MESSAGE]:")
-        print(user_message)
-        print("\n>>> [EXTRACTED THIS TURN]:")
-        pprint.pprint(extracted, width=100)
-        print("\n>>> [TOTAL MEMORY STATE]:")
-        pprint.pprint(
-            {
-                "purpose": insights.get("purpose", ""),
-                "tasks_count": len(insights.get("tasks", [])),
-                "priority_tasks": insights.get("priority_tasks", []),
-                "workflows": list(insights.get("workflows", {}).keys()),
-                "tools": insights.get("tools", []),
-                "skills": insights.get("skills", []),
-                "visited_tasks": insights.get("visited_tasks", []),
-            },
-            width=100,
-        )
-        print("\n>>> [AGENT RESPONSE]:")
-        print(full_text)
-        print("=" * 60 + "\n")
+        # Clean up temporary keys before persisting
+        insights.pop("_deep_dive_turn_number", None)
+        insights.pop("_force_advance", None)
 
-        # Stream the exact validated string smoothly
-        chunk_size = 30
-        for i in range(0, len(full_text), chunk_size):
-            chunk = full_text[i : i + chunk_size]
-            yield {"type": "chunk", "content": chunk}
-            await asyncio.sleep(0.02)
+        # Yield to ensure validated/final text is sent before 'done'
+        yield {"type": "chunk", "content": full_text}
 
         yield {
             "type": "done",
@@ -1177,6 +1504,10 @@ async def _generic_agent_node(state: AgentState, agent_name: str) -> dict:
     user_message = state.get("user_message", "")
     questions_asked = list(state.get("questions_asked", []))
 
+    # Carry forward conversation intelligence state
+    insights["agent_turn_counts"] = dict(state.get("agent_turn_counts", {}))
+    insights["conversation_summary"] = state.get("conversation_summary", "")
+
     # Build transition context if agent just changed
     transition_context = ""
     if previous_agent and previous_agent != agent_name:
@@ -1184,15 +1515,20 @@ async def _generic_agent_node(state: AgentState, agent_name: str) -> dict:
 
         transition_context = get_transition_message(previous_agent, agent_name)
 
-    # Get recent messages from state
+    # Get recent messages from state (Increased window for better memory)
     recent = []
-    for msg in state.get("messages", [])[-4:]:  # Keep it tight
+    for msg in state.get("messages", [])[-16:]:  # Keep last 8 turns (16 messages)
         if isinstance(msg, HumanMessage):
             recent.append({"role": "user", "content": msg.content})
         elif isinstance(msg, AIMessage):
             recent.append({"role": "assistant", "content": msg.content})
 
-    extracted, updated_insights, response_text, updated_questions = await engine.run_turn(
+    (
+        extracted,
+        updated_insights,
+        response_text,
+        updated_questions,
+    ) = await engine.run_turn(
         agent_name=agent_name,
         insights=insights,
         recent_messages=recent,
@@ -1206,6 +1542,8 @@ async def _generic_agent_node(state: AgentState, agent_name: str) -> dict:
         "extracted_this_turn": extracted,
         "next_question": response_text,
         "questions_asked": updated_questions,
+        "conversation_summary": updated_insights.get("conversation_summary", ""),
+        "agent_turn_counts": updated_insights.get("agent_turn_counts") or {},
         "messages": [
             HumanMessage(content=user_message),
             AIMessage(content=response_text),

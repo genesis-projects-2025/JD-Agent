@@ -138,7 +138,16 @@ export const API_URL =
 function fetchWithTimeout(url: string, options: RequestInit = {}, timeoutMs = 30000) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
-  return fetch(url, { ...options, signal: controller.signal }).finally(() => clearTimeout(timer));
+
+  const empId = getCookie(cookieKeys.EMPLOYEE_ID);
+  const headers = {
+    ...options.headers,
+    ...(empId ? { "X-Employee-ID": empId } : {}),
+  } as any;
+
+  return fetch(url, { ...options, headers, signal: controller.signal }).finally(() =>
+    clearTimeout(timer)
+  );
 }
 
 export async function fetchEmployeeJDs(employeeId: string) {
@@ -269,6 +278,17 @@ export async function confirmTools(jdId: string, tools: string[]) {
   if (!res.ok) throw new Error("Failed to confirm tools");
   return res.json();
 }
+
+export async function confirmPriorityTasks(jdId: string, priority_tasks: string[]) {
+  const res = await fetch(`${API_URL}/jd/${jdId}/confirm-priority-tasks`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ priority_tasks }),
+  });
+  if (!res.ok) throw new Error("Failed to confirm priority tasks");
+  return res.json();
+}
+
 
 export async function fetchJD(jdId: string) {
   const res = await fetch(`${API_URL}/jd/${jdId}`);
@@ -414,10 +434,11 @@ export async function sendMessageStream(
   sessionId: string | undefined,
   onChunk: (chunk: string) => void,
   onDone: (data: any) => void,
-  onError: (error: any) => void
+  onError: (error: any) => void,
+  onStatus?: (status: string) => void
 ) {
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 90_000); // 90s hard timeout
+  const timeoutId = setTimeout(() => controller.abort(), 300_000); // 5 min hard timeout — covers LLM extraction + RAG + generation
 
   try {
     const res = await fetch(`${API_URL}/jd/chat/stream`, {
@@ -456,8 +477,10 @@ export async function sendMessageStream(
 
         try {
           const parsed = JSON.parse(dataStr);
-          if (parsed.type === "chunk" && parsed.content) {
+          if (parsed.type === "chunk" && parsed.content !== undefined) {
             onChunk(parsed.content);
+          } else if (parsed.type === "status" && parsed.content) {
+            if (onStatus) onStatus(parsed.content);
           } else if (parsed.type === "done") {
             console.group("🧠 JD-Agent Memory (Stream)");
             console.log("Agent:", parsed.parsed.current_agent);
@@ -481,7 +504,7 @@ export async function sendMessageStream(
     }
   } catch (err: any) {
     if (err.name === "AbortError") {
-      onError(new Error("Stream timed out after 90 seconds"));
+      onError(new Error("Stream timed out. The server is taking too long to respond. Please try again."));
     } else {
       onError(err);
     }

@@ -235,7 +235,7 @@ def generate_jd_docx(
 
     purpose = _get(jd_data, "purpose", "role_summary")
     responsibilities = _get_list(jd_data, "responsibilities", "key_responsibilities")
-    skills = _get_list(jd_data, "skills", "required_skills")
+    skills = _get_list(jd_data, "skills", "technical_skills", "required_skills")
     tools = _get_list(jd_data, "tools", "tools_and_technologies")
     all_skills = skills + [f"{t} (Tool/Platform)" for t in tools]
     if not all_skills:

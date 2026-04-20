@@ -103,7 +103,7 @@ def validate_insights_completeness(insights: dict) -> dict:
     }
 
     # Workflows
-    workflows = insights.get("workflows", {})
+    workflows = insights.get("workflows") or {}
     missing_wf = [p for p in priorities if p not in workflows or not workflows[p].get("steps")]
     results["workflows"] = {
         "ok": len(missing_wf) == 0 and len(priorities) > 0,

@@ -1,13 +1,16 @@
 from fastapi import APIRouter, Depends, HTTPException, Body
+from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import text
 from typing import Optional
 from pydantic import BaseModel
+import logging
 
 from app.core.database import get_db
 from app.models.user_model import Employee
 from app.services.dashboard_service import DashboardService
 
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 

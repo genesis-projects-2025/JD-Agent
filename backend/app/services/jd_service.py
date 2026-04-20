@@ -510,7 +510,7 @@ def _process_llm_response(
     session_memory.current_agent = current_agent
 
     # ── Progress — forward-only, using router.py's compute_progress ──────
-    computed_progress = _compute_progress(merged_insights)
+    computed_progress = _compute_progress(merged_insights, current_agent)
     current_pct = session_memory.progress.get("completion_percentage", 0)
     computed_pct = computed_progress.get("completion_percentage", 0)
 

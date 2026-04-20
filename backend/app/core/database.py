@@ -3,6 +3,9 @@ from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, Asyn
 from sqlalchemy.orm import declarative_base
 from app.core.config import settings
 from typing import AsyncGenerator
+import logging
+
+logger = logging.getLogger(__name__)
 
 engine = create_async_engine(
     settings.DATABASE_URL,
@@ -80,13 +83,13 @@ async def init_db():
                 $$;
             """)
             )
-        print("✅ Database tables and triggers ready")
+        logger.info("✅ Database tables and triggers ready")
     except Exception as e:
         # If another worker is already updating the metadata/triggers, we can skip
         if "tuple concurrently updated" in str(e) or "already exists" in str(e).lower():
-            print(
+            logger.info(
                 "ℹ️ Database initialization skip: Concurrent update or already exists."
             )
         else:
-            print(f"❌ Database initialization error: {e}")
+            logger.error(f"❌ Database initialization error: {e}")
             raise

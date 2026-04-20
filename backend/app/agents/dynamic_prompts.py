@@ -13,7 +13,7 @@ from typing import List
 # ── Base Persona ───────────────────────────────────────────────────────────
 
 
-BASE_PERSONA = """You are a Professional Job Analyst conducting a structured interview to build a high-fidelity Job Description. You sound like a knowledgeable colleague — direct, expert, and focused.
+BASE_PERSONA = """You are a Professional Job Analysis Assistant. You sound polite, knowledgeable, and approachable. Your language is clear and simple so that every employee in the company understands your questions immediately. You avoid complex professional jargon in favor of direct, understandable inquiries.You job is to build professinal jd for an employee by undetstanding them clearly 
 
 BEHAVIORAL CONTRACT (ABSOLUTE — VIOLATING ANY RULE IS A CRITICAL FAILURE):
 
@@ -34,11 +34,13 @@ Use grounded, plain professional English. No consulting jargon.
 BANNED phrases: "strategic impact", "actionable initiatives", "human capital strategy",
 "competitive advantage", "KPI", "ROI", "metrics", "targets", "data tracking".
 
-RULE 4 — PLAIN LANGUAGE. EVERY EMPLOYEE MUST UNDERSTAND THE QUESTION.
-Write questions in simple, good English that any employee can answer and understands it clearly — not just domain experts and a lenghtly one atleast 2 lines question
+RULE 4 — PROFESSIONAL & UNDERSTANDING LANGUAGE. EVERY EMPLOYEE MUST UNDERSTAND THE QUESTION.
+Write questions in simple, polite, and professional English that any employee can answer clearly.
+- Questions MUST be at least 2 lines long (provide a brief, polite context sentence before the question).
+- NO "deep professional" words or academic jargon. Use everyday terms.
 - NO embedded option lists. Never ask "is it X, Y, or Z?" — ask an open-ended question instead.
 - NO compound questions joined by "and" or "—". One sentence. One question mark.
-- NO jargon, technical acronyms, or domain-specific terms unless the user introduced them first.
+- NO acronyms or domain-specific terms unless the user introduced them first.
 - Use short, natural references to tasks (e.g. "your forecasting work") not long formal task names.
 """
 
@@ -137,46 +139,46 @@ def _get_role_aware_purpose_probe(identity_context: dict) -> str:
 
     # ── Domain-specific purpose framings (plain, single, open-ended) ────────
     if any(k in title_lower for k in ["regulatory", "compliance", "affairs"]):
-        return f"As a {title}, what is the main outcome your role exists to deliver?"
+        return f"As a {title}, I want to learn about your core contribution. What is the main outcome your role exists to deliver?"
 
     if any(k in title_lower for k in ["sales", "business development", "account"]):
-        return f"As a {title}, what does your role exist to achieve for the business?"
+        return f"As a {title}, your focus is very important to the business. What is the main goal or achievement your role exists to reach?"
 
     if any(
         k in title_lower for k in ["software", "engineer", "developer", "architect"]
     ):
         dept_ref = f" in the {dept} team" if dept else ""
-        return f"As a {title}{dept_ref}, what is the main thing your work contributes to your team?"
+        return f"As a {title}{dept_ref}, I am interested in how your work helps your team. What is the primary thing your expertise contributes to the team?"
 
     if any(k in title_lower for k in ["data", "analyst", "analytics", "scientist"]):
-        return f"As a {title}, what decisions does your work help the business make?"
+        return f"As a {title}, your insights are key to our decisions. What specific business questions or decisions does your work help the company solve?"
 
     if any(k in title_lower for k in ["hr", "talent", "recruit", "people"]):
         dept_ref = f" in {dept}" if dept else ""
-        return f"As a {title}{dept_ref}, what is the people-related outcome your role is responsible for?"
+        return f"In your position as {title}{dept_ref}, you handle important people-related work. What is the main outcome for our employees that you are responsible for?"
 
     if any(k in title_lower for k in ["finance", "account", "treasury", "controller"]):
-        return f"As a {title}, what financial area are you the main person responsible for?"
+        return f"As a {title}, your role in managing our finances is critical. What is the main financial area or process you are responsible for keeping in order?"
 
     if any(k in title_lower for k in ["product", "program", "project"]):
-        return f"As a {title}, what does a successful outcome look like for your role?"
+        return f"As a {title}, I want to understand what success looks like for you. When you look at your role, what is the main outcome that shows you have done a great job?"
 
     if any(
         k in title_lower for k in ["operations", "supply", "logistics", "procurement"]
     ):
         dept_ref = f" in {dept}" if dept else ""
-        return f"As a {title}{dept_ref}, what process or flow are you responsible for keeping on track?"
+        return f"In your role as {title}{dept_ref}, you keep our processes moving smoothly. What is the primary flow or operation that you are responsible for managing?"
 
     if any(k in title_lower for k in ["marketing", "brand", "content", "digital"]):
-        return f"As a {title}, what is the main output your role is responsible for producing?"
+        return f"As a {title}, your creative and strategic work is vital to our growth. What is the main result or output that your role is responsible for creating?"
 
     if any(k in title_lower for k in ["manager", "head", "director", "lead"]):
         dept_ref = f" in the {dept} team" if dept else ""
-        return f"As a {title}{dept_ref}, what is the main outcome your team is responsible for delivering?"
+        return f"As a {title}{dept_ref}, your leadership helps shape the team's success. What is the main outcome or delivery that your team is responsible for as a whole?"
 
     # Fallback — plain and open-ended
     dept_ref = f" in the {dept} team" if dept else ""
-    return f"In your role as {title}{dept_ref}, what is the most important outcome your work enables?"
+    return f"In your role as {title}{dept_ref}, I'd like to understand your primary focus. What is the most important outcome that your work enables for the company?"
 
 
 def _get_cadence_probe_from_context(
@@ -195,14 +197,14 @@ def _get_cadence_probe_from_context(
             (t.get("description", str(t)) if isinstance(t, dict) else str(t))
             for t in tasks[:2]
         )
-        return f"Beyond {task_descs}, what other regular activities take up your time each week?"
+        return f"To help me understand your routine, I've noted your work on {task_descs}. Beyond these, what other regular activities take up your time each week?"
 
     # No tasks yet — anchor to the purpose they gave
     if purpose_short:
-        return f"Given that your role is about {purpose_short}, what does a typical working week look like for you?"
+        return f"Since you mentioned your role is about {purpose_short}, I'd like to learn more about your daily work. What does a typical working week look like for you?"
 
     # Pure fallback
-    return f"What does a typical working week look like for you as a {title}?"
+    return f"As a {title}, it would be helpful to understand your schedule. What does a typical working week look like for you in this position?"
 
 
 def _build_task_aware_deep_dive_question(
@@ -225,63 +227,61 @@ def _build_task_aware_deep_dive_question(
             k in task_lower
             for k in ["submission", "dossier", "regulatory", "approval", "filing"]
         ):
-            return f"When it is time for your {short}, what usually kicks it off?"
+            return f"To understand the workflow for your {short}, I'd like to start at the beginning. What usually kicks off this process or triggers the need for it?"
 
         if any(
             k in task_lower for k in ["audit", "inspection", "compliance", "review"]
         ):
-            return f"What usually starts your {short} — is it planned in advance or does something specific come in?"
+            return f"In regards to your {short}, I'm interested in how it starts. Is it typically planned in advance, or does a specific event bring it to your attention?"
 
         if any(
             k in task_lower
             for k in ["forecast", "pipeline", "quota", "target", "revenue"]
         ):
-            return f"What event or request usually kicks off your {short}?"
+            return f"For your {short}, it's helpful to know what gets the work moving. What specific event or request usually kicks off this activity?"
 
         if any(
             k in task_lower for k in ["demo", "proposal", "pitch", "prospect", "lead"]
         ):
-            return f"How does your {short} usually begin — what comes in first?"
+            return f"I'd like to learn more about how your {short} usually begins. What is the first thing that happens or the first piece of information that comes in?"
 
         if any(
             k in task_lower
             for k in ["deploy", "release", "build", "sprint", "code", "review"]
         ):
-            return f"What needs to happen before you can start your {short}?"
+            return f"Regarding the process for your {short}, there are often prerequisites. What needs to happen or be ready before you can start this work?"
 
         if any(
             k in task_lower for k in ["incident", "bug", "issue", "outage", "support"]
         ):
-            return f"When your {short} comes in, what is the first thing you do?"
+            return f"When you are handling your {short}, the initial response is key. What is the very first thing you do as soon as this comes in?"
 
         if any(
             k in task_lower
             for k in ["report", "dashboard", "analysis", "insight", "data"]
         ):
-            return f"What usually triggers your {short} — what sets it in motion?"
+            return f"I'm interested in what sets your {short} in motion. What usually triggers this work or creates the initial request for it?"
 
         if any(
             k in task_lower
             for k in ["hire", "recruit", "onboard", "interview", "appraisal"]
         ):
-            return f"How does your {short} usually get started?"
+            return f"To help me map out your {short}, I'd like to start with the first step. How does this process usually get started in your role?"
 
         if any(
             k in task_lower
             for k in ["budget", "invoice", "payroll", "reconcil", "close", "finance"]
         ):
-            return f"What starts your {short} — what usually happens right before you begin?"
+            return f"For your {short}, it's important to understand the timing. What happens right before you start, and what is the specific trigger for it?"
 
         if any(
             k in task_lower
             for k in ["vendor", "purchase", "procurement", "supply", "inventory"]
         ):
-            return (
-                f"What needs to come in before you can start working on your {short}?"
-            )
+            return f"Regarding your {short}, I'd like to know what inputs are needed. What information or items must come in before you can start working on this?"
 
         # Generic fallback — still open-ended and short
-        return f"What needs to happen before you can start your {short}?"
+        return f"To help me understand the flow of your {short}, I'd like to start at the beginning. What needs to happen or be ready before you can start this work?"
 
     # ── Turn 2: What is hard / what does good look like? ────────────────────
     elif turn_number == 2:
@@ -293,24 +293,24 @@ def _build_task_aware_deep_dive_question(
                 k in task_lower
                 for k in ["submission", "dossier", "regulatory", "audit", "compliance"]
             ):
-                return f"What is the most difficult part of your {short} and how do you usually handle it?"
+                return f"Regarding your {short}, these processes can be complex. What is the most difficult part for you to get right, and how do you handle those challenges?"
 
             if any(
                 k in task_lower
                 for k in ["forecast", "pipeline", "revenue", "report", "analysis"]
             ):
-                return f"What is the trickiest part of your {short} to get right, and how do you know when it is done well?"
+                return f"For your {short}, accuracy is often a priority. What is the trickiest part to manage correctly, and how do you know when it has been done well?"
 
             if any(
                 k in task_lower
                 for k in ["deploy", "release", "build", "incident", "bug"]
             ):
-                return f"When something goes wrong during your {short}, what do you do to fix it?"
+                return f"When something goes wrong during your {short}, I'd like to know how you manage it. What specific steps do you take to fix the issue and get things back on track?"
 
-            return f"What is the hardest part of your {short} to get right?"
+            return f"I'd like to understand the challenges in your {short}. What is the hardest part of this process to get right, and why do you find it challenging?"
 
         # No Turn 1 data captured — ask for steps
-        return f"Walk me through how your {short} works from start to finish."
+        return f"To help me understand your {short}, I'd like to get a clearer picture of the process. Could you please walk me through how this works from start to finish?"
 
     # ── Turn 3: Gap fill — plain, targeted ──────────────────────────────────
     else:
@@ -324,9 +324,9 @@ def _build_task_aware_deep_dive_question(
 
         if missing:
             missing_str = " and ".join(missing)
-            return f"For your {short}, can you describe {missing_str}?"
+            return f"To wrap up our discussion on your {short}, I'd like to fill in a few remaining details. Could you please describe {missing_str}?"
 
-        return f"Is there anything else important about your {short} that we should capture?"
+        return f"To wrap up our discussion on your {short}, I'd like to ensure I have all the details. Is there anything else important we should capture?"
 
 
 # ── Phase-Specific Instructions ──────────────────────────────────────────────

@@ -61,12 +61,12 @@ export function PdfDocumentView({ data, roleTitle, dept }: Props) {
   const purpose = getField(data, "purpose", "role_summary");
   const responsibilities = getArray(data, "responsibilities", "key_responsibilities");
   const skills = getArray(data, "skills", "technical_skills");
-  const tools = getArray(data, "tools", "tools_and_technologies");
+  const tools = getArray(data, "tools", "tools_used", "tools_and_technologies");
   const allSkills = [...skills, ...tools.map((t: string) => `${t} (Tool/Platform)`)];
 
   // Safe extraction taking into account nested qualifications map
-  const rawEducation = data.qualifications?.education || getField(data, "education");
-  const rawExperience = data.qualifications?.experience || getField(data, "experience");
+  const rawEducation = data.qualifications?.education || getField(data, "education") || data?.talent_bar?.education;
+  const rawExperience = data.qualifications?.experience || getField(data, "experience") || data?.talent_bar?.experience;
 
   const eduExp = [rawEducation, rawExperience].filter(Boolean).map((s, i) => (
     <React.Fragment key={i}>

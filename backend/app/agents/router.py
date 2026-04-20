@@ -29,12 +29,21 @@ AGENT_ORDER = [
 
 AGENT_CRITERIA = {
     "BasicInfoAgent": lambda ins: (
-        # Ideal: Purpose length >= 10 and at least 3 turns (1 Mission + 1 Tasks)
+        # IDEAL PATH: Purpose captured + (either cadence & 3 turns OR already got 4+ tasks)
         (
             len(ins.get("purpose") or "") >= 10
-            and (ins.get("agent_turn_counts") or {}).get("BasicInfoAgent", 0) >= 3
+            and (
+                 (ins.get("cadence_probed", False) and (ins.get("agent_turn_counts") or {}).get("BasicInfoAgent", 0) >= 3)
+                 or len(ins.get("tasks") or []) >= 4
+            )
         )
-        # GUARDRAIL: Hard stop after 5 turns to prevent looping on Purpose
+        # EARLY EXIT: User explicitly says done — but ONLY if cadence was probed first
+        or (
+            ins.get("user_wants_to_proceed", False)
+            and ins.get("cadence_probed", False)
+            and (ins.get("agent_turn_counts") or {}).get("BasicInfoAgent", 0) >= 2
+        )
+        # HARD STOP: 5 turns maximum no matter what
         or (ins.get("agent_turn_counts") or {}).get("BasicInfoAgent", 0) >= 5
     ),
     "WorkflowIdentifierAgent": lambda ins: (

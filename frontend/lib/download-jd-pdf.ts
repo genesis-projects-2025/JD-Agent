@@ -72,10 +72,10 @@ export function downloadJDPdfClient(data: any, roleTitle?: string, dept?: string
   const purpose      = esc(getField(data, "purpose", "role_summary"));
   const responsibilities = getArray(data, "responsibilities", "key_responsibilities");
   const skills       = getArray(data, "skills", "required_skills");
-  const tools        = getArray(data, "tools", "tools_and_technologies");
+  const tools        = getArray(data, "tools", "tools_used", "tools_and_technologies");
   const allSkills    = [...skills, ...tools.map((t: string) => `${t} (Tool/Platform)`)];
-  const education    = esc(getField(data, "education"));
-  const experience   = esc(getField(data, "experience"));
+  const education    = esc(getField(data, "education") || data?.talent_bar?.education || "");
+  const experience   = esc(getField(data, "experience") || data?.talent_bar?.experience || "");
   const eduExp       = [education, experience].filter(Boolean).join("<br/><br/>");
   const safeTitle    = esc(roleTitle || "Job Description");
 

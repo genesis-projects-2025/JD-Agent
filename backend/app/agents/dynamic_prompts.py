@@ -81,6 +81,7 @@ def _build_basic_info_instruction(insights: dict) -> str:
     purpose = insights.get("purpose") or ""
     tasks = insights.get("tasks") or []
     turns = (insights.get("agent_turn_counts") or {}).get("BasicInfoAgent", 0)
+    cadence_probed = insights.get("cadence_probed", False)
 
     role_title = (
         insights.get("identity_context", {}).get("title", "")
@@ -97,6 +98,13 @@ def _build_basic_info_instruction(insights: dict) -> str:
         "\n- If the user mentions tools or skills, silently note them but do NOT follow up on them."
     )
 
+    # Turn ceiling notice
+    turn_note = (
+        f"\n\nTURN MANAGEMENT: This is turn {turns} of 5. "
+        + ("Final turn — ask one last broadening question." if turns >= 5 else
+           f"You have {5 - turns} turn(s) remaining.")
+    )
+
     if len(purpose) < 10:
         # No purpose captured yet — ask about role mission
         return (
@@ -106,24 +114,29 @@ def _build_basic_info_instruction(insights: dict) -> str:
             f"{scope}"
         )
 
-    if len(tasks) < 3:
-        # Purpose captured, need tasks
+    # ── MANDATORY TURN 2: CADENCE QUESTION (cannot be bypassed by RAG) ─────────
+    # If purpose is captured and we haven't asked the cadence question yet, force it NOW.
+    if not cadence_probed:
         return (
-            f"Your goal: Map the regular work activities for '{role_title}'."
-            f"\nAsk ONE question about what the person does on a daily, weekly, or monthly basis."
-            f"\nFocus on breadth — get a wide view of all their regular responsibilities."
+            f"Your goal: Capture the full breadth of regular work for '{role_title}'."
+            f"\nYou MUST ask EXACTLY this (or a very close variant):"
+            f"\n\"What are your core daily, weekly, and monthly responsibilities in this role?\""
+            f"\nThis is a mandatory question. Do NOT substitute it with a RAG-suggested or specific topic question."
             f"\nDo NOT repeat tasks already listed in DATA ALREADY COLLECTED."
             f"{scope}"
+            f"{turn_note}"
         )
 
-    if len(tasks) < 6 and turns < 4:
-        # Have some tasks, need more
+    if len(tasks) < 4 and turns < 5:
+        # Cadence probed, but still missing tasks — ask for more breadth
         return (
-            f"Your goal: Expand the task list for '{role_title}' (currently {len(tasks)} tasks, need ~6+)."
-            f"\nAsk ONE question about any ad-hoc, periodic, or less frequent responsibilities not yet captured."
+            f"Your goal: Map more regular work activities for '{role_title}'."
+            f"\nThe user has provided {len(tasks)} tasks, but aim to discover a few more to total ~4+ distinct responsibilities."
+            f"\nAsk ONE focused question about any ad-hoc, periodic, or less frequent responsibilities not yet captured."
             f"\nDo NOT repeat any tasks already listed in DATA ALREADY COLLECTED."
             f"\nIf the user has shared enough, the system will automatically move forward."
             f"{scope}"
+            f"{turn_note}"
         )
 
     # Tasks are sufficient — finalize
@@ -132,6 +145,7 @@ def _build_basic_info_instruction(insights: dict) -> str:
         f"\nAsk ONE brief question about any remaining important aspects of the role not yet discussed."
         f"\nKeep it short. The system will transition to the next phase soon."
         f"{scope}"
+        f"{turn_note}"
     )
 
 

@@ -543,7 +543,10 @@ def build_interview_messages(
     messages.append(SystemMessage(content=system_content))
 
     # 2. Append recent history (Conversational Context)
-    for msg in recent_messages:
+    # OPTIMIZATION: Truncate history to the last 6 messages. 
+    # Global memory is safely stored in the `insights` dictionary, 
+    # so keeping the raw transcript small speeds up response times infinitely.
+    for msg in recent_messages[-6:]:
         role = msg.get("role")
         content = msg.get("content", "")
         if not content or not content.strip():
@@ -1046,7 +1049,7 @@ Keep it professional and brief."""
         # Runs the user message through LLM to extract data BEFORE the conversational agent sees it
         from app.agents.extraction_engine import extract_information
 
-        extracted = await extract_information(user_message, insights, agent_name)
+        extracted = await extract_information(user_message, insights, agent_name, recent_messages)
         if extracted:
             insights = self._merge_extracted_to_insights(extracted, insights)
             logger.info(
@@ -1222,7 +1225,7 @@ Keep it professional and brief."""
         start_time = time.perf_counter()
         
         # Run Extraction and RAG Retrieval in parallel to save ~3-5s
-        extraction_task = extract_information(user_message, insights, agent_name)
+        extraction_task = extract_information(user_message, insights, agent_name, recent_messages)
         rag_task = self._get_rag_context(insights, agent_name)
         
         extracted, retrieved_context = await asyncio.gather(extraction_task, rag_task)
@@ -1410,35 +1413,9 @@ Keep it professional and brief."""
             insights["final_jd"] = jd_payload
             full_text = "Your high-fidelity Job Description is architected. Review the preview pane to your right."
 
-        # --- SEMANTIC QUESTION DEDUPLICATION ---
-        if agent_name not in SILENT_AGENT_RESPONSES and _is_question_repeated(
-            full_text, questions_asked, previous_questions_text
-        ):
-            logger.info(
-                "  [DEDUP STREAM] ⚠ Question is repeated! Generating alternative."
-            )
-            dedup_msgs = messages + [
-                AIMessage(content=full_text),
-                HumanMessage(
-                    content=(
-                        "SYSTEM: Your previous question was already asked. "
-                        "Ask a DIFFERENT question about something NOT yet covered."
-                    )
-                ),
-            ]
-            retry_response = await _invoke_with_retry(_response_llm, dedup_msgs)
-            alt_text = _extract_text_content(retry_response.content).strip()
-            if alt_text and not _is_question_repeated(
-                alt_text, questions_asked, previous_questions_text
-            ):
-                full_text = alt_text
-                full_text = _strip_tool_code_leaks(full_text)
-                full_text = _trim_duplicate_response(full_text)
-                full_text = _truncate_if_too_long(full_text)
-                full_text = _ensure_ends_with_question(
-                    full_text, agent_name, insights, {}
-                )
-                full_text = full_text.strip()
+        # --- SEMANTIC QUESTION DEDUPLICATION STATUS ---
+        # Disabled post-streaming deduplication. 
+        # Overwriting text after it has already streamed to the frontend causes a UI glitch.
 
         # Record the question hash + text
         q_hash = _compute_question_hash(full_text)

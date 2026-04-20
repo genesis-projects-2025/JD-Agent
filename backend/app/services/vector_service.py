@@ -1,4 +1,5 @@
 import logging
+import asyncio
 from typing import List
 from pinecone import Pinecone, ServerlessSpec
 from langchain_google_genai import GoogleGenerativeAIEmbeddings
@@ -195,7 +196,12 @@ async def query_advanced_context(
         if department:
             filter_dict["dept"] = department
             
-        results = index.query(
+        # Prevent ASGI loop block on synchronous embedding call
+        query_vec = await asyncio.to_thread(embeddings.embed_query, query_text)
+        
+        # Prevent ASGI loop block on synchronous network DB query
+        results = await asyncio.to_thread(
+            index.query,
             vector=query_vec,
             top_k=top_k,
             include_metadata=True,

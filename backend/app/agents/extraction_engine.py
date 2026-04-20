@@ -72,6 +72,10 @@ class ExtractionSchema(BaseModel):
     qualifications: Optional[Qualifications] = None
     conflicts: Optional[List[dict]] = None
     user_wants_to_proceed: Optional[bool] = None
+    cadence_probed: Optional[bool] = Field(
+        None,
+        description="Set to true if the user has responded to a question about daily, weekly, or monthly tasks, OR if the agent has explicitly asked about task cadence in this turn."
+    )
 
 
 # ── Extraction Prompt ───────────────────────────────────────────────────────
@@ -104,6 +108,10 @@ FIELDS TO EXTRACT:
     - certifications: Professional certifications mentioned
 11. conflicts: List of detected contradictions (if any)
 12. user_wants_to_proceed: BOOLEAN. Set to true if the user explicitly says they are done sharing tasks, or that we should move to the next phase, or says "proceed/continue/that's it/no more" when asked about tasks.
+13. cadence_probed: BOOLEAN. Set to true ONLY if EITHER of these is true:
+    a) The user's message contains information about daily, weekly, OR monthly work patterns (keywords: "daily", "weekly", "monthly", "every day", "every week", "every month", "routine", "regularly", "ad-hoc").
+    b) The conversation history shows the agent explicitly asked about "daily", "weekly", or "monthly" tasks in a previous message.
+    Leave as null/false if task cadence has NOT been discussed.
 
 RULES:
 1. Extract ONLY what is explicitly stated or strongly implied
@@ -115,14 +123,19 @@ RULES:
 7. STRICT SKILL FILTERING: For `skills`, absolutely prohibit extracting soft skills. DO NOT extract "communication", "leadership", "hardworking", "mentorship", etc. ONLY extract formal, hard, technical/domain specific skills.
 8. SEMANTIC FOLDING & DEDUPLICATION: Group highly similar skills/tools into a single, professional "Expertise Pillar" if they share >70% semantic intent. Example: ["Data Validation", "Data Verification", "Data Reconciliation"] -> "Data Integrity & Reconciliation".
 9. ANTI-LEAK RULE: Absolutely DO NOT extract agent questions, system instructions, or conversational filler from the message history as if they were user data. (e.g. If the history shows an agent asking 'What are your tasks?', do NOT extract 'What are your tasks?' as a new task).
-10. If CURRENT AGENT MISSION is listed below, heavily prioritize extracting data for that mission!
-11. SMARTER PRE-RANKING: When extracting or updating `tasks`, always sort them by strategic importance (Strategic/Architecture > Operational/Implementation > Administrative/Support). List the most critical tasks first.
+10. ANTI-HALLUCINATION RULE: ONLY extract data (especially 'workflows' and 'tasks') if explicitly described in the USER MESSAGE. DO NOT generate, draft, or hallucinate workflows or steps based purely on task names found in the recent history or current state.
+11. If CURRENT AGENT MISSION is listed below, heavily prioritize extracting data for that mission!
+12. SMARTER PRE-RANKING: When extracting or updating `tasks`, always sort them by strategic importance (Strategic/Architecture > Operational/Implementation > Administrative/Support). List the most critical tasks first.
+13. CADENCE DETECTION: Set `cadence_probed` to true if the user's current message contains information about daily, weekly, or monthly task patterns. Also set it true if the conversation history already contains an agent question explicitly mentioning "daily", "weekly", or "monthly".
 
 CURRENT AGENT MISSION:
 {current_agent}
 
 CURRENT MEMORY (Do NOT extract these again, unless modifying them):
 {current_state}
+
+RECENT AGENT QUESTIONS:
+{recent_history}
 
 USER MESSAGE:
 {user_message}
@@ -391,7 +404,7 @@ def extract_skills(text: str) -> list:
 
 
 async def extract_with_llm(
-    user_message: str, current_state: dict, current_agent: str = ""
+    user_message: str, current_state: dict, current_agent: str = "", recent_messages: list = None
 ) -> dict:
     """Use LLM for comprehensive extraction."""
     try:
@@ -399,9 +412,16 @@ async def extract_with_llm(
         # Utility extraction does not need full context, saving tokens and processing time.
         state_summary = serialize_insights(current_state)
 
+        # Extract only the last 3 agent messages to give context on what was asked
+        recent_history = ""
+        if recent_messages:
+            agent_msgs = [m.get("content", "") for m in recent_messages[-6:] if m.get("role") == "assistant"]
+            recent_history = "\n".join(agent_msgs[-3:])
+
         prompt = EXTRACTION_PROMPT.format(
             current_agent=current_agent,
             current_state=state_summary,
+            recent_history=recent_history,
             user_message=user_message,
         )
 
@@ -428,7 +448,7 @@ async def extract_with_llm(
 
 
 async def extract_information(
-    user_message: str, current_state: dict, current_agent: str = ""
+    user_message: str, current_state: dict, current_agent: str = "", recent_messages: list = None
 ) -> dict:
     """
     Main extraction function — combines pattern-based and LLM extraction.
@@ -470,7 +490,7 @@ async def extract_information(
     # We ALWAYS run LLM extraction now because conversational data is too complex for just regex
     if len(user_message) > 5:
         llm_extracted = await extract_with_llm(
-            user_message, current_state, current_agent
+            user_message, current_state, current_agent, recent_messages
         )
 
         # Merge LLM extraction (LLM results take precedence for complex fields)
@@ -500,7 +520,7 @@ async def extract_information(
     # can extract. This stops BasicInfoAgent from accidentally extracting skills,
     # and keeps DeepDive focused on workflows.
     AGENT_ALLOWED_FIELDS = {
-        "BasicInfoAgent": {"role", "department", "reports_to", "purpose", "tasks", "user_wants_to_proceed"},
+        "BasicInfoAgent": {"role", "department", "reports_to", "purpose", "tasks", "user_wants_to_proceed", "cadence_probed"},
         "WorkflowIdentifierAgent": {"priority_tasks", "tasks", "user_wants_to_proceed"},
         "DeepDiveAgent": {"workflows", "tools", "tasks", "purpose"},
         "ToolsAgent": {"tools", "technologies", "tools_confirmed"},

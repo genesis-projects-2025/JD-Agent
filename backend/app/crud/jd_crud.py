@@ -170,7 +170,7 @@ async def _harvest_organic_skills(
     if not isinstance(req_skills, list):
         req_skills = []
 
-    tools = jd_structured.get("tools_and_technologies", [])
+    tools = jd_structured.get("tools_and_technologies", []) or jd_structured.get("tools_used", [])
     if not isinstance(tools, list):
         tools = []
 

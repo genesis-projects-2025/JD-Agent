@@ -125,7 +125,12 @@ export default function JDPreviewPanel({
         if (d.required_skills && !d.skills) d.skills = d.required_skills;
         if (d.tools_and_technologies && !d.tools)
             d.tools = d.tools_and_technologies;
+        if (d.tools_used && !d.tools) d.tools = d.tools_used;
         if (d.role_summary && !d.purpose) d.purpose = d.role_summary;
+        if (d.talent_bar) {
+            d.education = d.education || d.talent_bar.education;
+            d.experience = d.experience || d.talent_bar.experience;
+        }
         if (d.qualifications) {
             d.education = d.education || d.qualifications.education;
             d.experience = d.experience || d.qualifications.experience;

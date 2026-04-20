@@ -132,7 +132,7 @@ export default function JDPage() {
  } catch (e) { }
  setEditedJdText(pText);
 
- let pStruct = safeParseObject(data.jd_structured);
+ // NOTE: Do NOT re-read raw data here - migrations above are intentional.
 
  // Fallback: If structured data is completely empty, try pulling it from the generated_jd block
  if (
@@ -162,6 +162,9 @@ export default function JDPage() {
  if (pStruct.required_skills && !pStruct.skills) {
  pStruct.skills = pStruct.required_skills;
  }
+ if (pStruct.tools_used && !pStruct.tools) {
+ pStruct.tools = pStruct.tools_used;
+ }
  if (pStruct.tools_and_technologies && !pStruct.tools) {
  pStruct.tools = pStruct.tools_and_technologies;
  }
@@ -177,8 +180,20 @@ export default function JDPage() {
  if (pStruct.additional_details && !pStruct.additional) {
  pStruct.additional = pStruct.additional_details;
  }
+ if (pStruct.additional_details && !pStruct.additional) {
+ pStruct.additional = pStruct.additional_details;
  }
-
+ // talent_bar -> top-level education/experience (LLM schema fix)
+ if (pStruct.talent_bar && typeof pStruct.talent_bar === "object") {
+ pStruct.education = pStruct.education || pStruct.talent_bar.education || "";
+ pStruct.experience = pStruct.experience || pStruct.talent_bar.experience || "";
+ }
+ // qualifications nested -> top-level
+ if (pStruct.qualifications && typeof pStruct.qualifications === "object") {
+ pStruct.education = pStruct.education || pStruct.qualifications.education || "";
+ pStruct.experience = pStruct.experience || pStruct.qualifications.experience || "";
+ }
+ }
  // Final Failsafe for missing keys
  if (!pStruct || typeof pStruct !== "object") pStruct = {};
  pStruct.responsibilities = pStruct.responsibilities || [];
@@ -193,7 +208,7 @@ export default function JDPage() {
  pStruct.team_structure = pStruct.team_structure || {};
  pStruct.work_environment = pStruct.work_environment || {};
 
- pStruct = safeParseObject(data.jd_structured);
+ // NOTE: Do NOT re-read raw data here - migrations above are intentional.
  setEditedData(pStruct);
 
 

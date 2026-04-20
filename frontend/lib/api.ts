@@ -434,7 +434,8 @@ export async function sendMessageStream(
   sessionId: string | undefined,
   onChunk: (chunk: string) => void,
   onDone: (data: any) => void,
-  onError: (error: any) => void
+  onError: (error: any) => void,
+  onStatus?: (status: string) => void
 ) {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 300_000); // 5 min hard timeout — covers LLM extraction + RAG + generation
@@ -476,8 +477,10 @@ export async function sendMessageStream(
 
         try {
           const parsed = JSON.parse(dataStr);
-          if (parsed.type === "chunk" && parsed.content) {
+          if (parsed.type === "chunk" && parsed.content !== undefined) {
             onChunk(parsed.content);
+          } else if (parsed.type === "status" && parsed.content) {
+            if (onStatus) onStatus(parsed.content);
           } else if (parsed.type === "done") {
             console.group("🧠 JD-Agent Memory (Stream)");
             console.log("Agent:", parsed.parsed.current_agent);

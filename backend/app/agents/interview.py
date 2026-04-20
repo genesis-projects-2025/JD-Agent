@@ -766,6 +766,8 @@ class InterviewEngine:
             for pt in priority_tasks:
                 if pt not in (insights.get("visited_tasks") or []):
                     active_task = pt
+                    remaining = len(priority_tasks) - len(visited_tasks)
+                    logger.info(f"[DeepDive] Moving to next task: {active_task}. {remaining} remaining.")
                     break
 
         # If a new active task was picked and turn was reset, start at 1
@@ -1213,6 +1215,9 @@ Keep it professional and brief."""
         questions_asked = questions_asked or []
         previous_questions_text = previous_questions_text or []
 
+        # ✅ CRITICAL: Yield an immediate heartbeat chunk to prevent frontend timeouts
+        yield {"type": "chunk", "content": ""}
+
         # Increment phase turn count for the incoming agent
         agent_turns = insights.get("agent_turn_counts") or {}
         agent_turns[agent_name] = agent_turns.get(agent_name, 0) + 1
@@ -1225,6 +1230,7 @@ Keep it professional and brief."""
         start_time = time.perf_counter()
         
         # Run Extraction and RAG Retrieval in parallel to save ~3-5s
+        yield {"type": "status", "content": "Analyzing your input..."}
         extraction_task = extract_information(user_message, insights, agent_name, recent_messages)
         rag_task = self._get_rag_context(insights, agent_name)
         
@@ -1277,37 +1283,43 @@ Keep it professional and brief."""
             # Clean insights data upon phase transition
             from app.agents.semantic_cleaner import deduplicate_and_professionalize
 
+            # Parallelize insights cleaning and enrichment tasks
+            from app.agents.semantic_cleaner import deduplicate_and_professionalize
+            
+            cleaning_tasks = []
+            
             if new_agent == "WorkflowIdentifierAgent":
-                raw_tasks = insights.get("tasks") or []
-                logger.info(
-                    f"[DEBUG] Transition to WorkflowIdentifierAgent. Cleaning {len(raw_tasks)} tasks..."
-                )
-                insights["tasks"] = await deduplicate_and_professionalize(
-                    raw_tasks, "tasks"
-                )
-                logger.debug(
-                    f"[DEBUG] Tasks after cleaning: {len(insights['tasks'])} items"
-                )
+                yield {"type": "status", "content": "Professionalizing your task list..."}
+                cleaning_tasks.append(deduplicate_and_professionalize(insights.get("tasks") or [], "tasks"))
             elif new_agent == "DeepDiveAgent":
-                insights["priority_tasks"] = await deduplicate_and_professionalize(
-                    insights.get("priority_tasks", []), "priority_tasks"
-                )
+                yield {"type": "status", "content": "Analyzing priority tasks..."}
+                cleaning_tasks.append(deduplicate_and_professionalize(insights.get("priority_tasks", []), "priority_tasks"))
             elif new_agent == "ToolsAgent":
-                insights["tools"] = await deduplicate_and_professionalize(
-                    insights.get("tools", []), "tools"
-                )
+                yield {"type": "status", "content": "Refining technical toolset..."}
+                cleaning_tasks.append(deduplicate_and_professionalize(insights.get("tools", []), "tools"))
             elif new_agent == "SkillsAgent":
-                insights["skills"] = await deduplicate_and_professionalize(
-                    insights.get("skills", []), "skills"
-                )
+                yield {"type": "status", "content": "Validating technical skills..."}
+                cleaning_tasks.append(deduplicate_and_professionalize(insights.get("skills", []), "skills"))
+
+            if cleaning_tasks:
+                cleaning_results = await asyncio.gather(*cleaning_tasks)
+                # Map results back to insights
+                if new_agent == "WorkflowIdentifierAgent":
+                    insights["tasks"] = cleaning_results[0]
+                elif new_agent == "DeepDiveAgent":
+                    insights["priority_tasks"] = cleaning_results[0]
+                elif new_agent == "ToolsAgent":
+                    insights["tools"] = cleaning_results[0]
+                elif new_agent == "SkillsAgent":
+                    insights["skills"] = cleaning_results[0]
 
             agent_name = new_agent
 
-        # Step 0b: Advanced RAG Retrieval
-
+        # Step 0b: Advanced RAG Retrieval (Already done in Parallel Pipeline Step 0a)
 
         # Step 0c: Auto-populate Inventory (Tools/Skills) if transitioning
         if agent_name in ["ToolsAgent", "SkillsAgent"]:
+            yield {"type": "status", "content": f"Detecting relevant {agent_name.replace('Agent', '').lower()}..."}
             insights = await self._auto_populate_inventory(
                 insights, agent_name, retrieved_context
             )
@@ -1409,6 +1421,7 @@ Keep it professional and brief."""
         # --- FINAL JD GENERATION BRIDGE ---
         if agent_name == "JDGeneratorAgent":
             logger.info("[JD Fix] Executing final high-fidelity JD generation...")
+            yield {"type": "status", "content": "Architecting your high-fidelity Job Description..."}
             jd_payload = await self._generate_final_jd_payload(insights)
             insights["final_jd"] = jd_payload
             full_text = "Your high-fidelity Job Description is architected. Review the preview pane to your right."

@@ -53,6 +53,7 @@ export default function QuestionnairePage() {
     confirmToolsAction,
     confirmPriorityTasksAction,
     hydrated,
+    statusMessage,
   } = useChat(() => {
     // Component stays on page; the JDPreviewPanel handles UI view
   }, true);
@@ -203,6 +204,16 @@ export default function QuestionnairePage() {
               <div className="w-2 h-2 rounded-md bg-amber-500 animate-pulse" />
               <span className="text-[11px] font-medium text-amber-700 ">
                 Rate limited — resuming in {retryTimer}s
+              </span>
+            </div>
+          )}
+
+          {/* Background Status Indicator (Optimistic Persistence) */}
+          {statusMessage && (
+            <div className="flex-shrink-0 mx-6 mb-3 px-5 py-2 bg-primary-50/50 border border-primary-100 rounded-md flex items-center gap-3 animate-in fade-in slide-in-from-bottom-2 duration-300">
+              <Loader2 className="w-3.5 h-3.5 text-primary-500 animate-spin" />
+              <span className="text-[10px] sm:text-[11px] font-bold text-primary-700 uppercase tracking-wider">
+                {statusMessage}
               </span>
             </div>
           )}

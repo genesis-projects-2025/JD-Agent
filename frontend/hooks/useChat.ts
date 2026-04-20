@@ -30,6 +30,7 @@ export function useChat(onSaveSuccess?: () => void, autoInit: boolean = true) {
   const [isRateLimited, setIsRateLimited] = useState(false);
   const [retryTimer, setRetryTimer] = useState(0);
   const [lastMessageText, setLastMessageText] = useState<string | null>(null);
+  const [statusMessage, setStatusMessage] = useState<string | null>(null);
   // ✅ NEW: true once DB hydration is complete — page uses this to show skeleton
   const [hydrated, setHydrated] = useState(false);
 
@@ -343,8 +344,10 @@ export function useChat(onSaveSuccess?: () => void, autoInit: boolean = true) {
           // Pass empty array so processResponse doesn't call updateHistory again
           processResponse(rawReply, [], false);
           setLastMessageText(null);
+          setStatusMessage(null); // Clear status on completion
         },
         (error: any) => {
+          setStatusMessage(null); // Clear status on error
           setMessages((prev) => {
             const newMessages = [...prev];
             const lastIdx = newMessages.length - 1;
@@ -358,6 +361,9 @@ export function useChat(onSaveSuccess?: () => void, autoInit: boolean = true) {
             return newMessages;
           });
           throw error;
+        },
+        (status) => {
+          setStatusMessage(status);
         }
       );
     } catch (error: any) {
@@ -589,6 +595,7 @@ export function useChat(onSaveSuccess?: () => void, autoInit: boolean = true) {
     isRateLimited,
     retryTimer,
     hydrated,
+    statusMessage,
     updateJd: setJd,
     updateStructuredData: setStructuredData,
     confirmSkillsAction,

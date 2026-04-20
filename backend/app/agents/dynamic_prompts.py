@@ -33,6 +33,13 @@ Adapt your language and technical depth to match the user's role and industry.
 Use grounded, plain professional English. No consulting jargon.
 BANNED phrases: "strategic impact", "actionable initiatives", "human capital strategy",
 "competitive advantage", "KPI", "ROI", "metrics", "targets", "data tracking".
+
+RULE 4 — PLAIN LANGUAGE. EVERY EMPLOYEE MUST UNDERSTAND THE QUESTION.
+Write questions in simple, good English that any employee can answer and understands it clearly — not just domain experts and a lenghtly one atleast 2 lines question
+- NO embedded option lists. Never ask "is it X, Y, or Z?" — ask an open-ended question instead.
+- NO compound questions joined by "and" or "—". One sentence. One question mark.
+- NO jargon, technical acronyms, or domain-specific terms unless the user introduced them first.
+- Use short, natural references to tasks (e.g. "your forecasting work") not long formal task names.
 """
 
 
@@ -73,243 +80,253 @@ def _get_industry_strategy(insights: dict) -> str:
     return "Focus on the actual daily work, the tools they use, and how they get things done in their specific role."
 
 
+def _get_task_short_name(task_name: str) -> str:
+    """
+    Extract a concise, natural short reference from a full task name.
+    Used in questions so employees see a simple phrase, not the full formal name.
+
+    Examples:
+      "Regulatory Submission Dossier Preparation"  →  "submission dossier work"
+      "Monthly Sales Forecasting"                  →  "sales forecasting"
+      "Employee Onboarding Process"                →  "onboarding process"
+      "CI/CD Deployment Pipeline Release"          →  "deployment work"
+      "Monthly Budget Reconciliation"              →  "budget reconciliation"
+    """
+    if not task_name or not task_name.strip():
+        return "this task"
+
+    # Time/frequency prefixes to drop — they add length without meaning in a question
+    DROP_PREFIXES = {
+        "monthly",
+        "weekly",
+        "daily",
+        "quarterly",
+        "annual",
+        "bi-weekly",
+        "bi-monthly",
+    }
+    # Generic structural words that can be trimmed when leading
+    DROP_WORDS = {"and", "of", "the", "a", "an", "for", "in", "at", "with"}
+
+    words = task_name.strip().split()
+
+    # Strip leading time prefix (e.g. "Monthly", "Weekly")
+    if words and words[0].lower() in DROP_PREFIXES:
+        words = words[1:]
+
+    # Remove generic filler words throughout
+    meaningful = [w for w in words if w.lower() not in DROP_WORDS]
+
+    if not meaningful:
+        # Fallback — just use the first real word lowercased
+        return words[0].lower() if words else "this task"
+
+    # Keep max 3 meaningful words for a natural references phrase
+    short = " ".join(meaningful[:3]).lower()
+    return short
+
+
 def _get_role_aware_purpose_probe(identity_context: dict) -> str:
     """
     Generate a role-specific purpose question using the known title and department.
-    Returns a direct, context-loaded question — not a generic survey phrase.
+    Returns a single, plain, open-ended question — no embedded option lists.
     """
     title = str(identity_context.get("title", "")).strip()
     dept = str(identity_context.get("department", "")).strip()
     title_lower = title.lower()
-    dept_lower = dept.lower()
 
-    # ── Domain-specific purpose framings ───────────────────────────────────
+    # ── Domain-specific purpose framings (plain, single, open-ended) ────────
     if any(k in title_lower for k in ["regulatory", "compliance", "affairs"]):
-        return (
-            f"As a {title}, what is the core regulatory outcome your role is directly accountable "
-            f"for delivering — is it submission approvals, audit readiness, or something else?"
-        )
+        return f"As a {title}, what is the main outcome your role exists to deliver?"
+
     if any(k in title_lower for k in ["sales", "business development", "account"]):
-        return (
-            f"As a {title}, what is the primary commercial output your role is measured against — "
-            f"revenue targets, pipeline conversion, new account acquisition?"
-        )
-    if any(k in title_lower for k in ["software", "engineer", "developer", "architect"]):
-        return (
-            f"As a {title} in the {dept} team, what is the primary engineering outcome your work "
-            f"contributes to — product features, platform reliability, or developer tooling?"
-        )
+        return f"As a {title}, what does your role exist to achieve for the business?"
+
+    if any(
+        k in title_lower for k in ["software", "engineer", "developer", "architect"]
+    ):
+        dept_ref = f" in the {dept} team" if dept else ""
+        return f"As a {title}{dept_ref}, what is the main thing your work contributes to your team?"
+
     if any(k in title_lower for k in ["data", "analyst", "analytics", "scientist"]):
-        return (
-            f"As a {title}, what business decisions does your analysis directly feed into — "
-            f"and who in the org relies on your outputs to act?"
-        )
+        return f"As a {title}, what decisions does your work help the business make?"
+
     if any(k in title_lower for k in ["hr", "talent", "recruit", "people"]):
-        return (
-            f"As a {title} in {dept}, what is the core people outcome your role owns — "
-            f"is it hiring velocity, employee lifecycle, or workforce planning?"
-        )
+        dept_ref = f" in {dept}" if dept else ""
+        return f"As a {title}{dept_ref}, what is the people-related outcome your role is responsible for?"
+
     if any(k in title_lower for k in ["finance", "account", "treasury", "controller"]):
-        return (
-            f"As a {title}, what financial process are you the primary owner of — "
-            f"is it reporting accuracy, budgeting cycles, or transaction controls?"
-        )
+        return f"As a {title}, what financial area are you the main person responsible for?"
+
     if any(k in title_lower for k in ["product", "program", "project"]):
-        return (
-            f"As a {title}, what does delivery success look like for you — "
-            f"shipping features on time, stakeholder alignment, or roadmap health?"
-        )
-    if any(k in title_lower for k in ["operations", "supply", "logistics", "procurement"]):
-        return (
-            f"As a {title} in {dept}, what operational flow are you responsible for keeping "
-            f"efficient — is it vendor contracts, inventory movement, or process throughput?"
-        )
+        return f"As a {title}, what does a successful outcome look like for your role?"
+
+    if any(
+        k in title_lower for k in ["operations", "supply", "logistics", "procurement"]
+    ):
+        dept_ref = f" in {dept}" if dept else ""
+        return f"As a {title}{dept_ref}, what process or flow are you responsible for keeping on track?"
+
     if any(k in title_lower for k in ["marketing", "brand", "content", "digital"]):
-        return (
-            f"As a {title}, what is the campaign or channel output your role is directly "
-            f"accountable for — lead generation, brand reach, or conversion?"
-        )
+        return f"As a {title}, what is the main output your role is responsible for producing?"
+
     if any(k in title_lower for k in ["manager", "head", "director", "lead"]):
-        dept_context = f"in the {dept} team" if dept else ""
-        return (
-            f"As a {title} {dept_context}, what is the primary outcome your team is "
-            f"hired to deliver — and what would break if your role didn't exist?"
-        )
+        dept_ref = f" in the {dept} team" if dept else ""
+        return f"As a {title}{dept_ref}, what is the main outcome your team is responsible for delivering?"
 
-    # Fallback — still more targeted than the old generic question
-    dept_context = f"in the {dept} team" if dept else ""
-    return (
-        f"In your role as {title} {dept_context}, what is the single most "
-        f"important outcome your work enables for the organization?"
-    )
+    # Fallback — plain and open-ended
+    dept_ref = f" in the {dept} team" if dept else ""
+    return f"In your role as {title}{dept_ref}, what is the most important outcome your work enables?"
 
 
-def _get_cadence_probe_from_context(purpose: str, tasks: list, identity_context: dict) -> str:
+def _get_cadence_probe_from_context(
+    purpose: str, tasks: list, identity_context: dict
+) -> str:
     """
     Generate a cadence question that references the purpose the user already shared.
-    Avoids the blank survey form feel by anchoring to what's known.
+    Single, open-ended — no embedded option lists.
     """
     title = str(identity_context.get("title", "your role")).strip()
-    purpose_short = (purpose[:60] + "...") if len(purpose) > 60 else purpose
+    purpose_short = (purpose[:55] + "...") if len(purpose) > 55 else purpose
 
-    # If we have some tasks already, ask specifically about what's missing
-    task_count = len(tasks) if tasks else 0
-    if task_count > 0:
-        task_descs = ", ".join(
+    # Tasks already captured — ask about what's still missing
+    if tasks:
+        task_descs = " and ".join(
             (t.get("description", str(t)) if isinstance(t, dict) else str(t))
             for t in tasks[:2]
         )
-        return (
-            f"Beyond {task_descs}, what else fills your week as a {title} — "
-            f"are there recurring reviews, approvals, or reporting cycles that are just as critical?"
-        )
+        return f"Beyond {task_descs}, what other regular activities take up your time each week?"
 
-    # No tasks yet — anchor to purpose
+    # No tasks yet — anchor to the purpose they gave
     if purpose_short:
-        return (
-            f"For a role centered on {purpose_short}, what does a typical working week look like — "
-            f"the daily routines, the weekly checkpoints, and the monthly obligations you own?"
-        )
+        return f"Given that your role is about {purpose_short}, what does a typical working week look like for you?"
 
     # Pure fallback
-    return (
-        f"What does a typical working week look like for you as a {title} — "
-        f"the daily routines, the weekly meetings, and the end-of-month deliverables?"
-    )
+    return f"What does a typical working week look like for you as a {title}?"
 
 
 def _build_task_aware_deep_dive_question(
     active_task: str, turn_number: int, identity_context: dict, workflows: dict
 ) -> str:
     """
-    Generate an intelligent, task-specific deep-dive question.
-    Uses the task name and role domain to frame a precise, expert-sounding question
-    instead of a generic 'what triggers this task?' template.
+    Generate a plain, single, open-ended deep-dive question.
+    Uses a short natural task reference instead of the full formal task name.
+    Domain-matched but written in everyday language any employee can understand.
     """
-    title = str(identity_context.get("title", "")).lower()
-    dept = str(identity_context.get("department", "")).lower()
     task_lower = active_task.lower() if active_task else ""
     existing_wf = (workflows or {}).get(active_task, {})
 
-    # ── Turn 1: How does this task START? (trigger + input) ────────────────
-    if turn_number <= 1:
-        # Regulatory / compliance tasks
-        if any(k in task_lower for k in ["submission", "dossier", "regulatory", "approval", "filing"]):
-            return (
-                f"When a '{active_task}' becomes due, what triggers the process — "
-                f"is it a regulatory agency deadline, an internal milestone, or a product change — "
-                f"and who hands it off to you to begin?"
-            )
-        if any(k in task_lower for k in ["audit", "inspection", "compliance", "review"]):
-            return (
-                f"What initiates a '{active_task}' — is it scheduled annually, triggered by an external "
-                f"authority, or does a specific event inside the organisation kick it off?"
-            )
-        # Sales / revenue tasks
-        if any(k in task_lower for k in ["forecast", "pipeline", "quota", "target", "revenue"]):
-            return (
-                f"What kicks off '{active_task}' — is it a fixed calendar event (month-end/quarter-end), "
-                f"a CRM alert, or a request from finance — and what data do you pull first?"
-            )
-        if any(k in task_lower for k in ["demo", "proposal", "pitch", "prospect", "lead"]):
-            return (
-                f"How does a '{active_task}' get initiated — does it flow from an inbound enquiry, "
-                f"a rep request, or does it come directly from your prospecting activity?"
-            )
-        # Engineering / technical tasks
-        if any(k in task_lower for k in ["deploy", "release", "build", "sprint", "code", "review"]):
-            return (
-                f"What triggers a '{active_task}' — a Jira ticket, a sprint ceremony, "
-                f"a CI pipeline signal, or a direct stakeholder request?"
-            )
-        if any(k in task_lower for k in ["incident", "bug", "issue", "outage", "support"]):
-            return (
-                f"When '{active_task}' lands on your plate, what's the first signal — "
-                f"a monitoring alert, a ticket, a Slack escalation — and what do you look at first?"
-            )
-        # Data / analytics tasks
-        if any(k in task_lower for k in ["report", "dashboard", "analysis", "insight", "data"]):
-            return (
-                f"What initiates '{active_task}' — a scheduled run, a stakeholder request, "
-                f"or a data anomaly — and what is the primary source you pull from?"
-            )
-        # HR / people tasks
-        if any(k in task_lower for k in ["hire", "recruit", "onboard", "interview", "appraisal"]):
-            return (
-                f"How does '{active_task}' get kicked off — is it a headcount approval from the "
-                f"business, a replacement need, or a proactive talent plan — and who owns the brief?"
-            )
-        # Finance tasks
-        if any(k in task_lower for k in ["budget", "invoice", "payroll", "reconcil", "close", "finance"]):
-            return (
-                f"What triggers '{active_task}' — a calendar deadline, a system alert, "
-                f"or a request from a business unit — and what sign-off is needed before you start?"
-            )
-        # Operations / procurement tasks
-        if any(k in task_lower for k in ["vendor", "purchase", "procurement", "supply", "inventory"]):
-            return (
-                f"What initiates '{active_task}' — a stock threshold, a business unit requisition, "
-                f"or a contract renewal — and who raises it to you?"
-            )
-        # Generic intelligent fallback — still better than the old template
-        return (
-            f"When '{active_task}' needs to happen, what is the specific trigger or event that "
-            f"starts it — and what information or inputs do you need before you can begin?"
-        )
+    # Short natural reference for use inside questions
+    short = _get_task_short_name(active_task)
 
-    # ── Turn 2: What goes wrong / what does expert-level look like? ─────────
+    # ── Turn 1: How does this work START? ───────────────────────────────────
+    if turn_number <= 1:
+        if any(
+            k in task_lower
+            for k in ["submission", "dossier", "regulatory", "approval", "filing"]
+        ):
+            return f"When it is time for your {short}, what usually kicks it off?"
+
+        if any(
+            k in task_lower for k in ["audit", "inspection", "compliance", "review"]
+        ):
+            return f"What usually starts your {short} — is it planned in advance or does something specific come in?"
+
+        if any(
+            k in task_lower
+            for k in ["forecast", "pipeline", "quota", "target", "revenue"]
+        ):
+            return f"What event or request usually kicks off your {short}?"
+
+        if any(
+            k in task_lower for k in ["demo", "proposal", "pitch", "prospect", "lead"]
+        ):
+            return f"How does your {short} usually begin — what comes in first?"
+
+        if any(
+            k in task_lower
+            for k in ["deploy", "release", "build", "sprint", "code", "review"]
+        ):
+            return f"What needs to happen before you can start your {short}?"
+
+        if any(
+            k in task_lower for k in ["incident", "bug", "issue", "outage", "support"]
+        ):
+            return f"When your {short} comes in, what is the first thing you do?"
+
+        if any(
+            k in task_lower
+            for k in ["report", "dashboard", "analysis", "insight", "data"]
+        ):
+            return f"What usually triggers your {short} — what sets it in motion?"
+
+        if any(
+            k in task_lower
+            for k in ["hire", "recruit", "onboard", "interview", "appraisal"]
+        ):
+            return f"How does your {short} usually get started?"
+
+        if any(
+            k in task_lower
+            for k in ["budget", "invoice", "payroll", "reconcil", "close", "finance"]
+        ):
+            return f"What starts your {short} — what usually happens right before you begin?"
+
+        if any(
+            k in task_lower
+            for k in ["vendor", "purchase", "procurement", "supply", "inventory"]
+        ):
+            return (
+                f"What needs to come in before you can start working on your {short}?"
+            )
+
+        # Generic fallback — still open-ended and short
+        return f"What needs to happen before you can start your {short}?"
+
+    # ── Turn 2: What is hard / what does good look like? ────────────────────
     elif turn_number == 2:
-        # Use what was captured in Turn 1 to pivot
         known_trigger = existing_wf.get("trigger", "")
         known_steps = existing_wf.get("steps") or []
 
         if known_trigger or known_steps:
-            # Anchor to what they shared
-            anchor = known_trigger[:50] if known_trigger else "that process"
-            if any(k in task_lower for k in ["submission", "dossier", "regulatory", "audit", "compliance"]):
-                return (
-                    f"In '{active_task}', where does the process most commonly hit a wall — "
-                    f"missing data from another team, regulatory ambiguity, timeline compression — "
-                    f"and how do you typically resolve it without derailing the deadline?"
-                )
-            if any(k in task_lower for k in ["forecast", "pipeline", "revenue", "report", "analysis"]):
-                return (
-                    f"In '{active_task}', what's the most common data quality or accuracy challenge "
-                    f"you hit, and what does a high-confidence output look like when the work is done right?"
-                )
-            if any(k in task_lower for k in ["deploy", "release", "build", "incident", "bug"]):
-                return (
-                    f"When '{active_task}' runs into a blocker — a failed check, a dependency gap, "
-                    f"an escalation — what's your decision framework and what does a clean resolution look like?"
-                )
-            return (
-                f"In '{active_task}', what's the hardest part to get right, and what separates "
-                f"an average outcome from a high-quality one in your judgment?"
-            )
+            if any(
+                k in task_lower
+                for k in ["submission", "dossier", "regulatory", "audit", "compliance"]
+            ):
+                return f"What is the most difficult part of your {short} and how do you usually handle it?"
 
-        # No Turn 1 data captured — ask for process steps
-        return (
-            f"Walk me through the main steps in '{active_task}' — from the moment you receive it "
-            f"to the point where you consider it done. What happens in sequence?"
-        )
+            if any(
+                k in task_lower
+                for k in ["forecast", "pipeline", "revenue", "report", "analysis"]
+            ):
+                return f"What is the trickiest part of your {short} to get right, and how do you know when it is done well?"
 
-    # ── Turn 3: Gap fill — missing fields only ──────────────────────────────
+            if any(
+                k in task_lower
+                for k in ["deploy", "release", "build", "incident", "bug"]
+            ):
+                return f"When something goes wrong during your {short}, what do you do to fix it?"
+
+            return f"What is the hardest part of your {short} to get right?"
+
+        # No Turn 1 data captured — ask for steps
+        return f"Walk me through how your {short} works from start to finish."
+
+    # ── Turn 3: Gap fill — plain, targeted ──────────────────────────────────
     else:
         missing = []
         if not existing_wf.get("trigger"):
-            missing.append("how it gets initiated")
+            missing.append("how it gets started")
         if not existing_wf.get("steps"):
-            missing.append("the step-by-step process")
+            missing.append("the steps involved")
         if not existing_wf.get("output"):
-            missing.append("the final deliverable or outcome")
+            missing.append("the final result")
 
         if missing:
             missing_str = " and ".join(missing)
-            return (
-                f"For '{active_task}', we still need to capture {missing_str}. "
-                f"Can you fill in that part specifically?"
-            )
-        return f"Details for '{active_task}' look complete. What aspect should we revisit or refine?"
+            return f"For your {short}, can you describe {missing_str}?"
+
+        return f"Is there anything else important about your {short} that we should capture?"
 
 
 # ── Phase-Specific Instructions ──────────────────────────────────────────────
@@ -327,9 +344,7 @@ def _build_basic_info_instruction(insights: dict) -> str:
     identity_context = insights.get("identity_context") or {}
 
     role_title = (
-        identity_context.get("title", "")
-        or insights.get("role", "")
-        or "this role"
+        identity_context.get("title", "") or insights.get("role", "") or "this role"
     )
     dept = identity_context.get("department", "")
     dept_clause = f" in the {dept} team" if dept else ""
@@ -343,11 +358,10 @@ def _build_basic_info_instruction(insights: dict) -> str:
         "\n- If the user mentions tools or skills, silently note them but do NOT follow up."
     )
 
-    turn_note = (
-        f"\n\nTURN MANAGEMENT: This is turn {turns} of 5. "
-        + ("Final turn — ask one concise broadening question."
-           if turns >= 5
-           else f"You have {5 - turns} turn(s) remaining.")
+    turn_note = f"\n\nTURN MANAGEMENT: This is turn {turns} of 5. " + (
+        "Final turn — ask one concise broadening question."
+        if turns >= 5
+        else f"You have {5 - turns} turn(s) remaining."
     )
 
     # ── TURN 1: Purpose not captured — use role-specific framing ─────────────
@@ -455,7 +469,9 @@ def _build_deep_dive_instruction(insights: dict) -> str:
 
     if completed and active:
         # Transitioning from one task to the next — craft intelligent opener for new task
-        task_q = _build_task_aware_deep_dive_question(active, 1, identity_context, workflows)
+        task_q = _build_task_aware_deep_dive_question(
+            active, 1, identity_context, workflows
+        )
         return (
             f"'{completed}' is captured. Now deep-diving: '{active}'."
             f"\n\nASK EXACTLY THIS QUESTION (or a close variant):"
@@ -473,7 +489,9 @@ def _build_deep_dive_instruction(insights: dict) -> str:
         if not active:
             return "All tasks are visited. Say: 'All priority tasks have been mapped.'"
 
-        task_q = _build_task_aware_deep_dive_question(active, 1, identity_context, workflows)
+        task_q = _build_task_aware_deep_dive_question(
+            active, 1, identity_context, workflows
+        )
         return (
             f"Your goal: Begin deep-diving task: '{active}'."
             f"\n\nASK EXACTLY THIS QUESTION (or a close variant):"
@@ -482,7 +500,9 @@ def _build_deep_dive_instruction(insights: dict) -> str:
         )
 
     # ── Active task in progress — use intelligent turn-based questions ────────
-    task_q = _build_task_aware_deep_dive_question(active, turn_number, identity_context, workflows)
+    task_q = _build_task_aware_deep_dive_question(
+        active, turn_number, identity_context, workflows
+    )
 
     if turn_number <= 1:
         return (

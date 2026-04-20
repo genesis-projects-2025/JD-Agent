@@ -133,6 +133,7 @@ export default function JDPage() {
  setEditedJdText(pText);
 
  // NOTE: Do NOT re-read raw data here - migrations above are intentional.
+ let pStruct = safeParseObject(data.jd_structured);
 
  // Fallback: If structured data is completely empty, try pulling it from the generated_jd block
  if (
@@ -430,12 +431,12 @@ export default function JDPage() {
  if (
  !pStruct ||
  Object.keys(pStruct).length === 0 ||
- !pStruct.key_responsibilities
+ (!pStruct.key_responsibilities && !pStruct.responsibilities)
  ) {
  const p = safeParseObject(jd.generated_jd);
  if (p.jd_structured_data) {
  pStruct = p.jd_structured_data;
- } else if (p.role_summary || p.key_responsibilities) {
+ } else if (p.role_summary || p.key_responsibilities || p.responsibilities) {
  pStruct = p;
  }
  }

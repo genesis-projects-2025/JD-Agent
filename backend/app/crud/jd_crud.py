@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, delete
 from sqlalchemy.orm import selectinload
 from app.models.jd_session_model import JDSession, ConversationTurn, JDVersion
+from app.models.review_comment_model import JDReviewComment
 from typing import Optional
 import datetime
 import json
@@ -238,7 +239,7 @@ async def _harvest_organic_skills(
 async def save_questionnaire_jd(
     db: AsyncSession,
     session_id: str,
-    jd_text: str,
+    jd_text: str | None,
     jd_structured: dict,
     employee_insights: dict,
     progress: dict,
@@ -486,7 +487,7 @@ async def sync_session_to_db(
 async def update_questionnaire_jd(
     db: AsyncSession,
     jd_id: str,
-    jd_text: str,
+    jd_text: str | None,
     jd_structured: dict,
     employee_id: str,
 ) -> Optional[JDSession]:
@@ -645,7 +646,7 @@ async def approve_questionnaire(
 
     record.status = "approved"
     record.reviewed_by = reviewed_by
-    record.reviewed_at = _now().replace(tzinfo=None)
+    record.reviewed_at = datetime.datetime.now().replace(tzinfo=None)
     record.reviewer_comment = None
 
     await db.commit()
@@ -671,7 +672,7 @@ async def reject_questionnaire(
 
     record.status = "rejected"
     record.reviewed_by = reviewed_by
-    record.reviewed_at = _now().replace(tzinfo=None)
+    record.reviewed_at = datetime.datetime.now().replace(tzinfo=None)
     record.reviewer_comment = comment
 
     await db.commit()
@@ -684,7 +685,7 @@ async def reject_questionnaire(
 async def list_questionnaires_by_employee(
     db: AsyncSession,
     employee_id: str,
-) -> list[JDSession]:
+) -> list[dict]:
     # Check cache first
     cache_key = f"jds:employee:{employee_id}"
     cached = await get_cache(cache_key)
@@ -783,7 +784,7 @@ async def create_review_comment(
     target_role: str,
     action: str,
     comment: Optional[str] = None,
-) -> "JDReviewComment":  # noqa: F821
+) -> JDReviewComment:
     from app.models.review_comment_model import JDReviewComment
 
     session_uuid = _safe_uuid(jd_session_id)
@@ -802,7 +803,7 @@ async def create_review_comment(
     if record:
         record.reviewed_by = reviewer_id
         record.reviewer_comment = comment
-        record.reviewed_at = _now().replace(tzinfo=None)
+        record.reviewed_at = datetime.datetime.now().replace(tzinfo=None)
 
         if action in ["rejected", "revision_requested"]:
             from app.models.user_model import Employee

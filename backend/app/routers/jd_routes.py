@@ -264,7 +264,7 @@ async def chat(request: ChatRequest, db: AsyncSession = Depends(get_db)):
         insights=session_memory.insights,
         progress=session_memory.to_dict(), # Persistence: Sync full state
         conversation_history=session_memory.full_history,
-        employee_id=session_memory.employee_id,
+        employee_id=session_memory.employee_id or "",
         employee_name=session_memory.employee_name,
         generated_jd=session_memory.generated_jd,
         jd_structured=session_memory.jd_structured,
@@ -300,7 +300,7 @@ async def chat_stream(request: ChatRequest, db: AsyncSession = Depends(get_db)):
                 insights=session_memory.insights,
                 progress=session_memory.to_dict(),  # Persistence: Sync full state
                 conversation_history=session_memory.full_history,
-                employee_id=session_memory.employee_id,
+                employee_id=session_memory.employee_id or "",
                 employee_name=session_memory.employee_name,
                 generated_jd=session_memory.generated_jd,
                 jd_structured=session_memory.jd_structured,
@@ -355,7 +355,7 @@ async def generate_jd_endpoint(
         insights=session_memory.insights,
         progress=session_memory.progress,
         conversation_history=session_memory.full_history,
-        employee_id=session_memory.employee_id,
+        employee_id=session_memory.employee_id or "",
         employee_name=session_memory.employee_name,
         status="jd_generated",
     )
@@ -395,7 +395,7 @@ async def save_jd(request: SaveJDRequest, db: AsyncSession = Depends(get_db)):
             jd_structured=request.jd_structured,
             employee_insights=session_memory.insights,
             progress=session_memory.progress,
-            employee_id=request.employee_id or session_memory.employee_id,
+            employee_id=request.employee_id or session_memory.employee_id or "",
             conversation_history=db_history,
             status=session_memory.progress.get("status")
             if isinstance(session_memory.progress, dict)
@@ -441,7 +441,7 @@ async def confirm_skills(
         insights=session_memory.insights,
         progress=session_memory.progress,
         conversation_history=session_memory.full_history,
-        employee_id=session_memory.employee_id,
+        employee_id=session_memory.employee_id or "",
     )
 
     return {"status": "success", "message": "Skills confirmed and stored."}
@@ -465,7 +465,7 @@ async def confirm_tools(
         insights=session_memory.insights,
         progress=session_memory.progress,
         conversation_history=session_memory.full_history,
-        employee_id=session_memory.employee_id,
+        employee_id=session_memory.employee_id or "",
     )
 
     return {"status": "success", "message": "Tools confirmed and stored."}
@@ -498,7 +498,7 @@ async def confirm_priority_tasks(
         insights=session_memory.insights,
         progress=session_memory.progress,
         conversation_history=session_memory.full_history,
-        employee_id=session_memory.employee_id,
+        employee_id=session_memory.employee_id or "",
     )
     await invalidate_pattern(f"cache:jd_detail:*{jd_id}*")
     await _cache_session(session_memory)
@@ -598,7 +598,7 @@ async def mark_read(comment_id: str, db: AsyncSession = Depends(get_db)):
 @router.get("/{jd_id}/download/docx/{filename}")
 @router.get("/{jd_id}/download")
 async def download_jd_docx(
-    jd_id: str, filename: str = None, db: AsyncSession = Depends(get_db)
+    jd_id: str, filename: str | None = None, db: AsyncSession = Depends(get_db)
 ):
     """Generate and stream a Pulse Pharma branded DOCX file for the given JD."""
     record = await get_questionnaire(db, jd_id)
@@ -613,8 +613,8 @@ async def download_jd_docx(
 
     docx_buffer = generate_jd_docx(
         jd_data=record.jd_structured,
-        title=record.title,
-        department=record.department,
+        title=record.title or "Untitled JD",
+        department=record.department or "",
     )
 
     title = record.title or "Job Description"

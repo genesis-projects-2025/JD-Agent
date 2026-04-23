@@ -57,7 +57,7 @@ async def deduplicate_and_professionalize(items: List[Union[str, dict]], item_ty
             HumanMessage(content="Clean this list.")
         ])
 
-        response_text = response.content.strip()
+        response_text = str(response.content).strip()
         logger.debug(f"[SemanticCleaner] LLM Response: {response_text[:200]}...")
         
         # Clean up code blocks if present

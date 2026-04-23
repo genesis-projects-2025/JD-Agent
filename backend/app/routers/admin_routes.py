@@ -176,7 +176,7 @@ async def get_admin_users(
 
     if status:
         if status.lower() == "no jd":
-            query = query.where(JDSession.id is None)
+            query = query.where(JDSession.id.is_(None))
         else:
             query = query.where(JDSession.status == status)
 

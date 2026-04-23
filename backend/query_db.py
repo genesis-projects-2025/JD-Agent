@@ -1,6 +1,6 @@
 import asyncio
-from app.db.session import async_session
-from app.models.jd_model import JDSession, ConversationTurn
+from app.core.database import AsyncSessionLocal as async_session
+from app.models.jd_session_model import JDSession, ConversationTurn
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 

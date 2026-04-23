@@ -4,7 +4,9 @@
 # footer disclaimer. Replaces the old multi-colour enterprise format entirely.
 
 from io import BytesIO
+import logging
 import os
+from urllib.request import urlopen
 
 from docx import Document
 from docx.shared import Pt, Inches, Emu
@@ -14,11 +16,15 @@ from docx.oxml.ns import qn
 from docx.oxml import OxmlElement
 
 # Logo path — moved to static assets directory
+logger = logging.getLogger(__name__)
+
 _HERE = os.path.dirname(os.path.abspath(__file__))
 # Default to static/images/pulse_logo.jpeg relative to the backend root (one level up from app/)
 _PROJECT_ROOT = os.path.dirname(os.path.dirname(_HERE))
 DEFAULT_LOGO_PATH = os.path.join(_PROJECT_ROOT, "static", "images", "pulse_logo.jpeg")
+DEFAULT_LOGO_URL = "https://company-logo-wtn.s3.ap-southeast-2.amazonaws.com/logo.png"
 LOGO_PATH = os.getenv("COMPANY_LOGO_PATH", DEFAULT_LOGO_PATH)
+LOGO_URL = os.getenv("COMPANY_LOGO_URL", DEFAULT_LOGO_URL)
 
 HEADER_COLOR = "BFBFBF"  # exact grey from company template
 BORDER_COLOR = "999999"
@@ -27,7 +33,7 @@ BORDER_COLOR = "999999"
 # ── Low-level helpers ─────────────────────────────────────────────────────────
 
 
-def _set_cell_properties(cell, bg_color: str = None, borders: bool = True, valign: str = None) -> None:
+def _set_cell_properties(cell, bg_color: str | None = None, borders: bool = True, valign: str | None = None) -> None:
     """Sets cell properties ensuring correct OOXML element order in tcPr."""
     tc = cell._tc
     tcPr = tc.get_or_add_tcPr()
@@ -73,6 +79,25 @@ def _set_cell_properties(cell, bg_color: str = None, borders: bool = True, valig
 def _para_spacing(para, before: float = 0, after: float = 0) -> None:
     para.paragraph_format.space_before = Pt(before)
     para.paragraph_format.space_after = Pt(after)
+
+
+def _load_logo_stream() -> BytesIO | None:
+    """Load the company logo from URL first, then fall back to local file."""
+    if LOGO_URL:
+        try:
+            with urlopen(LOGO_URL, timeout=10) as response:
+                return BytesIO(response.read())
+        except Exception as exc:
+            logger.warning("Could not load company logo from URL %s: %s", LOGO_URL, exc)
+
+    if os.path.exists(LOGO_PATH):
+        try:
+            with open(LOGO_PATH, "rb") as logo_file:
+                return BytesIO(logo_file.read())
+        except Exception as exc:
+            logger.warning("Could not load company logo from file %s: %s", LOGO_PATH, exc)
+
+    return None
 
 
 # ── Row builders ──────────────────────────────────────────────────────────────
@@ -201,7 +226,7 @@ def _get_stakeholder(data: dict, itype: str) -> str:
 
 
 def generate_jd_docx(
-    jd_data: dict, title: str = None, department: str = None
+    jd_data: dict, title: str | None = None, department: str | None = None
 ) -> BytesIO:
     """
     Generate a Pulse Pharma branded DOCX from structured JD data.
@@ -259,8 +284,10 @@ def generate_jd_docx(
     section.left_margin = Emu(914400)
     section.right_margin = Emu(914400)
 
-    doc.styles["Normal"].font.name = "Calibri"
-    doc.styles["Normal"].font.size = Pt(11)
+    normal_style = doc.styles["Normal"]
+    if hasattr(normal_style, "font"):
+        normal_style.font.name = "Calibri"
+        normal_style.font.size = Pt(11)
 
     # ── Logo in header ────────────────────────────────────────────────────────
     header = section.header
@@ -268,8 +295,9 @@ def generate_jd_docx(
     hp = header.paragraphs[0]
     hp.alignment = WD_ALIGN_PARAGRAPH.CENTER
     _para_spacing(hp, after=6)
-    if os.path.exists(LOGO_PATH):
-        hp.add_run().add_picture(LOGO_PATH, width=Inches(2.5))
+    logo_stream = _load_logo_stream()
+    if logo_stream:
+        hp.add_run().add_picture(logo_stream, width=Inches(2.5))
     else:
         # Fallback text if logo file missing
         lr = hp.add_run("PULSE PHARMA")

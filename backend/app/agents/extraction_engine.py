@@ -12,7 +12,7 @@ from __future__ import annotations
 import json
 import re
 import logging
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any, Optional, cast
 
 logger = logging.getLogger(__name__)
 from pydantic import BaseModel, Field
@@ -403,20 +403,72 @@ def extract_skills(text: str) -> list:
     return list(set(skills))
 
 
+def _extract_latest_assistant_question(recent_messages: list | None) -> str:
+    """Return the latest assistant message/question as plain text."""
+    if not recent_messages:
+        return ""
+
+    for msg in reversed(recent_messages):
+        if msg.get("role") != "assistant":
+            continue
+
+        content = str(msg.get("content", "")).strip()
+        if not content:
+            continue
+
+        if "{" in content and "}" in content:
+            try:
+                parsed = json.loads(content)
+                content = (
+                    parsed.get("next_question")
+                    or parsed.get("question")
+                    or parsed.get("full_text")
+                    or content
+                )
+            except Exception:
+                pass
+
+        return str(content).strip()
+
+    return ""
+
+
+def _contains_cadence_signal(text: str) -> bool:
+    """Detect whether a message explicitly references work cadence."""
+    if not text:
+        return False
+
+    cadence_keywords = (
+        "daily",
+        "weekly",
+        "monthly",
+        "every day",
+        "every week",
+        "every month",
+        "routine",
+        "regularly",
+        "cadence",
+        "recurring",
+    )
+    lowered = text.lower()
+    return any(keyword in lowered for keyword in cadence_keywords)
+
+
 async def extract_with_llm(
-    user_message: str, current_state: dict, current_agent: str = "", recent_messages: list = None
+    user_message: str, current_state: dict, current_agent: str = "", recent_messages: list | None = None
 ) -> dict:
     """Use LLM for comprehensive extraction."""
     try:
-        # PERFORMANCE UPGRADE: Truncate history passed to extraction LLM (last 4 messages ONLY)
-        # Utility extraction does not need full context, saving tokens and processing time.
-        state_summary = serialize_insights(current_state)
+        # PERFORMANCE: Use phase-scoped state summary to cut 200-500 tokens per call
+        state_summary = serialize_insights_for_agent(current_state, current_agent)
 
-        # Extract only the last 3 agent messages to give context on what was asked
+        # For DeepDive: only last 2 agent messages needed (we only care about current task context)
+        # For all other agents: last 3 agent messages
+        history_limit = 2 if current_agent == "DeepDiveAgent" else 3
         recent_history = ""
         if recent_messages:
             agent_msgs = [m.get("content", "") for m in recent_messages[-6:] if m.get("role") == "assistant"]
-            recent_history = "\n".join(agent_msgs[-3:])
+            recent_history = "\n".join(agent_msgs[-history_limit:])
 
         prompt = EXTRACTION_PROMPT.format(
             current_agent=current_agent,
@@ -438,7 +490,7 @@ async def extract_with_llm(
         if not response:
             return {}
 
-        extracted = response.model_dump(exclude_none=True)
+        extracted = cast(ExtractionSchema, response).model_dump(exclude_none=True)
 
         return extracted
 
@@ -448,7 +500,7 @@ async def extract_with_llm(
 
 
 async def extract_information(
-    user_message: str, current_state: dict, current_agent: str = "", recent_messages: list = None
+    user_message: str, current_state: dict, current_agent: str = "", recent_messages: list | None = None
 ) -> dict:
     """
     Main extraction function — combines pattern-based and LLM extraction.
@@ -503,8 +555,11 @@ async def extract_information(
             "priority_tasks",
             "workflows",
             "tools",
+            "technologies",
             "skills",
             "qualifications",
+            "user_wants_to_proceed",
+            "cadence_probed",
             "tools_confirmed",
             "skills_confirmed",
             "conflicts",
@@ -515,7 +570,17 @@ async def extract_information(
     # Clean up extracted data
     extracted = {k: v for k, v in extracted.items() if v not in (None, "", [], {})}
 
+    # ── PYTHON-LAYER CADENCE DETECTION (deterministic, not LLM-dependent) ────
+    # If the last agent question explicitly mentioned cadence keywords, or if
+    # the user's message contains cadence info, force-set cadence_probed = True.
+    if current_agent == "BasicInfoAgent" and not extracted.get("cadence_probed"):
+        last_agent_q = _extract_latest_assistant_question(recent_messages)
+        if _contains_cadence_signal(last_agent_q) or _contains_cadence_signal(user_message):
+            extracted["cadence_probed"] = True
+            logger.debug("[Extraction] cadence_probed=True set by Python-layer detection")
+
     # ── AGENT-SCOPED EXTRACTION FILTER ──────────────────────────────────────
+
     # Prevent cross-agent data pollution by limiting which fields each agent
     # can extract. This stops BasicInfoAgent from accidentally extracting skills,
     # and keeps DeepDive focused on workflows.
@@ -732,5 +797,84 @@ def serialize_insights(insights: dict) -> str:
             else:
                 formatted_tasks.append(str(t))
         view["tasks"] = formatted_tasks
+
+    return json.dumps(view, indent=2)
+
+
+def serialize_insights_for_agent(insights: dict, agent_name: str) -> str:
+    """Phase-scoped insights serializer — sends only fields relevant to the active agent.
+
+    This replaces serialize_insights() in the extraction LLM call to cut
+    200-500 tokens per turn by not sending irrelevant session data.
+
+    Each agent only needs to see the fields it's responsible for extracting,
+    plus identity context to avoid re-asking known information.
+    """
+    # Fields always included (identity context — prevents re-asking)
+    base_keys = {
+        "identity_context",
+        "purpose",
+        "role",
+        "department",
+        "conversation_summary",
+    }
+
+    # Per-agent whitelisted fields
+    AGENT_FIELDS: dict[str, set] = {
+        "BasicInfoAgent":           {"tasks", "cadence_probed", "agent_turn_counts"},
+        "WorkflowIdentifierAgent":  {"tasks", "priority_tasks"},
+        "DeepDiveAgent":            {"priority_tasks", "visited_tasks",
+                                     "active_deep_dive_task", "workflows",
+                                     "deep_dive_turn_count"},
+        "ToolsAgent":               {"tools", "technologies", "workflows"},
+        "SkillsAgent":              {"skills", "tools"},
+        "QualificationAgent":       {"qualifications"},
+        "JDGeneratorAgent":         set(),  # Uses full insights via separate path
+    }
+
+    allowed = base_keys | AGENT_FIELDS.get(agent_name, set())
+
+    excluded_meta = {
+        "next_question", "agent_stall_counts",
+        "completed_phases", "agent_transition_log", "final_jd",
+        "questions_asked", "previous_questions_text",
+    }
+
+    view: dict = {}
+    for k, v in insights.items():
+        if k.startswith("_"):
+            continue
+        if k in excluded_meta:
+            continue
+        if v in (None, {}, [], ""):
+            continue
+        if k not in allowed:
+            continue
+        view[k] = v
+
+    # Format tasks for readability
+    if "tasks" in view and isinstance(view["tasks"], list):
+        formatted = []
+        for t in view["tasks"][:5]:
+            if isinstance(t, dict):
+                desc = t.get("description", "")
+                freq = t.get("frequency", "regular")
+                formatted.append(f"{desc} ({freq})")
+            else:
+                formatted.append(str(t))
+        view["tasks"] = formatted
+
+    if "conversation_summary" in view:
+        summary = str(view["conversation_summary"]).strip()
+        if len(summary) > 220:
+            view["conversation_summary"] = summary[:220] + "..."
+
+    # For DeepDive: only send the active task's workflow, not all workflows
+    if agent_name == "DeepDiveAgent" and "workflows" in view:
+        active = insights.get("active_deep_dive_task")
+        if active and active in view["workflows"]:
+            view["workflows"] = {active: view["workflows"][active]}
+        elif not active:
+            view.pop("workflows", None)
 
     return json.dumps(view, indent=2)

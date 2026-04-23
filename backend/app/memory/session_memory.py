@@ -22,6 +22,12 @@ AGENT_PHASE_MAP = {
 
 
 class SessionMemory:
+    id: str | None
+    employee_id: str | None
+    employee_name: str | None
+    generated_jd: str | None
+    jd_structured: dict | None
+
     def __init__(self):
         self.id = None
         self.employee_id = None

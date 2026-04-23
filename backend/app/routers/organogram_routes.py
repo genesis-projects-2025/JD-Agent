@@ -212,10 +212,10 @@ async def get_hierarchy(
                     r
                     for r in rows
                     if r.get("Area_Name")
-                    and r.get("Area_Name").strip().lower() == current.strip().lower()
+                    and (r.get("Area_Name") or "").strip().lower() == current.strip().lower()
                 ]
                 for child in children:
-                    queue.append(child.get("Territory"))
+                    queue.append(child.get("Territory") or "")
 
             return result_set
 
@@ -240,14 +240,15 @@ async def get_hierarchy(
                 r
                 for r in filtered_rows
                 if r.get("Area_Name")
-                and r.get("Area_Name").strip().lower() == terr.strip().lower()
+                and (r.get("Area_Name") or "").strip().lower() == terr.strip().lower()
             ]
 
             children = {}
             for child in child_rows:
-                child_node = build_node(child.get("Territory"))
+                terr = child.get("Territory") or ""
+                child_node = build_node(terr)
                 if child_node:
-                    children[child.get("Territory")] = child_node
+                    children[terr] = child_node
 
             return {
                 "empName": emp.get("Emp_Name"),
@@ -266,9 +267,9 @@ async def get_hierarchy(
         else:
             # If no territory provided, return full forest
             child_areas = set(
-                r.get("Area_Name").strip()
+                (r.get("Area_Name") or "").strip()
                 for r in filtered_rows
-                if r.get("Area_Name") and r.get("Area_Name").strip()
+                if r.get("Area_Name") and (r.get("Area_Name") or "").strip()
             )
 
             top_levels = [
@@ -278,9 +279,10 @@ async def get_hierarchy(
             ]
 
             for top in top_levels:
-                node = build_node(top.get("Territory"))
+                terr = top.get("Territory") or ""
+                node = build_node(terr)
                 if node:
-                    hierarchy[top.get("Territory")] = node
+                    hierarchy[terr] = node
 
         return {"hierarchy": hierarchy}
 

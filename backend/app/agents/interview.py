@@ -30,7 +30,11 @@ from langchain_core.messages import (
 
 from app.core.config import settings
 from app.agents.state import AgentState
-from app.agents.dynamic_prompts import build_system_messages
+from app.agents.dynamic_prompts import (
+    build_system_messages,
+    _strip_leading_acknowledgment,
+    _get_structured_phase_message,
+)
 from app.agents.prompts import JD_GENERATION_PROMPT
 
 logger = logging.getLogger(__name__)
@@ -204,7 +208,7 @@ def _compute_question_hash(question_text: str) -> str:
 
 
 def _is_question_repeated(
-    question_text: str, questions_asked: list, previous_questions_text: list = None
+    question_text: str, questions_asked: list, previous_questions_text: list | None = None
 ) -> bool:
     """Check if question has been asked using hash match + semantic keyword overlap.
 
@@ -435,6 +439,24 @@ def _truncate_if_too_long(response_text: str) -> str:
     return trimmed
 
 
+def _normalize_agent_response(
+    response_text: str,
+    agent_name: str,
+    insights: dict,
+    is_opening_turn: bool,
+) -> str:
+    """Apply the shared post-generation validation pipeline."""
+    normalized = _strip_tool_code_leaks(response_text)
+    normalized = _strip_leading_acknowledgment(
+        normalized,
+        preserve_first_turn_greeting=is_opening_turn,
+    )
+    normalized = _trim_duplicate_response(normalized)
+    normalized = _truncate_if_too_long(normalized)
+    normalized = _ensure_ends_with_question(normalized, agent_name, insights, {})
+    return normalized.strip()
+
+
 # ── LLM Instances ─────────────────────────────────────────────────────────────
 
 # Interview LLM — used for streaming conversational questions
@@ -582,26 +604,17 @@ def build_interview_messages(
     return messages
 
 
-# Configuration for silent agents that provide static instructions rather than LLM-generated questions
-SILENT_AGENT_RESPONSES = {
-    "WorkflowIdentifierAgent": (
-        "Here are the tasks identified from your role. "
-        "Select the most critical, high-impact tasks — these will be analyzed in detail for the Job Description. "
-        "You can also add any missing tasks."
-    ),
-    "ToolsAgent": (
-        "Here are the tools and platforms identified from your workflows. "
-        "Review, add, or remove as needed, then confirm."
-    ),
-    "SkillsAgent": (
-        "Here are the core technical skills for this role. "
-        "Review, add, or remove as needed, then confirm."
-    ),
-    "JDGeneratorAgent": (
-        "All aspects of your role have been captured. "
-        "Your Job Description is ready for generation."
-    ),
+SILENT_AGENTS = {
+    "WorkflowIdentifierAgent",
+    "ToolsAgent",
+    "SkillsAgent",
+    "JDGeneratorAgent",
 }
+
+
+def _get_silent_agent_response(agent_name: str, insights: dict) -> str:
+    """Return structured, non-LLM copy for UI-driven phases."""
+    return _get_structured_phase_message(agent_name, insights)
 
 
 class InterviewEngine:
@@ -652,7 +665,7 @@ class InterviewEngine:
             role_query=role_title,
             block_type=b_type,
             experience_level=exp_level,
-            department=dept,
+            department=dept or "",
             top_k=5,
         )
 
@@ -699,7 +712,7 @@ class InterviewEngine:
             from langchain_core.messages import HumanMessage
 
             response = await _interview_llm.ainvoke([HumanMessage(content=prompt)])
-            content = response.content.strip()
+            content = str(response.content).strip()
             # Clean possible markdown wrap
             if "```" in content:
                 content = content.split("```")[1]
@@ -785,6 +798,12 @@ class InterviewEngine:
 
     def _deep_merge_dicts(self, d1: dict, d2: dict) -> dict:
         """Recursively merge d2 into d1."""
+        for key, value in d2.items():
+            if key in d1 and isinstance(d1[key], dict) and isinstance(value, dict):
+                self._deep_merge_dicts(d1[key], value)
+            else:
+                d1[key] = value
+        return d1
 
     def _normalize_item_text(self, text: str) -> str:
         """Normalize text for semantic deduplication (lowercase, strip, remove extra spaces)."""
@@ -930,6 +949,11 @@ class InterviewEngine:
         if skills:
             parts.append(f"Skills: {len(skills)}")
 
+        last_question = str(insights.get("last_question_asked") or "").strip()
+        if last_question:
+            normalized = " ".join(last_question.split())
+            parts.append(f"Last question: {normalized[:90]}")
+
         parts.append(f"Active agent: {agent_name}")
 
         return ". ".join(parts)
@@ -998,7 +1022,7 @@ Keep it professional and brief."""
                     HumanMessage(content=snapshot_prompt),
                 ],
             )
-            return _extract_text_content(response.content).strip()
+            return _extract_text_content(response.content if response else None).strip()
         except Exception as e:
             logger.error(f"[Snapshot] Failed to generate snapshot: {e}")
             return ""
@@ -1016,7 +1040,7 @@ Keep it professional and brief."""
                 ),
             ],
         )
-        raw_content = _extract_text_content(response.content).strip()
+        raw_content = _extract_text_content(response.content if response else None).strip()
 
         # Strip potential markdown code blocks
         if raw_content.startswith("```"):
@@ -1039,13 +1063,14 @@ Keep it professional and brief."""
         questions_asked: list | None = None,
         transition_context: str = "",
         previous_questions_text: list | None = None,
-    ) -> tuple[dict, str, list]:
+    ) -> tuple[dict, dict, str, list]:
         """Execute one interview turn (non-streaming).
 
         Returns: (extracted_data, updated_insights, response_text, updated_questions_asked)
         """
         questions_asked = questions_asked or []
         previous_questions_text = previous_questions_text or []
+        is_opening_turn = not recent_messages
 
         # Increment phase turn count for the incoming agent
         agent_turns = insights.get("agent_turn_counts") or {}
@@ -1065,40 +1090,41 @@ Keep it professional and brief."""
                 f"[Interview] Data Extracted & Merged: {list(extracted.keys())}"
             )
 
-            # --- PRE-PROCESS BEFORE MID-TURN ROUTING ---
-            insights = self._pre_process_iteration_state(insights, agent_name)
+        # --- PRE-PROCESS BEFORE MID-TURN ROUTING ---
+        insights = self._pre_process_iteration_state(insights, agent_name)
 
-            # --- MID-TURN ROUTING ---
-            from app.agents.router import compute_current_agent, get_transition_message
+        # --- MID-TURN ROUTING ---
+        from app.agents.router import compute_current_agent, get_transition_message
 
-            new_agent = compute_current_agent(insights, agent_name)
-            if new_agent != agent_name:
-                logger.info(
-                    f"[Interview] Mid-Turn Transition: {agent_name} -> {new_agent}"
+        new_agent = compute_current_agent(insights, agent_name)
+        if new_agent != agent_name:
+            logger.info(
+                f"[Interview] Mid-Turn Transition: {agent_name} -> {new_agent}"
+            )
+            transition_context = get_transition_message(agent_name, new_agent)
+
+            # Clean insights data upon phase transition
+            from app.agents.semantic_cleaner import deduplicate_and_professionalize
+
+            if new_agent == "WorkflowIdentifierAgent":
+                insights["tasks"] = await deduplicate_and_professionalize(
+                    insights.get("tasks") or [], "tasks"
                 )
-                transition_context = get_transition_message(agent_name, new_agent)
+            elif new_agent == "DeepDiveAgent":
+                insights["priority_tasks"] = await deduplicate_and_professionalize(
+                    insights.get("priority_tasks") or [], "priority_tasks"
+                )
+            elif new_agent == "ToolsAgent":
+                insights["tools"] = await deduplicate_and_professionalize(
+                    insights.get("tools") or [], "tools"
+                )
+            elif new_agent == "SkillsAgent":
+                insights["skills"] = await deduplicate_and_professionalize(
+                    insights.get("skills") or [], "skills"
+                )
 
-                # Clean insights data upon phase transition
-                from app.agents.semantic_cleaner import deduplicate_and_professionalize
-
-                if new_agent == "WorkflowIdentifierAgent":
-                    insights["tasks"] = await deduplicate_and_professionalize(
-                        insights.get("tasks") or [], "tasks"
-                    )
-                elif new_agent == "DeepDiveAgent":
-                    insights["priority_tasks"] = await deduplicate_and_professionalize(
-                        insights.get("priority_tasks") or [], "priority_tasks"
-                    )
-                elif new_agent == "ToolsAgent":
-                    insights["tools"] = await deduplicate_and_professionalize(
-                        insights.get("tools") or [], "tools"
-                    )
-                elif new_agent == "SkillsAgent":
-                    insights["skills"] = await deduplicate_and_professionalize(
-                        insights.get("skills") or [], "skills"
-                    )
-
-                agent_name = new_agent
+            agent_name = new_agent
+            insights = self._pre_process_iteration_state(insights, agent_name)
 
         # Step 0b: Advanced RAG Retrieval
         retrieved_context = await self._get_rag_context(insights, agent_name)
@@ -1134,12 +1160,12 @@ Keep it professional and brief."""
 
         # Step 1: Call Conversational LLM for purely "Zero-Filler Questions"
         response_text = ""
-        if agent_name in SILENT_AGENT_RESPONSES:
+        if agent_name in SILENT_AGENTS:
             logger.info(f"[Interview] Bypassing LLM for Silent Agent: {agent_name}")
-            response_text = SILENT_AGENT_RESPONSES[agent_name]
+            response_text = _get_silent_agent_response(agent_name, insights)
         else:
             response = await _invoke_with_retry(_interview_llm, messages)
-            response_text = _extract_text_content(response.content)
+            response_text = _extract_text_content(response.content if response else None)
 
         # Step 2: Loop control — check for agent stall
         is_stalled = self._check_agent_stall(agent_name, extracted, insights)
@@ -1152,18 +1178,18 @@ Keep it professional and brief."""
                 insights["completed_phases"] = completed
 
         # --- APPLY STRICT VALIDATION PIPELINE ---
-        if agent_name not in SILENT_AGENT_RESPONSES:
-            response_text = _strip_tool_code_leaks(response_text)
-            response_text = _trim_duplicate_response(response_text)
-            response_text = _truncate_if_too_long(response_text)
-            response_text = _ensure_ends_with_question(
-                response_text, agent_name, insights, {}
+        if agent_name not in SILENT_AGENTS:
+            response_text = _normalize_agent_response(
+                response_text,
+                agent_name,
+                insights,
+                is_opening_turn=is_opening_turn,
             )
 
         # --- SEMANTIC QUESTION DEDUPLICATION ---
         response_text = response_text.strip()
 
-        if agent_name not in SILENT_AGENT_RESPONSES and _is_question_repeated(
+        if agent_name not in SILENT_AGENTS and _is_question_repeated(
             response_text, questions_asked, previous_questions_text
         ):
             logger.info("  [DEDUP] ⚠ Question is repeated! Generating alternative.")
@@ -1178,20 +1204,23 @@ Keep it professional and brief."""
                 ),
             ]
             retry_response = await _invoke_with_retry(_response_llm, dedup_msgs)
-            alt_text = _extract_text_content(retry_response.content).strip()
+            alt_text = _extract_text_content(retry_response.content if retry_response else None).strip()
             if alt_text and not _is_question_repeated(
                 alt_text, questions_asked, previous_questions_text
             ):
-                response_text = alt_text
-                response_text = _strip_tool_code_leaks(response_text)
-                response_text = _trim_duplicate_response(response_text)
-                response_text = _truncate_if_too_long(response_text)
-                response_text = _ensure_ends_with_question(
-                    response_text, agent_name, insights, {}
+                response_text = _normalize_agent_response(
+                    alt_text,
+                    agent_name,
+                    insights,
+                    is_opening_turn=is_opening_turn,
                 )
 
         # Record the question hash + text
         response_text = response_text.strip()
+        insights["last_question_asked"] = response_text
+        insights["conversation_summary"] = self._build_conversation_summary(
+            insights, agent_name
+        )
         q_hash = _compute_question_hash(response_text)
         if q_hash not in questions_asked:
             questions_asked.append(q_hash)
@@ -1221,6 +1250,7 @@ Keep it professional and brief."""
         """
         questions_asked = questions_asked or []
         previous_questions_text = previous_questions_text or []
+        is_opening_turn = not recent_messages
 
         # ✅ CRITICAL: Yield an immediate heartbeat chunk to prevent frontend timeouts
         yield {"type": "chunk", "content": ""}
@@ -1289,10 +1319,6 @@ Keep it professional and brief."""
 
             transition_context = get_transition_message(agent_name, new_agent)
 
-            # Clean insights data upon phase transition
-            from app.agents.semantic_cleaner import deduplicate_and_professionalize
-
-            # Parallelize insights cleaning and enrichment tasks
             from app.agents.semantic_cleaner import deduplicate_and_professionalize
 
             cleaning_tasks = []
@@ -1340,6 +1366,7 @@ Keep it professional and brief."""
                     insights["skills"] = cleaning_results[0]
 
             agent_name = new_agent
+            insights = self._pre_process_iteration_state(insights, agent_name)
 
         # Step 0b: Advanced RAG Retrieval (Already done in Parallel Pipeline Step 0a)
 
@@ -1383,11 +1410,11 @@ Keep it professional and brief."""
 
         response_text = ""
 
-        if agent_name in SILENT_AGENT_RESPONSES:
+        if agent_name in SILENT_AGENTS:
             logger.info(
                 f"[Interview Stream] Bypassing LLM for Silent Agent: {agent_name}"
             )
-            response_text = SILENT_AGENT_RESPONSES[agent_name]
+            response_text = _get_silent_agent_response(agent_name, insights)
         else:
             response_chunks = []
             is_first_chunk = True
@@ -1437,12 +1464,13 @@ Keep it professional and brief."""
         )
 
         # --- APPLY STRICT VALIDATION PIPELINE ---
-        full_text = _strip_tool_code_leaks(full_text)
-        full_text = _trim_duplicate_response(full_text)
-        full_text = _truncate_if_too_long(full_text)
-
-        if agent_name not in SILENT_AGENT_RESPONSES:
-            full_text = _ensure_ends_with_question(full_text, agent_name, insights, {})
+        if agent_name not in SILENT_AGENTS:
+            full_text = _normalize_agent_response(
+                full_text,
+                agent_name,
+                insights,
+                is_opening_turn=is_opening_turn,
+            )
         full_text = full_text.strip()
 
         # Snapshot generation removed — it was polluting the chat response with
@@ -1464,6 +1492,10 @@ Keep it professional and brief."""
         # Overwriting text after it has already streamed to the frontend causes a UI glitch.
 
         # Record the question hash + text
+        insights["last_question_asked"] = full_text
+        insights["conversation_summary"] = self._build_conversation_summary(
+            insights, agent_name
+        )
         q_hash = _compute_question_hash(full_text)
         if q_hash not in questions_asked:
             questions_asked.append(q_hash)

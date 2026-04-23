@@ -17,6 +17,7 @@ import logging
 from typing import AsyncIterator
 
 from langgraph.graph import StateGraph, END, START
+from typing import Any
 
 from app.agents.state import AgentState, create_initial_state
 from app.agents.router import router_node, compute_current_agent, compute_progress, get_transition_message
@@ -35,7 +36,7 @@ from app.agents.gap_detector import gap_detector_node
 
 logger = logging.getLogger(__name__)
 
-def _build_graph() -> StateGraph:
+def _build_graph() -> Any:
     """Build and compile the interview state graph."""
     graph = StateGraph(AgentState)
 
@@ -196,6 +197,7 @@ async def run_interview_turn_stream(
 
         # 5. Stream the interview turn
         full_text = ""
+        insights = session_memory.insights  # Initialize
 
         async for event in interview_engine.run_turn_stream(
             agent_name=agent_name,
@@ -229,7 +231,23 @@ async def run_interview_turn_stream(
 
         # 7. Run gap detection (lightweight, no LLM call)
         from app.agents.gap_detector import gap_detector_node as _gap_check
-        gap_result = await _gap_check({"insights": session_memory.insights, "current_agent": session_memory.current_agent})
+        gap_state = {
+            "messages": [],
+            "user_message": "",
+            "current_agent": session_memory.current_agent,
+            "previous_agent": "",
+            "turn_count": 0,
+            "insights": session_memory.insights,
+            "identity_context": {},
+            "extracted_this_turn": {},
+            "questions_asked": [],
+            "agent_transition_log": [],
+            "gaps": [],
+            "quality_score": 0,
+            "ready_for_jd": False,
+            "progress": {},
+        }
+        gap_result = await _gap_check(gap_state)
 
         # 8. Update session memory
         new_agent = compute_current_agent(session_memory.insights, session_memory.current_agent)
@@ -278,7 +296,7 @@ async def run_interview_turn_stream(
 
         payload = {"type": "error", "message": error_msg}
         if is_rate_limit:
-            payload["is_rate_limit"] = True
+            payload["is_rate_limit"] = "true"
         yield f"data: {json.dumps(payload)}\n\n"
 
     logger.info(f"[Graph Stream] Turn completed — Agent: {session_memory.current_agent}")

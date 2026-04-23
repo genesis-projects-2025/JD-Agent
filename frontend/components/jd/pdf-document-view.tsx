@@ -95,7 +95,11 @@ export function PdfDocumentView({ data, roleTitle, dept }: Props) {
 
       {/* Logo */}
       <div style={{ textAlign: "center", marginBottom: "18px", width: "100%", display: "flex", justifyContent: "center" }}>
-        <img src={PULSE_LOGO} alt="Pulse Pharma" style={{ height: "75px", width: "auto", objectFit: "contain", display: "block" }} />
+        <img
+          src={PULSE_LOGO}
+          alt="Pulse Pharma"
+          style={{ height: "75px", width: "auto", objectFit: "contain", display: "block" }}
+        />
       </div>
 
       {/* Table 1: Job / Role Information */}

@@ -235,8 +235,8 @@ def _is_question_repeated(
                 continue
             overlap = len(new_keywords & prev_keywords)
             max_possible = max(1, min(len(new_keywords), len(prev_keywords)))
-            # Trigger semantic duplicate at 50% overlap instead of 60% for aggressive dupe-catching
-            if (overlap / max_possible) >= 0.50:
+            # Trigger semantic duplicate at 40% overlap instead of 50% for aggressive dupe-catching
+            if (overlap / max_possible) >= 0.40:
                 logger.debug(
                     f"  [DEDUP] ⚠ Semantic overlap detected ({overlap}/{max_possible} keywords)"
                 )
@@ -556,6 +556,20 @@ def build_interview_messages(
 
     # 1. Generate the Master System Prompt (Persona + State + Mission)
     retrieved_context = kwargs.get("retrieved_context", [])
+    
+    # Extract recent questions to pass to prompt for explicit anti-repetition
+    recent_questions = []
+    for msg in recent_messages[-10:]:
+        if msg.get("role") == "assistant":
+            content = msg.get("content", "")
+            if "{" in content and "}" in content:
+                try:
+                    parsed = json.loads(content)
+                    content = parsed.get("next_question") or parsed.get("question") or content
+                except Exception:
+                    pass
+            if content and content.strip():
+                recent_questions.append(content.strip())
 
     system_content = build_system_messages(
         phase=agent_name,
@@ -563,6 +577,7 @@ def build_interview_messages(
         rag_context=retrieved_context,
         transition_context=transition_context,
         is_first_turn=is_first_turn,
+        recent_questions=recent_questions,
     )
 
     messages.append(SystemMessage(content=system_content))

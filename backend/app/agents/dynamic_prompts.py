@@ -19,6 +19,8 @@ _ACK_STARTERS = (
     "understood", "of course", "got it", "i see", "i understand", "certainly",
     "excellent", "good", "wonderful", "alright", "okay", "ok", "right",
     "indeed", "makes sense", "that's clear", "that's helpful", "that helps",
+    "thank", "awesome", "fantastic", "interesting", "fascinating", "moving on",
+    "let's", "now let's", "now that", "okay,"
 )
 
 
@@ -27,13 +29,6 @@ def _strip_leading_acknowledgment(text: str, preserve_first_turn_greeting: bool 
 
     The LLM occasionally generates a short affirmative confirmation before asking
     even with strict instructions. This hard-enforces the no-filler rule.
-
-    Examples stripped:
-      "Got it. What triggers this task?"     -> "What triggers this task?"
-      "Great, I understand. How does..."    -> "How does..."
-      "Perfect. Walk me through..."         -> "Walk me through..."
-
-    Agent status statements (no question mark nearby) are preserved.
     """
     if not text:
         return text
@@ -46,17 +41,25 @@ def _strip_leading_acknowledgment(text: str, preserve_first_turn_greeting: bool 
     if len(sentences) <= 1:
         return text
 
-    first = sentences[0].lower().strip()
+    # Remove any number of leading filler sentences
+    while sentences:
+        first = sentences[0].lower().strip()
+        is_ack_start = any(first.startswith(ack) for ack in _ACK_STARTERS)
+        is_short = len(sentences[0].split()) <= 15
+        no_question = "?" not in sentences[0]
+        
+        # Catch typical AI transitions
+        is_transition = any(x in first for x in ["moving on", "let's dive into", "next", "now that"])
 
-    is_ack_start = any(first.startswith(ack) for ack in _ACK_STARTERS)
-    is_short = len(sentences[0].split()) <= 12  # filler sentences are short
-    no_question = "?" not in sentences[0]       # filler never contains a question
+        if (is_ack_start or is_transition) and is_short and no_question:
+            sentences.pop(0)
+        else:
+            break
 
-    if is_ack_start and is_short and no_question:
-        remainder = " ".join(sentences[1:]).strip()
-        return remainder if remainder else text
+    if not sentences:
+        return text # fallback if everything was stripped
 
-    return text
+    return " ".join(sentences).strip()
 
 # ── Base Persona ───────────────────────────────────────────────────────────
 
@@ -65,11 +68,11 @@ BASE_PERSONA = """You are a Professional Job Analyst conducting a structured int
 
 BEHAVIORAL CONTRACT (ABSOLUTE — VIOLATING ANY RULE IS A CRITICAL FAILURE):
 
-RULE 1 — RESPONSE MODE DEPENDS ON THE TURN.
+RULE 1 — ZERO FILLER, ONLY QUESTIONS.
 Opening turn only: greet the user professionally, mention the known role/team context, then ask exactly one question.
-All later turns: ask exactly one question and start directly with the question itself.
-Outside the opening turn, absolutely NO greetings, acknowledgments, "Got it", "Great", "I understand", summaries, bridge sentences, examples, or filler of any kind.
-If a later-turn response starts with any affirmative sentence (Great, Sure, Perfect, Absolutely, Noted, Thanks, Understood, Of course, Excellent, Alright) — delete that sentence and start with the question.
+All later turns: ask EXACTLY ONE QUESTION. Start the response directly with the question itself.
+Outside the opening turn, you are strictly forbidden from using ANY greetings, acknowledgments (e.g., "Got it", "Great", "I understand", "Thanks", "Makes sense"), summaries, bridge sentences, or examples.
+If you start your response with any phrase other than the question, you have failed.
 
 RULE 2 — NEVER ASK ABOUT DATA ALREADY COLLECTED.
 Before forming a question, read the DATA ALREADY COLLECTED section. If information appears there, it is saved. Move forward. Never ask the user to confirm data they already gave.
@@ -227,180 +230,46 @@ def _get_cadence_probe_from_context(
     )
 
 
-def _build_task_aware_deep_dive_question(
+def _build_task_aware_deep_dive_instruction_prompt(
     active_task: str, turn_number: int, identity_context: dict, workflows: dict
 ) -> str:
     """
-    Generate an intelligent, task-specific deep-dive question.
-    Uses the task name and role domain to frame a precise, expert-sounding question
-    instead of a generic 'what triggers this task?' template.
+    Generate an instruction for the LLM to dynamically formulate an intelligent, task-specific deep-dive question.
     """
-    title = str(identity_context.get("title", "")).lower()
-    dept = str(identity_context.get("department", "")).lower()
-    task_lower = active_task.lower() if active_task else ""
-    existing_wf = (workflows or {}).get(active_task, {})
-
-    # ── Turn 1: How does this task START? (trigger + input) ────────────────
+    title = str(identity_context.get("title", "")).strip()
+    dept = str(identity_context.get("department", "")).strip()
+    
     if turn_number <= 1:
-        # Regulatory / compliance tasks
-        if any(
-            k in task_lower
-            for k in ["submission", "dossier", "regulatory", "approval", "filing"]
-        ):
-            return (
-                f"When a '{active_task}' becomes due, what triggers the process — "
-                f"is it a regulatory agency deadline, an internal milestone, or a product change — "
-                f"and who hands it off to you to begin?"
-            )
-        if any(
-            k in task_lower for k in ["audit", "inspection", "compliance", "review"]
-        ):
-            return (
-                f"What initiates a '{active_task}' — is it scheduled annually, triggered by an external "
-                f"authority, or does a specific event inside the organisation kick it off?"
-            )
-        # Sales / revenue tasks
-        if any(
-            k in task_lower
-            for k in ["forecast", "pipeline", "quota", "target", "revenue"]
-        ):
-            return (
-                f"What kicks off '{active_task}' — is it a fixed calendar event (month-end/quarter-end), "
-                f"a CRM alert, or a request from finance — and what data do you pull first?"
-            )
-        if any(
-            k in task_lower for k in ["demo", "proposal", "pitch", "prospect", "lead"]
-        ):
-            return (
-                f"How does a '{active_task}' get initiated — does it flow from an inbound enquiry, "
-                f"a rep request, or does it come directly from your prospecting activity?"
-            )
-        # Engineering / technical tasks
-        if any(
-            k in task_lower
-            for k in ["deploy", "release", "build", "sprint", "code", "review"]
-        ):
-            return (
-                f"What triggers a '{active_task}' — a Jira ticket, a sprint ceremony, "
-                f"a CI pipeline signal, or a direct stakeholder request?"
-            )
-        if any(
-            k in task_lower for k in ["incident", "bug", "issue", "outage", "support"]
-        ):
-            return (
-                f"When '{active_task}' lands on your plate, what's the first signal — "
-                f"a monitoring alert, a ticket, a Slack escalation — and what do you look at first?"
-            )
-        # Data / analytics tasks
-        if any(
-            k in task_lower
-            for k in ["report", "dashboard", "analysis", "insight", "data"]
-        ):
-            return (
-                f"What initiates '{active_task}' — a scheduled run, a stakeholder request, "
-                f"or a data anomaly — and what is the primary source you pull from?"
-            )
-        # HR / people tasks
-        if any(
-            k in task_lower
-            for k in ["hire", "recruit", "onboard", "interview", "appraisal"]
-        ):
-            return (
-                f"How does '{active_task}' get kicked off — is it a headcount approval from the "
-                f"business, a replacement need, or a proactive talent plan — and who owns the brief?"
-            )
-        # Finance tasks
-        if any(
-            k in task_lower
-            for k in ["budget", "invoice", "payroll", "reconcil", "close", "finance"]
-        ):
-            return (
-                f"What triggers '{active_task}' — a calendar deadline, a system alert, "
-                f"or a request from a business unit — and what sign-off is needed before you start?"
-            )
-        # Operations / procurement tasks
-        if any(
-            k in task_lower
-            for k in ["vendor", "purchase", "procurement", "supply", "inventory"]
-        ):
-            return (
-                f"What initiates '{active_task}' — a stock threshold, a business unit requisition, "
-                f"or a contract renewal — and who raises it to you?"
-            )
-        # Generic intelligent fallback — still better than the old template
         return (
-            f"When '{active_task}' needs to happen, what is the specific trigger or event that "
-            f"starts it — and what information or inputs do you need before you can begin?"
+            f"Formulate a highly specific, domain-expert question asking how the task '{active_task}' is INITIATED or TRIGGERED. "
+            f"Tailor the question heavily to what a '{title}' in '{dept}' actually does. "
+            f"DO NOT use generic phrasing like 'What triggers this task?' or 'What initiates it?'. "
+            f"Provide examples of realistic triggers for this specific domain in your question (e.g. if it's software, ask if it starts from a Jira ticket; if it's sales, ask if it starts from a CRM alert)."
         )
-
-    # ── Turn 2: Anchor to Turn 1 captured data + probe for challenges/quality ────
     elif turn_number == 2:
-        known_trigger = existing_wf.get("trigger", "")
-        known_steps = existing_wf.get("steps") or []
-        known_tools = existing_wf.get("tools") or []
-
-        # Build a precise anchor clause from Turn 1 captured data
-        anchor_parts = []
-        if known_trigger:
-            anchor_parts.append(f"triggered by \u2018{str(known_trigger)[:55]}\u2019")
-        if known_steps:
-            anchor_parts.append(f"involving \u2018{str(known_steps[0])[:45]}\u2019")
-        if known_tools:
-            anchor_parts.append(f"using {', '.join(str(t) for t in known_tools[:2])}")
-        anchor_clause = (" and ".join(anchor_parts) + " — ") if anchor_parts else ""
-
-        if known_trigger or known_steps:
-            if any(k in task_lower for k in ["submission", "dossier", "regulatory", "audit", "compliance", "filing"]):
-                return (
-                    f"For \u2018{active_task}\u2019 ({anchor_clause}where does the process most commonly hit a wall — "
-                    f"missing data from another team, regulatory ambiguity, or timeline compression — "
-                    f"and how do you resolve it without derailing the deadline?"
-                )
-            if any(k in task_lower for k in ["forecast", "pipeline", "revenue", "report", "analysis", "dashboard"]):
-                return (
-                    f"For \u2018{active_task}\u2019 ({anchor_clause}what is the most common data quality or accuracy "
-                    f"issue you encounter, and what does a fully correct output look like when done right?"
-                )
-            if any(k in task_lower for k in ["deploy", "release", "build", "incident", "bug", "code", "sprint"]):
-                return (
-                    f"For \u2018{active_task}\u2019 ({anchor_clause}when it hits a blocker — a failed check, "
-                    f"a dependency gap, or an escalation — what is your decision process and what does "
-                    f"a clean resolution look like?"
-                )
-            if any(k in task_lower for k in ["hire", "recruit", "onboard", "appraisal", "performance"]):
-                return (
-                    f"For \u2018{active_task}\u2019 ({anchor_clause}what is the most common bottleneck — "
-                    f"candidate quality, stakeholder alignment, or process delays — and how do you keep it on track?"
-                )
-            # Generic but explicitly anchored
-            return (
-                f"For \u2018{active_task}\u2019 ({anchor_clause}what is the hardest part to get right, and what "
-                f"separates an average outcome from a high-quality one in your judgment?"
-            )
-
-        # No Turn 1 data was captured — restart with process steps
         return (
-            f"Walk me through the main steps in \u2018{active_task}\u2019 — from when you receive it "
-            f"to the point you consider it done. What happens in sequence?"
+            f"Formulate a highly specific, domain-expert question asking about the CHALLENGES, QUALITY STANDARDS, or DECISION PROCESS for the task '{active_task}'. "
+            f"Tailor the question to the realities of being a '{title}'. "
+            f"DO NOT use generic phrasing like 'What are the challenges?' or 'How do you ensure quality?'. "
+            f"Ask what separates an average execution of this task from an expert one, or where the process most commonly gets blocked."
         )
-
-    # ── Turn 3: Precision gap fill — only missing fields ──────────────────────
     else:
+        # Turn 3
+        existing_wf = workflows.get(active_task, {})
         missing = []
         if not existing_wf.get("trigger"):
-            missing.append("how it gets initiated")
+            missing.append("the specific trigger that initiates it")
         if not existing_wf.get("steps"):
-            missing.append("the step-by-step process")
+            missing.append("the step-by-step execution process")
         if not existing_wf.get("output"):
             missing.append("the final deliverable or outcome")
-
-        if missing:
-            missing_str = " and ".join(missing)
-            return (
-                f"For \u2018{active_task}\u2019, we still need {missing_str} — "
-                f"can you fill in that part specifically?"
-            )
-        return f"For \u2018{active_task}\u2019 — what aspect should we revisit or add more depth to?"
+            
+        missing_str = " and ".join(missing)
+        return (
+            f"We are missing some core details for '{active_task}'. Specifically: {missing_str}. "
+            f"Formulate a highly specific, professional question asking the user to fill in these exact gaps. "
+            f"DO NOT be generic. Directly reference the task and the missing components."
+        )
 
 
 # ── Phase-Specific Instructions ──────────────────────────────────────────────
@@ -530,7 +399,7 @@ def _build_deep_dive_instruction(insights: dict) -> str:
         "\n- Every question MUST explicitly name the task you are asking about."
         "\n- Do NOT say 'I am recording' or 'I have noted'. Just ask the next question."
         "\n- Do NOT ask the user which task to discuss. YOU lead the conversation."
-        "\n- The question below is pre-crafted for this task's domain — use it as-is or refine only with stronger context."
+        "\n- The instruction below tells you WHAT to ask about. It is your job to generate the actual question dynamically."
     )
 
     if completed and not active:
@@ -543,13 +412,12 @@ def _build_deep_dive_instruction(insights: dict) -> str:
 
     if completed and active:
         # Transitioning from one task to the next — craft intelligent opener for new task
-        task_q = _build_task_aware_deep_dive_question(
+        task_instruction = _build_task_aware_deep_dive_instruction_prompt(
             active, 1, identity_context, workflows
         )
         return (
-            f"'{completed}' is captured. Now deep-diving: '{active}'."
-            f"\n\nASK EXACTLY THIS QUESTION (or a close variant):"
-            f"\n  {task_q}"
+            f"'{completed}' is captured. Now deep-diving: '{active}'.\n\n"
+            f"INSTRUCTION:\n{task_instruction}\n"
             f"{scope}"
         )
 
@@ -563,33 +431,24 @@ def _build_deep_dive_instruction(insights: dict) -> str:
         if not active:
             return "All tasks are visited. Say: 'All priority tasks have been mapped.'"
 
-        task_q = _build_task_aware_deep_dive_question(
+        task_instruction = _build_task_aware_deep_dive_instruction_prompt(
             active, 1, identity_context, workflows
         )
         return (
-            f"Your goal: Begin deep-diving task: '{active}'."
-            f"\n\nASK EXACTLY THIS QUESTION (or a close variant):"
-            f"\n  {task_q}"
+            f"Your goal: Begin deep-diving task: '{active}'.\n\n"
+            f"INSTRUCTION:\n{task_instruction}\n"
             f"{scope}"
         )
 
     # ── Active task in progress — use intelligent turn-based questions ────────
-    task_q = _build_task_aware_deep_dive_question(
+    task_instruction = _build_task_aware_deep_dive_instruction_prompt(
         active, turn_number, identity_context, workflows
     )
 
-    if turn_number <= 1:
+    if turn_number <= 2:
         return (
-            f"CURRENT TASK: '{active}' — Turn {turn_number}/3"
-            f"\n\nASK EXACTLY THIS QUESTION (or a close variant):"
-            f"\n  {task_q}"
-            f"{scope}"
-        )
-    elif turn_number == 2:
-        return (
-            f"CURRENT TASK: '{active}' — Turn {turn_number}/3"
-            f"\n\nASK EXACTLY THIS QUESTION (or a close variant):"
-            f"\n  {task_q}"
+            f"CURRENT TASK: '{active}' — Turn {turn_number}/3\n\n"
+            f"INSTRUCTION:\n{task_instruction}\n"
             f"{scope}"
         )
     else:
@@ -604,12 +463,9 @@ def _build_deep_dive_instruction(insights: dict) -> str:
             missing.append("the final deliverable")
 
         if missing:
-            missing_str = " and ".join(missing)
             return (
-                f"CURRENT TASK: '{active}' — Turn {turn_number}/3 (FINAL)"
-                f"\n\nASK EXACTLY THIS QUESTION (or a close variant):"
-                f"\n  {task_q}"
-                f"\n(Focus on: {missing_str})"
+                f"CURRENT TASK: '{active}' — Turn {turn_number}/3 (FINAL)\n\n"
+                f"INSTRUCTION:\n{task_instruction}\n"
                 f"{scope}"
             )
         else:
@@ -952,12 +808,15 @@ def build_dynamic_prompt(
     rag_context: List[str] | None = None,
     transition_context: str = "",
     is_first_turn: bool = False,
+    recent_questions: List[str] | None = None,
 ) -> str:
     """
     Build a complete, context-aware prompt for the current phase.
     """
     if rag_context is None:
         rag_context = []
+    if recent_questions is None:
+        recent_questions = []
 
     parts = [BASE_PERSONA]
 
@@ -1009,6 +868,16 @@ def build_dynamic_prompt(
         examples = "\n".join([f"  • {ex}" for ex in rag_context[:2]])
         parts.append(f"\n💡 CONTEXTUAL EXAMPLES (Do NOT copy verbatim):\n{examples}")
 
+    # Explicit Anti-Repetition
+    if recent_questions:
+        q_lines = "\n".join([f"  - {q}" for q in recent_questions[-4:]]) # Ban last 4 questions explicitly
+        parts.append(
+            f"\n⛔ BANNED QUESTIONS (RECENTLY ASKED):\n"
+            f"You MUST NOT ask any question that is semantically similar to these recent questions:\n"
+            f"{q_lines}\n"
+            f"Find a NEW angle or advance the mission."
+        )
+
     # Add first turn greeting
     if is_first_turn:
         user_name = insights.get("identity_context", {}).get("employee_name", "User")
@@ -1054,6 +923,7 @@ def build_system_messages(
     rag_context: List[str] | None = None,
     transition_context: str = "",
     is_first_turn: bool = False,
+    recent_questions: List[str] | None = None,
 ) -> str:
     """
     Build the complete system message for the LLM.
@@ -1064,4 +934,5 @@ def build_system_messages(
         rag_context=rag_context,
         transition_context=transition_context,
         is_first_turn=is_first_turn,
+        recent_questions=recent_questions,
     )

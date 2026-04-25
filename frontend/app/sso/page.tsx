@@ -52,8 +52,8 @@ function SSOSync() {
  }
  }
 
- // Redirect to their dashboard
- router.push(`/dashboard/${data.employee.employee_id}`);
+ // Redirect to their home page instead of dashboard directly
+ router.push(`/home/${data.employee.employee_id}`);
 
  } catch (err: any) {
  // Only log actual network crashes here

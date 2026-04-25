@@ -173,7 +173,7 @@ export default function Sidebar() {
  >
  <div className="p-6 flex items-center justify-between shrink-0">
  <Link
- href={employeeId ? `/dashboard/${employeeId}` : "/"}
+ href={employeeId ? `/home/${employeeId}` : "/"}
  className="flex items-center gap-3 group transition-opacity hover:opacity-80"
  >
  <div className="w-10 h-10 bg-gradient-to-br from-primary-500 to-primary-700 rounded-md flex items-center justify-center shadow-md shadow-primary-900/50 group-hover:scale-105 transition-transform">

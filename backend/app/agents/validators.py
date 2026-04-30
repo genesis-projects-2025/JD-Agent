@@ -113,9 +113,11 @@ def validate_insights_completeness(insights: dict) -> dict:
     # Tools
     tools = insights.get("tools", [])
     tech = insights.get("technologies", [])
+    # Check if tools were mentioned in recent conversation (semantic detection)
+    tools_mentioned = insights.get("tools_mentioned_recently", False)
     results["tools"] = {
-        "ok": len(tools) >= 2 or len(tech) >= 2,
-        "reason": f"Have {len(tools)} tools, {len(tech)} tech" if (len(tools) < 2 and len(tech) < 2) else "OK",
+        "ok": len(tools) >= 2 or len(tech) >= 2 or tools_mentioned,
+        "reason": f"Have {len(tools)} tools, {len(tech)} tech" if (len(tools) < 2 and len(tech) < 2 and not tools_mentioned) else "OK",
     }
 
     # Skills

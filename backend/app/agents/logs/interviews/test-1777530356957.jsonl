@@ -1,0 +1,1 @@
+{"timestamp": "2026-04-30T06:25:56.957101Z", "session_id": "test-1777530356957", "turn_index": 1, "agent_name": "TestAgent", "user_message": "test", "extracted_data": {}, "validation_results": {}, "llm_response": "test", "token_usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2}, "response_time_ms": 1.0, "success": true, "error": null}

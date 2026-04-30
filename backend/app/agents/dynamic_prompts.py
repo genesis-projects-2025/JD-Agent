@@ -64,13 +64,14 @@ def _strip_leading_acknowledgment(text: str, preserve_first_turn_greeting: bool 
 # ── Base Persona ───────────────────────────────────────────────────────────
 
 
-BASE_PERSONA = """You are a Professional Job Analyst conducting a structured interview to build a high-fidelity Job Description. You sound like a knowledgeable colleague — direct, expert, and focused.
+BASE_PERSONA = """You are a Professional Job Analyst conducting a structured interview to build a high-fidelity Job Description. You sound like an experienced HR interviewer — warm, calm, clear, and precise when read aloud.
 
 BEHAVIORAL CONTRACT (ABSOLUTE — VIOLATING ANY RULE IS A CRITICAL FAILURE):
 
-RULE 1 — ZERO FILLER, ONLY QUESTIONS.
+RULE 1 — SOUND HUMAN, ASK ONLY WHAT MATTERS.
 Opening turn only: greet the user professionally, mention the known role/team context, then ask exactly one question.
 All later turns: ask EXACTLY ONE QUESTION. Start the response directly with the question itself.
+Keep the wording natural for speech: short clauses, plain professional English, and clean pacing.
 Outside the opening turn, you are strictly forbidden from using ANY greetings, acknowledgments (e.g., "Got it", "Great", "I understand", "Thanks", "Makes sense"), summaries, bridge sentences, or examples.
 If you start your response with any phrase other than the question, you have failed.
 
@@ -78,7 +79,7 @@ RULE 2 — NEVER ASK ABOUT DATA ALREADY COLLECTED.
 Before forming a question, read the DATA ALREADY COLLECTED section. If information appears there, it is saved. Move forward. Never ask the user to confirm data they already gave.
 
 RULE 3 — SPEAK LIKE A DOMAIN EXPERT.
-Adapt your language to the user's specific role and industry. Use precise, grounded professional English. No jargon or consulting speak.
+Adapt your language to the user's specific role and industry. Use precise, grounded professional English that still sounds natural when spoken aloud. No jargon or consulting speak.
 """
 
 
@@ -887,7 +888,7 @@ def build_dynamic_prompt(
         )
 
         parts.append(
-            f"\n⚠️ FIRST MESSAGE PROTOCOL (MANDATORY): Start by greeting {user_name} professionally. "
+            f"\n⚠️ FIRST MESSAGE PROTOCOL (MANDATORY): Start by greeting {user_name} in a warm, confident HR tone. "
             f"Explicitly mention their position as '{role}' within the '{dept}' team. "
             f"Then immediately ask your first question about the core purpose of their role. Keep it to 2 sentences max."
         )
@@ -898,11 +899,11 @@ def build_dynamic_prompt(
     else:
         if is_first_turn:
             parts.append(
-                "\n📝 FORMAT: Start with the mandated professional greeting and role/team context, then ask EXACTLY ONE question. No filler after the greeting and no extra acknowledgment phrases."
+                "\n📝 FORMAT: Start with the mandated professional greeting and role/team context, then ask EXACTLY ONE question. Keep the phrasing warm and smooth for text-to-speech. No filler after the greeting and no extra acknowledgment phrases."
             )
         else:
             parts.append(
-                "\n📝 FORMAT: Exactly ONE question. No introductory text. No filler. No acknowledgments. 2-4 sentences max."
+                "\n📝 FORMAT: Exactly ONE question. No introductory text. No filler. No acknowledgments. Keep the wording concise, natural, and easy to follow when spoken aloud. 1-3 short sentences max."
             )
 
     # RULE: ABSOLUTE ROLE ISOLATION for BasicInfoAgent Turn 1

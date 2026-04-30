@@ -12,6 +12,7 @@ import json
 import logging
 import re
 import traceback
+import time
 
 from fastapi import HTTPException
 from langchain_google_genai import ChatGoogleGenerativeAI
@@ -30,6 +31,7 @@ from app.utils.text_utils import strip_reasoning_tags
 from app.memory.session_memory import SessionMemory
 from app.agents.router import compute_current_agent as _compute_current_agent
 from app.agents.router import compute_progress as _compute_progress
+from app.agents.logs.logger import InterviewLogger, calculate_turn_hash
 
 logger = logging.getLogger(__name__)
 
@@ -475,6 +477,24 @@ async def handle_jd_generation(session_memory: SessionMemory) -> dict:
 
     session_memory.progress["status"] = "jd_generated"
     logger.info("[JD Generation] Completed")
+    
+    # Log session summary for improvement analysis
+    try:
+        from app.agents.logs.logger import InterviewLogger
+        total_time_ms = session_memory.progress.get("total_time_ms", 0)
+        InterviewLogger.log_session_summary(
+            session_id=str(session_memory.id),
+            total_turns=session_memory.turn_count,
+            final_agent=session_memory.current_agent,
+            final_progress=session_memory.progress.get("completion_percentage", 0),
+            total_tokens=session_memory.progress.get("total_tokens_used", 0),
+            total_time_ms=total_time_ms,
+            jd_generated=True,
+            jd_quality_score=None,  # Could be added if we implement quality scoring
+            user_feedback=None
+        )
+    except Exception as e:
+        logger.warning(f"Failed to log session summary: {e}")
 
     return {"jd_text": jd_text, "jd_structured": structured, "status": "jd_generated"}
 
@@ -570,8 +590,12 @@ async def handle_conversation(
     history: list, user_message: str, session_memory: SessionMemory
 ):
     """Interview turn handler — delegates to LangGraph multi-agent system."""
+    turn_start_time = time.time()
     logger.info(f"[Interview v2] TURN STARTED — Agent: {session_memory.current_agent}")
-
+    
+    # Calculate token estimate for request (rough estimate)
+    request_tokens = len(user_message) // 4  # Approx chars to tokens
+    
     try:
         from app.agents.graph import run_interview_turn
         reply_content, history = await run_interview_turn(
@@ -579,19 +603,80 @@ async def handle_conversation(
             user_message=user_message,
             history=history,
         )
+        
+        # Parse response to get token count
+        response_tokens = len(reply_content) // 4
+        total_tokens = request_tokens + response_tokens
+        
+        # Calculate response time
+        response_time_ms = (time.time() - turn_start_time) * 1000
+        
+        # Parse the response to extract data for logging
+        try:
+            parsed = json.loads(reply_content)
+            llm_response = parsed.get("next_question", "")
+            extracted_data = session_memory.insights if hasattr(session_memory, 'insights') else {}
+        except:
+            llm_response = reply_content
+            extracted_data = {}
+        
+        # Get validation results
+        from app.agents.validators import validate_insights_completeness
+        insights_dict = session_memory.insights if hasattr(session_memory, 'insights') else {}
+        if isinstance(insights_dict, dict):
+            validation_results = validate_insights_completeness(insights_dict)
+        else:
+            validation_results = {}
+        
+        # Log the turn
+        turn_index = len(session_memory.full_history) // 2 + 1
+        InterviewLogger.log_turn(
+            session_id=str(session_memory.id),
+            turn_index=turn_index,
+            agent_name=session_memory.current_agent,
+            user_message=user_message,
+            extracted_data=extracted_data,
+            validation_results=validation_results,
+            llm_response=llm_response,
+            token_usage={
+                "prompt_tokens": request_tokens,
+                "completion_tokens": response_tokens,
+                "total_tokens": total_tokens
+            },
+            response_time_ms=response_time_ms,
+            success=True
+        )
+        
     except HTTPException:
         raise
     except Exception as e:
         error_str = str(e).lower()
         logger.error(f"Interview v2 error: {e}")
         traceback.print_exc()
+        
+        # Log failed turn
+        turn_index = len(session_memory.full_history) // 2 + 1
+        InterviewLogger.log_turn(
+            session_id=str(session_memory.id),
+            turn_index=turn_index,
+            agent_name=session_memory.current_agent,
+            user_message=user_message,
+            extracted_data={},
+            validation_results={},
+            llm_response="",
+            token_usage={"prompt_tokens": request_tokens, "completion_tokens": 0, "total_tokens": request_tokens},
+            response_time_ms=response_time_ms,
+            success=False,
+            error=str(e)
+        )
+        
         if "rate limit" in error_str or "429" in error_str or "exhausted" in error_str:
             raise HTTPException(status_code=429, detail="Rate limit exceeded")
         # Fallback to error response
         reply_content = build_fallback_response(session_memory)
         history.append({"role": "user", "content": user_message})
         history.append({"role": "assistant", "content": reply_content})
-
+    
     logger.info(f"[Interview v2] TURN COMPLETED — Agent now {session_memory.current_agent}")
     return reply_content, history
 

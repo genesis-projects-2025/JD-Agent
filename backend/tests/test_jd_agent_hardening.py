@@ -18,6 +18,7 @@ os.environ.setdefault("GEMINI_API_KEY", "test-key")
 from app.agents import interview as interview_module
 from app.agents.dynamic_prompts import (
     _strip_leading_acknowledgment,
+    build_system_messages,
     build_already_collected_summary,
 )
 from app.agents.extraction_engine import serialize_insights_for_agent
@@ -126,6 +127,18 @@ class SummaryAndSerializationTests(unittest.TestCase):
         self.assertIn("Capacity planning for infrastructure scaling", serialized)
         self.assertNotIn("PagerDuty alert", serialized)
         self.assertNotIn("previous_questions_text", serialized)
+
+
+class SpokenPromptTests(unittest.TestCase):
+    def test_first_turn_prompt_requires_warm_spoken_tone(self):
+        prompt = build_system_messages(
+            phase="BasicInfoAgent",
+            insights=sample_insights(),
+            is_first_turn=True,
+        )
+        self.assertIn("warm, calm, clear, and precise when read aloud", prompt)
+        self.assertIn("warm, confident HR tone", prompt)
+        self.assertIn("text-to-speech", prompt)
 
 
 class InterviewFlowHardeningTests(unittest.IsolatedAsyncioTestCase):

@@ -4,12 +4,13 @@
 "use client";
 
 import { useParams, useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { getCookie, cookieKeys } from "@/lib/cookies";
 import ChatWindow from "@/components/chat/chat-window";
 import MessageInput from "@/components/chat/message-input";
 import JDPreviewPanel from "@/components/jd/jd-preview-panel";
 import { useChat } from "@/hooks/useChat";
+import { useVoiceConversation } from "@/hooks/useVoiceConversation";
 import { deleteJD, getCurrentUser } from "@/lib/api";
 import { DeleteModal } from "@/components/ui/delete-modal";
 import {
@@ -30,6 +31,7 @@ export default function QuestionnairePage() {
   const [isDeleting, setIsDeleting] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
+  const [composerValue, setComposerValue] = useState("");
 
   const {
     messages,
@@ -57,6 +59,38 @@ export default function QuestionnairePage() {
   } = useChat(() => {
     // Component stays on page; the JDPreviewPanel handles UI view
   }, true);
+
+  const {
+    isListening,
+    isSpeaking,
+    playbackEnabled,
+    speakText,
+    setPlaybackEnabled,
+    stopListening,
+    supportsSpeechInput,
+    supportsSpeechOutput,
+    toggleListening,
+    voiceError,
+  } = useVoiceConversation({
+    draftText: composerValue,
+    onDraftTextChange: setComposerValue,
+  });
+  const hasPrimedVoiceRef = useRef(false);
+  const lastSpokenAgentTextRef = useRef("");
+
+  const latestReplayableAgentMessage = useMemo(() => {
+    for (let index = messages.length - 1; index >= 0; index -= 1) {
+      const message = messages[index];
+      if (
+        message.sender === "agent" &&
+        !message.isStreaming &&
+        message.text.trim()
+      ) {
+        return message.text.trim();
+      }
+    }
+    return "";
+  }, [messages]);
 
   // Auto-open panel when JD is generated
   useEffect(() => {
@@ -87,6 +121,49 @@ export default function QuestionnairePage() {
   const handleContinue = () => {
     sendMessage("Please continue the interview with more questions.");
   };
+
+  const handleComposerSend = async (text: string) => {
+    stopListening();
+    await sendMessage(text);
+    setComposerValue("");
+  };
+
+  const handleReplayLatestAgentMessage = () => {
+    if (!latestReplayableAgentMessage) return;
+    speakText(latestReplayableAgentMessage, { force: true });
+  };
+
+  useEffect(() => {
+    if (!hydrated || messages.length === 0) return;
+
+    const lastMessage = messages[messages.length - 1];
+    if (
+      lastMessage.sender !== "agent" ||
+      lastMessage.isStreaming ||
+      !lastMessage.text.trim()
+    ) {
+      return;
+    }
+
+    const speechText = lastMessage.text.trim();
+
+    if (!hasPrimedVoiceRef.current) {
+      hasPrimedVoiceRef.current = true;
+      lastSpokenAgentTextRef.current = speechText;
+
+      // Fresh sessions begin with a single assistant question; resumed sessions
+      // should not unexpectedly read historical chat aloud on page load.
+      if (messages.length === 1) {
+        speakText(speechText);
+      }
+      return;
+    }
+
+    if (speechText === lastSpokenAgentTextRef.current) return;
+
+    lastSpokenAgentTextRef.current = speechText;
+    speakText(speechText);
+  }, [hydrated, messages, speakText]);
 
 
   const handleConfirmDelete = async () => {
@@ -183,14 +260,19 @@ export default function QuestionnairePage() {
         >
           <ChatWindow
             messages={messages}
-            isGenerating={isGenerating}
             hydrated={hydrated}
             progress={progress}
             depthScores={depthScores}
             currentAgent={currentAgent}
+            isSpeaking={isSpeaking}
+            canReplayVoice={Boolean(latestReplayableAgentMessage)}
+            voicePlaybackSupported={supportsSpeechOutput}
+            voicePlaybackEnabled={playbackEnabled}
             onSkillSelect={handleSkillSelect}
             onToolSelect={handleToolSelect}
             onPriorityTaskSelect={handlePriorityTasksSelect}
+            onReplayLatestAgentMessage={handleReplayLatestAgentMessage}
+            onToggleVoicePlayback={() => setPlaybackEnabled(!playbackEnabled)}
             onGenerateJD={() => {
               setShowPanel(true);
               handleGenerateJD();
@@ -219,7 +301,13 @@ export default function QuestionnairePage() {
           )}
 
           <MessageInput
-            onSend={sendMessage}
+            value={composerValue}
+            onValueChange={setComposerValue}
+            onSend={handleComposerSend}
+            voiceError={voiceError}
+            voiceInputSupported={supportsSpeechInput}
+            isListening={isListening}
+            onToggleListening={toggleListening}
             disabled={
               isGenerating ||
               isGeneratingJD ||

@@ -1,9 +1,9 @@
 // components/chat/chat-window.tsx - ENTERPRISE REDESIGN
 
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useRef, useCallback } from "react";
 import MessageBubble from "./message-bubble";
 import { Message } from "../../types/message";
-import { Sparkles, Activity, Bot, Loader2 } from "lucide-react";
+import { Sparkles, Activity, Bot, Loader2, Volume2, VolumeX, AudioLines } from "lucide-react";
 
 export default function ChatWindow({
   messages,
@@ -11,24 +11,34 @@ export default function ChatWindow({
   currentAgent = "BasicInfoAgent",
   depthScores = {},
   hydrated = false,
-  isGenerating = false,
+  isSpeaking = false,
+  canReplayVoice = false,
+  voicePlaybackSupported = true,
+  voicePlaybackEnabled = true,
   onSkillSelect,
   onToolSelect,
   onPriorityTaskSelect,
   onGenerateJD,
   onContinue,
+  onReplayLatestAgentMessage,
+  onToggleVoicePlayback,
 }: {
   messages: Message[];
-  isGenerating?: boolean;
   hydrated?: boolean;
   progress?: number;
   currentAgent?: string;
   depthScores?: Record<string, number>;
+  isSpeaking?: boolean;
+  canReplayVoice?: boolean;
+  voicePlaybackSupported?: boolean;
+  voicePlaybackEnabled?: boolean;
   onSkillSelect?: (selectedSkills: string[]) => void;
   onToolSelect?: (selectedTools: string[]) => void;
   onPriorityTaskSelect?: (selectedTasks: string[]) => void;
   onGenerateJD?: () => void;
   onContinue?: () => void;
+  onReplayLatestAgentMessage?: () => void;
+  onToggleVoicePlayback?: () => void;
 }) {
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const isAtBottomRef = useRef(true);
@@ -87,14 +97,52 @@ export default function ChatWindow({
               </div>
             </div>
 
-            <div className="flex items-center gap-2 sm:gap-3 px-2 sm:px-4 py-1.5 sm:py-2 bg-surface-50 rounded-md border border-surface-200 shrink-0">
-              <div className="w-2 h-2 bg-accent-500 rounded-md animate-pulse shadow-[0_0_8px_rgba(16,185,129,0.5)]" />
-              <span className="text-[10px] sm:text-xs font-medium text-surface-700 tracking-wider hidden sm:block">
-                Session Synced
-              </span>
-              <span className="text-[10px] font-medium text-surface-700 tracking-wider sm:hidden">
-                Synced
-              </span>
+            <div className="flex items-center gap-2 sm:gap-3 shrink-0">
+              <div className="flex items-center gap-2 sm:gap-3 px-2 sm:px-4 py-1.5 sm:py-2 bg-surface-50 rounded-md border border-surface-200">
+                <div className="w-2 h-2 bg-accent-500 rounded-md animate-pulse shadow-[0_0_8px_rgba(16,185,129,0.5)]" />
+                <span className="text-[10px] sm:text-xs font-medium text-surface-700 tracking-wider hidden sm:block">
+                  Session Synced
+                </span>
+                <span className="text-[10px] font-medium text-surface-700 tracking-wider sm:hidden">
+                  Synced
+                </span>
+              </div>
+
+              <div className="flex items-center gap-1 sm:gap-2">
+                <button
+                  type="button"
+                  onClick={onToggleVoicePlayback}
+                  disabled={!voicePlaybackSupported}
+                  className={`p-2 rounded-md border transition-colors ${
+                    voicePlaybackEnabled
+                      ? "border-primary-200 bg-primary-50 text-primary-700"
+                      : "border-surface-200 bg-white text-surface-400"
+                  } disabled:opacity-40 disabled:cursor-not-allowed`}
+                  title={
+                    voicePlaybackSupported
+                      ? voicePlaybackEnabled
+                        ? "Mute assistant voice"
+                        : "Enable assistant voice"
+                      : "Voice playback is not supported in this browser"
+                  }
+                >
+                  {voicePlaybackEnabled ? (
+                    <Volume2 className="w-4 h-4" />
+                  ) : (
+                    <VolumeX className="w-4 h-4" />
+                  )}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={onReplayLatestAgentMessage}
+                  disabled={!canReplayVoice || !voicePlaybackSupported}
+                  className="p-2 rounded-md border border-surface-200 bg-white text-surface-500 transition-colors hover:text-primary-600 hover:border-primary-200 disabled:opacity-40 disabled:cursor-not-allowed"
+                  title="Replay the latest question"
+                >
+                  <AudioLines className={`w-4 h-4 ${isSpeaking ? "animate-pulse" : ""}`} />
+                </button>
+              </div>
             </div>
           </div>
 

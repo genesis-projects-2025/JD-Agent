@@ -98,11 +98,12 @@ async def run_critic_pass(insights: dict) -> dict:
         if "```json" in text:
             text = text.split("```json")[1].split("```")[0].strip()
         elif "```" in text:
-            text = text.split("```")[1].split("```")[0].strip()
+            text = text.split("```")[1].strip()
 
-        cleaned_delta = json.loads(text.strip())
-        return cleaned_delta
+        cleaned = json.loads(text)
+        logger.info(f"[Critic] Cleaned insights: {list(cleaned.keys())}")
+        return cleaned
 
     except Exception as e:
-        logger.error(f"[Critic Engine] Error in critic pass: {e}")
+        logger.warning(f"[Critic] Pass failed: {e}")
         return {}

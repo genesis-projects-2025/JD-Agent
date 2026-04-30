@@ -76,6 +76,10 @@ class ExtractionSchema(BaseModel):
         None,
         description="Set to true if the user has responded to a question about daily, weekly, or monthly tasks, OR if the agent has explicitly asked about task cadence in this turn."
     )
+    tools_mentioned_recently: Optional[bool] = Field(
+        None,
+        description="Set to true if tools were mentioned in the user's message even if not in a formal list"
+    )
 
 
 # ── Extraction Prompt ───────────────────────────────────────────────────────
@@ -127,6 +131,7 @@ RULES:
 11. If CURRENT AGENT MISSION is listed below, heavily prioritize extracting data for that mission!
 12. SMARTER PRE-RANKING: When extracting or updating `tasks`, always sort them by strategic importance (Strategic/Architecture > Operational/Implementation > Administrative/Support). List the most critical tasks first.
 13. CADENCE DETECTION: Set `cadence_probed` to true if the user's current message contains information about daily, weekly, or monthly task patterns. Also set it true if the conversation history already contains an agent question explicitly mentioning "daily", "weekly", or "monthly".
+14. tools_mentioned_recently: BOOLEAN. Set to true if the user mentions any tools, software, or platforms in their message, even if not in a formal list. Helps the ToolsAgent avoid unnecessary loops.
 
 CURRENT AGENT MISSION:
 {current_agent}

@@ -511,8 +511,64 @@ def _apply_context_filter(insights: dict, agent_name: str) -> dict:
 
     CRITICAL: Relaxed filtering ensures the agent is aware of EVERYTHING
     collected so far, preventing repetitive questioning across silos.
+    
+    TOKEN OPTIMIZATION: Returns compacted insights to reduce token usage.
+    Earlier phases get full details; later phases get summaries.
     """
-    return insights
+    if not isinstance(insights, dict):
+        return {}
+    
+    result = {}
+    
+    # Always include identity and basic info (small, critical)
+    for key in ["identity_context", "role", "department"]:
+        if key in insights:
+            result[key] = insights[key]
+    
+    # BasicInfoAgent and WorkflowIdentifierAgent need full task details
+    if agent_name in ["BasicInfoAgent", "WorkflowIdentifierAgent"]:
+        for key in ["purpose", "tasks", "priority_tasks"]:
+            if key in insights:
+                result[key] = insights[key]
+    
+    # DeepDiveAgent needs workflow details
+    elif agent_name == "DeepDiveAgent":
+        for key in ["purpose", "tasks", "priority_tasks", "workflows", "visited_tasks"]:
+            if key in insights:
+                result[key] = insights[key]
+    
+    # Later agents get summaries of earlier work to save tokens
+    else:
+        # Summarize purpose (truncate if too long)
+        if "purpose" in insights:
+            purpose = insights["purpose"]
+            if len(purpose) > 100:
+                result["purpose"] = purpose[:100] + "..."
+            else:
+                result["purpose"] = purpose
+        
+        # Summarize tasks (limit count)
+        if "tasks" in insights:
+            tasks = insights["tasks"]
+            if len(tasks) > 6:
+                result["task_count"] = len(tasks)
+                result["tasks"] = tasks[:3]  # Only first 3
+            else:
+                result["tasks"] = tasks
+        
+        if "priority_tasks" in insights:
+            result["priority_tasks"] = insights["priority_tasks"]
+        
+        if "workflows" in insights:
+            workflows = insights["workflows"]
+            result["workflow_count"] = len(workflows)
+        
+        # Tools, skills, qualifications - always include full (needed for these phases)
+        for key in ["tools", "technologies", "skills", "qualifications"]:
+            if key in insights:
+                result[key] = insights[key]
+    
+    return result
 
 
 def _build_identity_block(insights: dict) -> str:

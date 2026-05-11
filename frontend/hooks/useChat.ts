@@ -31,6 +31,7 @@ export function useChat(onSaveSuccess?: () => void, autoInit: boolean = true) {
   const [retryTimer, setRetryTimer] = useState(0);
   const [lastMessageText, setLastMessageText] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
+  const [employeeId, setEmployeeId] = useState<string | null>(null);
   // ✅ NEW: true once DB hydration is complete — page uses this to show skeleton
   const [hydrated, setHydrated] = useState(false);
 
@@ -249,7 +250,7 @@ export function useChat(onSaveSuccess?: () => void, autoInit: boolean = true) {
 
             setMessages(reconstructedMessages);
             updateHistory(dbHistory);
-            setProgress(dbProgress);
+             setProgress(dbProgress);
             setStatus(dbStatus);
             setCurrentAgent(dbAgent);
             setDepthScores(dbScores);
@@ -262,6 +263,7 @@ export function useChat(onSaveSuccess?: () => void, autoInit: boolean = true) {
             }
             setJd(initialJd);
             setStructuredData(existingData.jd_structured ?? null);
+            setEmployeeId(existingData.employee_id || null);
 
             // ✅ Mark hydration done — page can now render chat
             setHydrated(true);
@@ -601,5 +603,6 @@ export function useChat(onSaveSuccess?: () => void, autoInit: boolean = true) {
     confirmSkillsAction,
     confirmToolsAction,
     confirmPriorityTasksAction,
+    employeeId,
   };
 }

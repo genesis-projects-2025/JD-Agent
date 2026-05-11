@@ -197,45 +197,186 @@ async def query_advanced_context(
             filter_dict["dept"] = department
             
         # Prevent ASGI loop block on synchronous embedding call
-        query_vec = await asyncio.to_thread(embeddings.embed_query, query_text)
+        import asyncio
+        if asyncio.iscoroutinefunction(embeddings.embed_query):
+            query_vec = await embeddings.embed_query(query_text)
+        else:
+            query_vec = embeddings.embed_query(query_text)
         
-        # Prevent ASGI loop block on synchronous network DB query
-        results = await asyncio.to_thread(
-            index.query,
+        # Query Pinecone
+        results = index.query(
             vector=query_vec,
+            filter=filter_dict,
             top_k=top_k,
-            include_metadata=True,
-            filter=filter_dict
+            include_metadata=True
         )
         
-        examples = []
-        current_tokens = 0
-        # Increased threshold to 0.5 to avoid cross-role pollution
-        role_keywords = set(w.lower() for w in role_query.split() if len(w) > 3)
-        
-        for res in sorted(results["matches"], key=lambda x: x["score"], reverse=True):
-            if res["score"] > 0.5:
-                # Semantic isolation: ensure the matched role actually shares keywords with the queried role
-                matched_role = res["metadata"].get("role", "")
-                matched_keywords = set(w.lower() for w in matched_role.split() if len(w) > 3)
+        # Format results
+        contexts = []
+        for match in results["matches"]:
+            score = match.get("score", 0)
+            metadata = match.get("metadata", {})
+            text = match.get("document", "")
+            
+            # Skip low-confidence matches
+            if score < 0.3:
+                continue
                 
-                # Only accept if there's keyword overlap (e.g., both contain "software" or "engineer")
-                # If role_query is too short to generate keywords, we bypass this strict check
-                if role_keywords and not role_keywords.intersection(matched_keywords):
-                    logger.info(f"RAG Filter: Discarded '{matched_role}' due to zero keyword overlap with '{role_query}'.")
-                    continue
-                    
-                text = res["metadata"]["text"]
-                tokens = estimate_tokens(text)
-                if current_tokens + tokens <= token_budget:
-                    examples.append(text)
-                    current_tokens += tokens
+            context_entry = {
+                "text": text,
+                "score": score,
+                "category": metadata.get("category", "unknown"),
+                "role": metadata.get("role", ""),
+                "department": metadata.get("dept", ""),
+                "experience_level": metadata.get("experience_level", "")
+            }
+            contexts.append(context_entry)
         
-        return examples
+        return contexts
         
     except Exception as e:
-        logger.error(f"Advanced RAG query failed: {e}")
+        logger.error(f"Advanced context query failed: {e}")
         return []
+
+
+async def index_jd_document(
+    jd_id: str,
+    text: str,
+    chunk_type: str,
+    metadata: dict
+):
+    """
+    Index a single JD document chunk in Pinecone
+    
+    Args:
+        jd_id: Reference JD ID
+        text: Text content to index
+        chunk_type: Type of chunk (skills, tools, tasks, etc.)
+        metadata: Additional metadata
+    """
+    try:
+        # Generate embedding
+        if asyncio.iscoroutinefunction(embeddings.embed_query):
+            embedding = await embeddings.embed_query(text)
+        else:
+            embedding = embeddings.embed_query(text)
+        
+        # Prepare metadata
+        meta = {
+            "jd_id": jd_id,
+            "chunk_type": chunk_type,
+            "text": text[:500],  # Store first 500 chars
+            **metadata
+        }
+        
+        # Create vector ID
+        vector_id = f"{jd_id}_{chunk_type}_{hash(text) % 10000}"
+        
+        # Upsert to Pinecone
+        index.upsert(
+            vectors=[{
+                "id": vector_id,
+                "values": embedding,
+                "metadata": meta
+            }]
+        )
+        
+        logger.info(f"Indexed JD chunk: {jd_id} - {chunk_type}")
+        
+    except Exception as e:
+        logger.error(f"Failed to index JD document: {e}")
+
+
+async def find_similar_jds(
+    role_title: str = None,
+    department: str = None,
+    level: str = None,
+    skills: list = None,
+    limit: int = 5
+) -> list:
+    """
+    Find similar JDs using vector search
+    
+    Args:
+        role_title: Role to match
+        department: Department to match
+        level: Seniority level to match
+        skills: Skills to match
+        limit: Maximum number of results
+        
+    Returns:
+        List of similar JDs with metadata
+    """
+    try:
+        # Build query text from available parameters
+        query_parts = []
+        if role_title:
+            query_parts.append(f"Role: {role_title}")
+        if department:
+            query_parts.append(f"Department: {department}")
+        if level:
+            query_parts.append(f"Level: {level}")
+        if skills:
+            query_parts.append(f"Skills: {', '.join(skills[:5])}")
+        
+        if not query_parts:
+            return []
+        
+        query_text = ". ".join(query_parts)
+        
+        # Generate embedding
+        if asyncio.iscoroutinefunction(embeddings.embed_query):
+            query_embedding = await embeddings.embed_query(query_text)
+        else:
+            query_embedding = embeddings.embed_query(query_text)
+        
+        # Build filter
+        filter_dict = {}
+        if department:
+            filter_dict["department"] = department
+        if level:
+            filter_dict["level"] = level
+        
+        # Query Pinecone
+        results = index.query(
+            vector=query_embedding,
+            filter=filter_dict if filter_dict else None,
+            top_k=limit,
+            include_metadata=True
+        )
+        
+        # Group results by JD
+        jds = {}
+        for match in results["matches"]:
+            meta = match.get("metadata", {})
+            jd_id = meta.get("jd_id")
+            
+            if not jd_id:
+                continue
+            
+            if jd_id not in jds:
+                jds[jd_id] = {
+                    "jd_id": jd_id,
+                    "role_title": meta.get("role_title", "Unknown Role"),
+                    "department": meta.get("department", ""),
+                    "level": meta.get("level", ""),
+                    "similarity": match.get("score", 0),
+                    "chunks": []
+                }
+            
+            jds[jd_id]["chunks"].append({
+                "type": meta.get("chunk_type", ""),
+                "text": meta.get("text", "")[:200] + "..." if len(meta.get("text", "")) > 200 else meta.get("text", "")
+            })
+        
+        # Sort by similarity and return
+        sorted_jds = sorted(jds.values(), key=lambda x: x["similarity"], reverse=True)
+        return sorted_jds[:limit]
+        
+    except Exception as e:
+        logger.error(f"Similar JD search failed: {e}")
+        return []
+
 
 # For backward compatibility
 async def query_role_context(role_title: str, block_type: str, department: str = None, top_k: int = 5):

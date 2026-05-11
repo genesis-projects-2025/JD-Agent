@@ -3,6 +3,7 @@ from app.models.user_model import Employee
 from app.models.taxonomy_model import Skill, JDSessionSkill, EmployeeSkill
 from app.models.feedback_model import Feedback
 from app.models.review_comment_model import JDReviewComment
+from app.models.reference_jd_model import ReferenceJD
 
 __all__ = [
     "JDSession",
@@ -14,4 +15,5 @@ __all__ = [
     "EmployeeSkill",
     "Feedback",
     "JDReviewComment",
+    "ReferenceJD",
 ]

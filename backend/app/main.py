@@ -12,6 +12,7 @@ from app.routers.organogram_routes import router as organogram_router
 from app.routers.admin_routes import router as admin_router
 from app.routers.hr_routes import router as hr_router
 from app.routers.feedback_routes import router as feedback_router
+from app.routers.admin_jd_routes import router as admin_jd_router
 
 
 @asynccontextmanager
@@ -38,5 +39,6 @@ app.add_middleware(GZipMiddleware, minimum_size=1000)
 app.include_router(jd_router, prefix="/jd", tags=["JD Routes"])
 app.include_router(organogram_router, prefix="/auth")
 app.include_router(admin_router)
+app.include_router(admin_jd_router, tags=["Admin JDs"])
 app.include_router(feedback_router)
 app.include_router(hr_router, prefix="/api/hr", tags=["HR Dashboard"])

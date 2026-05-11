@@ -1,5 +1,5 @@
 import json
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Dict, List, Any, Optional
 from collections import defaultdict
@@ -31,7 +31,7 @@ class AgentImprovementAnalyzer:
             return {"error": "No metrics found", "agent": agent_name}
         
         metrics = []
-        cutoff_date = datetime.utcnow() - timedelta(days=days)
+        cutoff_date = datetime.now(timezone.utc) - timedelta(days=days)
         
         try:
             with open(metrics_path, "r") as f:
@@ -182,7 +182,7 @@ class AgentImprovementAnalyzer:
             return {"error": "No session summaries found"}
         
         summaries = []
-        cutoff_date = datetime.utcnow() - timedelta(days=days)
+        cutoff_date = datetime.now(timezone.utc) - timedelta(days=days)
         
         try:
             with open(summaries_path, "r") as f:
@@ -235,7 +235,7 @@ class AgentImprovementAnalyzer:
             return []
         
         patterns = defaultdict(int)
-        cutoff_date = datetime.utcnow() - timedelta(days=days)
+        cutoff_date = datetime.now(timezone.utc) - timedelta(days=days)
         
         try:
             with open(summaries_path, "r") as f:
@@ -295,7 +295,7 @@ class PromptOptimizer:
             "success": success,
             "response_time_ms": response_time_ms,
             "token_count": token_count,
-            "timestamp": datetime.utcnow().isoformat()
+                "timestamp": datetime.now(timezone.utc).isoformat()
         })
     
     def get_best_variant(self, agent_name: str) -> Optional[str]:

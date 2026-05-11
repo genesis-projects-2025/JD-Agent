@@ -67,7 +67,6 @@ def _safe_jsonb(value) -> dict:
             value = dict(value)
         except Exception:
             return {}
-            return {}
     try:
         return json.loads(json.dumps(value, default=str))
     except Exception:

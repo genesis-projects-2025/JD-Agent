@@ -9,6 +9,7 @@ import { getCookie, cookieKeys } from "@/lib/cookies";
 import ChatWindow from "@/components/chat/chat-window";
 import MessageInput from "@/components/chat/message-input";
 import JDPreviewPanel from "@/components/jd/jd-preview-panel";
+import ReferenceJDList from "@/components/jd/ReferenceJDList";
 import { useChat } from "@/hooks/useChat";
 import { useVoiceConversation } from "@/hooks/useVoiceConversation";
 import { deleteJD, getCurrentUser } from "@/lib/api";
@@ -20,6 +21,7 @@ import {
   Sparkles,
   ChevronRight,
   Trash2,
+  BookOpen,
 } from "lucide-react";
 
 export default function QuestionnairePage() {
@@ -32,6 +34,7 @@ export default function QuestionnairePage() {
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [composerValue, setComposerValue] = useState("");
+  const [showReferenceJDs, setShowReferenceJDs] = useState(true);
 
   const {
     messages,
@@ -56,6 +59,7 @@ export default function QuestionnairePage() {
     confirmPriorityTasksAction,
     hydrated,
     statusMessage,
+    employeeId,
   } = useChat(() => {
     // Component stays on page; the JDPreviewPanel handles UI view
   }, true);
@@ -239,26 +243,68 @@ export default function QuestionnairePage() {
           </button>
         </div>
 
-        {/* Generating indicator */}
-        {isGeneratingJD && (
-          <div className="flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-1.5 sm:py-2 bg-primary-50 text-primary-700 rounded-md text-[10px] sm:text-[11px] font-medium border border-primary-100 whitespace-nowrap shrink-0">
-            <Loader2 className="w-3.5 h-3.5 animate-spin" />
-            <span className="hidden sm:inline">Generating JD...</span>
-            <span className="sm:hidden">Gen JD...</span>
-          </div>
-        )}
-      </div>
+         {/* Generating indicator */}
+          {isGeneratingJD && (
+            <div className="flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-1.5 sm:py-2 bg-primary-50 text-primary-700 rounded-md text-[10px] sm:text-[11px] font-medium border border-primary-100 whitespace-nowrap shrink-0">
+              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              <span className="hidden sm:inline">Generating JD...</span>
+              <span className="sm:hidden">Gen JD...</span>
+            </div>
+          )}
 
-      {/* Main content area */}
-      <div className="flex-1 flex flex-col md:flex-row min-h-0 relative">
-        {/* Chat column — hidden on mobile when JD panel is open */}
-        <div
-          className={`flex flex-col min-h-0 transition-all duration-500 ease-out bg-surface-50 w-full ${showPanel
-            ? "hidden md:flex md:h-auto md:w-1/2 md:border-r border-surface-200"
-            : "h-full"
+          {/* Reference JDs toggle */}
+          {employeeId && (
+            <button
+              onClick={() => setShowReferenceJDs(!showReferenceJDs)}
+              className="flex items-center gap-1.5 px-3 sm:px-4 py-1.5 sm:py-2 bg-blue-50 text-blue-700 rounded-md text-[10px] sm:text-[11px] font-medium border border-blue-100 hover:bg-blue-100 transition-all whitespace-nowrap shrink-0"
+            >
+              <BookOpen className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">
+                {showReferenceJDs ? "Hide" : "Show"} References
+              </span>
+              <span className="sm:hidden">Refs</span>
+            </button>
+          )}
+        </div>
+
+       {/* Main content area */}
+        <div className="flex-1 flex flex-col md:flex-row min-h-0 relative">
+          {/* Chat column — hidden on mobile when JD panel is open */}
+          <div
+            className={`flex flex-col min-h-0 transition-all duration-500 ease-out bg-surface-50 w-full ${
+              showPanel
+                ? "hidden md:flex md:h-auto md:w-1/2 md:border-r border-surface-200"
+                : "h-full"
             }`}
-        >
-          <ChatWindow
+          >
+            {/* Reference JDs Section */}
+            {showReferenceJDs && employeeId && (
+              <div className="bg-white border-b border-surface-200 p-3">
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center gap-2">
+                    <BookOpen className="w-4 h-4 text-blue-600" />
+                    <span className="text-xs font-semibold text-gray-700">Reference JDs</span>
+                  </div>
+                  <button
+                    onClick={() => setShowReferenceJDs(false)}
+                    className="text-xs text-gray-400 hover:text-gray-600"
+                  >
+                    Hide
+                  </button>
+                </div>
+                <ReferenceJDList
+                  employeeId={employeeId}
+                  onUseReference={(jd) => {
+                    // Use reference JD to enhance current interview
+                    sendMessage(
+                      `Based on this reference JD for a similar role, what questions should I ask to understand how this person's role compares? Reference role: ${jd.role_title}, Department: ${jd.department}`
+                    );
+                  }}
+                />
+              </div>
+            )}
+
+            <ChatWindow
             messages={messages}
             hydrated={hydrated}
             progress={progress}

@@ -1,6 +1,6 @@
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Dict, Any, Optional
 import hashlib
@@ -55,7 +55,7 @@ class InterviewLogger:
             error: Error message if failed
         """
         log_entry = {
-            "timestamp": datetime.utcnow().isoformat() + "Z",
+            "timestamp": datetime.now(timezone.utc).isoformat() + "Z",
             "session_id": session_id,
             "turn_index": turn_index,
             "agent_name": agent_name,
@@ -102,7 +102,7 @@ class InterviewLogger:
             user_feedback: Optional user feedback data
         """
         summary = {
-            "timestamp": datetime.utcnow().isoformat() + "Z",
+            "timestamp": datetime.now(timezone.utc).isoformat() + "Z",
             "session_id": session_id,
             "total_turns": total_turns,
             "final_agent": final_agent,
@@ -178,7 +178,7 @@ class AgentMetricsLogger:
             validation_failures: Count of validation failures by category
         """
         metrics = {
-            "timestamp": datetime.utcnow().isoformat() + "Z",
+            "timestamp": datetime.now(timezone.utc).isoformat() + "Z",
             "agent_name": agent_name,
             "date": date,
             "total_turns": total_turns,

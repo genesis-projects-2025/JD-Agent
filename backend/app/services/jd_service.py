@@ -13,6 +13,12 @@ import logging
 import re
 import traceback
 import time
+from functools import lru_cache
+
+# Pre-compile regex patterns for better performance
+_STREAMING_TEXT_PATTERN = re.compile(r'"next_question"\s*:\s*"((?:[^"\\]|\\.)*)')
+_THINK_TAGS_PATTERN1 = re.compile(r"```.*?```", flags=re.DOTALL)
+_THINK_TAGS_PATTERN2 = re.compile(r"```.*", flags=re.DOTALL)
 
 from fastapi import HTTPException
 from langchain_google_genai import ChatGoogleGenerativeAI
@@ -35,20 +41,31 @@ from app.agents.logs.logger import InterviewLogger, calculate_turn_hash
 
 logger = logging.getLogger(__name__)
 
-# ── LLM Instances ──────────────────────────────────────────────────────────────
-interview_llm = ChatGoogleGenerativeAI(
-    google_api_key=settings.GEMINI_API_KEY,
-    model="gemini-2.5-flash",
-    temperature=0.4,
-    response_mime_type="application/json",
-)
 
-jd_llm = ChatGoogleGenerativeAI(
-    google_api_key=settings.GEMINI_API_KEY,
-    model="gemini-2.5-pro",
-    temperature=0.1,
-    response_mime_type="application/json",
-)
+# ── LLM Instances ──────────────────────────────────────────────────────────────
+@lru_cache(maxsize=2)
+def get_interview_llm():
+    return ChatGoogleGenerativeAI(
+        google_api_key=settings.GEMINI_API_KEY,
+        model="gemini-2.5-flash",
+        temperature=0.2,
+        response_mime_type="application/json",
+    )
+
+
+@lru_cache(maxsize=2)
+def get_jd_llm():
+    return ChatGoogleGenerativeAI(
+        google_api_key=settings.GEMINI_API_KEY,
+        model="gemini-2.5-pro",
+        temperature=0.1,
+        response_mime_type="application/json",
+    )
+
+
+# Initialize LLM instances
+interview_llm = get_interview_llm()
+jd_llm = get_jd_llm()
 
 
 async def _invoke_with_retry(llm, messages, max_retries=2):
@@ -60,30 +77,59 @@ async def _invoke_with_retry(llm, messages, max_retries=2):
             err = str(e).lower()
             is_retryable = "429" in err or "500" in err or "resource_exhausted" in err
             if is_retryable and attempt < max_retries:
-                wait = 2 ** attempt
-                logger.warning(f"LLM retry {attempt + 1}/{max_retries} after {wait}s: {e}")
+                wait = 2**attempt
+                logger.warning(
+                    f"LLM retry {attempt + 1}/{max_retries} after {wait}s: {e}"
+                )
                 await asyncio.sleep(wait)
             else:
                 raise
 
 
 # ── Soft skill blocklist ──────────────────────────────────────────────────────
-_SOFT_SKILL_PATTERNS = {
-    "communication", "teamwork", "collaboration", "leadership", "adaptability",
-    "problem solving", "problem-solving", "critical thinking", "attention to detail",
-    "time management", "interpersonal", "result-oriented", "results-oriented",
-    "self-starter", "proactive", "detail-oriented", "organised", "organized",
-    "motivated", "analytical", "analytical thinking", "strategic thinking",
-    "creative thinking", "team player", "work ethic", "multitasking",
-    "decision making", "decision-making", "emotional intelligence",
-    "conflict resolution", "negotiation skills", "presentation skills",
-}
+_SOFT_SKILL_PATTERNS = frozenset(
+    {
+        "communication",
+        "teamwork",
+        "collaboration",
+        "leadership",
+        "adaptability",
+        "problem solving",
+        "problem-solving",
+        "critical thinking",
+        "attention to detail",
+        "time management",
+        "interpersonal",
+        "result-oriented",
+        "results-oriented",
+        "self-starter",
+        "proactive",
+        "detail-oriented",
+        "organised",
+        "organized",
+        "motivated",
+        "analytical",
+        "analytical thinking",
+        "strategic thinking",
+        "creative thinking",
+        "team player",
+        "work ethic",
+        "multitasking",
+        "decision making",
+        "decision-making",
+        "emotional intelligence",
+        "conflict resolution",
+        "negotiation skills",
+        "presentation skills",
+    }
+)
 
 
 def sanitise_skills(skills: list) -> list:
     """Remove soft skills and duplicates from a skills list."""
     if not skills:
         return []
+
     seen = set()
     clean = []
     for s in skills:
@@ -113,7 +159,7 @@ def _extract_balanced_json_blocks(text: str) -> list:
         if escape_next:
             escape_next = False
             continue
-        if ch == '\\':
+        if ch == "\\":
             escape_next = True
             continue
         if ch == '"':
@@ -121,18 +167,18 @@ def _extract_balanced_json_blocks(text: str) -> list:
             continue
         if in_string:
             continue
-        if ch == '{':
+        if ch == "{":
             stack.append(i)
-        elif ch == '}' and stack:
+        elif ch == "}" and stack:
             start = stack.pop()
             if not stack:
-                blocks.append(text[start:i + 1])
+                blocks.append(text[start : i + 1])
     return blocks
 
 
 def remove_think_tags(text: str) -> str:
-    cleaned = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL)
-    cleaned = re.sub(r"<think>.*", "", cleaned, flags=re.DOTALL)
+    cleaned = _THINK_TAGS_PATTERN1.sub("", text)
+    cleaned = _THINK_TAGS_PATTERN2.sub("", cleaned)
     return cleaned.strip()
 
 
@@ -157,7 +203,7 @@ def extract_json_block(text: str) -> str:
 
 def extract_streaming_text(raw_json: str) -> str:
     """Extracts the value of next_question from a potentially incomplete JSON string."""
-    match = re.search(r'"next_question"\s*:\s*"((?:[^"\\]|\\.)*)', raw_json)
+    match = _STREAMING_TEXT_PATTERN.search(raw_json)
     if match:
         extracted = match.group(1)
         try:
@@ -178,19 +224,32 @@ def safe_to_dict(obj) -> dict:
 
 
 def deep_merge(base: dict, incoming: dict) -> dict:
+    """Merge two dictionaries recursively, preferring incoming values for conflicts."""
     result = dict(base)
     for key, new_val in incoming.items():
         existing_val = result.get(key)
-        if existing_val is None or existing_val == {} or existing_val == [] or existing_val == "":
+        # If existing value is falsy/empty, use new value
+        if (
+            existing_val is None
+            or existing_val == {}
+            or existing_val == []
+            or existing_val == ""
+        ):
             result[key] = new_val
+        # If both are dicts, merge recursively
         elif isinstance(new_val, dict) and isinstance(existing_val, dict):
             result[key] = deep_merge(existing_val, new_val)
+        # If both are lists, extend without duplicates
         elif isinstance(new_val, list) and isinstance(existing_val, list):
+            # Use set for O(1) lookup instead of O(n) list search
+            existing_set = set(existing_val)
             merged = list(existing_val)
             for item in new_val:
-                if item not in merged:
+                if item not in existing_set:
                     merged.append(item)
+                    existing_set.add(item)
             result[key] = merged
+        # If new value is meaningful, use it
         elif new_val not in (None, {}, [], ""):
             result[key] = new_val
     return result
@@ -209,9 +268,11 @@ def build_fallback_response(session_memory: SessionMemory) -> str:
     insights_dict = safe_to_dict(session_memory.insights)
     try:
         fallback = ChatResponse(
-            next_question="I encountered an issue. Could you please repeat your last message?",
+            conversation_response="I encountered an issue. Could you please repeat your last message?",
             progress=Progress(**progress_dict) if progress_dict else Progress(),
-            employee_role_insights=EmployeeRoleInsights(**insights_dict) if insights_dict else EmployeeRoleInsights(),
+            employee_role_insights=EmployeeRoleInsights(**insights_dict)
+            if insights_dict
+            else EmployeeRoleInsights(),
             jd_structured_data=None,
             jd_text_format="",
             suggested_skills=[],
@@ -220,19 +281,34 @@ def build_fallback_response(session_memory: SessionMemory) -> str:
         )
         return fallback.model_dump_json()
     except Exception:
-        return json.dumps({
-            "next_question": "I encountered an issue. Could you please repeat your last message?",
-            "progress": progress_dict or {"completion_percentage": 0, "missing_insight_areas": [], "status": "collecting", "current_phase": 1},
-            "employee_role_insights": insights_dict or {},
-            "jd_structured_data": {},
-            "jd_text_format": "",
-            "suggested_skills": [],
-            "analytics": {"questions_asked": 0, "questions_answered": 0, "insights_collected": 0, "estimated_completion_time_minutes": 0},
-            "approval": {"approval_required": False, "approval_status": "pending"},
-        })
+        return json.dumps(
+            {
+                "next_question": "I encountered an issue. Could you please repeat your last message?",
+                "progress": progress_dict
+                or {
+                    "completion_percentage": 0,
+                    "missing_insight_areas": [],
+                    "status": "collecting",
+                    "current_phase": 1,
+                },
+                "employee_role_insights": insights_dict or {},
+                "jd_structured_data": {},
+                "jd_text_format": "",
+                "suggested_skills": [],
+                "analytics": {
+                    "questions_asked": 0,
+                    "questions_answered": 0,
+                    "insights_collected": 0,
+                    "estimated_completion_time_minutes": 0,
+                },
+                "approval": {"approval_required": False, "approval_status": "pending"},
+            }
+        )
 
 
-def wrap_plain_text_into_json(plain_text: str, session_memory: SessionMemory) -> tuple[dict, str]:
+def wrap_plain_text_into_json(
+    plain_text: str, session_memory: SessionMemory
+) -> tuple[dict, str]:
     """Wrap a plain-text LLM response into the expected JSON structure."""
     insights_dict = safe_to_dict(session_memory.insights)
     progress_dict = safe_to_dict(session_memory.progress)
@@ -244,19 +320,40 @@ def wrap_plain_text_into_json(plain_text: str, session_memory: SessionMemory) ->
         try:
             candidate = json.loads(stripped)
             if "next_question" in candidate:
-                if "employee_role_insights" in candidate and isinstance(candidate["employee_role_insights"], dict):
-                    insights_dict = deep_merge(insights_dict, candidate["employee_role_insights"])
+                if "employee_role_insights" in candidate and isinstance(
+                    candidate["employee_role_insights"], dict
+                ):
+                    insights_dict = deep_merge(
+                        insights_dict, candidate["employee_role_insights"]
+                    )
                 if "progress" in candidate and isinstance(candidate["progress"], dict):
                     progress_dict = deep_merge(progress_dict, candidate["progress"])
                 wrapped = {
                     "next_question": candidate["next_question"],
-                    "progress": progress_dict or {"completion_percentage": 0, "missing_insight_areas": [], "status": "collecting", "current_phase": session_memory.current_phase},
+                    "progress": progress_dict
+                    or {
+                        "completion_percentage": 0,
+                        "missing_insight_areas": [],
+                        "status": "collecting",
+                        "current_phase": session_memory.current_phase,
+                    },
                     "employee_role_insights": insights_dict,
                     "jd_structured_data": candidate.get("jd_structured_data", {}),
                     "jd_text_format": candidate.get("jd_text_format", ""),
                     "suggested_skills": candidate.get("suggested_skills", []),
-                    "analytics": candidate.get("analytics", {"questions_asked": 0, "questions_answered": 0, "insights_collected": 0, "estimated_completion_time_minutes": 10}),
-                    "approval": candidate.get("approval", {"approval_required": False, "approval_status": "pending"}),
+                    "analytics": candidate.get(
+                        "analytics",
+                        {
+                            "questions_asked": 0,
+                            "questions_answered": 0,
+                            "insights_collected": 0,
+                            "estimated_completion_time_minutes": 10,
+                        },
+                    ),
+                    "approval": candidate.get(
+                        "approval",
+                        {"approval_required": False, "approval_status": "pending"},
+                    ),
                 }
                 return wrapped, json.dumps(wrapped, separators=(",", ":"))
         except (json.JSONDecodeError, TypeError):
@@ -266,18 +363,31 @@ def wrap_plain_text_into_json(plain_text: str, session_memory: SessionMemory) ->
     sanitized_text = plain_text.strip("{} \n\t\r")
     wrapped = {
         "next_question": sanitized_text.strip(),
-        "progress": progress_dict or {"completion_percentage": 0, "missing_insight_areas": [], "status": "collecting", "current_phase": session_memory.current_phase},
+        "progress": progress_dict
+        or {
+            "completion_percentage": 0,
+            "missing_insight_areas": [],
+            "status": "collecting",
+            "current_phase": session_memory.current_phase,
+        },
         "employee_role_insights": insights_dict or {},
         "jd_structured_data": {},
         "jd_text_format": "",
         "suggested_skills": [],
-        "analytics": {"questions_asked": 0, "questions_answered": 0, "insights_collected": len([v for v in insights_dict.values() if v]), "estimated_completion_time_minutes": 10},
+        "analytics": {
+            "questions_asked": 0,
+            "questions_answered": 0,
+            "insights_collected": len([v for v in insights_dict.values() if v]),
+            "estimated_completion_time_minutes": 10,
+        },
         "approval": {"approval_required": False, "approval_status": "pending"},
     }
     return wrapped, json.dumps(wrapped, separators=(",", ":"))
 
 
-def parse_llm_response(raw_content: str, session_memory: SessionMemory = None) -> tuple[dict, str]:
+def parse_llm_response(
+    raw_content: str, session_memory: SessionMemory
+) -> tuple[dict, str]:
     """Multi-strategy JSON parser with O(n) bracket matching fallback."""
     cleaned = clean_json_string(raw_content)
     if cleaned:
@@ -330,14 +440,18 @@ def parse_llm_response(raw_content: str, session_memory: SessionMemory = None) -
 def build_markdown_from_structured(structured: dict) -> str:
     """Standardized markdown generator for Pulse Pharma template."""
     emp = structured.get("employee_information", {})
-    title = emp.get("job_title") or emp.get("title") or emp.get("role_title") or "New Role"
+    title = (
+        emp.get("job_title") or emp.get("title") or emp.get("role_title") or "New Role"
+    )
     lines = [f"# Job Description: {title}\n"]
     dept = emp.get("department", "")
     location = emp.get("location", "")
     work_type = emp.get("work_type", "")
     reports_to = emp.get("reports_to", "")
     if dept or location:
-        lines.append(f"**Department:** {dept} | **Location:** {location} | **Work Type:** {work_type}")
+        lines.append(
+            f"**Department:** {dept} | **Location:** {location} | **Work Type:** {work_type}"
+        )
     if reports_to:
         lines.append(f"**Reports To:** {reports_to}")
     lines.append("\n---\n")
@@ -366,9 +480,13 @@ def build_markdown_from_structured(structured: dict) -> str:
         if wr.get("team_size"):
             lines.append(f"| **Team** | {wr['team_size']} |")
         if wr.get("internal_stakeholders"):
-            lines.append(f"| **Internal Stakeholders** | {wr['internal_stakeholders']} |")
+            lines.append(
+                f"| **Internal Stakeholders** | {wr['internal_stakeholders']} |"
+            )
         if wr.get("external_stakeholders"):
-            lines.append(f"| **External Stakeholders** | {wr['external_stakeholders']} |")
+            lines.append(
+                f"| **External Stakeholders** | {wr['external_stakeholders']} |"
+            )
         lines.append("\n---\n")
 
     for section, key in [
@@ -404,19 +522,21 @@ async def handle_jd_generation(session_memory: SessionMemory) -> dict:
 
     messages = [
         SystemMessage(content=JD_GENERATION_PROMPT),
-        HumanMessage(content=(
-            "Generate a complete Job Description using the employee role insights below.\n\n"
-            "STRICT OUTPUT RULES:\n"
-            "1. Return ONLY a single valid JSON object — no text or markdown fences before/after.\n"
-            "2. The JSON must have EXACTLY two top-level keys:\n"
-            "   'jd_structured_data' — fully populated object with ALL schema fields\n"
-            "   'jd_text_format'     — complete JD as a clean markdown string\n"
-            "3. jd_structured_data must NOT be empty {} — populate every field.\n"
-            "4. jd_text_format must be clean markdown starting with '# Job Description:'\n"
-            "   IMPORTANT: Escape all newlines as \\n within the JSON string.\n\n"
-            "Employee Role Intelligence:\n"
-            f"{json.dumps(insights_dict, indent=2)}"
-        )),
+        HumanMessage(
+            content=(
+                "Generate a complete Job Description using the employee role insights below.\n\n"
+                "STRICT OUTPUT RULES:\n"
+                "1. Return ONLY a single valid JSON object — no text or markdown fences before/after.\n"
+                "2. The JSON must have EXACTLY two top-level keys:\n"
+                "   'jd_structured_data' — fully populated object with ALL schema fields\n"
+                "   'jd_text_format'     — complete JD as a clean markdown string\n"
+                "3. jd_structured_data must NOT be empty {} — populate every field.\n"
+                "4. jd_text_format must be clean markdown starting with '# Job Description:'\n"
+                "   IMPORTANT: Escape all newlines as \\n within the JSON string.\n\n"
+                "Employee Role Intelligence:\n"
+                f"{json.dumps(insights_dict, indent=2)}"
+            )
+        ),
     ]
 
     logger.info("Calling JD LLM...")
@@ -424,11 +544,18 @@ async def handle_jd_generation(session_memory: SessionMemory) -> dict:
         response = await _invoke_with_retry(jd_llm, messages)
     except Exception as e:
         err_msg = str(e)
-        if "429" in err_msg or "quota" in err_msg.lower() or "resource_exhausted" in err_msg.lower():
-            raise HTTPException(status_code=429, detail="Gemini API Quota Exceeded. Please try again in 30 seconds.")
+        if (
+            "429" in err_msg
+            or "quota" in err_msg.lower()
+            or "resource_exhausted" in err_msg.lower()
+        ):
+            raise HTTPException(
+                status_code=429,
+                detail="Gemini API Quota Exceeded. Please try again in 30 seconds.",
+            )
         raise e
 
-    raw = strip_reasoning_tags(response.content)
+    raw = strip_reasoning_tags(getattr(response, "content", str(response)))
     structured = {}
     jd_text = ""
 
@@ -437,17 +564,33 @@ async def handle_jd_generation(session_memory: SessionMemory) -> dict:
 
     if block:
         try:
-            parsed = json.loads(block, strict=False)
+            parsed = json.loads(block)
             structured = parsed.get("jd_structured_data") or {}
 
             if not structured:
-                jd_keys = {"employee_information", "purpose", "responsibilities", "working_relationships", "skills", "tools", "education", "experience", "additional_details"}
+                jd_keys = {
+                    "employee_information",
+                    "purpose",
+                    "responsibilities",
+                    "working_relationships",
+                    "skills",
+                    "tools",
+                    "education",
+                    "experience",
+                    "additional_details",
+                }
                 if any(k in parsed for k in jd_keys):
                     structured = {k: parsed[k] for k in jd_keys if k in parsed}
 
             jd_text = parsed.get("jd_text_format", "")
             if not jd_text:
-                for key in ("jd_text", "job_description", "markdown", "content", "text"):
+                for key in (
+                    "jd_text",
+                    "job_description",
+                    "markdown",
+                    "content",
+                    "text",
+                ):
                     if parsed.get(key) and isinstance(parsed[key], str):
                         jd_text = parsed[key]
                         break
@@ -468,7 +611,9 @@ async def handle_jd_generation(session_memory: SessionMemory) -> dict:
         jd_text = build_markdown_from_structured(structured)
 
     if not jd_text and not structured:
-        raise ValueError("JD generation produced no output. Check LLM response in logs above.")
+        raise ValueError(
+            "JD generation produced no output. Check LLM response in logs above."
+        )
 
     if jd_text:
         session_memory.generated_jd = jd_text
@@ -477,21 +622,49 @@ async def handle_jd_generation(session_memory: SessionMemory) -> dict:
 
     session_memory.progress["status"] = "jd_generated"
     logger.info("[JD Generation] Completed")
-    
+
     # Log session summary for improvement analysis
     try:
         from app.agents.logs.logger import InterviewLogger
-        total_time_ms = session_memory.progress.get("total_time_ms", 0)
+
+        # Safely extract numeric values from progress dict
+        def safe_float(value, default=0.0) -> float:
+            """Safely convert value to float, handling various types."""
+            try:
+                if isinstance(value, (int, float)):
+                    return float(value)
+                elif isinstance(value, str):
+                    return float(value) if value else default
+                else:
+                    return default
+            except (ValueError, TypeError):
+                return default
+
+        def safe_int(value, default=0) -> int:
+            """Safely convert value to int, handling various types."""
+            try:
+                if isinstance(value, int):
+                    return value
+                elif isinstance(value, (float, str)):
+                    return int(float(value)) if value else default
+                else:
+                    return default
+            except (ValueError, TypeError):
+                return default
+
+        total_time_ms = safe_float(session_memory.progress.get("total_time_ms", 0))
         InterviewLogger.log_session_summary(
             session_id=str(session_memory.id),
-            total_turns=session_memory.turn_count,
+            total_turns=len(session_memory.full_history) // 2,
             final_agent=session_memory.current_agent,
-            final_progress=session_memory.progress.get("completion_percentage", 0),
-            total_tokens=session_memory.progress.get("total_tokens_used", 0),
+            final_progress=safe_float(
+                session_memory.progress.get("completion_percentage", 0)
+            ),
+            total_tokens=safe_int(session_memory.progress.get("total_tokens_used", 0)),
             total_time_ms=total_time_ms,
             jd_generated=True,
             jd_quality_score=None,  # Could be added if we implement quality scoring
-            user_feedback=None
+            user_feedback=None,
         )
     except Exception as e:
         logger.warning(f"Failed to log session summary: {e}")
@@ -543,7 +716,9 @@ def _process_llm_response(
 
     # ── Fix nested JSON in next_question ──────────────────────────
     conv_resp = parsed_json.get("next_question", "")
-    if conv_resp and (conv_resp.strip().startswith("{") or "next_question" in conv_resp):
+    if conv_resp and (
+        conv_resp.strip().startswith("{") or "next_question" in conv_resp
+    ):
         try:
             inner = json.loads(conv_resp)
             if "next_question" in inner:
@@ -559,14 +734,18 @@ def _process_llm_response(
         mem_skills = merged_insights.get("skills", [])
         mem_tools = merged_insights.get("tools", [])
         if isinstance(mem_skills, list) and isinstance(mem_tools, list):
-            parsed_json["suggested_skills"] = sanitise_skills(list(set(mem_skills + mem_tools)))
+            parsed_json["suggested_skills"] = sanitise_skills(
+                list(set(mem_skills + mem_tools))
+            )
 
     # ── Build history entry ───────────────────────────────────────────────
-    assistant_history_entry = json.dumps({
-        "next_question": assistant_text,
-        "progress": session_memory.progress,
-        "suggested_skills": parsed_json.get("suggested_skills", []),
-    })
+    assistant_history_entry = json.dumps(
+        {
+            "next_question": assistant_text,
+            "progress": session_memory.progress,
+            "suggested_skills": parsed_json.get("suggested_skills", []),
+        }
+    )
     session_memory.update_recent("user", user_message)
     session_memory.update_recent("assistant", assistant_history_entry)
     update_summary(session_memory)
@@ -591,43 +770,50 @@ async def handle_conversation(
 ):
     """Interview turn handler — delegates to LangGraph multi-agent system."""
     turn_start_time = time.time()
+    response_time_ms = 0.0
     logger.info(f"[Interview v2] TURN STARTED — Agent: {session_memory.current_agent}")
-    
+
     # Calculate token estimate for request (rough estimate)
     request_tokens = len(user_message) // 4  # Approx chars to tokens
-    
+
     try:
         from app.agents.graph import run_interview_turn
+
         reply_content, history = await run_interview_turn(
             session_memory=session_memory,
             user_message=user_message,
             history=history,
         )
-        
+
         # Parse response to get token count
         response_tokens = len(reply_content) // 4
         total_tokens = request_tokens + response_tokens
-        
+
         # Calculate response time
         response_time_ms = (time.time() - turn_start_time) * 1000
-        
+
         # Parse the response to extract data for logging
         try:
             parsed = json.loads(reply_content)
             llm_response = parsed.get("next_question", "")
-            extracted_data = session_memory.insights if hasattr(session_memory, 'insights') else {}
+            extracted_data = (
+                session_memory.insights if hasattr(session_memory, "insights") else {}
+            )
         except:
             llm_response = reply_content
             extracted_data = {}
-        
+
         # Get validation results
         from app.agents.validators import validate_insights_completeness
-        insights_dict = session_memory.insights if hasattr(session_memory, 'insights') else {}
+
+        insights_dict = (
+            session_memory.insights if hasattr(session_memory, "insights") else {}
+        )
         if isinstance(insights_dict, dict):
             validation_results = validate_insights_completeness(insights_dict)
         else:
             validation_results = {}
-        
+
         # Log the turn
         turn_index = len(session_memory.full_history) // 2 + 1
         InterviewLogger.log_turn(
@@ -641,19 +827,19 @@ async def handle_conversation(
             token_usage={
                 "prompt_tokens": request_tokens,
                 "completion_tokens": response_tokens,
-                "total_tokens": total_tokens
+                "total_tokens": total_tokens,
             },
             response_time_ms=response_time_ms,
-            success=True
+            success=True,
         )
-        
+
     except HTTPException:
         raise
     except Exception as e:
         error_str = str(e).lower()
         logger.error(f"Interview v2 error: {e}")
         traceback.print_exc()
-        
+
         # Log failed turn
         turn_index = len(session_memory.full_history) // 2 + 1
         InterviewLogger.log_turn(
@@ -664,20 +850,26 @@ async def handle_conversation(
             extracted_data={},
             validation_results={},
             llm_response="",
-            token_usage={"prompt_tokens": request_tokens, "completion_tokens": 0, "total_tokens": request_tokens},
+            token_usage={
+                "prompt_tokens": request_tokens,
+                "completion_tokens": 0,
+                "total_tokens": request_tokens,
+            },
             response_time_ms=response_time_ms,
             success=False,
-            error=str(e)
+            error=str(e),
         )
-        
+
         if "rate limit" in error_str or "429" in error_str or "exhausted" in error_str:
             raise HTTPException(status_code=429, detail="Rate limit exceeded")
         # Fallback to error response
         reply_content = build_fallback_response(session_memory)
         history.append({"role": "user", "content": user_message})
         history.append({"role": "assistant", "content": reply_content})
-    
-    logger.info(f"[Interview v2] TURN COMPLETED — Agent now {session_memory.current_agent}")
+
+    logger.info(
+        f"[Interview v2] TURN COMPLETED — Agent now {session_memory.current_agent}"
+    )
     return reply_content, history
 
 
@@ -685,10 +877,13 @@ async def handle_conversation_stream(
     history: list, user_message: str, session_memory: SessionMemory
 ):
     """Streaming interview handler — delegates to LangGraph multi-agent system."""
-    logger.info(f"[Interview v2 Stream] TURN STARTED — Agent: {session_memory.current_agent}")
+    logger.info(
+        f"[Interview v2 Stream] TURN STARTED — Agent: {session_memory.current_agent}"
+    )
 
     try:
         from app.agents.graph import run_interview_turn_stream
+
         async for chunk in run_interview_turn_stream(
             session_memory=session_memory,
             user_message=user_message,
@@ -708,14 +903,16 @@ async def handle_conversation_stream(
 
         try:
             fallback = json.loads(build_fallback_response(session_memory))
-            payload = {"type": "error", "parsed": fallback}
+            payload: dict = {"type": "error", "parsed": fallback}
             if is_rate_limit:
                 payload["is_rate_limit"] = True
             yield f"data: {json.dumps(payload)}\n\n"
         except Exception:
-            payload = {"type": "error", "message": error_msg}
+            payload: dict = {"type": "error", "message": error_msg}
             if is_rate_limit:
                 payload["is_rate_limit"] = True
             yield f"data: {json.dumps(payload)}\n\n"
 
-    logger.info(f"[Interview v2 Stream] TURN COMPLETED — Agent now {session_memory.current_agent}")
+    logger.info(
+        f"[Interview v2 Stream] TURN COMPLETED — Agent now {session_memory.current_agent}"
+    )

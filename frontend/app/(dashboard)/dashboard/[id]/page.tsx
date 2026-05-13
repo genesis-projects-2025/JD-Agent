@@ -2,7 +2,7 @@
 
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useLayoutEffect, useMemo, type ElementType } from "react";
 import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import {
@@ -25,19 +25,20 @@ import {
 import { DeleteModal } from "@/components/ui/delete-modal";
 
 import {
- AuthUser,
- fetchEmployeeJDs,
- getCurrentUser,
- getJDs,
- getOrCreateEmployeeId,
- isHR,
- isManager,
- isHead,
- fetchEmployeeProfile,
- fetchHRDepartmentStats,
- fetchDepartmentEmployees,
- fetchMyTeamStats,
- fetchMyTeamEmployees,
+  AuthUser,
+  fetchEmployeeJDs,
+  fetchManagerPendingJDs,
+  fetchHRPendingJDs,
+  getJDs,
+  getOrCreateEmployeeId,
+  isHR,
+  isManager,
+  fetchEmployeeProfile,
+  fetchHRDepartmentStats,
+  fetchDepartmentEmployees,
+  fetchMyTeamStats,
+  fetchMyTeamEmployees,
+  deleteJD,
 } from "@/lib/api";
 
 
@@ -61,8 +62,8 @@ type JDListItem = {
 // ── Status config ─────────────────────────────────────────────────────────────
 
 const STATUS_CONFIG: Record<
- string,
- { label: string; color: string; bg: string; icon: any }
+  string,
+  { label: string; color: string; bg: string; icon: ElementType }
 > = {
  collecting: {
  label: "In Progress",
@@ -129,31 +130,32 @@ const STATUS_CONFIG: Record<
 // ── Shared JD card grid ───────────────────────────────────────────────────────
 
 function JDGrid({
- jds,
- showEmployee,
+  jds,
+  showEmployee,
 }: {
- jds: JDListItem[];
- showEmployee: boolean;
+  jds: JDListItem[];
+  showEmployee: boolean;
 }) {
- if (jds.length === 0) {
- return (
- <div className="bg-surface-50 rounded-[40px] p-20 text-center border-2 border-dashed border-surface-200">
- <div className="w-20 h-20 bg-white rounded-md flex items-center justify-center mx-auto mb-6 shadow-sm border border-surface-100">
- <MessageSquare className="w-10 h-10 text-surface-300" />
- </div>
- <h3 className="text-xl font-medium text-surface-900 mb-2 ">
- No records found
- </h3>
- <p className="text-surface-500 max-w-sm mx-auto font-medium">
- No Job Descriptions match the current filter.
- </p>
- </div>
- );
- }
+  // Hooks must be called at the top level, before any conditional returns
+  const router = useRouter();
+  const [isDeleting, setIsDeleting] = useState<string | null>(null);
+  const [jdToDelete, setJdToDelete] = useState<JDListItem | null>(null);
 
- const router = useRouter();
- const [isDeleting, setIsDeleting] = useState<string | null>(null);
- const [jdToDelete, setJdToDelete] = useState<JDListItem | null>(null);
+  if (jds.length === 0) {
+    return (
+      <div className="bg-surface-50 rounded-[40px] p-20 text-center border-2 border-dashed border-surface-200">
+        <div className="w-20 h-20 bg-white rounded-md flex items-center justify-center mx-auto mb-6 shadow-sm border border-surface-100">
+          <MessageSquare className="w-10 h-10 text-surface-300" />
+        </div>
+        <h3 className="text-xl font-medium text-surface-900 mb-2 ">
+          No records found
+        </h3>
+        <p className="text-surface-500 max-w-sm mx-auto font-medium">
+          No Job Descriptions match the current filter.
+        </p>
+      </div>
+    );
+  }
 
  const handleDelete = async (jd: JDListItem, e: React.MouseEvent) => {
  e.preventDefault();
@@ -161,21 +163,21 @@ function JDGrid({
  setJdToDelete(jd);
  };
 
- const confirmDelete = async () => {
- if (!jdToDelete) return;
- setIsDeleting(jdToDelete.id);
- try {
- const { deleteJD } = require("@/lib/api");
- const employeeId = getOrCreateEmployeeId();
- await deleteJD(jdToDelete.id, employeeId);
- // Fast refresh by just reloading the page or we could pass a callback
- window.location.reload();
- } catch (err: any) {
- alert(err?.message || "Failed to delete JD");
- setIsDeleting(null);
- setJdToDelete(null);
- }
- };
+  const confirmDelete = async () => {
+    if (!jdToDelete) return;
+    setIsDeleting(jdToDelete.id);
+    try {
+      const employeeId = getOrCreateEmployeeId();
+      await deleteJD(jdToDelete.id, employeeId);
+      // Fast refresh by just reloading the page or we could pass a callback
+      window.location.reload();
+    } catch (err: unknown) {
+      const error = err as Error | undefined;
+      alert(error?.message || "Failed to delete JD");
+      setIsDeleting(null);
+      setJdToDelete(null);
+    }
+  };
 
  return (
  <>
@@ -283,62 +285,53 @@ function JDGrid({
 // ── Employee view — your original design ─────────────────────────────────────
 
 function EmployeeView({
- employeeId,
- user,
+  employeeId,
+  user,
 }: {
- employeeId: string;
- user: AuthUser | null;
+  employeeId: string;
+  user: AuthUser | null;
 }) {
- const [allJds, setAllJds] = useState<JDListItem[]>([]);
- const [jds, setJds] = useState<JDListItem[]>([]);
- const [loading, setLoading] = useState(true);
+  const [allJds, setAllJds] = useState<JDListItem[]>([]);
+  const [loading, setLoading] = useState(true);
 
- const searchParams = useSearchParams();
- const currentView = searchParams.get("view");
+  const searchParams = useSearchParams();
+  const currentView = searchParams.get("view");
 
- const [filter, setFilter] = useState<
- "all" | "draft" | "pending" | "approved" | "feedback"
- >(
- currentView === "feedback"
- ? "feedback"
- : currentView === "approvals"
- ? "pending"
- : "all",
- );
+  const [filter, setFilter] = useState<
+  "all" | "draft" | "pending" | "approved" | "feedback"
+  >(
+  currentView === "feedback"
+  ? "feedback"
+  : currentView === "approvals"
+  ? "pending"
+  : "all",
+  );
 
- useEffect(() => {
- fetchEmployeeJDs(employeeId)
- .then((d) => {
- setAllJds(d || []);
- setJds(d || []);
- })
- .catch(console.error)
- .finally(() => setLoading(false));
- }, [employeeId]);
+  // Derived list based on filter - no separate state needed
+  const jds = useMemo(() => {
+    if (filter === "all") return allJds;
+    if (filter === "draft") {
+      return allJds.filter((j) =>
+        ["draft", "jd_generated", "collecting", "manager_rejected", "hr_rejected"].includes(j.status),
+      );
+    }
+    if (filter === "pending") {
+      return allJds.filter((j) => ["sent_to_manager", "sent_to_hr"].includes(j.status));
+    }
+    if (filter === "approved") {
+      return allJds.filter((j) => j.status === "approved");
+    }
+    return allJds;
+  }, [filter, allJds]);
 
- useEffect(() => {
- if (filter === "all") setJds(allJds);
- else if (filter === "draft")
- setJds(
- allJds.filter((j) =>
- [
- "draft",
- "jd_generated",
- "collecting",
- "manager_rejected",
- "hr_rejected",
- ].includes(j.status),
- ),
- );
- else if (filter === "pending")
- setJds(
- allJds.filter((j) =>
- ["sent_to_manager", "sent_to_hr"].includes(j.status),
- ),
- );
- else if (filter === "approved")
- setJds(allJds.filter((j) => j.status === "approved"));
- }, [filter, allJds]);
+  useEffect(() => {
+    fetchEmployeeJDs(employeeId)
+    .then((d) => {
+      setAllJds(d || []);
+    })
+    .catch(console.error)
+    .finally(() => setLoading(false));
+  }, [employeeId]);
 
  const draftCount = allJds.filter((j) =>
  [
@@ -457,15 +450,15 @@ function EmployeeView({
  emerald: "bg-emerald-100 text-emerald-700",
  }[tab.color as string] || "bg-surface-100 text-surface-700";
 
- return (
- <button
- key={tab.key}
- onClick={() => setFilter(tab.key as any)}
- className={`flex-1 min-w-[140px] flex items-center gap-3 p-3 rounded-md transition-all duration-200 ${isActive
- ? "bg-surface-900 text-white shadow-md shadow-surface-900/20 ring-1 ring-surface-900"
- : "hover:bg-surface-50 text-surface-600 hover:text-surface-900"
- }`}
- >
+  return (
+    <button
+      key={tab.key}
+      onClick={() => setFilter(tab.key as "all" | "draft" | "pending" | "approved")}
+      className={`flex-1 min-w-[140px] flex items-center gap-3 p-3 rounded-md transition-all duration-200 ${isActive
+        ? "bg-surface-900 text-white shadow-md shadow-surface-900/20 ring-1 ring-surface-900"
+        : "hover:bg-surface-50 text-surface-600 hover:text-surface-900"
+      }`}
+    >
  <div
  className={`w-10 h-10 rounded-lg flex items-center justify-center ${isActive ? "bg-white/10" : colorClasses}`}
  >
@@ -510,82 +503,88 @@ function EmployeeView({
 // ── Manager view ──────────────────────────────────────────────────────────────
 
 function ManagerView({ user }: { user: AuthUser }) {
- const [allJds, setAllJds] = useState<JDListItem[]>([]);
- const [myJds, setMyJds] = useState<JDListItem[]>([]);
- const [jds, setJds] = useState<JDListItem[]>([]);
- const [loading, setLoading] = useState(true);
+  const [allJds, setAllJds] = useState<JDListItem[]>([]);
+  const [myJds, setMyJds] = useState<JDListItem[]>([]);
+  const [loading, setLoading] = useState(true);
 
- // My Team State
- const [teamStats, setTeamStats] = useState<any>(null);
- const [myTeamEmployees, setMyTeamEmployees] = useState<any[]>([]);
- const [loadingTeam, setLoadingTeam] = useState(false);
+  // My Team State
+  type TeamStats = {
+    total_employees?: number;
+    submitted?: number;
+    under_review?: number;
+    approved?: number;
+    completion_percentage?: number;
+    [key: string]: unknown;
+  };
+  type TeamEmployee = {
+    employee_id: string;
+    name: string;
+    designation?: string;
+    reporting_manager?: string;
+    jd_id?: string;
+    jd_status?: string;
+    last_updated?: string | null;
+  };
+
+  const [teamStats, setTeamStats] = useState<TeamStats | null>(null);
+  const [myTeamEmployees, setMyTeamEmployees] = useState<TeamEmployee[]>([]);
+  const [loadingTeam, setLoadingTeam] = useState(false);
 
 
+  const searchParams = useSearchParams();
+  const currentView = searchParams.get("view");
 
- const searchParams = useSearchParams();
- const currentView = searchParams.get("view");
+  const [filter, setFilter] = useState<
+    "all" | "pending" | "approved" | "my_jds" | "my_team" | "feedback"
+  >(
+    currentView === "feedback"
+      ? "feedback"
+      : currentView === "my_team"
+        ? "my_team"
+        : currentView === "my_jds"
+          ? "my_jds"
+          : "all",
+  );
 
- const [filter, setFilter] = useState<
- "all" | "pending" | "approved" | "my_jds" | "my_team" | "feedback"
- >(
- currentView === "feedback"
- ? "feedback"
- : currentView === "approvals"
- ? "pending"
- : "all",
- );
-
-
- useEffect(() => {
- async function load() {
- try {
- const { fetchManagerPendingJDs } = require("@/lib/api");
- const [teamData, personalData, statsData, employeesData] = await Promise.all([
- fetchManagerPendingJDs(user.employee_id),
- fetchEmployeeJDs(user.employee_id),
- fetchMyTeamStats(user.employee_id).catch(() => null),
- fetchMyTeamEmployees(user.employee_id).catch(() => []),
- ]);
- setAllJds(teamData || []);
- setMyJds(personalData || []);
- setTeamStats(statsData);
- setMyTeamEmployees(employeesData || []);
-
- // Default view shows pending
-      setJds(
-        (teamData || []).filter(
-          (j: any) => j.status === "sent_to_manager" || j.status === "hr_rejected",
-        ),
+  // Derived JDs based on filter
+  const jds = useMemo(() => {
+    if (filter === "my_jds") return myJds;
+    if (filter === "all") return allJds;
+    if (filter === "pending") {
+      return allJds.filter(
+        (j) => j.status === "sent_to_manager" || j.status === "hr_rejected",
       );
- } catch (err) {
+    }
+    if (filter === "approved") {
+      return allJds.filter(
+        (j) => j.status === "approved" || j.status === "sent_to_hr",
+      );
+    }
+    // "feedback" or "my_team" or other: return empty or allJds as fallback
+    return [];
+  }, [filter, allJds, myJds]);
 
- console.error(err);
- } finally {
- setLoading(false);
- }
- }
- load();
- }, [user.employee_id]);
-
- useEffect(() => {
- if (filter === "my_jds") {
- setJds(myJds);
- } else if (filter === "all") {
- setJds(allJds);
-      } else if (filter === "pending") {
-        setJds(
-          allJds.filter(
-            (j) => j.status === "sent_to_manager" || j.status === "hr_rejected",
-          ),
-        );
-      } else if (filter === "approved") {
- setJds(
- allJds.filter(
- (j) => j.status === "approved" || j.status === "sent_to_hr",
- ),
- );
- }
- }, [filter, allJds, myJds]);
+  useEffect(() => {
+    async function load() {
+      try {
+        const [teamData, personalData, statsData, employeesData] = await Promise.all([
+          fetchManagerPendingJDs(user.employee_id),
+          fetchEmployeeJDs(user.employee_id),
+          fetchMyTeamStats(user.employee_id).catch(() => null),
+          fetchMyTeamEmployees(user.employee_id).catch(() => []),
+        ]);
+        setAllJds(teamData || []);
+        setMyJds(personalData || []);
+        setTeamStats(statsData);
+        setMyTeamEmployees(employeesData || []);
+      } catch (err) {
+        console.error(err);
+      } finally {
+        setLoading(false);
+      }
+    }
+    load();
+  }, [user.employee_id]);
 
  if (loading) return <LoadingScreen />;
 
@@ -692,17 +691,17 @@ function ManagerView({ user }: { user: AuthUser }) {
  amber: "bg-amber-100 text-amber-700",
  emerald: "bg-emerald-100 text-emerald-700",
  slate: "bg-slate-100 text-slate-700",
- }[tab.color as string] || "bg-surface-100 text-surface-700";
+  }[tab.color as string] || "bg-surface-100 text-surface-700";
 
- return (
- <button
- key={tab.key}
- onClick={() => setFilter(tab.key as any)}
- className={`flex-1 min-w-[140px] flex items-center gap-3 p-3 rounded-md transition-all duration-200 ${isActive
- ? "bg-slate-900 text-white shadow-md shadow-slate-900/20 ring-1 ring-slate-900"
- : "hover:bg-slate-50 text-slate-600 hover:text-slate-900"
- }`}
- >
+  return (
+    <button
+      key={tab.key}
+      onClick={() => setFilter(tab.key as "all" | "pending" | "approved" | "my_jds" | "my_team")}
+      className={`flex-1 min-w-[140px] flex items-center gap-3 p-3 rounded-md transition-all duration-200 ${isActive
+        ? "bg-slate-900 text-white shadow-md shadow-slate-900/20 ring-1 ring-slate-900"
+        : "hover:bg-slate-50 text-slate-600 hover:text-surface-900"
+      }`}
+    >
  <div
  className={`w-10 h-10 rounded-lg flex items-center justify-center ${isActive ? "bg-white/10" : colorClasses}`}
  >
@@ -750,22 +749,22 @@ function ManagerView({ user }: { user: AuthUser }) {
  <div className="bg-white p-6 rounded-md border border-surface-200 shadow-md hover:shadow-md transition-all duration-300 relative overflow-hidden group">
  <div className="absolute top-0 right-0 w-24 h-24 bg-primary-500/5 rounded-md blur-2xl -translate-y-1/2 translate-x-1/2 group-hover:scale-150 transition-transform duration-700" />
  <p className="text-[10px] font-medium tracking-[0.2em] text-surface-400 mb-2">Total Team</p>
- <p className="text-4xl font-medium text-surface-900 ">{teamStats.total_employees}</p>
+  <p className="text-4xl font-medium text-surface-900 ">{teamStats?.total_employees || 0}</p>
  </div>
  <div className="bg-white p-6 rounded-md border border-surface-200 shadow-md hover:shadow-md transition-all duration-300 relative overflow-hidden group">
  <div className="absolute top-0 right-0 w-24 h-24 bg-blue-500/5 rounded-md blur-2xl -translate-y-1/2 translate-x-1/2 group-hover:scale-150 transition-transform duration-700" />
  <p className="text-[10px] font-medium tracking-[0.2em] text-blue-500 mb-2">In Progress</p>
- <p className="text-4xl font-medium text-surface-900 ">{teamStats.submitted + teamStats.under_review}</p>
+  <p className="text-4xl font-medium text-surface-900 ">{(teamStats?.submitted || 0) + (teamStats?.under_review || 0)}</p>
  </div>
  <div className="bg-white p-6 rounded-md border border-surface-200 shadow-md hover:shadow-md transition-all duration-300 relative overflow-hidden group">
  <div className="absolute top-0 right-0 w-24 h-24 bg-emerald-500/5 rounded-md blur-2xl -translate-y-1/2 translate-x-1/2 group-hover:scale-150 transition-transform duration-700" />
  <p className="text-[10px] font-medium tracking-[0.2em] text-emerald-500 mb-2">Approved</p>
- <p className="text-4xl font-medium text-surface-900 ">{teamStats.approved}</p>
+  <p className="text-4xl font-medium text-surface-900 ">{teamStats?.approved || 0}</p>
  </div>
  <div className="bg-white p-6 rounded-md border border-surface-200 shadow-md hover:shadow-md transition-all duration-300 relative overflow-hidden group">
  <div className="absolute top-0 right-0 w-24 h-24 bg-primary-500/10 rounded-md blur-2xl -translate-y-1/2 translate-x-1/2 group-hover:scale-150 transition-transform duration-700" />
  <p className="text-[10px] font-medium tracking-[0.2em] text-primary-500 mb-2">Completion</p>
- <p className="text-4xl font-medium text-surface-900 ">{teamStats.completion_percentage}%</p>
+  <p className="text-4xl font-medium text-surface-900 ">{teamStats?.completion_percentage || 0}%</p>
  </div>
  </div>
  )}
@@ -789,7 +788,7 @@ function ManagerView({ user }: { user: AuthUser }) {
  <td className="px-6 py-5">
  <div className="flex items-center gap-3">
  <div className="w-10 h-10 rounded-md bg-primary-50 text-primary-600 flex items-center justify-center font-medium text-xs ring-1 ring-primary-100">
- {emp.name.split(' ').map((n: any) => n[0]).join('').slice(0, 2).toUpperCase()}
+  {emp.name.split(' ').map((n: string) => n[0]).join('').slice(0, 2).toUpperCase()}
  </div>
  <div>
  <p className="font-medium text-surface-900 text-sm">{emp.name}</p>
@@ -802,11 +801,11 @@ function ManagerView({ user }: { user: AuthUser }) {
  <p className="text-[10px] text-surface-400 mt-0.5">Manager: {emp.reporting_manager || 'None'}</p>
  </td>
  <td className="px-6 py-5">
- <div className={`inline-flex items-center gap-2 px-3 py-1 rounded-lg border text-[10px] font-medium ${STATUS_CONFIG[emp.jd_status]?.bg || 'bg-surface-100 border-surface-200 text-surface-500'
- } ${STATUS_CONFIG[emp.jd_status]?.color || ''}`}>
- <span className={`w-1.5 h-1.5 rounded-md bg-current opacity-40`} />
- {STATUS_CONFIG[emp.jd_status]?.label || emp.jd_status}
- </div>
+  <div className={`inline-flex items-center gap-2 px-3 py-1 rounded-lg border text-[10px] font-medium ${STATUS_CONFIG[emp.jd_status as keyof typeof STATUS_CONFIG]?.bg || 'bg-surface-100 border-surface-200 text-surface-500'
+  } ${STATUS_CONFIG[emp.jd_status as keyof typeof STATUS_CONFIG]?.color || ''}`}>
+  <span className={`w-1.5 h-1.5 rounded-md bg-current opacity-40`} />
+  {STATUS_CONFIG[emp.jd_status as keyof typeof STATUS_CONFIG]?.label || emp.jd_status}
+  </div>
  </td>
  <td className="px-6 py-5">
  {emp.jd_id ? (
@@ -856,49 +855,75 @@ function ManagerView({ user }: { user: AuthUser }) {
 // ── HR view ───────────────────────────────────────────────────────────────────
 
 function HRView({ user }: { user: AuthUser }) {
- const router = useRouter();
- const [jds, setJds] = useState<JDListItem[]>([]);
- const [allJds, setAllJds] = useState<JDListItem[]>([]);
- const [myJds, setMyJds] = useState<JDListItem[]>([]);
- const [departmentStats, setDepartmentStats] = useState<any[]>([]);
+  const router = useRouter();
+  const [allJds, setAllJds] = useState<JDListItem[]>([]);
+  const [myJds, setMyJds] = useState<JDListItem[]>([]);
 
- const [selectedDepartment, setSelectedDepartment] = useState<string | null>(
- null,
- );
- const [deptEmployees, setDeptEmployees] = useState<any[]>([]);
- const [loadingDept, setLoadingDept] = useState(false);
- const [onlySubmitted, setOnlySubmitted] = useState(true);
+  // Types for HR data
+  interface DepartmentStat {
+    department: string;
+    completed_jds: number;
+    total_employees: number;
+    completion_percentage: number;
+    submitted?: number;
+    under_review?: number;
+    approved?: number;
+    [key: string]: unknown;
+  }
 
- const [loading, setLoading] = useState(true);
+  interface DeptEmployee {
+    employee_id: string;
+    name: string;
+    designation?: string;
+    reporting_manager?: string;
+    jd_id?: string;
+    jd_status?: string;
+    last_updated?: string | null;
+  }
 
- const searchParams = useSearchParams();
- const currentView = searchParams.get("view");
+  const [departmentStats, setDepartmentStats] = useState<DepartmentStat[]>([]);
+  const [selectedDepartment, setSelectedDepartment] = useState<string | null>(null);
+  const [deptEmployees, setDeptEmployees] = useState<DeptEmployee[]>([]);
+  const [loadingDept, setLoadingDept] = useState(false);
+  const [onlySubmitted, setOnlySubmitted] = useState(true);
 
- const [filter, setFilter] = useState(
- currentView === "approvals" ? "sent_to_hr" : "all",
- );
+  const [loading, setLoading] = useState(true);
 
- useEffect(() => {
- async function load() {
- try {
- const [allData, personalData, statsData] = await Promise.all([
- getJDs({ submitted_only: true }),
- fetchEmployeeJDs(user.employee_id),
- fetchHRDepartmentStats().catch(() => []),
- ]);
- const data = allData || [];
- setAllJds(data);
- setJds(data);
- setMyJds(personalData || []);
- setDepartmentStats(statsData || []);
- } catch (err) {
- console.error(err);
- } finally {
- setLoading(false);
- }
- }
- load();
- }, [user.employee_id]);
+  const searchParams = useSearchParams();
+  const currentView = searchParams.get("view");
+
+  const [filter, setFilter] = useState(
+    currentView === "approvals" ? "sent_to_hr" : "all",
+  );
+
+  // Derived JDs based on filter
+  const jds = useMemo(() => {
+    if (filter === "my_jds") return myJds;
+    if (filter === "all") return allJds;
+    // For other filters like "sent_to_hr", default to allJds (maintain previous behavior)
+    return allJds;
+  }, [filter, allJds, myJds]);
+
+  useEffect(() => {
+    async function load() {
+      try {
+        const [allData, personalData, statsData] = await Promise.all([
+          getJDs({ submitted_only: true }),
+          fetchEmployeeJDs(user.employee_id),
+          fetchHRDepartmentStats().catch(() => []),
+        ]);
+        const data = allData || [];
+        setAllJds(data);
+        setMyJds(personalData || []);
+        setDepartmentStats(statsData || []);
+      } catch (err) {
+        console.error(err);
+      } finally {
+        setLoading(false);
+      }
+    }
+    load();
+  }, [user.employee_id]);
 
  const handleDepartmentClick = async (deptName: string, submittedOnly: boolean = onlySubmitted) => {
  setSelectedDepartment(deptName);
@@ -925,27 +950,7 @@ function HRView({ user }: { user: AuthUser }) {
  setDeptEmployees([]);
  };
 
- // Client-side filter
- useEffect(() => {
- if (filter === "my_jds") {
- setJds(myJds);
- } else if (filter === "all") {
- setJds(allJds);
- } else {
- setJds(
- allJds.filter((j) => {
- // Strict HR policy: Never show drafts in the global directory
- const isDraft = ["collecting", "draft", "jd_generated"].includes(j.status);
- if (isDraft) return false;
 
- if (filter === "in_progress") {
- return ["sent_to_manager"].includes(j.status);
- }
- return j.status === filter;
- })
- );
- }
- }, [filter, allJds, myJds]);
 
  if (loading) return <LoadingScreen />;
 
@@ -1241,9 +1246,9 @@ function HRView({ user }: { user: AuthUser }) {
  </thead>
  <tbody className="divide-y divide-surface-100">
  {deptEmployees.map((emp) => {
- const config =
- STATUS_CONFIG[emp.jd_status] ||
- STATUS_CONFIG["Not Submitted"];
+  const config =
+    STATUS_CONFIG[emp.jd_status as keyof typeof STATUS_CONFIG] ||
+    STATUS_CONFIG["Not Submitted"];
  return (
  <tr
  key={emp.employee_id}
@@ -1352,37 +1357,41 @@ export default function DynamicDashboardPage() {
  const [empId, setEmpId] = useState<string>("");
  const [ready, setReady] = useState(false);
 
- useEffect(() => {
- // 1. Get raw session from cookies
- const { getCookie, cookieKeys } = require("@/lib/cookies");
- const sessionStr = getCookie(cookieKeys.AUTH_USER);
- if (!sessionStr) {
- router.replace("/");
- return;
- }
+  useLayoutEffect(() => {
+    // Get raw session from cookies (client-side only)
+    const cookieStr = document.cookie || '';
+    const sessionMatch = cookieStr.match(/(?:^|; )jd_auth_user=([^;]*)/);
+    if (!sessionMatch) {
+      router.replace("/");
+      return;
+    }
 
- let sessionUser: AuthUser;
- try {
- sessionUser = JSON.parse(sessionStr);
- } catch {
- router.replace("/");
- return;
- }
+    const sessionStr = decodeURIComponent(sessionMatch[1]);
+    let sessionUser: AuthUser;
+    try {
+      sessionUser = JSON.parse(sessionStr);
+    } catch {
+      router.replace("/");
+      return;
+    }
 
- const currentEmpId = urlId || sessionUser.employee_id;
- setEmpId(currentEmpId);
-
- fetchEmployeeProfile(currentEmpId)
- .then((freshUser) => {
- setUser(freshUser);
- setReady(true);
- })
- .catch((err) => {
- console.error("Failed to load live profile", err);
- setUser(sessionUser); // Fallback to cached session
- setReady(true);
- });
- }, [urlId, router]);
+    const currentEmpId = urlId || sessionUser.employee_id;
+    // Defer state updates to avoid cascading renders
+    const timer = setTimeout(() => {
+      setEmpId(currentEmpId);
+      fetchEmployeeProfile(currentEmpId)
+        .then((freshUser) => {
+          setUser(freshUser);
+          setReady(true);
+        })
+        .catch((err) => {
+          console.error("Failed to load live profile", err);
+          setUser(sessionUser); // Fallback to cached session
+          setReady(true);
+        });
+    }, 0);
+    return () => clearTimeout(timer);
+  }, [urlId, router]);
 
  if (!ready) return <LoadingScreen />;
 

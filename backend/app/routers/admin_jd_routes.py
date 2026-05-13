@@ -4,9 +4,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy import delete
 from datetime import datetime, timezone
-from typing import List, Dict, Any, Optional
 import uuid
 import os
+import logging
 from pathlib import Path
 
 # from app.dependencies.auth import get_current_admin
@@ -21,6 +21,7 @@ UPLOADS_DIR = Path("uploads/jds")
 UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
 
 router = APIRouter(prefix="/admin/jds", tags=["admin-jd"])
+logger = logging.getLogger(__name__)
 
 
 def transform_reference_to_jd_session_schema(ref_data: dict) -> dict:
@@ -138,53 +139,135 @@ async def upload_jd_pdf(
     if not is_valid:
         raise HTTPException(status_code=400, detail=f"Invalid PDF: {validation_msg}")
 
-    # Process JD with AI
+    # Process JD with AI (optional - will fallback to basic processing if API key is invalid)
     intelligence_service = JDIntelligenceService()
-    result = await intelligence_service.process_jd_pdf(
-        pdf_bytes=pdf_bytes,
-        filename=file.filename,
-        uploaded_by="admin",  # Since we commented out admin_role
-        employee_id=employee_id,
-        employee_name=employee_name
-    )
+    try:
+        result = await intelligence_service.process_jd_pdf(
+            pdf_bytes=pdf_bytes,
+            filename=file.filename,
+            uploaded_by="admin",  # Since we commented out admin_role
+            employee_id=employee_id,
+            employee_name=employee_name
+        )
+    except Exception as ai_error:
+        # If AI processing fails, create basic result structure
+        logger.warning(f"AI processing failed for {file.filename}: {str(ai_error)}")
+        logger.info("Falling back to basic PDF processing without AI")
+
+        # Basic fallback - extract minimal metadata
+        metadata = PDFProcessor.extract_metadata(pdf_bytes)
+        text = PDFProcessor.extract_text(pdf_bytes)
+
+        result = {
+            "id": str(uuid.uuid4()),
+            "employee_id": employee_id,
+            "employee_name": employee_name,
+            "structured_data": {
+                "role_title": "Unknown Role (AI Processing Failed)",
+                "department": "Unknown",
+                "level": "Mid",
+                "purpose": "PDF uploaded but AI processing failed. Please check API key configuration.",
+                "tasks": ["PDF content available but not processed"],
+                "priority_tasks": ["Manual review required"],
+                "skills": [],
+                "tools": [],
+                "technologies": [],
+                "qualifications": {
+                    "education": "",
+                    "experience_years": "",
+                    "certifications": []
+                },
+                "working_relationships": {
+                    "reports_to": "",
+                    "team_size": "",
+                    "stakeholders": []
+                }
+            },
+            "pdf_filename": file.filename,
+            "num_pages": metadata.get("num_pages", 0),
+            "processing_status": "ai_failed",
+            "uploaded_by": "admin",
+            "uploaded_at": datetime.now(timezone.utc).isoformat(),
+            "text_length": len(text),
+        }
+
+    # Generate JD ID
+    jd_id = str(uuid.uuid4())
 
     # Save PDF file
-    jd_id = str(uuid.uuid4())
-    file_path = UPLOADS_DIR / f"{jd_id}_{file.filename}"
-    with open(file_path, "wb") as f:
-        f.write(pdf_bytes)
+    try:
+        file_path = UPLOADS_DIR / f"{jd_id}_{file.filename}"
+        with open(file_path, "wb") as f:
+            f.write(pdf_bytes)
+        file_saved = True
+        pdf_path = str(file_path)
+    except Exception as file_error:
+        logger.warning(f"Failed to save PDF file: {str(file_error)}")
+        file_saved = False
+        pdf_path = None
 
-    # Save to database
-    reference_jd = ReferenceJD(
-        id=jd_id,
-        employee_id=employee_id,
-        employee_name=employee_name,
-        department=result.get("structured_data", {}).get("department", ""),
-        role_title=result.get("structured_data", {}).get("role_title", ""),
-        level=result.get("structured_data", {}).get("level", "Mid"),
-        structured_data=result.get("structured_data", {}),
-        pdf_path=str(file_path),
-        pdf_filename=file.filename,
-        processing_status="processed",
-        uploaded_by="admin",
-        uploaded_at=datetime.utcnow()  # timezone-naive for TIMESTAMP column
-    )
+    # Save to database (optional - will work without database for file processing demo)
+    try:
+        reference_jd = ReferenceJD(
+            id=jd_id,
+            employee_id=employee_id,
+            employee_name=employee_name,
+            department=result.get("structured_data", {}).get("department", ""),
+            role_title=result.get("structured_data", {}).get("role_title", ""),
+            level=result.get("structured_data", {}).get("level", "Mid"),
+            structured_data=result.get("structured_data", {}),
+            pdf_path=pdf_path,
+            pdf_filename=file.filename,
+            processing_status="processed" if result.get("processing_status") == "processed" else "ai_failed",
+            uploaded_by="admin",
+            uploaded_at=datetime.now(timezone.utc)
+        )
 
-    db.add(reference_jd)
-    await db.commit()
-    await db.refresh(reference_jd)
+        db.add(reference_jd)
+        await db.commit()
+        await db.refresh(reference_jd)
+        db_saved = True
+    except Exception as db_error:
+        logger.warning(f"Failed to save to database: {str(db_error)}")
+        db_saved = False
+        reference_jd = None
 
-    return {
-        "status": "success",
-        "message": "JD uploaded and processed successfully",
-        "data": {
-            "id": reference_jd.id,
-            "role_title": reference_jd.role_title,
-            "department": reference_jd.department,
-            "employee_name": employee_name,
-            "uploaded_at": reference_jd.uploaded_at.isoformat()
+    # Return appropriate response
+    if file_saved and db_saved:
+        return {
+            "status": "success",
+            "message": "JD uploaded, processed, and saved successfully",
+            "data": {
+                "id": jd_id,
+                "role_title": result.get("structured_data", {}).get("role_title", "Unknown Role"),
+                "department": result.get("structured_data", {}).get("department", "Unknown"),
+                "employee_name": employee_name,
+                "uploaded_at": datetime.now(timezone.utc).isoformat(),
+                "processing_status": result.get("processing_status", "ai_failed"),
+                "ai_processed": result.get("processing_status") == "processed"
+            }
         }
-    }
+    elif file_saved:
+        return {
+            "status": "partial_success",
+            "message": "JD uploaded and processed, but database save failed. File is available locally.",
+            "data": {
+                "id": jd_id,
+                "role_title": result.get("structured_data", {}).get("role_title", "Unknown Role"),
+                "department": result.get("structured_data", {}).get("department", "Unknown"),
+                "employee_name": employee_name,
+                "uploaded_at": datetime.now(timezone.utc).isoformat(),
+                "processing_status": result.get("processing_status", "ai_failed"),
+                "ai_processed": result.get("processing_status") == "processed",
+                "file_saved": True,
+                "db_saved": False
+            }
+        }
+    else:
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to save JD file. Please check file permissions and try again."
+        )
 
 
 @router.get("/")
@@ -295,11 +378,13 @@ async def preview_reference_jd(
     jd_text = generate_jd_text_from_structured_data(transformed_data)
 
     return {
-        "id": jd.id,
-        "transformed_data": transformed_data,
-        "jd_text": jd_text,
-        "role_title": jd.role_title,
-        "department": jd.department
+        "data": {
+            "id": jd.id,
+            "jd_structured": transformed_data,
+            "jd_text": jd_text,
+            "role_title": jd.role_title,
+            "department": jd.department
+        }
     }
 
 
@@ -327,7 +412,7 @@ async def publish_jd(
     jd_text = generate_jd_text_from_structured_data(transformed_data)
 
     jd.processing_status = "published"
-    jd.published_at = datetime.utcnow()  # timezone-naive for TIMESTAMP column
+    jd.published_at = datetime.now(timezone.utc)  # timezone-aware datetime
 
     # Check if a session already exists for this employee from this reference JD
     session_result = await db.execute(

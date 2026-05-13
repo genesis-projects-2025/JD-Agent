@@ -1,6 +1,6 @@
 import logging
 import asyncio
-from typing import List
+from typing import List, Union, Optional
 from pinecone import Pinecone, ServerlessSpec
 from langchain_google_genai import GoogleGenerativeAIEmbeddings
 from app.core.config import settings
@@ -11,24 +11,41 @@ logger = logging.getLogger(__name__)
 pc = Pinecone(api_key=settings.PINECONE_API_KEY)
 index_name = settings.PINECONE_INDEX_NAME
 
-# Ensure index exists
-existing_indexes = [idx.name for idx in pc.list_indexes()]
-if index_name not in existing_indexes:
-    logger.info(f"Creating Pinecone index: {index_name}")
-    pc.create_index(
-        name=index_name,
-        dimension=3072, 
-        metric="cosine",
-        spec=ServerlessSpec(cloud="aws", region="us-east-1")
-    )
+# Ensure index exists (moved to function to avoid side effects on import)
+def _ensure_index_exists():
+    try:
+        existing_indexes = [idx.name for idx in pc.list_indexes()]
+        if index_name not in existing_indexes:
+            logger.info(f"Creating Pinecone index: {index_name}")
+            pc.create_index(
+                name=index_name,
+                dimension=3072, 
+                metric="cosine",
+                spec=ServerlessSpec(cloud="aws", region="us-east-1")
+            )
+    except Exception as e:
+        logger.error(f"Failed to ensure Pinecone index exists: {e}")
+        raise
 
-index = pc.Index(index_name)
+# Initialize index lazily
+_index = None
+_embeddings = None
 
-# Initialize Embeddings
-embeddings = GoogleGenerativeAIEmbeddings(
-    model="models/gemini-embedding-001",
-    google_api_key=settings.GEMINI_API_KEY
-)
+def get_index():
+    global _index
+    if _index is None:
+        _ensure_index_exists()
+        _index = pc.Index(index_name)
+    return _index
+
+def get_embeddings():
+    global _embeddings
+    if _embeddings is None:
+        _embeddings = GoogleGenerativeAIEmbeddings(
+            model="models/gemini-embedding-001",
+            google_api_key=settings.GEMINI_API_KEY
+        )
+    return _embeddings
 
 async def index_approved_jd(
     jd_id: str, 
@@ -55,10 +72,10 @@ async def index_approved_jd(
         
         # 0. Delete existing vectors for this JD to avoid duplicates/stale data
         try:
-            index.delete(filter={"jd_id": jd_id})
+            get_index().delete(filter={"jd_id": jd_id})
         except Exception as e:
             logger.warning(f"Failed to delete old vectors for JD {jd_id}: {e}")
-
+        
         # 1. Prepare base metadata
         chunks = []
         base_meta = {
@@ -78,7 +95,7 @@ async def index_approved_jd(
             if extra_meta: meta.update(extra_meta)
             chunk_id = f"{jd_id}_{chunk_type}_{len(chunks)}"
             chunks.append({"id": chunk_id, "text": text, "metadata": meta})
-
+        
         # role_summary
         if summary := (structured_data.get("role_summary") or structured_data.get("purpose")):
             add_chunk("role_summary", f"Role: {jd_title}. Summary: {summary}")
@@ -122,14 +139,14 @@ async def index_approved_jd(
         # projects (explicit)
         if type(quals) is dict and quals.get("projects"):
             add_chunk("projects", f"Role: {jd_title} Projects: {quals.get('projects')}")
-
+        
         # qualifications
         if type(quals) is dict:
             edu = quals.get("education") or structured_data.get("education")
             exp = quals.get("experience") or structured_data.get("experience")
             if edu or exp:
                 add_chunk("qualification", f"Role: {jd_title} Education: {edu or 'N/A'} Experience: {exp or 'N/A'}")
-
+        
         # workflow (extract from insights_data if passed)
         if insights_data and isinstance(insights_data, dict):
             workflows = insights_data.get("workflows", {})
@@ -139,13 +156,13 @@ async def index_approved_jd(
                     if steps:
                         flow_str = " → ".join(steps)
                         add_chunk("workflow", f"Role: {jd_title} Workflow ({wf_name}): {flow_str}")
-
+        
         if not chunks:
             return
-
+        
         # 2. Upsert
         texts = [c["text"] for c in chunks]
-        vector_embeddings = embeddings.embed_documents(texts)
+        vector_embeddings = get_embeddings().embed_documents(texts)
         
         vectors = []
         for i, chunk in enumerate(chunks):
@@ -154,8 +171,8 @@ async def index_approved_jd(
                 "values": vector_embeddings[i],
                 "metadata": chunk["metadata"]
             })
-            
-        index.upsert(vectors=vectors)
+        
+        get_index().upsert(vectors=vectors)
         logger.info(f"Advanced RAG: Indexed JD {jd_id} ({len(chunks)} blocks, source={source})")
         
     except Exception as e:
@@ -182,7 +199,7 @@ async def query_advanced_context(
         
         # Enhance query string to prioritize role title and improve precision
         query_text = f"Role: {role_query.strip()}. Specifically looking for {categories[0]} and technical environment details."
-        query_vec = embeddings.embed_query(query_text)
+        query_vec = get_embeddings().embed_query(query_text)
         
         # Build Pinecone filter
         filter_dict = {}
@@ -195,16 +212,9 @@ async def query_advanced_context(
             filter_dict["experience_level"] = experience_level
         if department:
             filter_dict["dept"] = department
-            
-        # Prevent ASGI loop block on synchronous embedding call
-        import asyncio
-        if asyncio.iscoroutinefunction(embeddings.embed_query):
-            query_vec = await embeddings.embed_query(query_text)
-        else:
-            query_vec = embeddings.embed_query(query_text)
         
         # Query Pinecone
-        results = index.query(
+        results = get_index().query(
             vector=query_vec,
             filter=filter_dict,
             top_k=top_k,
@@ -256,10 +266,10 @@ async def index_jd_document(
     """
     try:
         # Generate embedding
-        if asyncio.iscoroutinefunction(embeddings.embed_query):
-            embedding = await embeddings.embed_query(text)
+        if asyncio.iscoroutinefunction(get_embeddings().embed_query):
+            embedding = await get_embeddings().embed_query(text)
         else:
-            embedding = embeddings.embed_query(text)
+            embedding = get_embeddings().embed_query(text)
         
         # Prepare metadata
         meta = {
@@ -273,7 +283,7 @@ async def index_jd_document(
         vector_id = f"{jd_id}_{chunk_type}_{hash(text) % 10000}"
         
         # Upsert to Pinecone
-        index.upsert(
+        get_index().upsert(
             vectors=[{
                 "id": vector_id,
                 "values": embedding,
@@ -288,10 +298,10 @@ async def index_jd_document(
 
 
 async def find_similar_jds(
-    role_title: str = None,
-    department: str = None,
-    level: str = None,
-    skills: list = None,
+    role_title: Optional[str] = None,
+    department: Optional[str] = None,
+    level: Optional[str] = None,
+    skills: Optional[list] = None,
     limit: int = 5
 ) -> list:
     """
@@ -325,10 +335,10 @@ async def find_similar_jds(
         query_text = ". ".join(query_parts)
         
         # Generate embedding
-        if asyncio.iscoroutinefunction(embeddings.embed_query):
-            query_embedding = await embeddings.embed_query(query_text)
+        if asyncio.iscoroutinefunction(get_embeddings().embed_query):
+            query_embedding = await get_embeddings().embed_query(query_text)
         else:
-            query_embedding = embeddings.embed_query(query_text)
+            query_embedding = get_embeddings().embed_query(query_text)
         
         # Build filter
         filter_dict = {}
@@ -338,7 +348,7 @@ async def find_similar_jds(
             filter_dict["level"] = level
         
         # Query Pinecone
-        results = index.query(
+        results = get_index().query(
             vector=query_embedding,
             filter=filter_dict if filter_dict else None,
             top_k=limit,

@@ -9,7 +9,6 @@ export default function ChatWindow({
   messages,
   progress = 0,
   currentAgent = "BasicInfoAgent",
-  depthScores = {},
   hydrated = false,
   isSpeaking = false,
   canReplayVoice = false,

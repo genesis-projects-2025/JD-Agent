@@ -7,6 +7,23 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+# Configure SSL for asyncpg
+connect_args = {
+    "server_settings": {"jit": "off"},  # Disable JIT for short queries
+    "command_timeout": 60,
+}
+
+# Handle SSL configuration for asyncpg
+if settings.DATABASE_SSL and settings.DATABASE_SSL != "disable":
+    if settings.DATABASE_SSL == "require":
+        # For development, we'll disable SSL verification
+        # In production, you should configure proper SSL certificates
+        import ssl
+        ssl_context = ssl.create_default_context()
+        ssl_context.check_hostname = False
+        ssl_context.verify_mode = ssl.CERT_NONE
+        connect_args["ssl"] = ssl_context
+
 engine = create_async_engine(
     settings.DATABASE_URL,
     echo=False,
@@ -15,10 +32,7 @@ engine = create_async_engine(
     max_overflow=5,  # Allow burst to 10 per worker max
     pool_recycle=1800,  # Recycle every 30 min (not 1 hour — Aiven kills idle at 5min)
     pool_timeout=30,  # Wait max 30s for a connection
-    connect_args={
-        "server_settings": {"jit": "off"},  # Disable JIT for short queries
-        "command_timeout": 60,
-    },
+    connect_args=connect_args,
 )
 
 AsyncSessionLocal = async_sessionmaker(

@@ -4,8 +4,6 @@
 "use client";
 
 import { useState } from "react";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
 import {
     X,
     Download,
@@ -17,15 +15,11 @@ import {
     Target,
     Wrench,
     Users,
-    BarChart3,
-    Clock,
-    ChevronRight,
     Sparkles,
-    ExternalLink,
-    Edit,
     Plus,
     Trash,
     GraduationCap,
+    Edit,
     ChevronDown,
     FileDown,
 } from "lucide-react";

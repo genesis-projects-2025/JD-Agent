@@ -19,8 +19,12 @@ export function DeleteModal({
  title = "Delete Job Description",
  description = "Are you sure you want to completely delete this JD and its conversation history? This action cannot be undone.",
 }: DeleteModalProps) {
- const [mounted, setMounted] = useState(false);
- useEffect(() => setMounted(true), []);
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => {
+    // Defer mounting to avoid hydration mismatch
+    const timer = setTimeout(() => setMounted(true), 0);
+    return () => clearTimeout(timer);
+  }, []);
 
  if (!isOpen || !mounted) return null;
 

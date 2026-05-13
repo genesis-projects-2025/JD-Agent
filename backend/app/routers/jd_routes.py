@@ -91,7 +91,7 @@ def _session_from_cache_dict(data: dict) -> SessionMemory:
     memory.current_agent = data.get("current_agent", "BasicInfoAgent")
     history = data.get("full_history", [])
     memory.load_history_from_db(history, llm_limit=6)
-    
+
     # Restore working memory if present
     if "working_memory" in data:
         memory.from_dict(data["working_memory"])
@@ -262,7 +262,7 @@ async def chat(request: ChatRequest, db: AsyncSession = Depends(get_db)):
         db=db,
         session_id=session_id,
         insights=session_memory.insights,
-        progress=session_memory.to_dict(), # Persistence: Sync full state
+        progress=session_memory.to_dict(),  # Persistence: Sync full state
         conversation_history=session_memory.full_history,
         employee_id=session_memory.employee_id or "",
         employee_name=session_memory.employee_name,
@@ -503,7 +503,11 @@ async def confirm_priority_tasks(
     await invalidate_pattern(f"cache:jd_detail:*{jd_id}*")
     await _cache_session(session_memory)
 
-    return {"status": "success", "message": "Priority tasks saved.", "priority_tasks": list(existing)}
+    return {
+        "status": "success",
+        "message": "Priority tasks saved.",
+        "priority_tasks": list(existing),
+    }
 
 
 @router.get("/")
@@ -621,7 +625,7 @@ async def download_jd_docx(
     dept = record.department or ""
     safe_filename = f"{title} - {dept}.docx" if dept else f"{title}.docx"
     safe_filename = re.sub(r'[<>:"/\\|?*]', "", safe_filename)
-    
+
     # Use a plain Response with explicit Content-Length.
     # We force 'identity' encoding to prevent GZipMiddleware from compressing
     # the already-compressed docx file, which can lead to browser corruption.
@@ -635,6 +639,7 @@ async def download_jd_docx(
             "Access-Control-Expose-Headers": "Content-Disposition",
         },
     )
+
 
 @router.get("/{jd_id}")
 @cached_response("jd_detail", ttl=600)

@@ -151,9 +151,9 @@ export default function FeedbackPage() {
  <h3 className="text-xl font-medium text-surface-900 mb-2">
  All caught up!
  </h3>
- <p className="text-surface-500 max-w-sm mx-auto font-medium">
- You don't have any feedback history to review right now.
- </p>
+  <p className="text-surface-500 max-w-sm mx-auto font-medium">
+  You don&apos;t have any feedback history to review right now.
+  </p>
  </div>
  ) : (
  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -230,9 +230,9 @@ export default function FeedbackPage() {
 
  <div className="p-4 bg-surface-50 rounded-md relative">
  <div className="absolute top-0 left-0 w-1 h-full bg-surface-300 rounded-l-2xl"></div>
- <p className="text-[15px] leading-relaxed text-surface-700 italic">
- "{item.comment}"
- </p>
+  <p className="text-[15px] leading-relaxed text-surface-700 italic">
+  &quot;{item.comment}&quot;
+  </p>
  </div>
 
  <div className="flex items-center gap-2 text-surface-500">

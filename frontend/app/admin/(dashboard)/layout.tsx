@@ -13,7 +13,7 @@ import {
     ShieldCheck,
     Activity,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useLayoutEffect } from "react";
 import { getCookie, deleteCookie, cookieKeys } from "@/lib/cookies";
 
 export default function AdminLayout({
@@ -27,23 +27,24 @@ export default function AdminLayout({
     const [isMobileOpen, setIsMobileOpen] = useState(false);
     const [isAuthenticated, setIsAuthenticated] = useState(false);
 
-    useEffect(() => {
-        setMounted(true);
-        // Protect routes
-        const token = getCookie(cookieKeys.ADMIN_TOKEN);
-        const role = getCookie(cookieKeys.USER_ROLE);
+    useLayoutEffect(() => {
+        setMounted(true); // Mark as mounted immediately
+    }, []);
 
-        if (!token || role !== "ADMIN") {
-            router.push("/admin/login");
-        } else {
-            setIsAuthenticated(true);
-        }
+    useEffect(() => {
+        // Protect routes - defer auth state update
+        const timer = setTimeout(() => {
+            const token = getCookie(cookieKeys.ADMIN_TOKEN);
+            const role = getCookie(cookieKeys.USER_ROLE);
+
+            if (!token || role !== "ADMIN") {
+                router.push("/admin/login");
+            } else {
+                setIsAuthenticated(true);
+            }
+        }, 0);
+        return () => clearTimeout(timer);
     }, [router]);
-
-    useEffect(() => {
-        // Close sidebar on navigation on mobile
-        setIsMobileOpen(false);
-    }, [pathname]);
 
     const handleLogout = () => {
         deleteCookie(cookieKeys.ADMIN_TOKEN);

@@ -18,6 +18,10 @@ coverage/
 *.swo
 *.tmp
 *.zip
+# Backend logs
+backend/app/agents/logs/
+# Python cache
+.pytest_cache/
 # Employee data — never commit to git
 backend/organogram_export.csv
 backend/seed_aiven.py

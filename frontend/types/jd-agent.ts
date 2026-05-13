@@ -1,18 +1,18 @@
 export interface JDStructuredData {
-  employee_information: Record<string, any>;
-  role_summary: Record<string, any>;
+  employee_information: Record<string, unknown>;
+  role_summary: Record<string, unknown>;
   key_responsibilities: string[];
   required_skills: string[];
   tools_and_technologies: string[];
-  team_structure: Record<string, any>;
-  stakeholder_interactions: Record<string, any>;
+  team_structure: Record<string, unknown>;
+  stakeholder_interactions: Record<string, unknown>;
   performance_metrics: string[];
-  work_environment: Record<string, any>;
-  additional_details: Record<string, any>;
+  work_environment: Record<string, unknown>;
+  additional_details: Record<string, unknown>;
 }
 
 export interface EmployeeRoleInsights {
-  basic_info: Record<string, any>;
+  basic_info: Record<string, unknown>;
   purpose: string;
   daily_tasks: string[];
   weekly_tasks: string[];
@@ -21,9 +21,9 @@ export interface EmployeeRoleInsights {
   technologies: string[];
   skills: string[];
   // Deprecated — kept for backward compatibility
-  identity_context?: Record<string, any>;
+  identity_context?: Record<string, unknown>;
   responsibilities?: string[];
-  working_relationships?: Record<string, any>;
+  working_relationships?: Record<string, unknown>;
   education?: string;
   experience?: string;
 }

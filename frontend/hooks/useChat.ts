@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { Message } from "../types/message";
 import {
   sendMessage as apiSendMessage,
@@ -15,14 +15,14 @@ import { getOrCreateEmployeeId } from "@/lib/auth";
 
 export function useChat(onSaveSuccess?: () => void, autoInit: boolean = true) {
   const [messages, setMessages] = useState<Message[]>([]);
-  const [history, setHistory] = useState<any[]>([]);
-  const historyRef = useRef<any[]>([]);
+  const [history, setHistory] = useState<unknown[]>([]);
+  const historyRef = useRef<unknown[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);
   const [jd, setJd] = useState<string | null>(null);
   const [progress, setProgress] = useState<number>(0);
   const [status, setStatus] = useState<string>("collecting");
-  const [structuredData, setStructuredData] = useState<any>(null);
-  const [insights, setInsights] = useState<any>(null);
+  const [structuredData, setStructuredData] = useState<unknown>(null);
+  const [insights, setInsights] = useState<unknown>(null);
   const [currentAgent, setCurrentAgent] = useState<string>("BasicInfoAgent");
   const [depthScores, setDepthScores] = useState<Record<string, number>>({});
   const [isSaving, setIsSaving] = useState(false);
@@ -36,10 +36,10 @@ export function useChat(onSaveSuccess?: () => void, autoInit: boolean = true) {
   const [hydrated, setHydrated] = useState(false);
 
   const initialized = useRef(false);
-  const updateHistory = (newHistory: any[]) => {
+  const updateHistory = useCallback((newHistory: any[]) => {
      historyRef.current = newHistory;
      setHistory(newHistory);
-  };
+   }, []); // setHistory is stable, historyRef is mutable
   // ── Rate limit countdown ────────────────────────────────────────────────────
   useEffect(() => {
     let interval: NodeJS.Timeout;
@@ -50,9 +50,9 @@ export function useChat(onSaveSuccess?: () => void, autoInit: boolean = true) {
   }, [isRateLimited, retryTimer]);
 
   // ── Parse + apply agent response ────────────────────────────────────────────
-  const processResponse = (
+  const processResponse = useCallback((
     rawReply: string,
-    updatedHistory: any[],
+    updatedHistory: unknown[],
     append: boolean = true,
   ) => {
     let parsed: JDAgentResponse;
@@ -161,7 +161,7 @@ export function useChat(onSaveSuccess?: () => void, autoInit: boolean = true) {
       const finalJD = parsed.jd_text_format || parsed.next_question;
       if (finalJD) setJd(finalJD);
     }
-  };
+  }, [updateHistory]);
 
   // ── Init — resume existing session or start fresh ───────────────────────────
   useEffect(() => {
@@ -287,7 +287,7 @@ export function useChat(onSaveSuccess?: () => void, autoInit: boolean = true) {
 
       initChat();
     }
-  }, [autoInit]);
+  }, [autoInit, processResponse]);
 
   // ── Send chat message ────────────────────────────────────────────────────────
  const sendMessage = async (text: string) => {

@@ -60,6 +60,8 @@ pinecone-plugin-interface==0.0.7
 propcache==0.4.1
 psycopg2-binary==2.9.11
 pyasn1==0.6.2
+ruff==0.9.6
+mypy==1.15.0
 pyasn1_modules==0.4.2
 pycparser==3.0
 pydantic==2.12.5

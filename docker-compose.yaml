@@ -15,10 +15,13 @@ services:
       - ./backend/.env
     environment:
       - DATABASE_URL=postgresql+asyncpg://user:password@db:5432/dbname
+    depends_on:
+      - db
+      - redis
     networks:
       - app-network
 
-  # Frontend service
+   # Frontend service
   frontend:
     build:
       context: ./frontend
@@ -38,6 +41,36 @@ services:
     networks:
       - app-network
 
+  # Database service
+  db:
+    image: postgres:15
+    container_name: jd-agent-db
+    environment:
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: dbname
+    ports:
+      - "5432:5432"
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    networks:
+      - app-network
+
+  # Redis service
+  redis:
+    image: redis:7-alpine
+    container_name: jd-agent-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - app-network
+
 networks:
   app-network:
     driver: bridge
+
+volumes:
+  db_data:
+  redis_data:

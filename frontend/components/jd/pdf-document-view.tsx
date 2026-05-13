@@ -31,12 +31,21 @@ function getArray(data: any, ...keys: string[]): string[] {
 }
 
 function getStakeholder(data: any, type: "internal" | "external"): string {
-  const s = data?.stakeholder_interactions || data?.stakeholders || data?.working_relationships || {};
-  const v = type === "internal"
-    ? (s?.internal || s?.internal_stakeholders || "")
-    : (s?.external || s?.external_stakeholders || "");
-  return Array.isArray(v) ? v.join(", ") : (v || "");
+  const stakeholders = data?.stakeholder_interactions?.[type] || [];
+  return stakeholders.join(", ");
 }
+
+interface LabelRowProps {
+  label: React.ReactNode;
+  value: React.ReactNode;
+}
+
+const LabelRow = ({ label, value }: LabelRowProps) => (
+  <tr>
+    <td style={{ fontWeight: "bold", padding: "7px 10px", width: "35%", border: "1px solid #999", verticalAlign: "top", fontSize: "11pt" }}>{label}</td>
+    <td style={{ padding: "7px 10px", border: "1px solid #999", verticalAlign: "top", fontSize: "11pt", whiteSpace: "pre-wrap" as const }}>{value}</td>
+  </tr>
+);
 
 export function PdfDocumentView({ data, roleTitle, dept }: Props) {
   if (!data) return null;
@@ -82,13 +91,6 @@ export function PdfDocumentView({ data, roleTitle, dept }: Props) {
   const subThStyle = { background: H, fontWeight: "bold", textAlign: "center" as const, padding: "6px 10px", fontSize: "11pt", border: "1px solid #999" };
   const tdLabelStyle = { fontWeight: "bold", padding: "7px 10px", width: "35%", border: "1px solid #999", verticalAlign: "top", fontSize: "11pt" };
   const tdValueStyle = { padding: "7px 10px", border: "1px solid #999", verticalAlign: "top", fontSize: "11pt", whiteSpace: "pre-wrap" as const };
-
-  const LabelRow = ({ label, value }: { label: React.ReactNode, value: React.ReactNode }) => (
-    <tr>
-      <td style={tdLabelStyle}>{label}</td>
-      <td style={tdValueStyle}>{value}</td>
-    </tr>
-  );
 
   return (
     <div style={{ fontFamily: "Calibri, Arial, sans-serif", fontSize: "11pt", color: "#000", background: "#fff", maxWidth: "860px", margin: "0 auto", padding: "40px" }} className="shadow-xl rounded-md border border-surface-200">

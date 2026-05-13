@@ -420,7 +420,7 @@ export default function JDPage() {
  const handleEditToggle = () => {
  if (isEditing) handleSaveEdits();
  else {
- let pTextRaw = jd.generated_jd || "";
+ const pTextRaw = jd.generated_jd || "";
  let pText = pTextRaw;
  try {
  const p = JSON.parse(pTextRaw);

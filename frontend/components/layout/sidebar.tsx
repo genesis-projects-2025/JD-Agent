@@ -8,10 +8,18 @@
 
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useLayoutEffect } from "react";
 import { getCurrentUser } from "@/lib/api";
 import { useAuth } from "@/components/providers/auth-provider";
 import { useEmployeeJDs, useUnreadFeedback } from "@/hooks/useJDQueries";
+
+interface JDSession {
+    id: string;
+    title: string | null;
+    department: string | null;
+    status: string;
+    updated_at: string;
+}
 import {
     LayoutDashboard,
     FileText,
@@ -94,39 +102,39 @@ export default function Sidebar() {
             name: "Dashboard",
             href: employeeId ? `/dashboard/${employeeId}` : "/",
             icon: LayoutDashboard,
-            description: "Overview & stats",
+            description: "My job descriptions",
         },
         {
-            name: "Create New JD",
+            name: "Create JD",
             href: "/questionnaire",
             icon: FilePlus,
-            description: "Start new interview",
+            description: "Start AI interview",
         },
     ];
 
     if (role === "manager" || role === "head") {
         links.push({
-            name: "Feedbacks",
+            name: "Approvals",
             href: employeeId ? `/feedback/${employeeId}` : "/",
             icon: AlertTriangle,
-            description: "HR change requests",
+            description: "Pending reviews",
         });
     } else if (role === "hr") {
         links.push({
-            name: "Feedbacks",
+            name: "Reviews",
             href: employeeId ? `/feedback/${employeeId}` : "/",
             icon: ShieldCheck,
-            description: "JDs you rejected",
+            description: "Final approvals",
         });
     }
 
     // Admin-only: JD Library
     if (role === "admin") {
         links.push({
-            name: "JD Library",
+            name: "Reference Library",
             href: "/admin/jd-library",
             icon: FileText,
-            description: "Manage reference JDs",
+            description: "Upload & manage JDs",
         });
     }
 
@@ -142,10 +150,14 @@ export default function Sidebar() {
     };
 
     useEffect(() => {
-        setIsMounted(true);
+        // Defer mounting to avoid hydration mismatch
+        const mountTimer = setTimeout(() => setIsMounted(true), 0);
+        return () => clearTimeout(mountTimer);
     }, []);
     useEffect(() => {
-        setIsMobileOpen(false);
+        // Close sidebar on navigation on mobile (deferred to avoid cascading renders)
+        const closeTimer = setTimeout(() => setIsMobileOpen(false), 0);
+        return () => clearTimeout(closeTimer);
     }, [pathname, searchParams]);
 
     if (!isMounted || !isAuthenticated) return null;
@@ -271,7 +283,7 @@ export default function Sidebar() {
                             </div>
                         )}
 
-                        {(jds as any[]).map((jdItem: any) => {
+                        {(jds as JDSession[]).map((jdItem: JDSession) => {
                             const config =
                                 STATUS_CONFIG[jdItem.status] || STATUS_CONFIG.draft;
                             const href = [

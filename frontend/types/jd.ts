@@ -10,7 +10,7 @@ export interface JDRecord {
   updated_at: string;
   status: JDStatus;
   jd_text: string;
-  jd_structured: Record<string, any>;
+  jd_structured: Record<string, unknown>;
   reviewer_comment?: string;
   reviewed_by?: string;
   reviewed_at?: string;

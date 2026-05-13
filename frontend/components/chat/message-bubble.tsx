@@ -8,7 +8,6 @@ import {
   Check,
   Plus,
   Sparkles,
-  ArrowRight,
   ShieldCheck,
   Loader2,
   Wrench,
@@ -22,8 +21,7 @@ export default function MessageBubble({
   onToolSelect,
   onPriorityTaskSelect,
   onGenerateJD,
-  onContinue,
-  isLast,
+
 }: {
   message: Message;
   onSkillSelect?: (selectedSkills: string[]) => void;
@@ -97,7 +95,7 @@ export default function MessageBubble({
     if (!message.isStreaming && displayText.length === 0 && fullText.length > 0) {
       setDisplayText(fullText);
     }
-  }, [message.isStreaming, fullText]);
+  }, [message.isStreaming, fullText, displayText.length]);
 
   // ── Sync props to state ───────────────────────────────────────────────────
   useEffect(() => {

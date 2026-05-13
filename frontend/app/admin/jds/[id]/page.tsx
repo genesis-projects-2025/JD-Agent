@@ -4,7 +4,7 @@
 import { useState, useEffect } from 'react'
 import { useRouter, useParams } from 'next/navigation'
 import { getCookie, cookieKeys } from '@/lib/cookies'
-import { Briefcase, Users, FileText, CheckCircle, XCircle, Download, Eye, Shield, GraduationCap, Target, Wrench, Calendar, Send, Loader2, X } from 'lucide-react'
+import { Briefcase, Users, FileText, CheckCircle, XCircle, Download, Eye, Shield, Target, Wrench, Calendar, Send, Loader2, X } from 'lucide-react'
 import Link from 'next/link'
 import { downloadJDPdfClient } from '@/lib/download-jd-pdf'
 import { PdfDocumentView } from '@/components/jd/pdf-document-view'

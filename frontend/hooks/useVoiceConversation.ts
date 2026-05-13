@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, useLayoutEffect } from "react";
 
 declare global {
   interface Window {
@@ -353,31 +353,38 @@ export function useVoiceConversation({
     [stopSpeaking],
   );
 
+  // Initialize speech capabilities and voices
   useEffect(() => {
     if (typeof window === "undefined") return;
 
-    setSupportsSpeechInput(
-      Boolean(window.SpeechRecognition || window.webkitSpeechRecognition),
-    );
-    setSupportsSpeechOutput(
-      Boolean(window.speechSynthesis && window.SpeechSynthesisUtterance),
-    );
+    // Defer state updates to avoid cascading renders
+    const initTimer = setTimeout(() => {
+      setSupportsSpeechInput(
+        Boolean(window.SpeechRecognition || window.webkitSpeechRecognition),
+      );
+      setSupportsSpeechOutput(
+        Boolean(window.speechSynthesis && window.SpeechSynthesisUtterance),
+      );
 
-    const storedPlaybackPreference = window.localStorage.getItem(PLAYBACK_PREF_KEY);
-    if (storedPlaybackPreference !== null) {
-      setPlaybackEnabledState(storedPlaybackPreference === "1");
-    }
+      const storedPlaybackPreference = window.localStorage.getItem(PLAYBACK_PREF_KEY);
+      if (storedPlaybackPreference !== null) {
+        setPlaybackEnabledState(storedPlaybackPreference === "1");
+      }
+    }, 0);
 
-    if (!window.speechSynthesis) return;
-
+    // Voice list setup (also deferred to avoid race conditions)
     const updateVoices = () => {
       setAvailableVoices(window.speechSynthesis?.getVoices() ?? []);
     };
 
-    updateVoices();
-    window.speechSynthesis.onvoiceschanged = updateVoices;
+    if (window.speechSynthesis) {
+      // Initial voice load - defer to next tick
+      const voiceTimer = setTimeout(updateVoices, 0);
+      window.speechSynthesis.onvoiceschanged = updateVoices;
+    }
 
     return () => {
+      clearTimeout(initTimer);
       if (window.speechSynthesis?.onvoiceschanged === updateVoices) {
         window.speechSynthesis.onvoiceschanged = null;
       }

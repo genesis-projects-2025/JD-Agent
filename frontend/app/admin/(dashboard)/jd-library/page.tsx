@@ -206,8 +206,8 @@ export default function JDLibraryPage() {
             <div className="flex items-center gap-4 mb-8">
               <div className="p-3 bg-blue-50 rounded-xl border border-blue-100"><Upload className="w-6 h-6 text-blue-600" /></div>
               <div>
-                <h2 className="text-2xl font-semibold text-slate-900">Upload JD PDF</h2>
-                <p className="text-slate-500 mt-1">Process job description PDFs with AI</p>
+                <h2 className="text-2xl font-semibold text-slate-900">Upload Job Descriptions</h2>
+                <p className="text-slate-600 mt-1">Import and process JD PDFs using AI analysis</p>
               </div>
             </div>
             <div className="space-y-6">
@@ -309,8 +309,8 @@ export default function JDLibraryPage() {
         <div className="max-w-7xl">
           <div className="flex items-center justify-between mb-6">
             <div>
-              <h2 className="text-2xl font-semibold text-slate-900">Reference Library</h2>
-              <p className="text-slate-500 mt-1">AI-processed job descriptions</p>
+              <h2 className="text-2xl font-semibold text-slate-900">JD Reference Library</h2>
+              <p className="text-slate-600 mt-1">Manage processed job descriptions</p>
             </div>
           </div>
           {loadingJDs ? (
@@ -318,8 +318,8 @@ export default function JDLibraryPage() {
           ) : jds.length === 0 ? (
             <div className="bg-white rounded-2xl border border-slate-200 p-12 text-center shadow-sm">
               <FileTextIcon className="w-16 h-16 mx-auto text-slate-300 mb-4" />
-              <h3 className="text-lg font-medium text-slate-700 mb-2">No JDs in library</h3>
-              <p className="text-slate-400 text-sm">Upload a JD PDF to get started</p>
+               <h3 className="text-lg font-medium text-slate-700 mb-2">No Job Descriptions</h3>
+               <p className="text-slate-500 text-sm">Upload JD PDFs to build your reference library</p>
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">

@@ -1,0 +1,6 @@
+fastapi
+litellm
+fastmcp
+anthropic
+python-dotenv  # Don't pin the version here, let the tools decide
+# Add your other main libraries...

@@ -1,4 +1,5 @@
 # app/core/config.py
+from pathlib import Path
 from urllib.parse import quote_plus
 from pydantic_settings import BaseSettings
 
@@ -29,6 +30,7 @@ class Settings(BaseSettings):
 
     # CORS
     CORS_ORIGINS: str = "https://jd.pulsepharma.net,http://localhost:3000"
+    STORAGE_DIR_NAME: str = "storage"
 
     @property
     def cors_origins_list(self) -> list[str]:
@@ -45,6 +47,18 @@ class Settings(BaseSettings):
             f"{encoded_pass}@{self.DATABASE_HOST}:"
             f"{self.DATABASE_PORT}/{self.DATABASE_NAME}"
         )
+
+    @property
+    def backend_root(self) -> Path:
+        return Path(__file__).resolve().parents[2]
+
+    @property
+    def storage_root(self) -> Path:
+        return self.backend_root / self.STORAGE_DIR_NAME
+
+    @property
+    def jd_upload_dir(self) -> Path:
+        return self.storage_root / "uploads" / "jds"
 
     class Config:
         env_file = ".env"

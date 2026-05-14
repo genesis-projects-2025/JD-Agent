@@ -1,12 +1,16 @@
 # main.py
+import asyncio
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from contextlib import asynccontextmanager
+from sqlalchemy import text
 from app.version import VERSION
-from app.core.database import init_db
+from app.core.database import init_db, engine
 import app.models  # Ensure models are registered for init_db
 from app.core.config import settings
+from app.core.cache import cache_health
+from app.services.vector_service import vector_health
 from app.routers.jd_routes import router as jd_router
 from app.routers.organogram_routes import router as organogram_router
 from app.routers.admin_routes import router as admin_router
@@ -42,3 +46,34 @@ app.include_router(admin_router)
 app.include_router(admin_jd_router, tags=["Admin JDs"])
 app.include_router(feedback_router)
 app.include_router(hr_router, prefix="/api/hr", tags=["HR Dashboard"])
+
+
+@app.get("/health/live")
+async def health_live():
+    return {"status": "ok", "service": "jd-agent-api", "version": VERSION}
+
+
+@app.get("/health/ready")
+async def health_ready():
+    db_status = {"status": "degraded"}
+    try:
+        async with engine.connect() as conn:
+            await conn.execute(text("SELECT 1"))
+        db_status = {"status": "ok"}
+    except Exception as e:
+        db_status = {"status": "degraded", "detail": str(e)}
+
+    cache_status, vector_status = await asyncio.gather(
+        cache_health(),
+        vector_health(),
+    )
+    overall = "ok" if db_status["status"] == "ok" else "degraded"
+    return {
+        "status": overall,
+        "dependencies": {
+            "database": db_status,
+            "cache": cache_status,
+            "vector": vector_status,
+        },
+        "version": VERSION,
+    }

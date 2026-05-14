@@ -10,16 +10,6 @@ Three types of memory:
 
 import hashlib
 
-# Agent → phase mapping (matches current 6-agent architecture)
-AGENT_PHASE_MAP = {
-    "BasicInfoAgent": 1,
-    "TaskAgent": 2,
-    "PriorityAgent": 3,
-    "DeepDiveAgent": 4,
-    "ToolsSkillsAgent": 5,
-    "JDGeneratorAgent": 6,
-}
-
 
 class SessionMemory:
     id: str | None
@@ -116,11 +106,13 @@ class SessionMemory:
     def record_agent_transition(self, from_agent: str, to_agent: str):
         """Log an agent transition for debugging and flow control."""
         turn = len(self.full_history) // 2
-        self.agent_transition_log.append({
-            "from": from_agent,
-            "to": to_agent,
-            "turn": turn,
-        })
+        self.agent_transition_log.append(
+            {
+                "from": from_agent,
+                "to": to_agent,
+                "turn": turn,
+            }
+        )
         self.current_stage_question_count = 0  # Reset per-stage counter
 
     def add_turn(self, role: str, content: str, llm_limit: int = 10):
@@ -155,7 +147,9 @@ class SessionMemory:
             "current_agent": self.current_agent,
             "current_phase": self.current_phase,
             "questions_asked": self.questions_asked,
-            "previous_questions_text": self.previous_questions_text[-20:],  # Keep last 20 for dedup
+            "previous_questions_text": self.previous_questions_text[
+                -20:
+            ],  # Keep last 20 for dedup
             "agent_transition_log": self.agent_transition_log,
             "current_stage_question_count": self.current_stage_question_count,
             "completion_percentage": self.progress.get("completion_percentage", 0),
@@ -181,11 +175,13 @@ class SessionMemory:
         self.active_deep_dive_task = data.get("active_deep_dive_task")
         self.conversation_summary = data.get("conversation_summary", "")
         self.agent_turn_counts = data.get("agent_turn_counts", {})
-        
+
         # Sync progress object
-        self.progress.update({
-            "completion_percentage": data.get("completion_percentage", 0),
-            "depth_scores": data.get("depth_scores", {}),
-            "status": data.get("status", "collecting"),
-            "current_agent": self.current_agent,
-        })
+        self.progress.update(
+            {
+                "completion_percentage": data.get("completion_percentage", 0),
+                "depth_scores": data.get("depth_scores", {}),
+                "status": data.get("status", "collecting"),
+                "current_agent": self.current_agent,
+            }
+        )

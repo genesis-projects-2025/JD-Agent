@@ -1,300 +1,394 @@
-import logging
 import asyncio
-from typing import List, Union, Optional
-from pinecone import Pinecone, ServerlessSpec
+import logging
+from typing import Any, List, Optional
+
 from langchain_google_genai import GoogleGenerativeAIEmbeddings
+from pinecone import Pinecone, ServerlessSpec
+
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
-# Initialize Pinecone
-pc = Pinecone(api_key=settings.PINECONE_API_KEY)
-index_name = settings.PINECONE_INDEX_NAME
-
-# Ensure index exists (moved to function to avoid side effects on import)
-def _ensure_index_exists():
-    try:
-        existing_indexes = [idx.name for idx in pc.list_indexes()]
-        if index_name not in existing_indexes:
-            logger.info(f"Creating Pinecone index: {index_name}")
-            pc.create_index(
-                name=index_name,
-                dimension=3072, 
-                metric="cosine",
-                spec=ServerlessSpec(cloud="aws", region="us-east-1")
-            )
-    except Exception as e:
-        logger.error(f"Failed to ensure Pinecone index exists: {e}")
-        raise
-
-# Initialize index lazily
+_pc: Pinecone | None = None
 _index = None
-_embeddings = None
+_embeddings: GoogleGenerativeAIEmbeddings | None = None
+_index_name = settings.PINECONE_INDEX_NAME
+
+CANONICAL_SOURCE_APPROVED = "approved_jd"
+CANONICAL_SOURCE_REFERENCE = "reference_jd"
+
+
+def _normalise_role_tokens(text: str) -> set[str]:
+    stop_words = {
+        "a",
+        "an",
+        "and",
+        "for",
+        "in",
+        "of",
+        "the",
+        "to",
+        "with",
+        "role",
+        "jr",
+        "sr",
+    }
+    tokens = {
+        part.strip().lower()
+        for part in text.replace("/", " ").replace("-", " ").split()
+        if part.strip()
+    }
+    return {token for token in tokens if token not in stop_words and len(token) > 2}
+
+
+def _role_overlap_score(role_query: str, candidate_role: str) -> float:
+    query_tokens = _normalise_role_tokens(role_query)
+    candidate_tokens = _normalise_role_tokens(candidate_role)
+    if not query_tokens or not candidate_tokens:
+        return 0.0
+    return len(query_tokens & candidate_tokens) / len(query_tokens)
+
+
+def _canonical_role(metadata: dict[str, Any]) -> str:
+    return str(metadata.get("role_title") or metadata.get("role") or "").strip()
+
+
+def _canonical_department(metadata: dict[str, Any]) -> str:
+    return str(metadata.get("department") or metadata.get("dept") or "").strip()
+
+
+def _canonical_experience(metadata: dict[str, Any]) -> str:
+    return str(metadata.get("experience_level") or metadata.get("level") or "").strip()
+
+
+def _canonical_category(metadata: dict[str, Any]) -> str:
+    return str(metadata.get("category") or metadata.get("chunk_type") or "").strip()
+
+
+def _coerce_text_list(items: Any) -> list[str]:
+    if not isinstance(items, list):
+        return []
+    return [str(item).strip() for item in items if str(item).strip()]
+
+
+def _build_metadata(
+    *,
+    jd_id: str,
+    role_title: str,
+    department: str,
+    experience_level: str,
+    category: str,
+    source: str,
+    text: str,
+    extra: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    metadata = {
+        "jd_id": jd_id,
+        "role_title": role_title,
+        "department": department,
+        "experience_level": experience_level,
+        "category": category,
+        "source": source,
+        "text": text,
+    }
+    if extra:
+        metadata.update(extra)
+    return metadata
+
+
+def get_pinecone_client() -> Pinecone:
+    global _pc
+    if _pc is None:
+        if not settings.PINECONE_API_KEY:
+            raise RuntimeError("Pinecone API key is not configured")
+        _pc = Pinecone(api_key=settings.PINECONE_API_KEY)
+    return _pc
+
+
+def _ensure_index_exists() -> None:
+    client = get_pinecone_client()
+    existing_indexes = [idx.name for idx in client.list_indexes()]
+    if _index_name not in existing_indexes:
+        logger.info("Creating Pinecone index: %s", _index_name)
+        client.create_index(
+            name=_index_name,
+            dimension=3072,
+            metric="cosine",
+            spec=ServerlessSpec(cloud="aws", region="us-east-1"),
+        )
+
 
 def get_index():
     global _index
     if _index is None:
         _ensure_index_exists()
-        _index = pc.Index(index_name)
+        _index = get_pinecone_client().Index(_index_name)
     return _index
 
-def get_embeddings():
+
+def get_embeddings() -> GoogleGenerativeAIEmbeddings:
     global _embeddings
     if _embeddings is None:
         _embeddings = GoogleGenerativeAIEmbeddings(
             model="models/gemini-embedding-001",
-            google_api_key=settings.GEMINI_API_KEY
+            google_api_key=settings.GEMINI_API_KEY,
         )
     return _embeddings
 
+
+async def vector_health() -> dict[str, Any]:
+    if not settings.PINECONE_API_KEY:
+        return {"status": "disabled"}
+    try:
+        stats = await asyncio.to_thread(get_index().describe_index_stats)
+        return {
+            "status": "ok",
+            "index_name": _index_name,
+            "total_vector_count": stats.get("total_vector_count", 0),
+        }
+    except Exception as e:
+        logger.warning("Vector health degraded: %s", e)
+        return {"status": "degraded", "detail": str(e)}
+
+
 async def index_approved_jd(
-    jd_id: str, 
-    structured_data: dict, 
-    department: str = "General", 
-    title_override: str = None,
+    jd_id: str,
+    structured_data: dict,
+    department: str = "General",
+    title_override: str | None = None,
     experience_level: str = "Mid",
-    insights_data: dict = None,
-    source: str = "approved_jd"
+    insights_data: dict | None = None,
+    source: str = CANONICAL_SOURCE_APPROVED,
 ):
-    """Chunk and index an approved JD into Pinecone with rich metadata.
-    
-    Categories: role_summary, responsibilities, tools, skills, workflow, performance_metrics, projects
-    """
+    """Chunk and index an approved JD into Pinecone with canonical metadata."""
     try:
         jd_title = (
-            title_override or 
-            structured_data.get("job_title") or 
-            structured_data.get("role_title") or 
-            structured_data.get("title") or 
-            (structured_data.get("employee_information", {}) or {}).get("job_title") or
-            "Unknown Role"
+            title_override
+            or structured_data.get("job_title")
+            or structured_data.get("role_title")
+            or structured_data.get("title")
+            or (structured_data.get("employee_information", {}) or {}).get("job_title")
+            or "Unknown Role"
         )
-        
-        # 0. Delete existing vectors for this JD to avoid duplicates/stale data
+
         try:
             get_index().delete(filter={"jd_id": jd_id})
         except Exception as e:
-            logger.warning(f"Failed to delete old vectors for JD {jd_id}: {e}")
-        
-        # 1. Prepare base metadata
-        chunks = []
-        base_meta = {
-            "jd_id": jd_id,
-            "role": jd_title,
-            "dept": department,
-            "team": department,  # Default team to department
-            "experience_level": experience_level,
-            "company": "Pulse Pharma",
-            "source": source 
-        }
-        
-        # Helper to append chunks
-        def add_chunk(chunk_type: str, text: str, extra_meta: dict = None):
-            if not text: return
-            meta = {**base_meta, "category": chunk_type, "text": text}
-            if extra_meta: meta.update(extra_meta)
-            chunk_id = f"{jd_id}_{chunk_type}_{len(chunks)}"
-            chunks.append({"id": chunk_id, "text": text, "metadata": meta})
-        
-        # role_summary
+            logger.warning("Failed to delete old vectors for JD %s: %s", jd_id, e)
+
+        chunks: list[dict[str, Any]] = []
+
+        def add_chunk(
+            category: str,
+            text: str,
+            extra_meta: dict[str, Any] | None = None,
+        ) -> None:
+            if not text:
+                return
+            metadata = _build_metadata(
+                jd_id=jd_id,
+                role_title=jd_title,
+                department=department,
+                experience_level=experience_level,
+                category=category,
+                source=source,
+                text=text,
+                extra=extra_meta,
+            )
+            chunks.append(
+                {
+                    "id": f"{jd_id}_{category}_{len(chunks)}",
+                    "text": text,
+                    "metadata": metadata,
+                }
+            )
+
         if summary := (structured_data.get("role_summary") or structured_data.get("purpose")):
             add_chunk("role_summary", f"Role: {jd_title}. Summary: {summary}")
-            
-        # responsibilities
-        tasks = (structured_data.get("key_responsibilities", []) or 
-                 structured_data.get("responsibilities", []) or 
-                 structured_data.get("tasks", []))
-        if tasks:
-            for i, t in enumerate(tasks):
-                if not t: continue
-                # NEW: Importance Tag (High for first 3, Medium for others)
-                importance = "high" if i < 3 else "medium"
-                add_chunk("responsibilities", f"Role: {jd_title} Responsibility: {t}", {"importance": importance})
-                
-                # Check for performance metrics or projects within tasks/responsibilities
-                t_lower = str(t).lower()
-                if any(k in t_lower for k in ["metric", "kpi", "performance", "target", "sla"]):
-                    add_chunk("performance_metrics", f"Role: {jd_title} Metric (Extracted): {t}", {"importance": "high"})
-                if any(k in t_lower for k in ["project", "initiative", "implementation", "launch"]):
-                    add_chunk("projects", f"Role: {jd_title} Project (Extracted): {t}", {"importance": "medium"})
-            
-        # tools
-        tools = (structured_data.get("tools_and_technologies", []) or 
-                 structured_data.get("tools", []))
+
+        tasks = (
+            structured_data.get("key_responsibilities", [])
+            or structured_data.get("responsibilities", [])
+            or structured_data.get("tasks", [])
+        )
+        for index, task in enumerate(_coerce_text_list(tasks)):
+            importance = "high" if index < 3 else "medium"
+            add_chunk(
+                "responsibilities",
+                f"Role: {jd_title} Responsibility: {task}",
+                {"importance": importance},
+            )
+
+            task_lower = task.lower()
+            if any(keyword in task_lower for keyword in ["metric", "kpi", "performance", "target", "sla"]):
+                add_chunk(
+                    "performance_metrics",
+                    f"Role: {jd_title} Metric (Extracted): {task}",
+                    {"importance": "high"},
+                )
+            if any(keyword in task_lower for keyword in ["project", "initiative", "implementation", "launch"]):
+                add_chunk(
+                    "projects",
+                    f"Role: {jd_title} Project (Extracted): {task}",
+                    {"importance": "medium"},
+                )
+
+        tools = _coerce_text_list(
+            structured_data.get("tools_and_technologies", [])
+            or structured_data.get("tools", [])
+        )
         if tools:
             add_chunk("tools", f"Role: {jd_title} Tools: {', '.join(tools)}")
-            
-        # skills
-        skills = (structured_data.get("skills", []) or 
-                  structured_data.get("technical_skills", []) or 
-                  structured_data.get("required_skills", []))
+
+        skills = _coerce_text_list(
+            structured_data.get("skills", [])
+            or structured_data.get("technical_skills", [])
+            or structured_data.get("required_skills", [])
+        )
         if skills:
             add_chunk("skills", f"Role: {jd_title} Skills: {', '.join(skills)}")
-            
-        # performance_metrics (explicit)
-        quals = structured_data.get("additional_details", {}) or {}
-        if type(quals) is dict and quals.get("performance_metrics"):
-            add_chunk("performance_metrics", f"Role: {jd_title} Metrics: {quals.get('performance_metrics')}")
-            
-        # projects (explicit)
-        if type(quals) is dict and quals.get("projects"):
-            add_chunk("projects", f"Role: {jd_title} Projects: {quals.get('projects')}")
-        
-        # qualifications
-        if type(quals) is dict:
-            edu = quals.get("education") or structured_data.get("education")
-            exp = quals.get("experience") or structured_data.get("experience")
-            if edu or exp:
-                add_chunk("qualification", f"Role: {jd_title} Education: {edu or 'N/A'} Experience: {exp or 'N/A'}")
-        
-        # workflow (extract from insights_data if passed)
+
+        additional = structured_data.get("additional_details", {}) or {}
+        if isinstance(additional, dict):
+            if additional.get("performance_metrics"):
+                add_chunk(
+                    "performance_metrics",
+                    f"Role: {jd_title} Metrics: {additional.get('performance_metrics')}",
+                )
+            if additional.get("projects"):
+                add_chunk("projects", f"Role: {jd_title} Projects: {additional.get('projects')}")
+
+            education = additional.get("education") or structured_data.get("education")
+            experience = additional.get("experience") or structured_data.get("experience")
+            if education or experience:
+                add_chunk(
+                    "qualification",
+                    f"Role: {jd_title} Education: {education or 'N/A'} Experience: {experience or 'N/A'}",
+                )
+
         if insights_data and isinstance(insights_data, dict):
             workflows = insights_data.get("workflows", {})
-            if workflows and isinstance(workflows, dict):
-                for wf_name, wf_data in workflows.items():
-                    steps = wf_data.get("steps", [])
+            if isinstance(workflows, dict):
+                for workflow_name, workflow_data in workflows.items():
+                    steps = _coerce_text_list((workflow_data or {}).get("steps", []))
                     if steps:
-                        flow_str = " → ".join(steps)
-                        add_chunk("workflow", f"Role: {jd_title} Workflow ({wf_name}): {flow_str}")
-        
+                        add_chunk(
+                            "workflow",
+                            f"Role: {jd_title} Workflow ({workflow_name}): {' -> '.join(steps)}",
+                        )
+
         if not chunks:
             return
-        
-        # 2. Upsert
-        texts = [c["text"] for c in chunks]
+
+        texts = [chunk["text"] for chunk in chunks]
         vector_embeddings = get_embeddings().embed_documents(texts)
-        
-        vectors = []
-        for i, chunk in enumerate(chunks):
-            vectors.append({
+        vectors = [
+            {
                 "id": chunk["id"],
-                "values": vector_embeddings[i],
-                "metadata": chunk["metadata"]
-            })
-        
+                "values": vector_embeddings[index],
+                "metadata": chunk["metadata"],
+            }
+            for index, chunk in enumerate(chunks)
+        ]
         get_index().upsert(vectors=vectors)
-        logger.info(f"Advanced RAG: Indexed JD {jd_id} ({len(chunks)} blocks, source={source})")
-        
+        logger.info("Advanced RAG: Indexed JD %s (%s blocks, source=%s)", jd_id, len(chunks), source)
     except Exception as e:
-        logger.error(f"Failed to index JD: {e}")
+        logger.error("Failed to index JD: %s", e)
+
 
 def estimate_tokens(text: str) -> int:
     return len(text) // 3.5 + 1
 
+
 async def query_advanced_context(
-    role_query: str, 
-    block_type: str | List[str], 
-    experience_level: str = None,
-    department: str = None, 
+    role_query: str,
+    block_type: str | List[str],
+    experience_level: str | None = None,
+    department: str | None = None,
     top_k: int = 5,
-    token_budget: int = 800
+    token_budget: int = 800,
 ) -> List[str]:
-    """Retrieve categorized context with metadata filtering support.
-    
-    Supports querying multiple categories if 'block_type' is a list.
-    """
+    """Retrieve categorized context with role-aware reranking."""
     try:
-        # Handle multiple block types
         categories = [block_type] if isinstance(block_type, str) else block_type
-        
-        # Enhance query string to prioritize role title and improve precision
-        query_text = f"Role: {role_query.strip()}. Specifically looking for {categories[0]} and technical environment details."
+        query_text = (
+            f"Role: {role_query.strip()}. Specifically looking for {categories[0]} "
+            "and technical environment details."
+        )
         query_vec = get_embeddings().embed_query(query_text)
-        
-        # Build Pinecone filter
-        filter_dict = {}
-        if len(categories) == 1:
-            filter_dict["category"] = categories[0]
-        else:
-            filter_dict["category"] = {"$in": categories}
-            
-        if experience_level:
-            filter_dict["experience_level"] = experience_level
-        if department:
-            filter_dict["dept"] = department
-        
-        # Query Pinecone
+
         results = get_index().query(
             vector=query_vec,
-            filter=filter_dict,
-            top_k=top_k,
-            include_metadata=True
+            filter={"category": categories[0]} if len(categories) == 1 else {"category": {"$in": categories}},
+            top_k=max(top_k * 3, 12),
+            include_metadata=True,
         )
-        
-        # Format results
-        contexts = []
+
+        reranked: list[tuple[float, str]] = []
         for match in results["matches"]:
-            score = match.get("score", 0)
             metadata = match.get("metadata", {})
-            text = match.get("document", "")
-            
-            # Skip low-confidence matches
+            text = str(metadata.get("text", "")).strip()
+            score = float(match.get("score", 0))
+            candidate_role = _canonical_role(metadata)
+            candidate_department = _canonical_department(metadata)
+            candidate_experience = _canonical_experience(metadata)
+            role_overlap = _role_overlap_score(role_query, candidate_role or text)
+
+            if score < 0.3 or not text or role_overlap < 0.34:
+                continue
+            if department and candidate_department and department.strip().lower() != candidate_department.lower():
+                score -= 0.08
+            elif department and candidate_department:
+                score += 0.04
+            if experience_level and candidate_experience and experience_level.lower() != candidate_experience.lower():
+                score -= 0.03
+
             if score < 0.3:
                 continue
-                
-            context_entry = {
-                "text": text,
-                "score": score,
-                "category": metadata.get("category", "unknown"),
-                "role": metadata.get("role", ""),
-                "department": metadata.get("dept", ""),
-                "experience_level": metadata.get("experience_level", "")
-            }
-            contexts.append(context_entry)
-        
+
+            reranked.append((score + role_overlap, text))
+
+        reranked.sort(key=lambda item: item[0], reverse=True)
+        contexts: list[str] = []
+        consumed_tokens = 0
+        for _, text in reranked:
+            text_tokens = estimate_tokens(text)
+            if consumed_tokens + text_tokens > token_budget:
+                break
+            contexts.append(text)
+            consumed_tokens += text_tokens
+            if len(contexts) >= top_k:
+                break
         return contexts
-        
     except Exception as e:
-        logger.error(f"Advanced context query failed: {e}")
+        logger.error("Advanced context query failed: %s", e)
         return []
 
 
-async def index_jd_document(
-    jd_id: str,
-    text: str,
-    chunk_type: str,
-    metadata: dict
-):
-    """
-    Index a single JD document chunk in Pinecone
-    
-    Args:
-        jd_id: Reference JD ID
-        text: Text content to index
-        chunk_type: Type of chunk (skills, tools, tasks, etc.)
-        metadata: Additional metadata
-    """
+async def index_jd_document(jd_id: str, text: str, chunk_type: str, metadata: dict):
+    """Index a single JD document chunk using canonical vector metadata."""
     try:
-        # Generate embedding
         if asyncio.iscoroutinefunction(get_embeddings().embed_query):
             embedding = await get_embeddings().embed_query(text)
         else:
             embedding = get_embeddings().embed_query(text)
-        
-        # Prepare metadata
-        meta = {
-            "jd_id": jd_id,
-            "chunk_type": chunk_type,
-            "text": text[:500],  # Store first 500 chars
-            **metadata
-        }
-        
-        # Create vector ID
-        vector_id = f"{jd_id}_{chunk_type}_{hash(text) % 10000}"
-        
-        # Upsert to Pinecone
-        get_index().upsert(
-            vectors=[{
-                "id": vector_id,
-                "values": embedding,
-                "metadata": meta
-            }]
+
+        meta = _build_metadata(
+            jd_id=jd_id,
+            role_title=str(metadata.get("role_title", "")).strip() or "Unknown Role",
+            department=str(metadata.get("department", "")).strip() or "General",
+            experience_level=str(metadata.get("experience_level") or metadata.get("level") or "Mid"),
+            category=chunk_type,
+            source=str(metadata.get("source") or CANONICAL_SOURCE_REFERENCE),
+            text=text[:500],
+            extra={key: value for key, value in metadata.items() if key not in {"role_title", "department", "experience_level", "level", "source"}},
         )
-        
-        logger.info(f"Indexed JD chunk: {jd_id} - {chunk_type}")
-        
+
+        vector_id = f"{jd_id}_{chunk_type}_{hash(text) % 10000}"
+        get_index().upsert(vectors=[{"id": vector_id, "values": embedding, "metadata": meta}])
+        logger.info("Indexed JD chunk: %s - %s", jd_id, chunk_type)
     except Exception as e:
-        logger.error(f"Failed to index JD document: {e}")
+        logger.error("Failed to index JD document: %s", e)
 
 
 async def find_similar_jds(
@@ -302,92 +396,74 @@ async def find_similar_jds(
     department: Optional[str] = None,
     level: Optional[str] = None,
     skills: Optional[list] = None,
-    limit: int = 5
+    limit: int = 5,
 ) -> list:
-    """
-    Find similar JDs using vector search
-    
-    Args:
-        role_title: Role to match
-        department: Department to match
-        level: Seniority level to match
-        skills: Skills to match
-        limit: Maximum number of results
-        
-    Returns:
-        List of similar JDs with metadata
-    """
+    """Find similar JDs using vector search with canonical metadata and reranking."""
     try:
-        # Build query text from available parameters
         query_parts = []
         if role_title:
             query_parts.append(f"Role: {role_title}")
         if department:
             query_parts.append(f"Department: {department}")
         if level:
-            query_parts.append(f"Level: {level}")
+            query_parts.append(f"Experience level: {level}")
         if skills:
             query_parts.append(f"Skills: {', '.join(skills[:5])}")
-        
         if not query_parts:
             return []
-        
+
         query_text = ". ".join(query_parts)
-        
-        # Generate embedding
         if asyncio.iscoroutinefunction(get_embeddings().embed_query):
             query_embedding = await get_embeddings().embed_query(query_text)
         else:
             query_embedding = get_embeddings().embed_query(query_text)
-        
-        # Build filter
-        filter_dict = {}
-        if department:
-            filter_dict["department"] = department
-        if level:
-            filter_dict["level"] = level
-        
-        # Query Pinecone
+
         results = get_index().query(
             vector=query_embedding,
-            filter=filter_dict if filter_dict else None,
-            top_k=limit,
-            include_metadata=True
+            top_k=max(limit * 6, 12),
+            include_metadata=True,
         )
-        
-        # Group results by JD
-        jds = {}
+
+        grouped: dict[str, dict[str, Any]] = {}
         for match in results["matches"]:
-            meta = match.get("metadata", {})
-            jd_id = meta.get("jd_id")
-            
+            metadata = match.get("metadata", {})
+            jd_id = metadata.get("jd_id")
             if not jd_id:
                 continue
-            
-            if jd_id not in jds:
-                jds[jd_id] = {
+
+            candidate_role = _canonical_role(metadata)
+            candidate_department = _canonical_department(metadata)
+            candidate_level = _canonical_experience(metadata)
+            overlap = _role_overlap_score(role_title or "", candidate_role or str(metadata.get("text", "")))
+            score = float(match.get("score", 0))
+            if role_title and overlap < 0.34:
+                continue
+            if department and candidate_department and department.strip().lower() != candidate_department.lower():
+                score -= 0.08
+            if level and candidate_level and level.lower() != candidate_level.lower():
+                score -= 0.03
+
+            if jd_id not in grouped:
+                grouped[jd_id] = {
                     "jd_id": jd_id,
-                    "role_title": meta.get("role_title", "Unknown Role"),
-                    "department": meta.get("department", ""),
-                    "level": meta.get("level", ""),
-                    "similarity": match.get("score", 0),
-                    "chunks": []
+                    "role_title": candidate_role or "Unknown Role",
+                    "department": candidate_department,
+                    "level": candidate_level,
+                    "similarity": score + overlap,
+                    "chunks": [],
                 }
-            
-            jds[jd_id]["chunks"].append({
-                "type": meta.get("chunk_type", ""),
-                "text": meta.get("text", "")[:200] + "..." if len(meta.get("text", "")) > 200 else meta.get("text", "")
-            })
-        
-        # Sort by similarity and return
-        sorted_jds = sorted(jds.values(), key=lambda x: x["similarity"], reverse=True)
-        return sorted_jds[:limit]
-        
+            else:
+                grouped[jd_id]["similarity"] = max(grouped[jd_id]["similarity"], score + overlap)
+
+            text = str(metadata.get("text", ""))
+            grouped[jd_id]["chunks"].append(
+                {
+                    "type": _canonical_category(metadata),
+                    "text": text[:200] + "..." if len(text) > 200 else text,
+                }
+            )
+
+        return sorted(grouped.values(), key=lambda item: item["similarity"], reverse=True)[:limit]
     except Exception as e:
-        logger.error(f"Similar JD search failed: {e}")
+        logger.error("Similar JD search failed: %s", e)
         return []
-
-
-# For backward compatibility
-async def query_role_context(role_title: str, block_type: str, department: str = None, top_k: int = 5):
-    return await query_advanced_context(role_title, block_type, department=department, top_k=top_k)

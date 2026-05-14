@@ -4,6 +4,18 @@
  */
 
 import { getCookie, setCookie, deleteCookie, cookieKeys } from "@/lib/cookies";
+import type { JDAgentResponse } from "@/types/jd-agent";
+import type {
+  ReferenceJDDetailResponse,
+  ReferenceJDListResponse,
+  ReferenceJDPreviewResponse,
+  ReferenceJDRecord,
+} from "@/types/reference-jd";
+import type {
+  SessionConversationTurn,
+  SessionDetail,
+  SessionListItem,
+} from "@/types/session";
 
 export type UserRole = "employee" | "manager" | "head" | "hr" | "admin";
 
@@ -18,6 +30,26 @@ export type AuthUser = {
   reporting_manager_code?: string | null;
   phone_mobile?: string | null;
 };
+
+export type ApiError = Error & {
+  status?: number;
+  detail?: string;
+  isRateLimit?: boolean;
+};
+
+export type RequestHistoryItem = SessionConversationTurn;
+
+export interface AdminPublishResponse {
+  status: string;
+  message: string;
+  data: {
+    reference_jd_id: string;
+    jd_session_id: string;
+    employee_id: string;
+    processing_status: string;
+    published_at?: string | null;
+  };
+}
 
 // ── Core identity ─────────────────────────────────────────────────────────────
 
@@ -143,28 +175,28 @@ function fetchWithTimeout(url: string, options: RequestInit = {}, timeoutMs = 30
   const headers = {
     ...options.headers,
     ...(empId ? { "X-Employee-ID": empId } : {}),
-  } as any;
+  } as HeadersInit;
 
   return fetch(url, { ...options, headers, signal: controller.signal }).finally(() =>
     clearTimeout(timer)
   );
 }
 
-export async function fetchEmployeeJDs(employeeId: string) {
+export async function fetchEmployeeJDs(employeeId: string): Promise<SessionListItem[]> {
   const res = await fetchWithTimeout(`${API_URL}/jd/employee/${employeeId}`);
   if (res.status === 404) return [];
   if (!res.ok) throw new Error("Failed to fetch employee JDs");
   return res.json();
 }
 
-export async function fetchManagerPendingJDs(managerId: string) {
+export async function fetchManagerPendingJDs(managerId: string): Promise<SessionListItem[]> {
   const res = await fetchWithTimeout(`${API_URL}/jd/manager/${managerId}/pending`);
   if (res.status === 404) return [];
   if (!res.ok) throw new Error("Failed to fetch manager pending JDs");
   return res.json();
 }
 
-export async function fetchHRPendingJDs() {
+export async function fetchHRPendingJDs(): Promise<SessionListItem[]> {
   const res = await fetchWithTimeout(`${API_URL}/jd/hr/pending`);
   if (res.status === 404) return [];
   if (!res.ok) throw new Error("Failed to fetch HR pending JDs");
@@ -288,9 +320,7 @@ export async function confirmPriorityTasks(jdId: string, priority_tasks: string[
   if (!res.ok) throw new Error("Failed to confirm priority tasks");
   return res.json();
 }
-
-
-export async function fetchJD(jdId: string) {
+export async function fetchJD(jdId: string): Promise<SessionDetail> {
   const res = await fetch(`${API_URL}/jd/${jdId}`);
   if (!res.ok) throw new Error("Failed to fetch JD");
   return res.json();
@@ -328,7 +358,7 @@ export async function getJDs(params?: { submitted_only?: boolean }) {
   const res = await fetch(url);
   if (res.status === 404) return [];
   if (!res.ok) throw new Error("Failed to fetch all JDs");
-  return res.json();
+  return res.json() as Promise<SessionListItem[]>;
 }
 
 export async function approveJD(jdId: string, employeeId: string = "admin") {
@@ -395,7 +425,7 @@ export async function rejectJDHR(
 
 export async function updateJD(
   jdId: string,
-  data: { jd_text: string; jd_structured: any; employee_id: string },
+  data: { jd_text: string; jd_structured: Record<string, unknown>; employee_id: string },
 ) {
   const res = await fetch(`${API_URL}/jd/${jdId}`, {
     method: "PUT",
@@ -408,7 +438,7 @@ export async function updateJD(
 
 export async function sendMessage(
   message: string,
-  history: any[],
+  history: RequestHistoryItem[],
   sessionId?: string,
 ) {
   const res = await fetch(`${API_URL}/jd/chat`, {
@@ -425,16 +455,16 @@ export async function sendMessage(
   console.log("Progress:", data.progress);
   console.groupEnd();
 
-  return data;
+  return data as { reply: string; history: RequestHistoryItem[] };
 }
 
 export async function sendMessageStream(
   message: string,
-  history: any[],
+  history: RequestHistoryItem[],
   sessionId: string | undefined,
   onChunk: (chunk: string) => void,
-  onDone: (data: any) => void,
-  onError: (error: any) => void,
+  onDone: (data: JDAgentResponse) => void,
+  onError: (error: ApiError) => void,
   onStatus?: (status: string) => void
 ) {
   const controller = new AbortController();
@@ -488,10 +518,10 @@ export async function sendMessageStream(
             console.log("Progress:", parsed.parsed.progress);
             console.groupEnd();
             
-            onDone(parsed.parsed);
+            onDone(parsed.parsed as JDAgentResponse);
             return; // clean exit
           } else if (parsed.type === "error") {
-            const error = new Error(parsed.message || "Stream error") as any;
+            const error = new Error(parsed.message || "Stream error") as ApiError;
             if (parsed.is_rate_limit) error.isRateLimit = true;
             onError(error);
             return;
@@ -502,11 +532,16 @@ export async function sendMessageStream(
         }
       }
     }
-  } catch (err: any) {
-    if (err.name === "AbortError") {
-      onError(new Error("Stream timed out. The server is taking too long to respond. Please try again."));
+  } catch (err: unknown) {
+    const error = err as ApiError;
+    if (error.name === "AbortError") {
+      onError(
+        new Error(
+          "Stream timed out. The server is taking too long to respond. Please try again.",
+        ) as ApiError,
+      );
     } else {
-      onError(err);
+      onError(error);
     }
   } finally {
     clearTimeout(timeoutId);
@@ -528,7 +563,7 @@ export async function generateJD(data: { id: string }) {
 export async function saveJD(data: {
   id: string;
   jd_text: string;
-  jd_structured: any;
+  jd_structured: Record<string, unknown>;
   employee_id: string;
 }) {
   const res = await fetch(`${API_URL}/jd/save`, {
@@ -609,4 +644,41 @@ export function downloadJDPdf(sessionId: string): void {
   const cleanFilename = "Pulse_Pharma_Job_Description.pdf";
   const downloadUrl = `${API_URL}/jd/${sessionId}/download/pdf/${cleanFilename}`;
   window.location.assign(downloadUrl);
+}
+
+export async function fetchAdminReferenceJDs(): Promise<ReferenceJDListResponse> {
+  const res = await fetch(`${API_URL}/admin/jds/`, {
+    headers: { Authorization: `Bearer ${getCookie(cookieKeys.ADMIN_TOKEN)}` },
+  });
+  if (!res.ok) throw new Error("Failed to fetch reference JDs");
+  return res.json();
+}
+
+export async function fetchAdminReferenceJD(jdId: string): Promise<ReferenceJDRecord> {
+  const res = await fetch(`${API_URL}/admin/jds/${jdId}`, {
+    headers: { Authorization: `Bearer ${getCookie(cookieKeys.ADMIN_TOKEN)}` },
+  });
+  if (!res.ok) throw new Error("Failed to fetch JD");
+  const payload = (await res.json()) as ReferenceJDDetailResponse;
+  return payload.data;
+}
+
+export async function fetchAdminReferenceJDPreview(
+  jdId: string,
+): Promise<ReferenceJDPreviewResponse["data"]> {
+  const res = await fetch(`${API_URL}/admin/jds/${jdId}/preview`, {
+    headers: { Authorization: `Bearer ${getCookie(cookieKeys.ADMIN_TOKEN)}` },
+  });
+  if (!res.ok) throw new Error("Failed to load preview");
+  const payload = (await res.json()) as ReferenceJDPreviewResponse;
+  return payload.data;
+}
+
+export async function publishAdminReferenceJD(jdId: string): Promise<AdminPublishResponse> {
+  const res = await fetch(`${API_URL}/admin/jds/${jdId}/publish`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${getCookie(cookieKeys.ADMIN_TOKEN)}` },
+  });
+  if (!res.ok) throw new Error("Failed to publish JD");
+  return res.json();
 }

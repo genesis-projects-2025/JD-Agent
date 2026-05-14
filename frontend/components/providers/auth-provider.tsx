@@ -56,8 +56,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                     // Clean URL
                     const newUrl = window.location.pathname;
                     router.replace(newUrl);
-                } catch (err: any) {
-                    console.error("Auth Failure:", err.message);
+                } catch (err: unknown) {
+                    const message = err instanceof Error ? err.message : "Unknown error";
+                    console.error("Auth Failure:", message);
                     setError("Invalid Employee Code or Unauthorized Access.");
                     deleteCookie(cookieKeys.AUTH_USER);
                     deleteCookie(cookieKeys.EMPLOYEE_ID);

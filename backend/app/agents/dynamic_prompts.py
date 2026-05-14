@@ -15,16 +15,47 @@ from typing import List
 # ── Acknowledgment Stripper ───────────────────────────────────────────────────
 
 _ACK_STARTERS = (
-    "great", "sure", "perfect", "absolutely", "noted", "thanks", "thank you",
-    "understood", "of course", "got it", "i see", "i understand", "certainly",
-    "excellent", "good", "wonderful", "alright", "okay", "ok", "right",
-    "indeed", "makes sense", "that's clear", "that's helpful", "that helps",
-    "thank", "awesome", "fantastic", "interesting", "fascinating", "moving on",
-    "let's", "now let's", "now that", "okay,"
+    "great",
+    "sure",
+    "perfect",
+    "absolutely",
+    "noted",
+    "thanks",
+    "thank you",
+    "understood",
+    "of course",
+    "got it",
+    "i see",
+    "i understand",
+    "certainly",
+    "excellent",
+    "good",
+    "wonderful",
+    "alright",
+    "okay",
+    "ok",
+    "right",
+    "indeed",
+    "makes sense",
+    "that's clear",
+    "that's helpful",
+    "that helps",
+    "thank",
+    "awesome",
+    "fantastic",
+    "interesting",
+    "fascinating",
+    "moving on",
+    "let's",
+    "now let's",
+    "now that",
+    "okay,",
 )
 
 
-def _strip_leading_acknowledgment(text: str, preserve_first_turn_greeting: bool = False) -> str:
+def _strip_leading_acknowledgment(
+    text: str, preserve_first_turn_greeting: bool = False
+) -> str:
     """Remove any leading acknowledgment sentence before the actual question.
 
     The LLM occasionally generates a short affirmative confirmation before asking
@@ -37,7 +68,7 @@ def _strip_leading_acknowledgment(text: str, preserve_first_turn_greeting: bool 
         return text
 
     # Split on sentence boundaries
-    sentences = re.split(r'(?<=[.!])\s+', text.strip())
+    sentences = re.split(r"(?<=[.!])\s+", text.strip())
     if len(sentences) <= 1:
         return text
 
@@ -47,9 +78,11 @@ def _strip_leading_acknowledgment(text: str, preserve_first_turn_greeting: bool 
         is_ack_start = any(first.startswith(ack) for ack in _ACK_STARTERS)
         is_short = len(sentences[0].split()) <= 15
         no_question = "?" not in sentences[0]
-        
+
         # Catch typical AI transitions
-        is_transition = any(x in first for x in ["moving on", "let's dive into", "next", "now that"])
+        is_transition = any(
+            x in first for x in ["moving on", "let's dive into", "next", "now that"]
+        )
 
         if (is_ack_start or is_transition) and is_short and no_question:
             sentences.pop(0)
@@ -57,9 +90,10 @@ def _strip_leading_acknowledgment(text: str, preserve_first_turn_greeting: bool 
             break
 
     if not sentences:
-        return text # fallback if everything was stripped
+        return text  # fallback if everything was stripped
 
     return " ".join(sentences).strip()
+
 
 # ── Base Persona ───────────────────────────────────────────────────────────
 
@@ -71,7 +105,7 @@ BEHAVIORAL CONTRACT (ABSOLUTE — VIOLATING ANY RULE IS A CRITICAL FAILURE):
 RULE 1 — SOUND HUMAN, ASK ONLY WHAT MATTERS.
 Opening turn only: greet the user professionally, mention the known role/team context, then ask exactly one question.
 All later turns: ask EXACTLY ONE QUESTION. Start the response directly with the question itself.
-Keep the wording natural for speech: short clauses, plain professional English, and clean pacing.
+Keep the wording natural for speech: short clauses, plain professional English, and clean pacing And dont keep the length of any question more than 30 words
 Outside the opening turn, you are strictly forbidden from using ANY greetings, acknowledgments (e.g., "Got it", "Great", "I understand", "Thanks", "Makes sense"), summaries, bridge sentences, or examples.
 If you start your response with any phrase other than the question, you have failed.
 
@@ -239,7 +273,7 @@ def _build_task_aware_deep_dive_instruction_prompt(
     """
     title = str(identity_context.get("title", "")).strip()
     dept = str(identity_context.get("department", "")).strip()
-    
+
     if turn_number <= 1:
         return (
             f"Formulate a highly specific, domain-expert question asking how the task '{active_task}' is INITIATED or TRIGGERED. "
@@ -264,7 +298,7 @@ def _build_task_aware_deep_dive_instruction_prompt(
             missing.append("the step-by-step execution process")
         if not existing_wf.get("output"):
             missing.append("the final deliverable or outcome")
-            
+
         missing_str = " and ".join(missing)
         return (
             f"We are missing some core details for '{active_task}'. Specifically: {missing_str}. "
@@ -487,25 +521,30 @@ def _build_qualification_instruction(insights: dict) -> str:
 
     identity_context = insights.get("identity_context") or {}
     role_title = (
-        identity_context.get("title", "")
-        or insights.get("role", "")
-        or "this role"
+        identity_context.get("title", "") or insights.get("role", "") or "this role"
     )
     title_lower = role_title.lower()
 
     # ── Role-domain-aware education + experience question ───────────────────────────
     if not edu or not exp:
-        if any(k in title_lower for k in ["software", "engineer", "developer", "architect", "devops", "sre"]):
+        if any(
+            k in title_lower
+            for k in ["software", "engineer", "developer", "architect", "devops", "sre"]
+        ):
             edu_q = (
                 f"For a \u2018{role_title}\u2019 — is a Computer Science or Engineering degree a hard requirement, "
                 f"or is equivalent hands-on experience accepted, and what is the baseline years of relevant experience?"
             )
-        elif any(k in title_lower for k in ["data", "analyst", "scientist", "ml", "ai"]):
+        elif any(
+            k in title_lower for k in ["data", "analyst", "scientist", "ml", "ai"]
+        ):
             edu_q = (
                 f"For \u2018{role_title}\u2019 — is a degree in Statistics, Mathematics, or a quantitative field required, "
                 f"or can strong applied experience substitute, and what is the minimum years of experience expected?"
             )
-        elif any(k in title_lower for k in ["finance", "account", "treasury", "controller"]):
+        elif any(
+            k in title_lower for k in ["finance", "account", "treasury", "controller"]
+        ):
             edu_q = (
                 f"For \u2018{role_title}\u2019 — is a Finance or Accounting degree mandatory, and does the role require a "
                 f"professional qualification like CA, CPA, or CFA alongside years of experience?"
@@ -515,7 +554,9 @@ def _build_qualification_instruction(insights: dict) -> str:
                 f"For \u2018{role_title}\u2019 — is a degree in HR Management or Psychology required, and are certifications "
                 f"like SHRM or CIPD expected or preferred alongside years of experience?"
             )
-        elif any(k in title_lower for k in ["regulatory", "compliance", "legal", "affairs"]):
+        elif any(
+            k in title_lower for k in ["regulatory", "compliance", "legal", "affairs"]
+        ):
             edu_q = (
                 f"For \u2018{role_title}\u2019 — is a law degree or regulatory sciences background required, "
                 f"and what is the minimum years of industry-specific experience the role demands?"
@@ -534,7 +575,10 @@ def _build_qualification_instruction(insights: dict) -> str:
 
     # ── Certification probe — growth-oriented and role-specific ────────────────────
     if (not certs or len(certs) == 0) and turns < 3:
-        if any(k in title_lower for k in ["software", "engineer", "developer", "devops", "cloud", "sre"]):
+        if any(
+            k in title_lower
+            for k in ["software", "engineer", "developer", "devops", "cloud", "sre"]
+        ):
             cert_q = f"Are there any cloud or platform certifications (AWS, GCP, Azure, Kubernetes) that would give a candidate an edge in this \u2018{role_title}\u2019 role, or is the focus mainly on demonstrated project output?"
         elif any(k in title_lower for k in ["data", "analyst", "scientist"]):
             cert_q = f"Are there any data platform or analytics certifications (Databricks, dbt, Google Analytics) that would strengthen a candidate's profile for \u2018{role_title}\u2019?"
@@ -566,10 +610,15 @@ def _build_workflow_identifier_instruction(insights: dict) -> str:
     for i, t in enumerate(tasks[:8], 1):
         desc = (t.get("description", str(t)) if isinstance(t, dict) else str(t))[:70]
         task_lines.append(f"  {i}. {desc}")
-    task_list_str = "\n".join(task_lines) if task_lines else "  (No tasks collected yet)"
+    task_list_str = (
+        "\n".join(task_lines) if task_lines else "  (No tasks collected yet)"
+    )
 
     # Role-domain framing for the impact question
-    if any(k in title_lower for k in ["software", "engineer", "developer", "architect", "devops"]):
+    if any(
+        k in title_lower
+        for k in ["software", "engineer", "developer", "architect", "devops"]
+    ):
         impact_frame = "highest system-level or product impact"
     elif any(k in title_lower for k in ["sales", "account", "business development"]):
         impact_frame = "most direct revenue or commercial impact"
@@ -607,7 +656,10 @@ def _get_priority_selection_copy(insights: dict) -> str:
     title = identity_context.get("title") or insights.get("role") or "this role"
     title_lower = str(title).lower()
 
-    if any(k in title_lower for k in ["software", "engineer", "developer", "architect", "devops"]):
+    if any(
+        k in title_lower
+        for k in ["software", "engineer", "developer", "architect", "devops"]
+    ):
         impact_frame = "the highest system or product impact"
     elif any(k in title_lower for k in ["sales", "account", "business development"]):
         impact_frame = "the most direct revenue impact"
@@ -658,20 +710,18 @@ def _get_structured_phase_message(agent_name: str, insights: dict) -> str:
         )
 
     if agent_name == "JDGeneratorAgent":
-        return (
-            "All core details are captured. The high-fidelity Job Description is ready for generation."
-        )
+        return "All core details are captured. The high-fidelity Job Description is ready for generation."
 
     return ""
 
 
 PHASE_INSTRUCTIONS = {
-    "BasicInfoAgent": "",        # Dynamically generated
+    "BasicInfoAgent": "",  # Dynamically generated
     "WorkflowIdentifierAgent": "",  # Dynamically generated
-    "DeepDiveAgent": "",         # Dynamically generated
+    "DeepDiveAgent": "",  # Dynamically generated
     "ToolsAgent": "Your goal: Finalize the inventory of professional platforms, software, or internal systems used in this role. Present the suggested toolkit from identified workflows for confirmation.",
     "SkillsAgent": "Your goal: Define the core technical competencies required for success. Refine the suggested skill set based on the mapped workflows and role domain.",
-    "QualificationAgent": "",    # Dynamically generated
+    "QualificationAgent": "",  # Dynamically generated
     "JDGeneratorAgent": "Your goal: Synthesize all collected data into the final Job Description. Inform the user that generation is beginning.",
 }
 
@@ -689,8 +739,12 @@ def build_already_collected_summary(insights: dict, agent_name: str) -> str:
     # Always show identity — all agents need it to avoid asking for known info
     role = insights.get("role") or insights.get("identity_context", {}).get("title")
     purpose = insights.get("purpose")
-    dept = insights.get("department") or insights.get("identity_context", {}).get("department")
-    reports = insights.get("reports_to") or insights.get("identity_context", {}).get("reports_to")
+    dept = insights.get("department") or insights.get("identity_context", {}).get(
+        "department"
+    )
+    reports = insights.get("reports_to") or insights.get("identity_context", {}).get(
+        "reports_to"
+    )
 
     if role:
         lines.append(f"  ✓ Role: {role}")
@@ -721,7 +775,9 @@ def build_already_collected_summary(insights: dict, agent_name: str) -> str:
                 desc = t.get("description", str(t)) if isinstance(t, dict) else str(t)
                 lines.append(f"    {i + 1}. {desc[:58]}")
             if len(tasks) > task_cap:
-                lines.append(f"    ... and {len(tasks) - task_cap} more (already captured)")
+                lines.append(
+                    f"    ... and {len(tasks) - task_cap} more (already captured)"
+                )
             if len(tasks) >= task_cap:
                 lines.append("    [STATUS: TASK COLLECTION COMPLETE]")
         if priorities:
@@ -740,9 +796,12 @@ def build_already_collected_summary(insights: dict, agent_name: str) -> str:
             active_data = workflows.get(active, {})
             if active_data:
                 missing = []
-                if not active_data.get("trigger"): missing.append("trigger")
-                if not active_data.get("steps"): missing.append("steps")
-                if not active_data.get("output"): missing.append("output")
+                if not active_data.get("trigger"):
+                    missing.append("trigger")
+                if not active_data.get("steps"):
+                    missing.append("steps")
+                if not active_data.get("output"):
+                    missing.append("output")
                 if missing:
                     lines.append(f"    ⚠️ MISSING FOR '{active}': {', '.join(missing)}")
                 else:
@@ -751,7 +810,9 @@ def build_already_collected_summary(insights: dict, agent_name: str) -> str:
                     lines.append(f"    ✓ TRIGGER: {str(active_data['trigger'])[:70]}")
                 if active_data.get("steps"):
                     shown = active_data["steps"][:2]
-                    lines.append(f"    ✓ STEPS ({len(active_data['steps'])} total): {'; '.join(str(s)[:40] for s in shown)}...")
+                    lines.append(
+                        f"    ✓ STEPS ({len(active_data['steps'])} total): {'; '.join(str(s)[:40] for s in shown)}..."
+                    )
                 if active_data.get("tools"):
                     lines.append(f"    ✓ TOOLS: {active_data['tools'][:3]}")
 
@@ -762,7 +823,7 @@ def build_already_collected_summary(insights: dict, agent_name: str) -> str:
             lines.append(f"  ✓ Confirmed Tools: {[str(t)[:30] for t in tools[:8]]}")
         wf_tools: set = set()
         for wf in workflows.values():
-            for t in (wf.get("tools") or []):
+            for t in wf.get("tools") or []:
                 wf_tools.add(str(t))
         if wf_tools:
             lines.append(f"  ✓ Tools Mentioned in Workflows: {sorted(wf_tools)[:5]}")
@@ -774,7 +835,7 @@ def build_already_collected_summary(insights: dict, agent_name: str) -> str:
             lines.append(f"  ✓ Confirmed Skills: {[str(s)[:32] for s in skills[:8]]}")
         wf_tools: set = set()
         for wf in workflows.values():
-            for t in (wf.get("tools") or []):
+            for t in wf.get("tools") or []:
                 wf_tools.add(str(t))
         if wf_tools:
             lines.append(f"  ✓ Workflow Tool Signals: {sorted(wf_tools)[:4]}")
@@ -871,7 +932,9 @@ def build_dynamic_prompt(
 
     # Explicit Anti-Repetition
     if recent_questions:
-        q_lines = "\n".join([f"  - {q}" for q in recent_questions[-4:]]) # Ban last 4 questions explicitly
+        q_lines = "\n".join(
+            [f"  - {q}" for q in recent_questions[-4:]]
+        )  # Ban last 4 questions explicitly
         parts.append(
             f"\n⛔ BANNED QUESTIONS (RECENTLY ASKED):\n"
             f"You MUST NOT ask any question that is semantically similar to these recent questions:\n"

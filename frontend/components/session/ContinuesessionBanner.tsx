@@ -17,16 +17,9 @@ import {
  RefreshCw,
 } from "lucide-react";
 import { fetchEmployeeJDs } from "@/lib/api";
+import type { SessionListItem } from "@/types/session";
 
-type SessionRecord = {
- id: string;
- employee_id: string;
- title: string | null;
- status: string;
- version: number;
- created_at: string;
- updated_at: string;
-};
+type SessionRecord = SessionListItem;
 
 const STATUS_META: Record<
  string,
@@ -56,7 +49,8 @@ const STATUS_META: Record<
  draft: { label: "Draft", dot: "bg-neutral-400", action: "Resume" },
 };
 
-function timeAgo(isoString: string): string {
+function timeAgo(isoString: string | null): string {
+ if (!isoString) return "—";
  const diff = Date.now() - new Date(isoString).getTime();
  const mins = Math.floor(diff / 60_000);
  const hours = Math.floor(diff / 3_600_000);
@@ -143,7 +137,7 @@ export default function ContinueSessionBanner() {
  setSessions(
  data.sort(
  (a, b) =>
- new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime(),
+ new Date(b.updated_at ?? 0).getTime() - new Date(a.updated_at ?? 0).getTime(),
  ),
  );
  } catch {

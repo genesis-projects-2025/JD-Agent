@@ -59,7 +59,7 @@ from sqlalchemy import text  # noqa: E402
 
 
 async def init_db():
-    """Create all tables on startup if they don't exist, and setup triggers."""
+    """Create core tables and lightweight compatibility objects on startup."""
     try:
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
@@ -95,6 +95,21 @@ async def init_db():
                     END IF;
                 END
                 $$;
+            """)
+            )
+
+            # Bootstrap compatibility for fields that newer code requires.
+            await conn.execute(
+                text("""
+                ALTER TABLE jd_sessions
+                ADD COLUMN IF NOT EXISTS source_reference_jd_id VARCHAR(36);
+            """)
+            )
+            await conn.execute(
+                text("""
+                CREATE UNIQUE INDEX IF NOT EXISTS uq_jd_sessions_source_reference_jd_id
+                ON jd_sessions (source_reference_jd_id)
+                WHERE source_reference_jd_id IS NOT NULL;
             """)
             )
         logger.info("✅ Database tables and triggers ready")

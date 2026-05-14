@@ -43,21 +43,13 @@ function SSOSync() {
  setCookie(cookieKeys.AUTH_USER, JSON.stringify(data.employee));
  setCookie(cookieKeys.EMPLOYEE_ID, data.employee.employee_id);
  
- // For admin users, also set the role and token so they can access the admin dashboard
- if (data.employee.role === "manager" || data.employee.role === "hr" || data.employee.role === "admin") {
- // We use a mock token for development since the real token comes from /auth/admin-login
- if (data.employee.role === "admin") {
- setCookie(cookieKeys.ADMIN_TOKEN, "dev_admin_sso_token");
- setCookie(cookieKeys.USER_ROLE, "ADMIN");
- }
- }
-
  // Redirect to their home page instead of dashboard directly
  router.push(`/home/${data.employee.employee_id}`);
 
- } catch (err: any) {
+ } catch (err: unknown) {
+ const errorMessage = err instanceof Error ? err.message : "Unknown error";
  // Only log actual network crashes here
- console.warn("Network or SSO Sync Error:", err.message);
+ console.warn("Network or SSO Sync Error:", errorMessage);
  setError("Network Error: Could not reach the authentication server.");
  }
  };

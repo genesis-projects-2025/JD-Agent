@@ -466,7 +466,8 @@ class JDIntelligenceService:
                     metadata={
                         "role_title": structured_jd.get("role_title"),
                         "department": structured_jd.get("department"),
-                        "level": structured_jd.get("level"),
+                        "experience_level": structured_jd.get("level"),
+                        "source": "reference_jd_upload",
                         "weight": chunk["weight"],
                     },
                 )

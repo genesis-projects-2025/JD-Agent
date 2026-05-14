@@ -1,11 +1,13 @@
 # backend/app/services/jd_service.py
 #
-# Phase-based interview service. Key changes from previous version:
-# 1. _compute_phase() — determines correct phase from depth scoring
-# 2. _check_depth() — validates field quality (not just non-empty)
-# 3. _process_llm_response() — shared handler for both sync and stream
-# 4. Phase-gate enforcement — rejects insights outside current phase
-# 5. Removed duplicated code between handle_conversation and handle_conversation_stream
+# Interview service layer — orchestrates conversation turns via the LangGraph
+# multi-agent system and handles JD generation with Gemini Pro.
+#
+# Key responsibilities:
+#   - LLM instance management (JD generation only; interview LLM lives in agents/interview.py)
+#   - JSON response parsing with multi-strategy fallback
+#   - Post-processing pipeline (_process_llm_response) for insight merging & progress tracking
+#   - Streaming and synchronous turn handlers that delegate to agents/graph.py
 
 import asyncio
 import json
@@ -38,23 +40,16 @@ from app.memory.session_memory import SessionMemory
 from app.agents.router import compute_current_agent as _compute_current_agent
 from app.agents.router import compute_progress as _compute_progress
 from app.agents.logs.logger import InterviewLogger, calculate_turn_hash
+from app.agents.validators import sanitise_skills
 
 logger = logging.getLogger(__name__)
 
 
-# ── LLM Instances ──────────────────────────────────────────────────────────────
-@lru_cache(maxsize=2)
-def get_interview_llm():
-    return ChatGoogleGenerativeAI(
-        google_api_key=settings.GEMINI_API_KEY,
-        model="gemini-2.5-flash",
-        temperature=0.2,
-        response_mime_type="application/json",
-    )
-
-
+# ── LLM Instance (JD Generation only) ─────────────────────────────────────────
+# NOTE: The interview LLM is managed in agents/interview.py, not here.
 @lru_cache(maxsize=2)
 def get_jd_llm():
+    """Lazy-initialized Gemini Pro instance for JD generation."""
     return ChatGoogleGenerativeAI(
         google_api_key=settings.GEMINI_API_KEY,
         model="gemini-2.5-pro",
@@ -63,8 +58,6 @@ def get_jd_llm():
     )
 
 
-# Initialize LLM instances
-interview_llm = get_interview_llm()
 jd_llm = get_jd_llm()
 
 
@@ -86,64 +79,7 @@ async def _invoke_with_retry(llm, messages, max_retries=2):
                 raise
 
 
-# ── Soft skill blocklist ──────────────────────────────────────────────────────
-_SOFT_SKILL_PATTERNS = frozenset(
-    {
-        "communication",
-        "teamwork",
-        "collaboration",
-        "leadership",
-        "adaptability",
-        "problem solving",
-        "problem-solving",
-        "critical thinking",
-        "attention to detail",
-        "time management",
-        "interpersonal",
-        "result-oriented",
-        "results-oriented",
-        "self-starter",
-        "proactive",
-        "detail-oriented",
-        "organised",
-        "organized",
-        "motivated",
-        "analytical",
-        "analytical thinking",
-        "strategic thinking",
-        "creative thinking",
-        "team player",
-        "work ethic",
-        "multitasking",
-        "decision making",
-        "decision-making",
-        "emotional intelligence",
-        "conflict resolution",
-        "negotiation skills",
-        "presentation skills",
-    }
-)
-
-
-def sanitise_skills(skills: list) -> list:
-    """Remove soft skills and duplicates from a skills list."""
-    if not skills:
-        return []
-
-    seen = set()
-    clean = []
-    for s in skills:
-        if not s or not isinstance(s, str):
-            continue
-        stripped = s.strip()
-        lower = stripped.lower()
-        if lower in seen:
-            continue
-        if any(pattern in lower for pattern in _SOFT_SKILL_PATTERNS):
-            continue
-        clean.append(stripped)
-        seen.add(lower)
-    return clean
+# NOTE: sanitise_skills() is imported from app.agents.validators (single canonical source)
 
 
 # ── Utilities ──────────────────────────────────────────────────────────────────

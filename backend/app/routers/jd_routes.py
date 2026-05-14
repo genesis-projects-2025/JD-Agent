@@ -22,6 +22,7 @@ from app.services.jd_service import (
     handle_conversation_stream,
     handle_jd_generation,
 )
+from app.agents.router import compute_current_agent, compute_progress
 from app.memory.session_memory import SessionMemory
 from app.core.database import get_db
 from app.crud.jd_crud import (
@@ -110,12 +111,46 @@ async def _cache_session(memory: SessionMemory):
         pass  # Cache failures are non-critical
 
 
+def _reconcile_session_memory(memory: SessionMemory) -> SessionMemory:
+    """Normalize resume state so stale payloads do not park sessions in the wrong phase."""
+    if not memory.id:
+        return memory
+
+    review_statuses = {
+        "sent_to_manager",
+        "manager_rejected",
+        "sent_to_hr",
+        "hr_rejected",
+        "approved",
+    }
+    current_status = str(memory.progress.get("status", "collecting"))
+    if current_status in review_statuses:
+        return memory
+
+    derived_agent = compute_current_agent(
+        dict(memory.insights or {}),
+        memory.current_agent or "BasicInfoAgent",
+    )
+    derived_progress = compute_progress(memory.insights or {}, derived_agent)
+
+    if memory.generated_jd or memory.jd_structured:
+        if derived_agent == "JDGeneratorAgent":
+            derived_progress["status"] = "jd_generated"
+        elif derived_progress.get("completion_percentage", 0) >= 95:
+            derived_progress["status"] = "ready_for_generation"
+
+    memory.current_agent = derived_agent
+    memory.progress.update(derived_progress)
+    memory.progress["current_agent"] = derived_agent
+    return memory
+
+
 async def hydrate_session_from_db(session_id: str, db: AsyncSession) -> SessionMemory:
     # Try Redis cache first — ~1ms vs ~50-100ms for DB
     cached = await get_cache(f"session:{session_id}")
     if cached:
         logger.debug(f"Session {session_id} loaded from Redis cache")
-        return _session_from_cache_dict(cached)
+        return _reconcile_session_memory(_session_from_cache_dict(cached))
 
     logger.debug(f"Hydrating session {session_id} from DB...")
     from sqlalchemy.future import select as fut_select
@@ -158,6 +193,7 @@ async def hydrate_session_from_db(session_id: str, db: AsyncSession) -> SessionM
         memory.load_history_from_db(history, llm_limit=6)
 
     # Cache for next request
+    memory = _reconcile_session_memory(memory)
     await _cache_session(memory)
 
     return memory
@@ -723,6 +759,8 @@ async def update_jd_status(
     jd_id: str, request: UpdateStatusRequest, db: AsyncSession = Depends(get_db)
 ):
     valid_statuses = [
+        "collecting",
+        "ready_for_generation",
         "draft",
         "sent_to_manager",
         "manager_rejected",

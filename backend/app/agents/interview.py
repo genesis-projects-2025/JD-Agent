@@ -459,18 +459,14 @@ def _normalize_agent_response(
 
 # ── LLM Instances ─────────────────────────────────────────────────────────────
 
-# Interview LLM — used for streaming conversational questions
-# Using gemini-2.0-flash for lower TTFB: 2.5-flash has internal thinking mode
-# that causes 3-6s delays. 2.0-flash streams first byte in ~0.5-1.5s.
+# Primary interview LLM — handles conversational question generation and streaming.
 _interview_llm = ChatGoogleGenerativeAI(
     google_api_key=settings.GEMINI_API_KEY,
     model="gemini-2.5-flash",
     temperature=0.4,
 )
 
-
-# Dedup retry LLM — used only when a question is detected as repeated
-# Also on 2.0-flash for consistent low latency
+# Dedup retry LLM — used only when a question is detected as repeated.
 _response_llm = ChatGoogleGenerativeAI(
     google_api_key=settings.GEMINI_API_KEY,
     model="gemini-2.5-flash",
@@ -770,10 +766,17 @@ class InterviewEngine:
             "\n\n".join(workflow_texts) + "\n\nRAG CONTEXT:\n" + "\n".join(rag_context)
         )
 
-        prompt = f"""Extract a concise list of the most relevant {field} for this role from the context below.
+        target_role = (insights.get("identity_context") or {}).get("title", "this role")
+        prompt = f"""Extract a concise list of the most relevant {field} for the role of '{target_role}' from the context below.
         
         CONTEXT:
         {context_text}
+        
+        CRITERIA:
+        1. Only include {field} that are GENUINELY part of the day-to-day toolkit for a {target_role}.
+        2. Remove incidental items or items from unrelated roles (like management tools if the role is technical).
+        3. Add core platforms that are standard for this industry/role if they are missing but implied (e.g., if it's a dev role and Git is missing, add it).
+        4. Focus on high-impact, performance-driving {field}.
         
         Respond with ONLY a JSON list of strings, e.g. ["Item 1", "Item 2"]. 
         Focus on technical/professional items. Do NOT include generic soft skills for 'tools'.
@@ -796,7 +799,7 @@ class InterviewEngine:
                 from app.agents.semantic_cleaner import deduplicate_and_professionalize
 
                 merged = list(set(existing) | set(new_items))
-                insights[field] = await deduplicate_and_professionalize(merged, field)
+                insights[field] = await deduplicate_and_professionalize(merged, field, role_title=target_role)
                 logger.info(f"[Auto-Populate] Added {len(new_items)} items to {field}.")
         except Exception as e:
             logger.error(f"[Auto-Populate] Failed: {e}")
@@ -904,67 +907,6 @@ class InterviewEngine:
 
         # Default: Use the hardened non-destructive logic
         return merge_extracted(insights, extracted)
-
-        existing = insights.get(key)
-
-        # Defense mechanism: If workflows comes in as a list, dynamically convert it to a dict
-        if key == "workflows" and isinstance(value, list):
-            converted = {}
-            for idx, item in enumerate(value):
-                if isinstance(item, dict):
-                    # Use the active deep dive task, or a task name, or a fallback generator
-                    task_name = (
-                        item.get("task")
-                        or insights.get("active_deep_dive_task")
-                        or f"Task_{idx + 1}"
-                    )
-                    converted[task_name] = item
-            value = converted
-
-        if isinstance(value, list) and isinstance(existing, list):
-            # Intelligent list deduplication merge
-            if key in ["tasks", "tools", "skills", "priority_tasks"]:
-                # Semantic deduplication for known list types
-                seen_normalized = set()
-                for item in existing:
-                    text = (
-                        item.get("description") if isinstance(item, dict) else str(item)
-                    )
-                    seen_normalized.add(self._normalize_item_text(text))
-
-                for item in value:
-                    text = (
-                        item.get("description") if isinstance(item, dict) else str(item)
-                    )
-                    norm = self._normalize_item_text(text)
-                    if norm not in seen_normalized:
-                        existing.append(item)
-                        seen_normalized.add(norm)
-            else:
-                # Fallback to exact JSON match deduplication
-                seen = {
-                    json.dumps(v, sort_keys=True, default=str)
-                    if isinstance(v, dict)
-                    else str(v)
-                    for v in existing
-                }
-                for item in value:
-                    item_key = (
-                        json.dumps(item, sort_keys=True, default=str)
-                        if isinstance(item, dict)
-                        else str(item)
-                    )
-                    if item_key not in seen:
-                        existing.append(item)
-                        seen.add(item_key)
-                insights[key] = existing
-        elif isinstance(value, dict) and isinstance(existing, dict):
-            # Deep Merge dictionaries
-            insights[key] = self._deep_merge_dicts(existing, value)
-        else:
-            # Overwrite primitives
-            insights[key] = value
-        return insights
 
     def _compress_memory(self, recent_messages: list, turn_count: int) -> list:
         """Compress old messages, keeping the last 16 messages (approx 8 complete turns) for stronger short-term memory."""
@@ -1177,21 +1119,22 @@ Keep it professional and brief."""
             # Clean insights data upon phase transition
             from app.agents.semantic_cleaner import deduplicate_and_professionalize
 
+            target_role = (insights.get("identity_context") or {}).get("title", "General Role")
             if new_agent == "WorkflowIdentifierAgent":
                 insights["tasks"] = await deduplicate_and_professionalize(
-                    insights.get("tasks") or [], "tasks"
+                    insights.get("tasks") or [], "tasks", role_title=target_role
                 )
             elif new_agent == "DeepDiveAgent":
                 insights["priority_tasks"] = await deduplicate_and_professionalize(
-                    insights.get("priority_tasks") or [], "priority_tasks"
+                    insights.get("priority_tasks") or [], "priority_tasks", role_title=target_role
                 )
             elif new_agent == "ToolsAgent":
                 insights["tools"] = await deduplicate_and_professionalize(
-                    insights.get("tools") or [], "tools"
+                    insights.get("tools") or [], "tools", role_title=target_role
                 )
             elif new_agent == "SkillsAgent":
                 insights["skills"] = await deduplicate_and_professionalize(
-                    insights.get("skills") or [], "skills"
+                    insights.get("skills") or [], "skills", role_title=target_role
                 )
 
             agent_name = new_agent
@@ -1394,6 +1337,7 @@ Keep it professional and brief."""
 
             cleaning_tasks = []
 
+            target_role = (insights.get("identity_context") or {}).get("title", "General Role")
             if new_agent == "WorkflowIdentifierAgent":
                 yield {
                     "type": "status",
@@ -1401,26 +1345,26 @@ Keep it professional and brief."""
                 }
                 cleaning_tasks.append(
                     deduplicate_and_professionalize(
-                        insights.get("tasks") or [], "tasks"
+                        insights.get("tasks") or [], "tasks", role_title=target_role
                     )
                 )
             elif new_agent == "DeepDiveAgent":
                 yield {"type": "status", "content": "Analyzing priority tasks..."}
                 cleaning_tasks.append(
                     deduplicate_and_professionalize(
-                        insights.get("priority_tasks", []), "priority_tasks"
+                        insights.get("priority_tasks", []), "priority_tasks", role_title=target_role
                     )
                 )
             elif new_agent == "ToolsAgent":
                 yield {"type": "status", "content": "Refining technical toolset..."}
                 cleaning_tasks.append(
-                    deduplicate_and_professionalize(insights.get("tools", []), "tools")
+                    deduplicate_and_professionalize(insights.get("tools", []), "tools", role_title=target_role)
                 )
             elif new_agent == "SkillsAgent":
                 yield {"type": "status", "content": "Validating technical skills..."}
                 cleaning_tasks.append(
                     deduplicate_and_professionalize(
-                        insights.get("skills", []), "skills"
+                        insights.get("skills", []), "skills", role_title=target_role
                     )
                 )
 
@@ -1580,6 +1524,10 @@ Keep it professional and brief."""
         # Clean up temporary keys before persisting
         insights.pop("_deep_dive_turn_number", None)
         insights.pop("_force_advance", None)
+
+        # Signal the actual agent to the graph layer so it doesn't double-route.
+        # This is a transient key that graph.py reads and then removes.
+        insights["_engine_current_agent"] = agent_name
 
         # Yield to ensure validated/final text is sent before 'done'
         yield {"type": "chunk", "content": full_text}

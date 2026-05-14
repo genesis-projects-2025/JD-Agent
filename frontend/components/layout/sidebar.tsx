@@ -12,13 +12,13 @@ import { useEffect, useState, useLayoutEffect } from "react";
 import { getCurrentUser } from "@/lib/api";
 import { useAuth } from "@/components/providers/auth-provider";
 import { useEmployeeJDs, useUnreadFeedback } from "@/hooks/useJDQueries";
+import type { SessionListItem } from "@/types/session";
 
-interface JDSession {
+interface JDSession extends SessionListItem {
     id: string;
     title: string | null;
-    department: string | null;
     status: string;
-    updated_at: string;
+    updated_at: string | null;
 }
 import {
     LayoutDashboard,
@@ -283,7 +283,7 @@ export default function Sidebar() {
                             </div>
                         )}
 
-                        {(jds as JDSession[]).map((jdItem: JDSession) => {
+                        {(jds as SessionListItem[]).map((jdItem) => {
                             const config =
                                 STATUS_CONFIG[jdItem.status] || STATUS_CONFIG.draft;
                             const href = [

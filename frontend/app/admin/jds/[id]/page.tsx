@@ -4,24 +4,30 @@
 import { useState, useEffect } from 'react'
 import { useRouter, useParams } from 'next/navigation'
 import { getCookie, cookieKeys } from '@/lib/cookies'
+import {
+  fetchAdminReferenceJD,
+  fetchAdminReferenceJDPreview,
+  publishAdminReferenceJD,
+} from '@/lib/api'
 import { Briefcase, Users, FileText, CheckCircle, XCircle, Download, Eye, Shield, Target, Wrench, Calendar, Send, Loader2, X } from 'lucide-react'
 import Link from 'next/link'
 import { downloadJDPdfClient } from '@/lib/download-jd-pdf'
 import { PdfDocumentView } from '@/components/jd/pdf-document-view'
+import type { ReferenceJDPreviewResponse, ReferenceJDRecord } from '@/types/reference-jd'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 
 export default function JDDetailPage() {
   const router = useRouter()
   const params = useParams()
-  const [jd, setJd] = useState<any>(null)
+  const [jd, setJd] = useState<ReferenceJDRecord | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [isPublishing, setIsPublishing] = useState(false)
   const [isDeleting, setIsDeleting] = useState(false)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [showFullView, setShowFullView] = useState(false)
-  const [previewData, setPreviewData] = useState<any>(null)
+  const [previewData, setPreviewData] = useState<ReferenceJDPreviewResponse["data"] | null>(null)
   const [loadingPreview, setLoadingPreview] = useState(false)
 
   useEffect(() => {
@@ -32,16 +38,7 @@ export default function JDDetailPage() {
 
   const fetchJD = async () => {
     try {
-      const token = getCookie(cookieKeys.ADMIN_TOKEN)
-      const res = await fetch(`${API_URL}/admin/jds/${params.id}`, {
-        headers: { 'Authorization': `Bearer ${token}` }
-      })
-      if (res.ok) {
-        const data = await res.json()
-        setJd(data.data)
-      } else {
-        setError('Failed to fetch JD')
-      }
+      setJd(await fetchAdminReferenceJD(String(params.id)))
     } catch { setError('Failed to fetch JD') }
     finally { setLoading(false) }
   }
@@ -49,16 +46,16 @@ export default function JDDetailPage() {
   const handlePublish = async () => {
     setIsPublishing(true)
     try {
-      const res = await fetch(`${API_URL}/admin/jds/${params.id}/publish`, {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${getCookie(cookieKeys.ADMIN_TOKEN)}` }
-      })
-      if (res.ok) {
-        setJd((prev: any) => ({ ...prev, processing_status: 'published', published_at: new Date().toISOString() }))
-      } else {
-        const data = await res.json()
-        alert(data.detail || 'Failed to publish')
-      }
+      const response = await publishAdminReferenceJD(String(params.id))
+      setJd((prev) =>
+        prev
+          ? {
+              ...prev,
+              processing_status: response.data.processing_status,
+              published_at: response.data.published_at ?? new Date().toISOString(),
+            }
+          : prev,
+      )
     } catch { alert('Failed to publish JD') }
     finally { setIsPublishing(false) }
   }
@@ -82,13 +79,7 @@ export default function JDDetailPage() {
     setShowFullView(true)
     setLoadingPreview(true)
     try {
-      const res = await fetch(`${API_URL}/admin/jds/${params.id}/preview`, {
-        headers: { 'Authorization': `Bearer ${getCookie(cookieKeys.ADMIN_TOKEN)}` }
-      })
-      if (res.ok) {
-        const data = await res.json()
-        setPreviewData(data.data)
-      }
+      setPreviewData(await fetchAdminReferenceJDPreview(String(params.id)))
     } catch { alert('Failed to load preview') }
     finally { setLoadingPreview(false) }
   }
@@ -101,7 +92,18 @@ export default function JDDetailPage() {
     }
   }
 
-  const safeData = jd?.structured_data || {}
+  const safeData = (jd?.structured_data || {}) as {
+    purpose?: string
+    tasks?: string[]
+    responsibilities?: string[]
+    key_responsibilities?: string[]
+    skills?: string[]
+    tools?: string[]
+    technologies?: string[]
+  }
+  const responsibilityItems = safeData.tasks ?? safeData.responsibilities ?? safeData.key_responsibilities ?? []
+  const skillItems = safeData.skills ?? []
+  const toolItems = [...(safeData.tools ?? []), ...(safeData.technologies ?? [])]
 
   if (loading) {
     return (
@@ -208,36 +210,36 @@ export default function JDDetailPage() {
             </div>
           )}
 
-          {(safeData.tasks?.length > 0 || safeData.responsibilities?.length > 0 || safeData.key_responsibilities?.length > 0) && (
+          {responsibilityItems.length > 0 && (
             <div className="bg-white rounded-2xl border border-slate-200 p-8 shadow-sm">
               <div className="flex items-center gap-3 mb-5"><div className="p-2 bg-blue-50 rounded-lg border border-blue-100"><Target className="w-5 h-5 text-blue-600" /></div>
                 <h3 className="text-xl font-semibold text-slate-900">Key Responsibilities</h3></div>
               <ul className="space-y-3">
-                {(safeData.tasks || safeData.responsibilities || safeData.key_responsibilities).map((item: string, i: number) => (
+                {responsibilityItems.map((item: string, i: number) => (
                   <li key={i} className="flex items-start gap-3"><div className="w-2 h-2 bg-blue-500 rounded-full mt-2 flex-shrink-0" /><span className="text-slate-600">{item}</span></li>
                 ))}
               </ul>
             </div>
           )}
 
-          {(safeData.skills?.length > 0) && (
+          {skillItems.length > 0 && (
             <div className="bg-white rounded-2xl border border-slate-200 p-8 shadow-sm">
               <div className="flex items-center gap-3 mb-5"><div className="p-2 bg-blue-50 rounded-lg border border-blue-100"><Target className="w-5 h-5 text-blue-600" /></div>
                 <h3 className="text-xl font-semibold text-slate-900">Required Skills</h3></div>
               <div className="flex flex-wrap gap-2">
-                {safeData.skills.map((skill: string, i: number) => (
+                {skillItems.map((skill: string, i: number) => (
                   <span key={i} className="px-3.5 py-1.5 bg-slate-50 rounded-lg text-slate-700 text-sm border border-slate-200">{skill}</span>
                 ))}
               </div>
             </div>
           )}
 
-          {(safeData.tools?.length > 0 || safeData.technologies?.length > 0) && (
+          {toolItems.length > 0 && (
             <div className="bg-white rounded-2xl border border-slate-200 p-8 shadow-sm">
               <div className="flex items-center gap-3 mb-5"><div className="p-2 bg-blue-50 rounded-lg border border-blue-100"><Wrench className="w-5 h-5 text-blue-600" /></div>
                 <h3 className="text-xl font-semibold text-slate-900">Tools & Technologies</h3></div>
               <div className="flex flex-wrap gap-2">
-                {[...(safeData.tools || []), ...(safeData.technologies || [])].map((tool: string, i: number) => (
+                {toolItems.map((tool: string, i: number) => (
                   <span key={i} className="px-3.5 py-1.5 bg-slate-50 rounded-lg text-slate-700 text-sm border border-slate-200">{tool}</span>
                 ))}
               </div>

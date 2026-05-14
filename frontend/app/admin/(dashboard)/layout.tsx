@@ -13,7 +13,7 @@ import {
     ShieldCheck,
     Activity,
 } from "lucide-react";
-import { useEffect, useState, useLayoutEffect } from "react";
+import { useEffect, useState } from "react";
 import { getCookie, deleteCookie, cookieKeys } from "@/lib/cookies";
 
 export default function AdminLayout({
@@ -23,13 +23,8 @@ export default function AdminLayout({
 }) {
     const pathname = usePathname();
     const router = useRouter();
-    const [mounted, setMounted] = useState(false);
     const [isMobileOpen, setIsMobileOpen] = useState(false);
     const [isAuthenticated, setIsAuthenticated] = useState(false);
-
-    useLayoutEffect(() => {
-        setMounted(true); // Mark as mounted immediately
-    }, []);
 
     useEffect(() => {
         // Protect routes - defer auth state update
@@ -53,7 +48,7 @@ export default function AdminLayout({
         router.push("/admin/login");
     };
 
-    if (!mounted || !isAuthenticated) return null; // Prevent hydration errors and flicker
+    if (!isAuthenticated) return null;
 
     const navItems = [
         { label: "Dashboard", href: "/admin/dashboard", icon: LayoutDashboard },

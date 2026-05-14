@@ -1,9 +1,11 @@
+import type { TaskListItem } from "./jd-agent";
+
 export type Message = {
   sender: "agent" | "employee";
   text: string;
   skills?: string[];
   tools?: string[];
-  tasks?: Array<{ description: string; frequency?: string; category?: string } | string>;
+  tasks?: Array<TaskListItem | string>;
   isSkillSelection?: boolean;
   isToolSelection?: boolean;
   isPrioritySelection?: boolean;

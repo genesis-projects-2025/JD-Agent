@@ -26,6 +26,9 @@ class JDSession(Base):
     employee_id: Mapped[str] = mapped_column(
         String(255), ForeignKey("employees.id"), nullable=False, index=True
     )
+    source_reference_jd_id: Mapped[str | None] = mapped_column(
+        String(36), nullable=True, index=True
+    )
 
     title: Mapped[str | None] = mapped_column(Text, nullable=True)
     department: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -70,6 +73,12 @@ class JDSession(Base):
         Index("idx_jd_status_updated", "status", "updated_at"),
         # Manager view: reports + status filter
         Index("idx_jd_employee_status", "employee_id", "status"),
+        Index(
+            "uq_jd_sessions_source_reference_jd_id",
+            "source_reference_jd_id",
+            unique=True,
+            postgresql_where=source_reference_jd_id.isnot(None),
+        ),
     )
 
 

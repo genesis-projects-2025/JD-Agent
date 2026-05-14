@@ -38,6 +38,7 @@ class AgentState(TypedDict):
 
     # ── Working Memory (Active Context) ───────────────────────────────────
     questions_asked: list       # Hashes of questions already asked
+    previous_questions_text: list  # Texts of questions already asked (for semantic dedup)
     agent_transition_log: list  # Log of agent transitions {"from", "to", "turn"}
 
     # ── Quality Tracking ──────────────────────────────────────────────────
@@ -71,6 +72,7 @@ def create_initial_state(
     progress: dict | None = None,
     messages: list | None = None,
     questions_asked: list | None = None,
+    previous_questions_text: list | None = None,
     agent_transition_log: list | None = None,
     visited_tasks: list | None = None,
     active_deep_dive_task: str | None = None,
@@ -88,6 +90,7 @@ def create_initial_state(
         identity_context=identity_context or {},
         extracted_this_turn={},
         questions_asked=questions_asked or [],
+        previous_questions_text=previous_questions_text or [],
         agent_transition_log=agent_transition_log or [],
         gaps=[],
         quality_score=0,

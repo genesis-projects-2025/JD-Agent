@@ -101,3 +101,15 @@ async def invalidate_pattern(pattern: str) -> None:
             await _redis_client.delete(*keys)
     except Exception as e:
         logger.debug(f"Cache pattern DELETE failed for {pattern}: {e}")
+
+
+async def cache_health() -> dict[str, str]:
+    """Return a lightweight Redis health snapshot without raising."""
+    if not REDIS_AVAILABLE or _redis_client is None:
+        return {"status": "disabled"}
+    try:
+        await _redis_client.ping()
+        return {"status": "ok"}
+    except Exception as e:
+        logger.debug(f"Cache PING failed: {e}")
+        return {"status": "degraded", "detail": str(e)}

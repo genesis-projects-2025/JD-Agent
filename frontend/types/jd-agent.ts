@@ -1,31 +1,53 @@
+export interface TaskListItem {
+  description: string;
+  frequency?: string;
+  category?: string;
+}
+
+export interface WorkflowStepData {
+  trigger?: string;
+  steps?: string[];
+  tools?: string[] | string;
+  output?: string;
+  [key: string]: unknown;
+}
+
 export interface JDStructuredData {
   employee_information: Record<string, unknown>;
-  role_summary: Record<string, unknown>;
-  key_responsibilities: string[];
-  required_skills: string[];
-  tools_and_technologies: string[];
-  team_structure: Record<string, unknown>;
-  stakeholder_interactions: Record<string, unknown>;
-  performance_metrics: string[];
-  work_environment: Record<string, unknown>;
-  additional_details: Record<string, unknown>;
+  role_summary?: Record<string, unknown> | string;
+  key_responsibilities?: string[];
+  responsibilities?: string[];
+  required_skills?: string[];
+  skills?: string[];
+  tools_and_technologies?: string[];
+  tools?: string[];
+  team_structure?: Record<string, unknown>;
+  stakeholder_interactions?: Record<string, unknown>;
+  performance_metrics?: string[];
+  work_environment?: Record<string, unknown>;
+  additional_details?: Record<string, unknown>;
+  [key: string]: unknown;
 }
 
 export interface EmployeeRoleInsights {
-  basic_info: Record<string, unknown>;
-  purpose: string;
-  daily_tasks: string[];
-  weekly_tasks: string[];
-  workflows: string[];
-  tools: string[];
-  technologies: string[];
-  skills: string[];
-  // Deprecated — kept for backward compatibility
+  basic_info?: Record<string, unknown>;
+  purpose?: string;
+  daily_tasks?: string[];
+  weekly_tasks?: string[];
+  tasks?: Array<string | TaskListItem>;
+  priority_tasks?: string[];
+  workflows?: Record<string, WorkflowStepData>;
+  tools?: string[];
+  technologies?: string[];
+  skills?: string[];
+  tools_confirmed?: boolean;
+  skills_confirmed?: boolean;
   identity_context?: Record<string, unknown>;
   responsibilities?: string[];
   working_relationships?: Record<string, unknown>;
   education?: string;
   experience?: string;
+  [key: string]: unknown;
 }
 
 export interface Progress {
@@ -61,9 +83,8 @@ export interface JDAgentResponse {
   jd_text_format: string;
   suggested_skills?: string[];
   suggested_tools?: string[];
-  task_list?: Array<{ description: string; frequency?: string; category?: string } | string>;
+  task_list?: Array<TaskListItem | string>;
   current_agent?: string;
   analytics: Analytics;
   approval: Approval;
 }
-

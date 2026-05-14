@@ -1,27 +1,140 @@
 # backend/app/routers/admin_jd_routes.py
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
+import asyncio
+import logging
+import os
+import uuid
+from datetime import datetime, timezone
+
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
-from sqlalchemy import delete
-from datetime import datetime, timezone
-import uuid
-import os
-import logging
-from pathlib import Path
+from sqlalchemy.orm import selectinload
 
-# from app.dependencies.auth import get_current_admin
+from app.core.config import settings
 from app.core.database import get_db
-from app.models.reference_jd_model import ReferenceJD
 from app.models.jd_session_model import JDSession
+from app.models.reference_jd_model import ReferenceJD
+from app.models.user_model import Employee
+from app.routers.admin_routes import get_current_admin
 from app.services.jd_intelligence import JDIntelligenceService
 from app.services.pdf_processor import PDFProcessor
+from app.services.vector_service import index_approved_jd
 
 # Ensure uploads directory exists
-UPLOADS_DIR = Path("uploads/jds")
+UPLOADS_DIR = settings.jd_upload_dir
 UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
 
 router = APIRouter(prefix="/admin/jds", tags=["admin-jd"])
 logger = logging.getLogger(__name__)
+
+
+async def _ensure_employee_record(
+    db: AsyncSession,
+    employee_id: str,
+    employee_name: str,
+    department: str | None = None,
+) -> Employee:
+    employee = await db.get(Employee, employee_id)
+    if employee:
+        if employee_name and employee.name != employee_name:
+            employee.name = employee_name
+        if department and not employee.department:
+            employee.department = department
+        return employee
+
+    from sqlalchemy import text
+
+    org_result = await db.execute(
+        text(
+            """
+            SELECT code, employee_name, department, reporting_manager, reporting_manager_code
+            FROM organogram
+            WHERE code = :code
+        """
+        ),
+        {"code": employee_id},
+    )
+    org_row = org_result.mappings().first()
+
+    employee = Employee(
+        id=employee_id,
+        name=(org_row.get("employee_name") if org_row else None) or employee_name or "Unknown Employee",
+        email=None,
+        department=(org_row.get("department") if org_row else None) or department,
+        reporting_manager=org_row.get("reporting_manager") if org_row else None,
+        reporting_manager_code=org_row.get("reporting_manager_code") if org_row else None,
+        role="employee",
+        phone_mobile=None,
+    )
+    db.add(employee)
+    await db.flush()
+    return employee
+
+
+async def _sync_published_reference_jd(
+    db: AsyncSession,
+    jd: ReferenceJD,
+    *,
+    commit: bool,
+) -> JDSession:
+    transformed_data = transform_reference_to_jd_session_schema(jd.structured_data or {})
+    jd_text = generate_jd_text_from_structured_data(transformed_data)
+
+    await _ensure_employee_record(
+        db,
+        jd.employee_id,
+        jd.employee_name or "Unknown Employee",
+        jd.department,
+    )
+
+    result = await db.execute(
+        select(JDSession)
+        .options(selectinload(JDSession.employee))
+        .where(JDSession.source_reference_jd_id == jd.id)
+    )
+    session = result.scalar_one_or_none()
+
+    if session is None:
+        session = JDSession(
+            employee_id=jd.employee_id,
+            source_reference_jd_id=jd.id,
+            title=jd.role_title,
+            department=jd.department,
+            jd_text=jd_text,
+            jd_structured=transformed_data,
+            status="approved",
+            version=1,
+        )
+        db.add(session)
+    else:
+        session.employee_id = jd.employee_id
+        session.title = jd.role_title
+        session.department = jd.department
+        session.jd_text = jd_text
+        session.jd_structured = transformed_data
+        session.status = "approved"
+
+    jd.processing_status = "published"
+    jd.published_at = jd.published_at or datetime.now(timezone.utc)
+
+    await db.flush()
+    if commit:
+        await db.commit()
+        await db.refresh(session)
+
+    asyncio.create_task(
+        index_approved_jd(
+            jd_id=str(session.id),
+            structured_data=transformed_data,
+            department=jd.department or "General",
+            title_override=jd.role_title,
+            experience_level=jd.level or "Mid",
+            source="published_reference_jd",
+        )
+    )
+
+    return session
 
 
 def transform_reference_to_jd_session_schema(ref_data: dict) -> dict:
@@ -121,7 +234,7 @@ async def upload_jd_pdf(
     employee_id: str = Form(...),
     employee_name: str = Form(...),
     db: AsyncSession = Depends(get_db),
-    # admin_role: str = Depends(get_current_admin),
+    admin_role: str = Depends(get_current_admin),
 ):
     """Upload and process a JD PDF"""
     # Validate file
@@ -275,7 +388,7 @@ async def list_reference_jds(
     skip: int = 0,
     limit: int = 50,
     db: AsyncSession = Depends(get_db),
-    # admin_role: str = Depends(get_current_admin),
+    admin_role: str = Depends(get_current_admin),
 ):
     """List all reference JDs"""
     result = await db.execute(
@@ -293,6 +406,7 @@ async def list_reference_jds(
                 "role_title": jd.role_title,
                 "department": jd.department,
                 "level": jd.level,
+                "employee_id": jd.employee_id,
                 "employee_name": jd.employee_name,
                 "processing_status": jd.processing_status,
                 "uploaded_at": jd.uploaded_at.isoformat(),
@@ -310,7 +424,7 @@ async def list_reference_jds(
 async def get_reference_jd(
     jd_id: str,
     db: AsyncSession = Depends(get_db),
-    # admin_role: str = Depends(get_current_admin),
+    admin_role: str = Depends(get_current_admin),
 ):
     """Get a single reference JD"""
     result = await db.execute(select(ReferenceJD).where(ReferenceJD.id == jd_id))
@@ -320,17 +434,20 @@ async def get_reference_jd(
         raise HTTPException(status_code=404, detail="JD not found")
 
     return {
-        "id": jd.id,
-        "role_title": jd.role_title,
-        "department": jd.department,
-        "level": jd.level,
-        "employee_name": jd.employee_name,
-        "employee_id": jd.employee_id,
-        "structured_data": jd.structured_data,
-        "pdf_filename": jd.pdf_filename,
-        "processing_status": jd.processing_status,
-        "uploaded_at": jd.uploaded_at.isoformat(),
-        "published_at": jd.published_at.isoformat() if jd.published_at else None
+        "data": {
+            "id": jd.id,
+            "role_title": jd.role_title,
+            "department": jd.department,
+            "level": jd.level,
+            "employee_name": jd.employee_name,
+            "employee_id": jd.employee_id,
+            "structured_data": jd.structured_data,
+            "pdf_filename": jd.pdf_filename,
+            "processing_status": jd.processing_status,
+            "uploaded_at": jd.uploaded_at.isoformat(),
+            "published_at": jd.published_at.isoformat() if jd.published_at else None,
+            "uploaded_by": jd.uploaded_by,
+        }
     }
 
 
@@ -338,7 +455,7 @@ async def get_reference_jd(
 async def delete_reference_jd(
     jd_id: str,
     db: AsyncSession = Depends(get_db),
-    # admin_role: str = Depends(get_current_admin),
+    admin_role: str = Depends(get_current_admin),
 ):
     """Delete a reference JD"""
     result = await db.execute(select(ReferenceJD).where(ReferenceJD.id == jd_id))
@@ -362,7 +479,7 @@ async def delete_reference_jd(
 async def preview_reference_jd(
     jd_id: str,
     db: AsyncSession = Depends(get_db),
-    # admin_role: str = Depends(get_current_admin),
+    admin_role: str = Depends(get_current_admin),
 ):
     """Get transformed JD data and markdown for admin preview"""
     result = await db.execute(select(ReferenceJD).where(ReferenceJD.id == jd_id))
@@ -382,8 +499,14 @@ async def preview_reference_jd(
             "id": jd.id,
             "jd_structured": transformed_data,
             "jd_text": jd_text,
-            "role_title": jd.role_title,
-            "department": jd.department
+            "reference_data": {
+                "id": jd.id,
+                "role_title": jd.role_title,
+                "department": jd.department,
+                "processing_status": jd.processing_status,
+                "employee_id": jd.employee_id,
+                "employee_name": jd.employee_name,
+            },
         }
     }
 
@@ -392,7 +515,7 @@ async def preview_reference_jd(
 async def publish_jd(
     jd_id: str,
     db: AsyncSession = Depends(get_db),
-    # admin_role: str = Depends(get_current_admin),
+    admin_role: str = Depends(get_current_admin),
 ):
     """
     Publish a JD (make it available for reference)
@@ -405,50 +528,16 @@ async def publish_jd(
     if not jd:
         raise HTTPException(status_code=404, detail="JD not found")
 
-    # Transform to jd_sessions schema
-    transformed_data = transform_reference_to_jd_session_schema(jd.structured_data)
+    session = await _sync_published_reference_jd(db, jd, commit=True)
 
-    # Generate markdown text
-    jd_text = generate_jd_text_from_structured_data(transformed_data)
-
-    jd.processing_status = "published"
-    jd.published_at = datetime.now(timezone.utc)  # timezone-aware datetime
-
-    # Check if a session already exists for this employee from this reference JD
-    session_result = await db.execute(
-        select(JDSession).where(
-            JDSession.employee_id == jd.employee_id,
-            JDSession.title == jd.role_title,  # Simple matching - could be improved
-        )
-    )
-    existing_session = session_result.scalar_one_or_none()
-
-    if existing_session:
-        # Update existing session with transformed data
-        from sqlalchemy import update
-        await db.execute(
-            update(JDSession)
-            .where(JDSession.id == existing_session.id)
-            .values(
-                jd_text=jd_text,
-                jd_structured=transformed_data,
-                status="approved",
-                updated_at=datetime.now(timezone.utc),
-            )
-        )
-    else:
-        # Create new session for employee dashboard visibility
-        new_session = JDSession(
-            employee_id=jd.employee_id,
-            title=jd.role_title,
-            department=jd.department,
-            jd_text=jd_text,
-            jd_structured=transformed_data,
-            status="approved",
-            version=1,
-        )
-        db.add(new_session)
-
-    await db.commit()
-
-    return {"status": "success", "message": "JD published successfully"}
+    return {
+        "status": "success",
+        "message": "JD published successfully",
+        "data": {
+            "reference_jd_id": jd.id,
+            "jd_session_id": str(session.id),
+            "employee_id": jd.employee_id,
+            "processing_status": jd.processing_status,
+            "published_at": jd.published_at.isoformat() if jd.published_at else None,
+        },
+    }

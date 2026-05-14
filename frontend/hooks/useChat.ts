@@ -10,19 +10,37 @@ import {
   confirmTools as apiConfirmTools,
   confirmPriorityTasks as apiConfirmPriorityTasks,
 } from "../lib/api";
-import { JDAgentResponse } from "../types/jd-agent";
+import { JDAgentResponse, TaskListItem } from "../types/jd-agent";
 import { getOrCreateEmployeeId } from "@/lib/auth";
+import type { ApiError, RequestHistoryItem } from "@/lib/api";
+import type { SessionConversationTurn } from "@/types/session";
+
+function shouldShowSkillSelection(parsed: JDAgentResponse): boolean {
+  const skillsConfirmed = Boolean(parsed.employee_role_insights?.skills_confirmed);
+  return !skillsConfirmed && Boolean(parsed.suggested_skills?.length);
+}
+
+function shouldShowToolSelection(parsed: JDAgentResponse): boolean {
+  const toolsConfirmed = Boolean(parsed.employee_role_insights?.tools_confirmed);
+  return !toolsConfirmed && Boolean(parsed.suggested_tools?.length);
+}
+
+function shouldShowPrioritySelection(parsed: JDAgentResponse): boolean {
+  const taskList = parsed.task_list;
+  const alreadySelected = Boolean(parsed.employee_role_insights?.priority_tasks?.length);
+  return !alreadySelected && Boolean(taskList?.length);
+}
 
 export function useChat(onSaveSuccess?: () => void, autoInit: boolean = true) {
   const [messages, setMessages] = useState<Message[]>([]);
-  const [history, setHistory] = useState<unknown[]>([]);
-  const historyRef = useRef<unknown[]>([]);
+  const [history, setHistory] = useState<RequestHistoryItem[]>([]);
+  const historyRef = useRef<RequestHistoryItem[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);
   const [jd, setJd] = useState<string | null>(null);
   const [progress, setProgress] = useState<number>(0);
   const [status, setStatus] = useState<string>("collecting");
-  const [structuredData, setStructuredData] = useState<unknown>(null);
-  const [insights, setInsights] = useState<unknown>(null);
+  const [structuredData, setStructuredData] = useState<Record<string, unknown> | null>(null);
+  const [insights, setInsights] = useState<JDAgentResponse["employee_role_insights"] | null>(null);
   const [currentAgent, setCurrentAgent] = useState<string>("BasicInfoAgent");
   const [depthScores, setDepthScores] = useState<Record<string, number>>({});
   const [isSaving, setIsSaving] = useState(false);
@@ -36,7 +54,7 @@ export function useChat(onSaveSuccess?: () => void, autoInit: boolean = true) {
   const [hydrated, setHydrated] = useState(false);
 
   const initialized = useRef(false);
-  const updateHistory = useCallback((newHistory: any[]) => {
+  const updateHistory = useCallback((newHistory: RequestHistoryItem[]) => {
      historyRef.current = newHistory;
      setHistory(newHistory);
    }, []); // setHistory is stable, historyRef is mutable
@@ -52,7 +70,7 @@ export function useChat(onSaveSuccess?: () => void, autoInit: boolean = true) {
   // ── Parse + apply agent response ────────────────────────────────────────────
   const processResponse = useCallback((
     rawReply: string,
-    updatedHistory: unknown[],
+    updatedHistory: RequestHistoryItem[],
     append: boolean = true,
   ) => {
     let parsed: JDAgentResponse;
@@ -103,18 +121,9 @@ export function useChat(onSaveSuccess?: () => void, autoInit: boolean = true) {
           skills: suggestedSkills,
           tools: suggestedTools,
           tasks: taskList,
-          isSkillSelection:
-            agent === "SkillsAgent" &&
-            !!suggestedSkills &&
-            suggestedSkills.length > 0,
-          isToolSelection:
-            agent === "ToolsAgent" &&
-            !!suggestedTools &&
-            suggestedTools.length > 0,
-          isPrioritySelection:
-            (agent === "WorkflowIdentifierAgent" || (agent === "DeepDiveAgent" && !!taskList && taskList.length > 0)) &&
-            !!taskList &&
-            taskList.length > 0,
+          isSkillSelection: shouldShowSkillSelection(parsed),
+          isToolSelection: shouldShowToolSelection(parsed),
+          isPrioritySelection: shouldShowPrioritySelection(parsed),
           isReadySelection: newStatus === "ready_for_generation",
           currentAgent: agent,
         },
@@ -131,18 +140,9 @@ export function useChat(onSaveSuccess?: () => void, autoInit: boolean = true) {
             tools: suggestedTools,
             tasks: taskList,
             isStreaming: false,
-            isSkillSelection:
-              agent === "SkillsAgent" &&
-              !!suggestedSkills &&
-              suggestedSkills.length > 0,
-            isToolSelection:
-              agent === "ToolsAgent" &&
-              !!suggestedTools &&
-              suggestedTools.length > 0,
-            isPrioritySelection:
-              (agent === "WorkflowIdentifierAgent" || (agent === "DeepDiveAgent" && !!taskList && taskList.length > 0)) &&
-              !!taskList &&
-              taskList.length > 0,
+            isSkillSelection: shouldShowSkillSelection(parsed),
+            isToolSelection: shouldShowToolSelection(parsed),
+            isPrioritySelection: shouldShowPrioritySelection(parsed),
             isReadySelection: newStatus === "ready_for_generation",
             currentAgent: agent,
           };
@@ -181,14 +181,26 @@ export function useChat(onSaveSuccess?: () => void, autoInit: boolean = true) {
             const dbHistory = existingData.conversation_history ?? [];
 
             // FIX: conversation_state can be null on fresh/stub sessions
-            const convState = existingData.conversation_state ?? {};
-            const dbProgress: number = convState.completion_percentage ?? 0;
-            const dbStatus: string = convState.status ?? "collecting";
-            const dbAgent: string = convState.current_agent || existingData.current_agent || "BasicInfoAgent";
-            const dbScores: Record<string, number> = convState.depth_scores || {};
+            const convState = (existingData.conversation_state ?? {}) as Record<string, unknown>;
+            const dbProgress =
+              typeof convState.completion_percentage === "number"
+                ? convState.completion_percentage
+                : 0;
+            const dbStatus =
+              typeof convState.status === "string"
+                ? convState.status
+                : "collecting";
+            const dbAgent =
+              typeof convState.current_agent === "string"
+                ? convState.current_agent
+                : existingData.current_agent || "BasicInfoAgent";
+            const dbScores =
+              typeof convState.depth_scores === "object" && convState.depth_scores
+                ? (convState.depth_scores as Record<string, number>)
+                : {};
 
             // Reconstruct chat messages from stored history
-            const reconstructedMessages: Message[] = dbHistory.map((h: any) => {
+            const reconstructedMessages: Message[] = dbHistory.map((h: SessionConversationTurn) => {
               if (h.role === "user") {
                 return { sender: "employee" as const, text: h.content };
               }
@@ -202,10 +214,10 @@ export function useChat(onSaveSuccess?: () => void, autoInit: boolean = true) {
               let isPrioritySelection = false;
               let isReadySelection = false;
               let msgAgent = "BasicInfoAgent";
-              let taskList: any[] | undefined = undefined;
+              let taskList: Array<TaskListItem | string> | undefined = undefined;
 
               try {
-                const parsed = JSON.parse(h.content);
+                const parsed = JSON.parse(h.content) as JDAgentResponse;
                 // Never extract data dumps as conversation text
                 text = parsed.next_question ?? h.content;
                 skills = parsed.suggested_skills;
@@ -215,20 +227,10 @@ export function useChat(onSaveSuccess?: () => void, autoInit: boolean = true) {
                 const dbAgent = parsed.current_agent || parsed.progress?.current_agent || "BasicInfoAgent";
                 const dbStatus = parsed.progress?.status ?? "collecting";
 
-                isSkillSelection =
-                  dbAgent === "SkillsAgent" &&
-                  !!skills &&
-                  skills.length > 0;
-                isToolSelection =
-                  dbAgent === "ToolsAgent" &&
-                  !!tools &&
-                  tools.length > 0;
-                isPrioritySelection = 
-                  dbAgent === "WorkflowIdentifierAgent" && 
-                  !!taskList && 
-                  taskList.length > 0;
-                isReadySelection =
-                  dbStatus === "ready_for_generation";
+                isSkillSelection = shouldShowSkillSelection(parsed);
+                isToolSelection = shouldShowToolSelection(parsed);
+                isPrioritySelection = shouldShowPrioritySelection(parsed);
+                isReadySelection = dbStatus === "ready_for_generation";
                 msgAgent = dbAgent;
               } catch {
                 // Plain text — use as-is
@@ -334,10 +336,10 @@ export function useChat(onSaveSuccess?: () => void, autoInit: boolean = true) {
           const rawReply = JSON.stringify(parsedData);
 
           // Build history from the REF — always fresh even after a 30s stream
-          const newHistory = [
-            ...historyRef.current,   // ← ref, not stale closure
-            { role: "user", content: text },
-            { role: "assistant", content: rawReply },
+            const newHistory: RequestHistoryItem[] = [
+              ...historyRef.current,   // ← ref, not stale closure
+              { role: "user", content: text },
+              { role: "assistant", content: rawReply },
           ];
 
           // Update ref + state together before processResponse reads it
@@ -348,7 +350,7 @@ export function useChat(onSaveSuccess?: () => void, autoInit: boolean = true) {
           setLastMessageText(null);
           setStatusMessage(null); // Clear status on completion
         },
-        (error: any) => {
+        (error: ApiError) => {
           setStatusMessage(null); // Clear status on error
           setMessages((prev) => {
             const newMessages = [...prev];
@@ -368,14 +370,15 @@ export function useChat(onSaveSuccess?: () => void, autoInit: boolean = true) {
           setStatusMessage(status);
         }
       );
-    } catch (error: any) {
-      console.error("Error sending message:", error);
+    } catch (error: unknown) {
+      const apiError = error as ApiError;
+      console.error("Error sending message:", apiError);
 
-      const statusCode = error.status || error.response?.status;
+      const statusCode = apiError.status;
       const isRateLimit =
         statusCode === 429 ||
-        error.isRateLimit ||
-        error.message?.toLowerCase().includes("rate limit");
+        apiError.isRateLimit ||
+        apiError.message?.toLowerCase().includes("rate limit");
 
       if (isRateLimit) {
         setIsRateLimited(true);
@@ -445,9 +448,10 @@ export function useChat(onSaveSuccess?: () => void, autoInit: boolean = true) {
           currentAgent: "JDGeneratorAgent", // Explicitly set as generator here
         },
       ]);
-    } catch (error: any) {
-      console.error("Failed to generate JD:", error);
-      const detail = error.detail || error.message || "Please try again.";
+    } catch (error: unknown) {
+      const apiError = error as ApiError;
+      console.error("Failed to generate JD:", apiError);
+      const detail = apiError.detail || apiError.message || "Please try again.";
       setMessages((prev) => [
         ...prev,
         {
@@ -478,9 +482,10 @@ export function useChat(onSaveSuccess?: () => void, autoInit: boolean = true) {
       });
 
       return true;
-    } catch (error: any) {
-      console.error("Failed to save JD:", error);
-      const detail = error.detail || error.message || "Please try again.";
+    } catch (error: unknown) {
+      const apiError = error as ApiError;
+      console.error("Failed to save JD:", apiError);
+      const detail = apiError.detail || apiError.message || "Please try again.";
       alert(`Failed to save JD: ${detail}`);
       return false;
     } finally {

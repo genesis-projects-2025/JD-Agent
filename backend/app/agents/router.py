@@ -33,8 +33,12 @@ AGENT_CRITERIA = {
         (
             len(ins.get("purpose") or "") >= 10
             and (
-                 (ins.get("cadence_probed", False) and (ins.get("agent_turn_counts") or {}).get("BasicInfoAgent", 0) >= 3)
-                 or len(ins.get("tasks") or []) >= 4
+                (
+                    ins.get("cadence_probed", False)
+                    and (ins.get("agent_turn_counts") or {}).get("BasicInfoAgent", 0)
+                    >= 3
+                )
+                or len(ins.get("tasks") or []) >= 4
             )
         )
         # EARLY EXIT: User explicitly says done — but ONLY if cadence was probed first
@@ -116,44 +120,52 @@ TRANSITION_MESSAGES = {
 def compute_current_agent(insights: dict, current_agent: str = "BasicInfoAgent") -> str:
     """Determine which agent should be active based on data depth.
 
-    ENFORCES A LINEAR FLOW: Finds the index of the `current_agent` in `AGENT_ORDER`
-    and only checks criteria for agents at or after that index.
-
-    STICKY COMPLETION: If an agent is in `insights["completed_phases"]`, skip it.
+    ENFORCES STRICT LINEAR FLOW: Only one agent active at a time.
+    An agent is BLOCKED until its completion criteria are met.
     """
     completed_phases = insights.get("completed_phases") or []
 
-    # Find the starting index (default to 0 if not found)
     try:
         start_idx = AGENT_ORDER.index(current_agent)
     except ValueError:
         start_idx = 0
 
-    # Force-advance: skip current agent if stalled
     if insights.get("_force_advance"):
         logger.warning(f"[Router] Force-advancing past {current_agent} (loop control)")
         start_idx = min(start_idx + 1, len(AGENT_ORDER) - 1)
-        # Reset stall counts for the stalled agent
         agent_stalls = insights.get("agent_stall_counts", {})
         agent_stalls[current_agent] = 0
         insights["agent_stall_counts"] = agent_stalls
-        insights["_force_advance"] = False  # Reset flag
+        insights["_force_advance"] = False
 
-    # Only check agents from current_agent onwards
-    for agent_name in AGENT_ORDER[start_idx:-1]:  # Exclude JDGeneratorAgent
+    # ✅ KEY FIX: Check agents ONLY from current position onwards
+    # Do NOT skip ahead — block until current agent is complete
+    for agent_name in AGENT_ORDER[start_idx:]:
         # Skip if explicitly marked complete
         if agent_name in completed_phases:
+            logger.info(f"[Router] Skipping {agent_name} (already completed)")
             continue
 
+        # Get criteria for this agent
         criteria_fn = AGENT_CRITERIA.get(agent_name)
-        if criteria_fn and not criteria_fn(insights):
-            return agent_name
+        if not criteria_fn:
+            continue
 
-    return max(
-        current_agent,
-        "JDGeneratorAgent",
-        key=lambda x: AGENT_ORDER.index(x) if x in AGENT_ORDER else -1,
-    )
+        # ✅ CRITICAL: If criteria NOT met, THIS agent must be active
+        # Do NOT check the next agent — BLOCK here
+        is_complete = criteria_fn(insights)
+
+        if not is_complete:
+            logger.info(
+                f"[Router] Agent {agent_name} BLOCKED (criteria not met). Returning it."
+            )
+            return agent_name
+        else:
+            logger.info(f"[Router] Agent {agent_name} COMPLETE. Moving to next.")
+
+    # All agents complete → go to JD Generator
+    logger.info(f"[Router] All agents complete. Moving to JDGeneratorAgent.")
+    return "JDGeneratorAgent"
 
 
 def get_transition_message(from_agent: str, to_agent: str) -> str:

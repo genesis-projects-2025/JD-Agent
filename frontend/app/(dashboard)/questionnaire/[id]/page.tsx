@@ -177,8 +177,9 @@ export default function QuestionnairePage() {
       if (!employeeId) throw new Error("Missing employee identification.");
       await deleteJD(sessionId, employeeId);
       router.push(`/dashboard/${employeeId}`);
-    } catch (err: any) {
-      alert(err?.message || "Failed to delete JD");
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "Failed to delete JD";
+      alert(message);
       setIsDeleting(false);
       setShowDeleteModal(false);
     }

@@ -9,6 +9,16 @@ import { getCookie, cookieKeys } from '@/lib/cookies'
 import Link from 'next/link'
 import { downloadJDPdfClient } from '@/lib/download-jd-pdf'
 import { PdfDocumentView } from '@/components/jd/pdf-document-view'
+import {
+  fetchAdminReferenceJDs,
+  fetchAdminReferenceJDPreview,
+  publishAdminReferenceJD,
+} from '@/lib/api'
+import type {
+  ReferenceJDPreviewResponse,
+  ReferenceJDRecord,
+  ReferenceJDStructuredData,
+} from '@/types/reference-jd'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 
@@ -20,11 +30,19 @@ export default function JDLibraryPage() {
     file: string
     status: 'success' | 'error'
     message: string
-    data?: any
+    data?: {
+      id: string
+      role_title: string
+      department: string
+      employee_name: string
+      uploaded_at: string
+      processing_status: string
+      ai_processed: boolean
+    }
   }>>([])
   const [employeeId, setEmployeeId] = useState('')
   const [employeeName, setEmployeeName] = useState('')
-  const [jds, setJDs] = useState<any[]>([])
+  const [jds, setJDs] = useState<ReferenceJDRecord[]>([])
   const [loadingJDs, setLoadingJDs] = useState(false)
   const router = useRouter()
   const { employeeId: authEmployeeId } = useAuth()
@@ -37,7 +55,7 @@ export default function JDLibraryPage() {
   const [publishedIds, setPublishedIds] = useState<Set<string>>(new Set())
 
   // Preview modal
-  const [previewData, setPreviewData] = useState<any>(null)
+  const [previewData, setPreviewData] = useState<ReferenceJDPreviewResponse["data"] | null>(null)
   const [showPreview, setShowPreview] = useState(false)
   const [loadingPreview, setLoadingPreview] = useState(false)
 
@@ -65,14 +83,8 @@ export default function JDLibraryPage() {
   const fetchJDs = async () => {
     setLoadingJDs(true)
     try {
-      const token = getCookie(cookieKeys.ADMIN_TOKEN)
-      const res = await fetch(`${API_URL}/admin/jds/`, {
-        headers: { 'Authorization': `Bearer ${token}` }
-      })
-      if (res.ok) {
-        const data = await res.json()
-        setJDs(data.data || [])
-      }
+      const data = await fetchAdminReferenceJDs()
+      setJDs(data.data || [])
     } catch (error) {
       console.error('Failed to fetch JDs:', error)
     } finally {
@@ -116,8 +128,9 @@ export default function JDLibraryPage() {
           message: response.ok ? 'JD processed successfully' : (data.detail || 'Upload failed'),
           data: response.ok ? data.data : undefined,
         })
-      } catch (error: any) {
-        uploadResults.push({ file: file.name, status: 'error' as const, message: error.message || 'Upload failed' })
+      } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : 'Upload failed'
+        uploadResults.push({ file: file.name, status: 'error' as const, message })
       }
     }
     setResults(uploadResults)
@@ -130,17 +143,9 @@ export default function JDLibraryPage() {
   const handlePublish = async (jdId: string) => {
     setPublishingId(jdId)
     try {
-      const res = await fetch(`${API_URL}/admin/jds/${jdId}/publish`, {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${getCookie(cookieKeys.ADMIN_TOKEN)}` }
-      })
-      if (res.ok) {
-        setPublishedIds(prev => new Set(prev).add(jdId))
-        fetchJDs()
-      } else {
-        const data = await res.json()
-        alert(data.detail || 'Failed to publish')
-      }
+      await publishAdminReferenceJD(jdId)
+      setPublishedIds(prev => new Set(prev).add(jdId))
+      fetchJDs()
     } catch {
       alert('Failed to publish JD')
     } finally {
@@ -152,13 +157,7 @@ export default function JDLibraryPage() {
     setLoadingPreview(true)
     setShowPreview(true)
     try {
-      const res = await fetch(`${API_URL}/admin/jds/${jdId}/preview`, {
-        headers: { 'Authorization': `Bearer ${getCookie(cookieKeys.ADMIN_TOKEN)}` }
-      })
-      if (res.ok) {
-        const data = await res.json()
-        setPreviewData(data.data)
-      }
+      setPreviewData(await fetchAdminReferenceJDPreview(jdId))
     } catch {
       alert('Failed to load preview')
       setShowPreview(false)
@@ -167,13 +166,13 @@ export default function JDLibraryPage() {
     }
   }
 
-  const handleDownloadFromResult = (resultData: any) => {
+  const handleDownloadFromResult = (resultData: { structured_data?: ReferenceJDStructuredData; role_title: string; department: string }) => {
     if (resultData?.structured_data) {
       downloadJDPdfClient(resultData.structured_data, resultData.role_title, resultData.department)
     }
   }
 
-  const handleDownloadFromJD = (jd: any) => {
+  const handleDownloadFromJD = (jd: ReferenceJDRecord) => {
     if (jd?.structured_data) {
       downloadJDPdfClient(jd.structured_data, jd.role_title, jd.department)
     }
@@ -262,7 +261,9 @@ export default function JDLibraryPage() {
                 {errorCount > 0 && <div className="flex items-center gap-2"><X className="w-5 h-5 text-red-500" /><span className="text-sm font-medium text-red-600">{errorCount} Failed</span></div>}
               </div>
               <div className="space-y-4">
-                {results.map((result, index) => (
+                {results.map((result, index) => {
+                  const resultData = result.data
+                  return (
                   <div key={index} className={`p-5 rounded-xl border ${result.status === 'success' ? 'border-emerald-200 bg-emerald-50/30' : 'border-red-200 bg-red-50/30'}`}>
                     <div className="flex items-start justify-between">
                       <div className="flex items-center gap-3">
@@ -270,35 +271,35 @@ export default function JDLibraryPage() {
                         <div>
                           <p className="font-medium text-slate-800">{result.file}</p>
                           <p className="text-sm text-slate-500">{result.message}</p>
-                          {result.data?.role_title && <p className="text-sm text-blue-600 font-medium mt-1">Role: {result.data.role_title}</p>}
+                          {resultData?.role_title && <p className="text-sm text-blue-600 font-medium mt-1">Role: {resultData.role_title}</p>}
                         </div>
                       </div>
                     </div>
-                    {result.status === 'success' && result.data && (
+                    {result.status === 'success' && resultData && (
                       <div className="mt-4 pt-4 border-t border-slate-200 flex flex-wrap gap-3">
-                        <button onClick={() => handlePreview(result.data.id)}
+                        <button onClick={() => handlePreview(resultData.id)}
                           className="flex items-center gap-2 px-4 py-2.5 bg-white border border-slate-200 text-slate-700 rounded-lg text-sm font-medium hover:bg-slate-50 transition-all shadow-sm">
                           <Eye className="w-4 h-4" />View JD
                         </button>
-                        <button onClick={() => handleDownloadFromResult(result.data)}
+                        <button onClick={() => handleDownloadFromResult(resultData)}
                           className="flex items-center gap-2 px-4 py-2.5 bg-white border border-slate-200 text-slate-700 rounded-lg text-sm font-medium hover:bg-slate-50 transition-all shadow-sm">
                           <Download className="w-4 h-4" />Download PDF
                         </button>
-                        {publishedIds.has(result.data.id) ? (
+                        {publishedIds.has(resultData.id) ? (
                           <span className="flex items-center gap-2 px-4 py-2.5 bg-emerald-50 text-emerald-600 rounded-lg text-sm font-medium border border-emerald-200">
                             <CheckCircle className="w-4 h-4" />Published
                           </span>
                         ) : (
-                          <button onClick={() => handlePublish(result.data.id)} disabled={publishingId === result.data.id}
+                          <button onClick={() => handlePublish(resultData.id)} disabled={publishingId === resultData.id}
                             className="flex items-center gap-2 px-4 py-2.5 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition-all shadow-sm disabled:opacity-50">
-                            {publishingId === result.data.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
-                            {publishingId === result.data.id ? 'Publishing...' : 'Publish to Employee'}
+                            {publishingId === resultData.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+                            {publishingId === resultData.id ? 'Publishing...' : 'Publish to Employee'}
                           </button>
                         )}
                       </div>
                     )}
                   </div>
-                ))}
+                )})}
               </div>
               <button onClick={() => setResults([])} className="mt-4 text-sm text-slate-400 hover:text-slate-600">Clear Results</button>
             </div>

@@ -1,19 +1,12 @@
 // frontend/components/jd/ReferenceJDCard.tsx
-import { FileText, CheckCircle, Clock, Download, Search } from 'lucide-react'
+import { CheckCircle, FileText } from 'lucide-react'
+import type { ReferenceJDRecord } from '@/types/reference-jd'
 
 interface ReferenceJDCardProps {
-  jd: {
-    id: string
-    role_title: string
-    department: string
-    level: string
-    structured_data: any
-    uploaded_at: string
-    pdf_filename?: string
-  }
-  onUseAsReference?: (jd: any) => void
-  onViewDetails?: (jd: any) => void
-  onDownloadPDF?: (jd: any) => void
+  jd: ReferenceJDRecord
+  onUseAsReference?: (jd: ReferenceJDRecord) => void
+  onViewDetails?: (jd: ReferenceJDRecord) => void
+  onDownloadPDF?: (jd: ReferenceJDRecord) => void
 }
 
 export default function ReferenceJDCard({ jd, onUseAsReference, onViewDetails, onDownloadPDF }: ReferenceJDCardProps) {

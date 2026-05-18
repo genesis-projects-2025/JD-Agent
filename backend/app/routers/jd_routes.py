@@ -178,7 +178,7 @@ async def hydrate_session_from_db(session_id: str, db: AsyncSession) -> SessionM
         )
         memory.insights = record.insights or {}
         # Restore full session state (questions_asked, progress, etc)
-        memory.from_dict(record.conversation_state or {})
+        memory.from_dict(dict(record.conversation_state or {}))
         # pyrefly: ignore [bad-assignment]
         memory.generated_jd = record.jd_text
         # pyrefly: ignore [bad-assignment]

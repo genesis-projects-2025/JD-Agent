@@ -183,8 +183,8 @@ export default function DashboardPage() {
       setLoading(true);
       const id = getOrCreateEmployeeId();
 
-       // Parallelize data fetching
-       const promises: Promise<unknown>[] = [fetchEmployeeJDs(id)];
+      // Parallelize data fetching
+      const promises: Promise<unknown>[] = [fetchEmployeeJDs(id)];
 
       if (isManager || isHead) {
         promises.push(fetchManagerPendingJDs(id));
@@ -200,21 +200,21 @@ export default function DashboardPage() {
 
       const results = await Promise.all(promises);
 
-       // Map results back to state
-       const employeeJDs = results[0] || [];
-       setJds(Array.isArray(employeeJDs) ? employeeJDs : []);
+      // Map results back to state
+      const employeeJDs = results[0] || [];
+      setJds(Array.isArray(employeeJDs) ? employeeJDs : []);
 
-        if (isManager || isHead) {
-          const pendingJDs = results[1] || [];
-          setPendingJDs(Array.isArray(pendingJDs) ? pendingJDs : []);
-          setTeamStats(results[2] as TeamStats | null);
-          // Load team employees for the first page
-          loadTeamEmployees(id);
-        } else if (isHR) {
-          const pendingJDs = results[1] || [];
-          setPendingJDs(Array.isArray(pendingJDs) ? pendingJDs : []);
-          setDepartmentStats(results[2] as DepartmentStat[]);
-        }
+      if (isManager || isHead) {
+        const pendingJDs = results[1] || [];
+        setPendingJDs(Array.isArray(pendingJDs) ? pendingJDs : []);
+        setTeamStats(results[2] as TeamStats | null);
+        // Load team employees for the first page
+        loadTeamEmployees(id);
+      } else if (isHR) {
+        const pendingJDs = results[1] || [];
+        setPendingJDs(Array.isArray(pendingJDs) ? pendingJDs : []);
+        setDepartmentStats(results[2] as DepartmentStat[]);
+      }
     } catch (err) {
       console.error("Failed to load dashboard data:", err);
     } finally {
@@ -454,8 +454,8 @@ export default function DashboardPage() {
             <button
               onClick={() => setActiveTab("my_jds")}
               className={`whitespace-nowrap px-5 py-2.5 text-sm font-medium rounded-md transition-all ${activeTab === "my_jds"
-                  ? "bg-white text-surface-900 shadow-sm"
-                  : "text-surface-500 hover:text-surface-700 hover:bg-surface-200/50"
+                ? "bg-white text-surface-900 shadow-sm"
+                : "text-surface-500 hover:text-surface-700 hover:bg-surface-200/50"
                 }`}
             >
               My JDs
@@ -464,8 +464,8 @@ export default function DashboardPage() {
               <button
                 onClick={() => setActiveTab("my_team")}
                 className={`whitespace-nowrap px-5 py-2.5 text-sm font-medium rounded-md transition-all flex items-center gap-2 ${activeTab === "my_team"
-                    ? "bg-white text-surface-900 shadow-sm"
-                    : "text-surface-500 hover:text-surface-700 hover:bg-surface-200/50"
+                  ? "bg-white text-surface-900 shadow-sm"
+                  : "text-surface-500 hover:text-surface-700 hover:bg-surface-200/50"
                   }`}
               >
                 Team Overview
@@ -476,8 +476,8 @@ export default function DashboardPage() {
                 <button
                   onClick={() => setActiveTab("hr_approvals")}
                   className={`whitespace-nowrap px-5 py-2.5 text-sm font-medium rounded-md transition-all flex items-center gap-2 ${activeTab === "hr_approvals"
-                      ? "bg-white text-surface-900 shadow-sm"
-                      : "text-surface-500 hover:text-surface-700 hover:bg-surface-200/50"
+                    ? "bg-white text-surface-900 shadow-sm"
+                    : "text-surface-500 hover:text-surface-700 hover:bg-surface-200/50"
                     }`}
                 >
                   HR Review Queue
@@ -490,8 +490,8 @@ export default function DashboardPage() {
                 <button
                   onClick={() => setActiveTab("departments")}
                   className={`whitespace-nowrap px-5 py-2.5 text-sm font-medium rounded-md transition-all flex items-center gap-2 ${activeTab === "departments"
-                      ? "bg-white text-surface-900 shadow-sm"
-                      : "text-surface-500 hover:text-surface-700 hover:bg-surface-200/50"
+                    ? "bg-white text-surface-900 shadow-sm"
+                    : "text-surface-500 hover:text-surface-700 hover:bg-surface-200/50"
                     }`}
                 >
                   Department Overview
@@ -610,8 +610,8 @@ export default function DashboardPage() {
                 <button
                   onClick={() => handleToggleSubmitted(true)}
                   className={`px-3 py-1.5 text-[11px] font-medium rounded-lg transition-all ${onlySubmitted
-                      ? "bg-white text-primary-600 shadow-sm"
-                      : "text-surface-500 hover:text-surface-700"
+                    ? "bg-white text-primary-600 shadow-sm"
+                    : "text-surface-500 hover:text-surface-700"
                     }`}
                 >
                   Submitted
@@ -619,8 +619,8 @@ export default function DashboardPage() {
                 <button
                   onClick={() => handleToggleSubmitted(false)}
                   className={`px-3 py-1.5 text-[11px] font-medium rounded-lg transition-all ${!onlySubmitted
-                      ? "bg-white text-surface-900 shadow-sm"
-                      : "text-surface-500 hover:text-surface-700"
+                    ? "bg-white text-surface-900 shadow-sm"
+                    : "text-surface-500 hover:text-surface-700"
                     }`}
                 >
                   Show All
@@ -827,8 +827,8 @@ export default function DashboardPage() {
                           href={href}
                           onClick={(e) => e.stopPropagation()}
                           className={`flex items-center gap-2 px-3 sm:px-4 py-2 sm:py-2.5 rounded-md font-medium text-sm transition-all ${isDraft
-                              ? "bg-primary-50 text-primary-700 hover:bg-primary-100 border border-primary-100/50"
-                              : "bg-surface-100 text-surface-700 hover:bg-surface-200 border border-surface-200"
+                            ? "bg-primary-50 text-primary-700 hover:bg-primary-100 border border-primary-100/50"
+                            : "bg-surface-100 text-surface-700 hover:bg-surface-200 border border-surface-200"
                             }`}
                         >
                           {isDraft ? (

@@ -179,7 +179,9 @@ async def hydrate_session_from_db(session_id: str, db: AsyncSession) -> SessionM
         memory.insights = record.insights or {}
         # Restore full session state (questions_asked, progress, etc)
         memory.from_dict(record.conversation_state or {})
+        # pyrefly: ignore [bad-assignment]
         memory.generated_jd = record.jd_text
+        # pyrefly: ignore [bad-assignment]
         memory.jd_structured = record.jd_structured
 
         turns_result = await db.execute(
@@ -433,6 +435,7 @@ async def save_jd(request: SaveJDRequest, db: AsyncSession = Depends(get_db)):
             progress=session_memory.progress,
             employee_id=request.employee_id or session_memory.employee_id or "",
             conversation_history=db_history,
+            # pyrefly: ignore [bad-argument-type]
             status=session_memory.progress.get("status")
             if isinstance(session_memory.progress, dict)
             else None,
@@ -562,6 +565,85 @@ async def list_jds(submitted_only: bool = False, db: AsyncSession = Depends(get_
     )
     records = await list_questionnaires(db, status_in=status_filter)
     return [_serialize_list_item(r) for r in records]
+
+
+@router.get("/employee/{employee_id}/role-template")
+async def get_employee_role_template(
+    employee_id: str, db: AsyncSession = Depends(get_db)
+):
+    """
+    Check if there is an approved JD (template) for the employee's role/designation in their department.
+    If one exists, return it, so the employee can instantly view/download it without creating a new session.
+    """
+    from app.models.user_model import Employee
+    from app.models.jd_session_model import JDSession
+    from sqlalchemy.future import select
+    from sqlalchemy import text
+
+    # 1. Fetch employee record
+    emp_result = await db.execute(select(Employee).filter(Employee.id == employee_id))
+    emp = emp_result.scalars().first()
+    if not emp:
+        return {"exists": False, "message": "Employee not found"}
+
+    # 2. Get department and designation from organogram first
+    org_query = text("""
+        SELECT designation, department
+        FROM organogram
+        WHERE code = :code
+    """)
+    org_res = await db.execute(org_query, {"code": employee_id})
+    org_row = org_res.mappings().first()
+
+    designation = None
+    department = None
+
+    if org_row:
+        designation = org_row.get("designation")
+        department = org_row.get("department")
+
+    if not designation:
+        designation = emp.role
+    if not department:
+        department = emp.department
+
+    if not department or not designation:
+        return {
+            "exists": False,
+            "message": "Employee lacks department or designation details",
+        }
+
+    # 3. Look for any APPROVED JDSession belonging to the SAME (department, designation)
+    approved_query = (
+        select(JDSession)
+        .where(
+            JDSession.department == department,
+            JDSession.title == designation,
+            JDSession.status == "approved",
+        )
+        .order_by(JDSession.updated_at.desc())
+    )
+    res = await db.execute(approved_query)
+    approved_session = res.scalars().first()
+
+    if approved_session:
+        return {
+            "exists": True,
+            "id": str(approved_session.id),
+            "title": approved_session.title,
+            "department": approved_session.department,
+            "jd_text": approved_session.jd_text,
+            "jd_structured": approved_session.jd_structured,
+            "version": approved_session.version,
+            "updated_at": approved_session.updated_at.isoformat()
+            if approved_session.updated_at
+            else None,
+        }
+
+    return {
+        "exists": False,
+        "message": "No approved standard JD found for this role and department",
+    }
 
 
 # ── List by employee ──────────────────────────────────────────────────────────

@@ -189,6 +189,24 @@ export async function fetchEmployeeJDs(employeeId: string): Promise<SessionListI
   return res.json();
 }
 
+export interface RoleTemplateResponse {
+  exists: boolean;
+  id?: string;
+  title?: string;
+  department?: string;
+  jd_text?: string;
+  jd_structured?: Record<string, any>;
+  version?: number;
+  updated_at?: string | null;
+  message?: string;
+}
+
+export async function fetchEmployeeRoleTemplate(employeeId: string): Promise<RoleTemplateResponse> {
+  const res = await fetchWithTimeout(`${API_URL}/jd/employee/${employeeId}/role-template`);
+  if (!res.ok) throw new Error("Failed to fetch employee role template");
+  return res.json();
+}
+
 export async function fetchManagerPendingJDs(managerId: string): Promise<SessionListItem[]> {
   const res = await fetchWithTimeout(`${API_URL}/jd/manager/${managerId}/pending`);
   if (res.status === 404) return [];

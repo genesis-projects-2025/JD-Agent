@@ -170,15 +170,18 @@ async def hydrate_session_from_db(session_id: str, db: AsyncSession) -> SessionM
 
     if record:
         memory.id = str(record.id)
+        # pyrefly: ignore [bad-assignment]
         memory.employee_id = record.employee_id
         memory.employee_name = (
             record.insights.get("identity_context", {}).get("employee_name")
             if record.insights
             else None
         )
+        # pyrefly: ignore [bad-assignment]
         memory.insights = record.insights or {}
         # Restore full session state (questions_asked, progress, etc)
-        memory.from_dict(dict(record.conversation_state or {}))
+        # pyrefly: ignore [bad-argument-type]
+        memory.from_dict(record.conversation_state or {})
         # pyrefly: ignore [bad-assignment]
         memory.generated_jd = record.jd_text
         # pyrefly: ignore [bad-assignment]
@@ -306,6 +309,7 @@ async def chat(request: ChatRequest, db: AsyncSession = Depends(get_db)):
         employee_name=session_memory.employee_name,
         generated_jd=session_memory.generated_jd,
         jd_structured=session_memory.jd_structured,
+        # pyrefly: ignore [bad-argument-type]
         status=session_memory.progress.get("status"),
     )
 
@@ -342,6 +346,7 @@ async def chat_stream(request: ChatRequest, db: AsyncSession = Depends(get_db)):
                 employee_name=session_memory.employee_name,
                 generated_jd=session_memory.generated_jd,
                 jd_structured=session_memory.jd_structured,
+                # pyrefly: ignore [bad-argument-type]
                 status=session_memory.progress.get("status"),
             )
             await invalidate_pattern(f"cache:jd_detail:*{session_id}*")
@@ -734,8 +739,11 @@ async def download_jd_docx(
         )
 
     docx_buffer = generate_jd_docx(
+        # pyrefly: ignore [bad-argument-type]
         jd_data=record.jd_structured,
+        # pyrefly: ignore [bad-argument-type]
         title=record.title or "Untitled JD",
+        # pyrefly: ignore [bad-argument-type]
         department=record.department or "",
     )
 

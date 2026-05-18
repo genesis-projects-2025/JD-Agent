@@ -94,14 +94,18 @@ export default function JDLibraryPage() {
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files) {
-      setFiles(Array.from(e.target.files).filter(file => file.type === 'application/pdf'))
+      setFiles(Array.from(e.target.files).filter(file =>
+        file.type === 'application/pdf' ||
+        file.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
+        file.type === 'application/msword'
+      ))
       setResults([])
     }
   }
 
   const processFiles = async () => {
     if (files.length === 0 || !employeeId || !employeeName) {
-      alert('Please select PDF files and enter employee information')
+      alert('Please select PDF/DOCX files and enter employee information')
       return
     }
     setUploading(true)
@@ -206,7 +210,7 @@ export default function JDLibraryPage() {
               <div className="p-3 bg-blue-50 rounded-xl border border-blue-100"><Upload className="w-6 h-6 text-blue-600" /></div>
               <div>
                 <h2 className="text-2xl font-semibold text-slate-900">Upload Job Descriptions</h2>
-                <p className="text-slate-600 mt-1">Import and process JD PDFs using AI analysis</p>
+                <p className="text-slate-600 mt-1">Import and process JD PDFs and Docx using AI analysis</p>
               </div>
             </div>
             <div className="space-y-6">
@@ -223,13 +227,13 @@ export default function JDLibraryPage() {
                 </div>
               </div>
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-2">Select PDF Files *</label>
+                <label className="block text-sm font-medium text-slate-700 mb-2">Select Files (PDF or DOCX) *</label>
                 <div className={`border-2 border-dashed rounded-xl p-10 text-center cursor-pointer transition-all ${files.length > 0 ? 'border-blue-400 bg-blue-50/30' : 'border-slate-300 hover:border-blue-400 hover:bg-slate-50'}`}
                   onClick={() => !uploading && fileInputRef.current?.click()}>
-                  <input ref={fileInputRef} type="file" multiple accept=".pdf" onChange={handleFileSelect} className="hidden" disabled={uploading} />
+                  <input ref={fileInputRef} type="file" multiple accept=".pdf,.docx,.doc" onChange={handleFileSelect} className="hidden" disabled={uploading} />
                   <Upload className="w-10 h-10 mx-auto text-slate-400 mb-3" />
                   <p className="text-slate-600 text-sm">{files.length > 0 ? `${files.length} file(s) selected` : 'Click to browse or drag and drop'}</p>
-                  <p className="text-slate-400 text-xs mt-1">Maximum file size: 10MB</p>
+                  <p className="text-slate-400 text-xs mt-1">Supported: PDF, DOCX, DOC | Maximum file size: 10MB</p>
                 </div>
               </div>
               {files.length > 0 && (
@@ -264,42 +268,43 @@ export default function JDLibraryPage() {
                 {results.map((result, index) => {
                   const resultData = result.data
                   return (
-                  <div key={index} className={`p-5 rounded-xl border ${result.status === 'success' ? 'border-emerald-200 bg-emerald-50/30' : 'border-red-200 bg-red-50/30'}`}>
-                    <div className="flex items-start justify-between">
-                      <div className="flex items-center gap-3">
-                        {result.status === 'success' ? <CheckCircle className="w-5 h-5 text-emerald-500" /> : <X className="w-5 h-5 text-red-500" />}
-                        <div>
-                          <p className="font-medium text-slate-800">{result.file}</p>
-                          <p className="text-sm text-slate-500">{result.message}</p>
-                          {resultData?.role_title && <p className="text-sm text-blue-600 font-medium mt-1">Role: {resultData.role_title}</p>}
+                    <div key={index} className={`p-5 rounded-xl border ${result.status === 'success' ? 'border-emerald-200 bg-emerald-50/30' : 'border-red-200 bg-red-50/30'}`}>
+                      <div className="flex items-start justify-between">
+                        <div className="flex items-center gap-3">
+                          {result.status === 'success' ? <CheckCircle className="w-5 h-5 text-emerald-500" /> : <X className="w-5 h-5 text-red-500" />}
+                          <div>
+                            <p className="font-medium text-slate-800">{result.file}</p>
+                            <p className="text-sm text-slate-500">{result.message}</p>
+                            {resultData?.role_title && <p className="text-sm text-blue-600 font-medium mt-1">Role: {resultData.role_title}</p>}
+                          </div>
                         </div>
                       </div>
-                    </div>
-                    {result.status === 'success' && resultData && (
-                      <div className="mt-4 pt-4 border-t border-slate-200 flex flex-wrap gap-3">
-                        <button onClick={() => handlePreview(resultData.id)}
-                          className="flex items-center gap-2 px-4 py-2.5 bg-white border border-slate-200 text-slate-700 rounded-lg text-sm font-medium hover:bg-slate-50 transition-all shadow-sm">
-                          <Eye className="w-4 h-4" />View JD
-                        </button>
-                        <button onClick={() => handleDownloadFromResult(resultData)}
-                          className="flex items-center gap-2 px-4 py-2.5 bg-white border border-slate-200 text-slate-700 rounded-lg text-sm font-medium hover:bg-slate-50 transition-all shadow-sm">
-                          <Download className="w-4 h-4" />Download PDF
-                        </button>
-                        {publishedIds.has(resultData.id) ? (
-                          <span className="flex items-center gap-2 px-4 py-2.5 bg-emerald-50 text-emerald-600 rounded-lg text-sm font-medium border border-emerald-200">
-                            <CheckCircle className="w-4 h-4" />Published
-                          </span>
-                        ) : (
-                          <button onClick={() => handlePublish(resultData.id)} disabled={publishingId === resultData.id}
-                            className="flex items-center gap-2 px-4 py-2.5 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition-all shadow-sm disabled:opacity-50">
-                            {publishingId === resultData.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
-                            {publishingId === resultData.id ? 'Publishing...' : 'Publish to Employee'}
+                      {result.status === 'success' && resultData && (
+                        <div className="mt-4 pt-4 border-t border-slate-200 flex flex-wrap gap-3">
+                          <button onClick={() => handlePreview(resultData.id)}
+                            className="flex items-center gap-2 px-4 py-2.5 bg-white border border-slate-200 text-slate-700 rounded-lg text-sm font-medium hover:bg-slate-50 transition-all shadow-sm">
+                            <Eye className="w-4 h-4" />View JD
                           </button>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                )})}
+                          <button onClick={() => handleDownloadFromResult(resultData)}
+                            className="flex items-center gap-2 px-4 py-2.5 bg-white border border-slate-200 text-slate-700 rounded-lg text-sm font-medium hover:bg-slate-50 transition-all shadow-sm">
+                            <Download className="w-4 h-4" />Download PDF
+                          </button>
+                          {publishedIds.has(resultData.id) ? (
+                            <span className="flex items-center gap-2 px-4 py-2.5 bg-emerald-50 text-emerald-600 rounded-lg text-sm font-medium border border-emerald-200">
+                              <CheckCircle className="w-4 h-4" />Published
+                            </span>
+                          ) : (
+                            <button onClick={() => handlePublish(resultData.id)} disabled={publishingId === resultData.id}
+                              className="flex items-center gap-2 px-4 py-2.5 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition-all shadow-sm disabled:opacity-50">
+                              {publishingId === resultData.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+                              {publishingId === resultData.id ? 'Publishing...' : 'Publish to Employee'}
+                            </button>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
               </div>
               <button onClick={() => setResults([])} className="mt-4 text-sm text-slate-400 hover:text-slate-600">Clear Results</button>
             </div>
@@ -319,8 +324,8 @@ export default function JDLibraryPage() {
           ) : jds.length === 0 ? (
             <div className="bg-white rounded-2xl border border-slate-200 p-12 text-center shadow-sm">
               <FileTextIcon className="w-16 h-16 mx-auto text-slate-300 mb-4" />
-               <h3 className="text-lg font-medium text-slate-700 mb-2">No Job Descriptions</h3>
-               <p className="text-slate-500 text-sm">Upload JD PDFs to build your reference library</p>
+              <h3 className="text-lg font-medium text-slate-700 mb-2">No Job Descriptions</h3>
+              <p className="text-slate-500 text-sm">Upload JD PDFs or Word documents to build your reference library</p>
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">

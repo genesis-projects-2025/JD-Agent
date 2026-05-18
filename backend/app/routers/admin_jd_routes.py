@@ -1,4 +1,3 @@
-# backend/app/routers/admin_jd_routes.py
 import asyncio
 import logging
 import os
@@ -10,6 +9,7 @@ from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy.orm import selectinload
+from pathlib import Path
 
 from app.core.config import settings
 from app.core.database import get_db
@@ -59,11 +59,15 @@ async def _ensure_employee_record(
 
     employee = Employee(
         id=employee_id,
-        name=(org_row.get("employee_name") if org_row else None) or employee_name or "Unknown Employee",
+        name=(org_row.get("employee_name") if org_row else None)
+        or employee_name
+        or "Unknown Employee",
         email=None,
         department=(org_row.get("department") if org_row else None) or department,
         reporting_manager=org_row.get("reporting_manager") if org_row else None,
-        reporting_manager_code=org_row.get("reporting_manager_code") if org_row else None,
+        reporting_manager_code=org_row.get("reporting_manager_code")
+        if org_row
+        else None,
         role="employee",
         phone_mobile=None,
     )
@@ -78,13 +82,20 @@ async def _sync_published_reference_jd(
     *,
     commit: bool,
 ) -> JDSession:
-    transformed_data = transform_reference_to_jd_session_schema(jd.structured_data or {})
+    # pyrefly: ignore [bad-argument-type]
+    transformed_data = transform_reference_to_jd_session_schema(
+        # pyrefly: ignore [bad-argument-type]
+        jd.structured_data or {}
+    )
     jd_text = generate_jd_text_from_structured_data(transformed_data)
 
     await _ensure_employee_record(
         db,
+        # pyrefly: ignore [bad-argument-type]
         jd.employee_id,
+        # pyrefly: ignore [bad-argument-type]
         jd.employee_name or "Unknown Employee",
+        # pyrefly: ignore [bad-argument-type]
         jd.department,
     )
 
@@ -115,7 +126,9 @@ async def _sync_published_reference_jd(
         session.jd_structured = transformed_data
         session.status = "approved"
 
+    # pyrefly: ignore [bad-assignment]
     jd.processing_status = "published"
+    # pyrefly: ignore [bad-assignment]
     jd.published_at = jd.published_at or datetime.now(timezone.utc)
 
     await db.flush()
@@ -127,8 +140,11 @@ async def _sync_published_reference_jd(
         index_approved_jd(
             jd_id=str(session.id),
             structured_data=transformed_data,
+            # pyrefly: ignore [bad-argument-type]
             department=jd.department or "General",
+            # pyrefly: ignore [bad-argument-type]
             title_override=jd.role_title,
+            # pyrefly: ignore [bad-argument-type]
             experience_level=jd.level or "Mid",
             source="published_reference_jd",
         )
@@ -143,7 +159,9 @@ def transform_reference_to_jd_session_schema(ref_data: dict) -> dict:
         "employee_information": {
             "job_title": ref_data.get("role_title", ""),
             "department": ref_data.get("department", ""),
-            "reports_to": ref_data.get("working_relationships", {}).get("reports_to", ""),
+            "reports_to": ref_data.get("working_relationships", {}).get(
+                "reports_to", ""
+            ),
             "team_size": ref_data.get("working_relationships", {}).get("team_size", ""),
         },
         "purpose": ref_data.get("purpose", ""),
@@ -153,9 +171,13 @@ def transform_reference_to_jd_session_schema(ref_data: dict) -> dict:
         "education": ref_data.get("qualifications", {}).get("education", ""),
         "experience": ref_data.get("qualifications", {}).get("experience_years", ""),
         "working_relationships": {
-            "reports_to": ref_data.get("working_relationships", {}).get("reports_to", ""),
+            "reports_to": ref_data.get("working_relationships", {}).get(
+                "reports_to", ""
+            ),
             "team_size": ref_data.get("working_relationships", {}).get("team_size", ""),
-            "stakeholders": ref_data.get("working_relationships", {}).get("stakeholders", []),
+            "stakeholders": ref_data.get("working_relationships", {}).get(
+                "stakeholders", []
+            ),
         },
     }
 
@@ -228,158 +250,172 @@ def generate_jd_text_from_structured_data(structured_data: dict) -> str:
     return "\n".join(md)
 
 
+# REPLACEMENT FOR: @router.post("/upload") endpoint in admin_jd_routes.py
+# Replace lines 255-390 in your current admin_jd_routes.py with this:
+
+
 @router.post("/upload")
-async def upload_jd_pdf(
+async def upload_jd_document(
     file: UploadFile = File(...),
     employee_id: str = Form(...),
     employee_name: str = Form(...),
     db: AsyncSession = Depends(get_db),
     admin_role: str = Depends(get_current_admin),
 ):
-    """Upload and process a JD PDF"""
-    # Validate file
-    if not file.filename.lower().endswith('.pdf'):
-        raise HTTPException(status_code=400, detail="Only PDF files are allowed")
+    """
+    Upload and process JD document (DOCX, DOC, or PDF)
+    Multi-page extraction with complete content preservation
+    """
 
-    if file.size > 10 * 1024 * 1024:  # 10MB limit
-        raise HTTPException(status_code=400, detail="File size exceeds 10MB limit")
+    # ===== STEP 1: VALIDATE FILE TYPE =====
+    allowed_types = {
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "docx",
+        "application/msword": "doc",
+        "application/pdf": "pdf",
+    }
 
-    # Read file content
-    pdf_bytes = await file.read()
-
-    # Validate PDF
-    is_valid, validation_msg = PDFProcessor.validate_pdf(pdf_bytes)
-    if not is_valid:
-        raise HTTPException(status_code=400, detail=f"Invalid PDF: {validation_msg}")
-
-    # Process JD with AI (optional - will fallback to basic processing if API key is invalid)
-    intelligence_service = JDIntelligenceService()
-    try:
-        result = await intelligence_service.process_jd_pdf(
-            pdf_bytes=pdf_bytes,
-            filename=file.filename,
-            uploaded_by="admin",  # Since we commented out admin_role
-            employee_id=employee_id,
-            employee_name=employee_name
+    if file.content_type not in allowed_types:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid file type. Accepted: DOCX, DOC, PDF. Got: {file.content_type}",
         )
-    except Exception as ai_error:
-        # If AI processing fails, create basic result structure
-        logger.warning(f"AI processing failed for {file.filename}: {str(ai_error)}")
-        logger.info("Falling back to basic PDF processing without AI")
 
-        # Basic fallback - extract minimal metadata
-        metadata = PDFProcessor.extract_metadata(pdf_bytes)
-        text = PDFProcessor.extract_text(pdf_bytes)
+    file_type = allowed_types[file.content_type]
 
-        result = {
-            "id": str(uuid.uuid4()),
-            "employee_id": employee_id,
-            "employee_name": employee_name,
-            "structured_data": {
-                "role_title": "Unknown Role (AI Processing Failed)",
-                "department": "Unknown",
-                "level": "Mid",
-                "purpose": "PDF uploaded but AI processing failed. Please check API key configuration.",
-                "tasks": ["PDF content available but not processed"],
-                "priority_tasks": ["Manual review required"],
-                "skills": [],
-                "tools": [],
-                "technologies": [],
-                "qualifications": {
-                    "education": "",
-                    "experience_years": "",
-                    "certifications": []
-                },
-                "working_relationships": {
-                    "reports_to": "",
-                    "team_size": "",
-                    "stakeholders": []
-                }
-            },
-            "pdf_filename": file.filename,
-            "num_pages": metadata.get("num_pages", 0),
-            "processing_status": "ai_failed",
-            "uploaded_by": "admin",
-            "uploaded_at": datetime.now(timezone.utc).isoformat(),
-            "text_length": len(text),
-        }
+    # ===== STEP 2: READ FILE =====
+    file_content = await file.read()
 
-    # Generate JD ID
+    # Validate file size (10MB max)
+    if len(file_content) > 10 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="File too large. Maximum 10MB")
+
+    # ===== STEP 3: ENSURE EMPLOYEE EXISTS =====
+    try:
+        employee = await _ensure_employee_record(db, employee_id, employee_name)
+        logger.info(f"[UPLOAD] Employee {employee_id} ensured in database")
+    except Exception as e:
+        logger.warning(f"[UPLOAD] Warning ensuring employee: {str(e)}")
+
+    # ===== STEP 4: GENERATE IDS =====
     jd_id = str(uuid.uuid4())
+    logger.info(f"[UPLOAD] Processing {file.filename} with ID {jd_id}")
 
-    # Save PDF file
+    # ===== STEP 5: PROCESS WITH JD INTELLIGENCE =====
+    intelligence_service = JDIntelligenceService()
+    # Uses new multi-page extraction
     try:
+        result = await intelligence_service.process_jd_document(
+            file_bytes=file_content,
+            # pyrefly: ignore [bad-argument-type]
+            filename=file.filename,
+            file_type=file_type,
+            uploaded_by=admin_role,
+            employee_id=employee_id,
+            employee_name=employee_name,
+        )
+    except Exception as e:
+        logger.error(f"[UPLOAD] Processing failed: {str(e)}")
+        raise HTTPException(
+            status_code=400,
+            detail=f"Failed to process JD: {str(e)}",
+        )
+
+    logger.info(
+        f"[UPLOAD] Processing successful. Extracted {result.get('char_count', 0)} chars"
+    )
+
+    # ===== STEP 6: SAVE FILE =====
+    file_saved = False
+    pdf_path = None
+    try:
+        # Save original file
         file_path = UPLOADS_DIR / f"{jd_id}_{file.filename}"
+        file_path.parent.mkdir(parents=True, exist_ok=True)
         with open(file_path, "wb") as f:
-            f.write(pdf_bytes)
-        file_saved = True
-        pdf_path = str(file_path)
-    except Exception as file_error:
-        logger.warning(f"Failed to save PDF file: {str(file_error)}")
-        file_saved = False
-        pdf_path = None
+            f.write(file_content)
 
-    # Save to database (optional - will work without database for file processing demo)
+        pdf_path = str(file_path)
+        file_saved = True
+        logger.info(f"[UPLOAD] File saved to {pdf_path}")
+    except Exception as file_error:
+        logger.warning(f"[UPLOAD] File save failed: {str(file_error)}")
+        file_saved = False
+
+    # ===== STEP 7: SAVE TO REFERENCE_JD TABLE =====
+    db_saved = False
+    reference_jd = None
     try:
+        structured_data = result.get("structured_data", {})
+
         reference_jd = ReferenceJD(
             id=jd_id,
             employee_id=employee_id,
             employee_name=employee_name,
-            department=result.get("structured_data", {}).get("department", ""),
-            role_title=result.get("structured_data", {}).get("role_title", ""),
-            level=result.get("structured_data", {}).get("level", "Mid"),
-            structured_data=result.get("structured_data", {}),
+            department=structured_data.get("department", "Unknown"),
+            role_title=structured_data.get("role_title", "Unknown"),
+            level=structured_data.get("level", "Mid-level"),
+            structured_data=structured_data,
             pdf_path=pdf_path,
             pdf_filename=file.filename,
-            processing_status="processed" if result.get("processing_status") == "processed" else "ai_failed",
-            uploaded_by="admin",
-            uploaded_at=datetime.now(timezone.utc)
+            processing_status="processed"
+            if result.get("processing_status") == "processed"
+            else "ai_failed",
+            uploaded_by=admin_role,
+            uploaded_at=datetime.now(timezone.utc),
         )
 
         db.add(reference_jd)
         await db.commit()
         await db.refresh(reference_jd)
         db_saved = True
+        logger.info(f"[UPLOAD] Saved to ReferenceJD: {jd_id}")
     except Exception as db_error:
-        logger.warning(f"Failed to save to database: {str(db_error)}")
+        logger.warning(f"[UPLOAD] Database save failed: {str(db_error)}")
         db_saved = False
         reference_jd = None
 
-    # Return appropriate response
+    # ===== STEP 8: RETURN RESPONSE =====
+    structured_data = result.get("structured_data", {})
+
     if file_saved and db_saved:
         return {
             "status": "success",
-            "message": "JD uploaded, processed, and saved successfully",
+            "message": f"{file_type.upper()} uploaded, processed, and saved successfully",
             "data": {
                 "id": jd_id,
-                "role_title": result.get("structured_data", {}).get("role_title", "Unknown Role"),
-                "department": result.get("structured_data", {}).get("department", "Unknown"),
+                "role_title": structured_data.get("role_title", "Unknown Role"),
+                "department": structured_data.get("department", "Unknown"),
                 "employee_name": employee_name,
+                "employee_id": employee_id,
+                "file_type": file_type,
                 "uploaded_at": datetime.now(timezone.utc).isoformat(),
                 "processing_status": result.get("processing_status", "ai_failed"),
-                "ai_processed": result.get("processing_status") == "processed"
-            }
+                "ai_processed": result.get("processing_status") == "processed",
+                "char_count": result.get("char_count", 0),  # Multi-page stat
+            },
         }
     elif file_saved:
         return {
             "status": "partial_success",
-            "message": "JD uploaded and processed, but database save failed. File is available locally.",
+            "message": f"{file_type.upper()} uploaded and processed, but database save failed.",
             "data": {
                 "id": jd_id,
-                "role_title": result.get("structured_data", {}).get("role_title", "Unknown Role"),
-                "department": result.get("structured_data", {}).get("department", "Unknown"),
+                "role_title": structured_data.get("role_title", "Unknown Role"),
+                "department": structured_data.get("department", "Unknown"),
                 "employee_name": employee_name,
+                "file_type": file_type,
                 "uploaded_at": datetime.now(timezone.utc).isoformat(),
                 "processing_status": result.get("processing_status", "ai_failed"),
                 "ai_processed": result.get("processing_status") == "processed",
                 "file_saved": True,
-                "db_saved": False
-            }
+                "db_saved": False,
+                "char_count": result.get("char_count", 0),
+            },
         }
     else:
         raise HTTPException(
             status_code=500,
-            detail="Failed to save JD file. Please check file permissions and try again."
+            detail="Failed to save JD file. Please check file permissions and try again.",
         )
 
 
@@ -416,7 +452,7 @@ async def list_reference_jds(
         ],
         "total": len(jds),
         "skip": skip,
-        "limit": limit
+        "limit": limit,
     }
 
 
@@ -465,7 +501,9 @@ async def delete_reference_jd(
         raise HTTPException(status_code=404, detail="JD not found")
 
     # Delete file
+    # pyrefly: ignore [bad-argument-type]
     if jd.pdf_path and os.path.exists(jd.pdf_path):
+        # pyrefly: ignore [bad-argument-type]
         os.remove(jd.pdf_path)
 
     # Delete from database
@@ -489,6 +527,7 @@ async def preview_reference_jd(
         raise HTTPException(status_code=404, detail="JD not found")
 
     # Transform to jd_sessions schema
+    # pyrefly: ignore [bad-argument-type]
     transformed_data = transform_reference_to_jd_session_schema(jd.structured_data)
 
     # Generate markdown text

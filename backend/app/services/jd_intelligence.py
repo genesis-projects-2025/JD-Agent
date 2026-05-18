@@ -4,8 +4,9 @@ import logging
 from datetime import datetime, timezone
 from typing import Dict, Any, Optional, List
 from pydantic import BaseModel, Field
-
+from app.services.docx_extractor import DOCXTableExtractor, extract_docx_complete
 from app.services.pdf_processor import PDFProcessor
+from app.services.docx_processor import DOCXProcessor
 from app.services.vector_service import index_jd_document, find_similar_jds
 from app.core.config import settings
 from langchain_google_genai import ChatGoogleGenerativeAI
@@ -58,25 +59,29 @@ class JDIntelligenceService:
         )
         logger.info("JD Intelligence Service initialized with Gemini 2.5 flash")
 
-    async def process_jd_pdf(
+    async def process_jd_document(
         self,
-        pdf_bytes: bytes,
+        file_bytes: bytes,
         filename: str,
+        file_type: str,  # "pdf" or "docx"
         uploaded_by: str,
         employee_id: Optional[str] = None,
         employee_name: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
-        Main processing pipeline:
-        1. Validate PDF
-        2. Extract text
+        Main processing pipeline for PDF or DOCX:
+        1. Validate file
+        2. Extract text (format-specific)
         3. Parse into structured JD using Gemini 2.5 Flash
         4. Generate vector embeddings
         5. Return structured data
 
+        REPLACES: process_jd_pdf() — now supports both formats
+
         Args:
-            pdf_bytes: Raw PDF file bytes
+            file_bytes: Raw file bytes
             filename: Original filename
+            file_type: "pdf" or "docx"
             uploaded_by: Admin user ID who uploaded
             employee_id: Optional employee ID
             employee_name: Optional employee name
@@ -85,18 +90,71 @@ class JDIntelligenceService:
             Dictionary with processed JD data
         """
         try:
-            # Step 1: Validate PDF
-            logger.info(f"Validating PDF: {filename}")
-            is_valid, error_msg = PDFProcessor.validate_pdf(pdf_bytes)
+            file_type_lower = file_type.lower()
+
+            # Step 1: Validate file (format-specific)
+            logger.info(f"Validating {file_type_lower.upper()}: {filename}")
+
+            if file_type_lower == "pdf":
+                is_valid, error_msg = PDFProcessor.validate_pdf(file_bytes)
+            elif file_type_lower == "docx":
+                is_valid, error_msg = DOCXProcessor.validate_docx(file_bytes)
+            else:
+                raise Exception(f"Unsupported file type: {file_type}")
+
             if not is_valid:
-                raise Exception(f"PDF validation failed: {error_msg}")
+                raise Exception(f"File validation failed: {error_msg}")
 
-            # Step 2: Extract text
+            # Step 2: Extract text (format-specific)
             logger.info(f"Extracting text from: {filename}")
-            text = PDFProcessor.extract_text(pdf_bytes)
-            metadata = PDFProcessor.extract_metadata(pdf_bytes)
 
-            # Step 3: Parse with Gemini 2.5 Flash
+            if file_type_lower == "pdf":
+                text = PDFProcessor.extract_text(file_bytes)
+                metadata = PDFProcessor.extract_metadata(file_bytes)
+            elif file_type_lower == "docx":
+                # Use table-aware extractor for multi-page DOCX with structure preservation
+                try:
+                    # pyrefly: ignore [bad-argument-type]
+                    extraction_result = await extract_docx_complete(file_bytes)
+                    if extraction_result["success"]:
+                        # Use structured data from table extractor for better parsing
+                        structured_preview = extraction_result["data"]
+                        # Convert structured data to text for AI processing, preserving structure
+                        text = self._convert_structured_to_text(structured_preview)
+                        metadata = {
+                            "num_pages": extraction_result.get(
+                                "table_count", 0
+                            ),  # Approximate
+                            "char_count": extraction_result.get("char_count", 0),
+                            "table_count": extraction_result.get("table_count", 0),
+                            "paragraph_count": extraction_result.get(
+                                "paragraph_count", 0
+                            ),
+                            "extraction_method": "table_aware",
+                        }
+                        logger.info(
+                            f"[DOCX] Using table-aware extraction: {extraction_result.get('char_count', 0)} chars from {extraction_result.get('table_count', 0)} tables"
+                        )
+                    else:
+                        # Fallback to standard processor if table extraction fails
+                        logger.warning(
+                            f"[DOCX] Table extraction failed: {extraction_result.get('error')}. Falling back to standard extraction."
+                        )
+                        text = DOCXProcessor.extract_text(file_bytes)
+                        metadata = DOCXProcessor.extract_metadata(file_bytes)
+                        metadata["extraction_method"] = "standard_fallback"
+                except Exception as e:
+                    # Fallback to standard processor on any exception
+                    logger.warning(
+                        f"[DOCX] Table extractor error: {str(e)}. Falling back to standard extraction."
+                    )
+                    text = DOCXProcessor.extract_text(file_bytes)
+                    metadata = DOCXProcessor.extract_metadata(file_bytes)
+                    metadata["extraction_method"] = "standard_fallback"
+            else:
+                raise Exception(f"Unsupported file type: {file_type}")
+
+            # Step 3: Parse with Gemini 2.5 Flash (same for both formats)
             logger.info(f"Parsing JD with Gemini 2.5 Flash: {filename}")
             structured_jd = await self._parse_jd_text(text, employee_name)
 
@@ -109,18 +167,19 @@ class JDIntelligenceService:
             # Generate ID
             jd_id = str(uuid.uuid4())
 
-            # Step 4: Create vector embeddings
+            # Step 4: Create vector embeddings (same for both formats)
             logger.info(f"Creating vector embeddings for: {filename}")
             await self._create_embeddings(jd_id, structured_jd)
 
-            logger.info(f"Successfully processed JD: {filename}")
+            logger.info(f"Successfully processed {file_type_lower.upper()}: {filename}")
 
             return {
                 "id": jd_id,
                 "employee_id": employee_id,
                 "employee_name": employee_name or structured_jd.get("employee_name"),
                 "structured_data": structured_jd,
-                "pdf_filename": filename,
+                "pdf_filename": filename,  # Keep same key for backward compatibility
+                "file_type": file_type_lower,  # ← NEW: track the format
                 "num_pages": metadata.get("num_pages", 0),
                 "processing_status": "processed",
                 "uploaded_by": uploaded_by,
@@ -131,6 +190,31 @@ class JDIntelligenceService:
         except Exception as e:
             logger.error(f"JD processing failed for {filename}: {str(e)}")
             raise Exception(f"JD processing failed: {str(e)}")
+
+    # BACKWARD COMPATIBILITY: Keep old method name, delegate to new one
+    async def process_jd_pdf(
+        self,
+        pdf_bytes: bytes,
+        filename: str,
+        uploaded_by: str,
+        employee_id: Optional[str] = None,
+        employee_name: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        LEGACY METHOD: Kept for backward compatibility.
+        Delegates to process_jd_document() with file_type="pdf"
+        """
+        logger.warning(
+            "process_jd_pdf() is deprecated. Use process_jd_document() instead."
+        )
+        return await self.process_jd_document(
+            file_bytes=pdf_bytes,
+            filename=filename,
+            file_type="pdf",
+            uploaded_by=uploaded_by,
+            employee_id=employee_id,
+            employee_name=employee_name,
+        )
 
     def _extract_partial_data(self, content: str) -> Dict[str, Any]:
         """
@@ -214,6 +298,47 @@ class JDIntelligenceService:
 
         return structured_data
 
+    def _convert_structured_to_text(self, structured_data: dict) -> str:
+        """Convert structured data from table extractor to text for AI processing"""
+        text_parts = []
+        
+        # Add key-value pairs from structured data in a clean format
+        for key, value in structured_data.items():
+            if not key.startswith("_") and value:
+                if isinstance(value, list):
+                    if value:  # Only add if list is not empty
+                        text_parts.append(f"{key}: {', '.join(value)}")
+                elif isinstance(value, dict):
+                    if value:  # Only add if dict is not empty
+                        # Flatten the dictionary for cleaner text
+                        dict_items = []
+                        for dict_key, dict_value in value.items():
+                            if dict_value:  # Only add non-empty values
+                                dict_items.append(f"{dict_key}: {dict_value}")
+                        if dict_items:
+                            text_parts.append(f"{key}: {', '.join(dict_items)}")
+                else:
+                    text_parts.append(f"{key}: {value}")
+        
+        # Add raw data (critical for fields that weren't mapped explicitly)
+        if "_raw_data" in structured_data:
+            raw_data = structured_data["_raw_data"]
+            if "tables" in raw_data and raw_data["tables"]:
+                text_parts.append("\n--- FULL TABLE DATA ---")
+                for table in raw_data["tables"]:
+                    for row in table.get("content", []):
+                        # Join non-empty cells
+                        cells = [str(cell).replace('\n', ' ').strip() for cell in row if str(cell).strip()]
+                        if cells:
+                            text_parts.append(" | ".join(cells))
+                            
+            if "paragraphs" in raw_data and raw_data["paragraphs"]:
+                text_parts.append("\n--- PARAGRAPH TEXT ---")
+                for para in raw_data["paragraphs"]:
+                    text_parts.append(para.get("text", ""))
+                    
+        return "\n".join(text_parts)
+
     async def _parse_jd_text(
         self, text: str, employee_name: Optional[str] = None
     ) -> Dict[str, Any]:
@@ -258,19 +383,19 @@ class JDIntelligenceService:
         2. department: Department or function (e.g., "Engineering", "Marketing", "Sales")
         3. level: Seniority level - choose from: ["Junior", "Mid", "Senior", "Lead", "Head", "Director", "VP"]
         4. purpose: Main purpose/mission of the role (50-150 words, be concise)
-        5. tasks: List of 5-10 key responsibilities (use action verbs, be specific)
+        5. tasks: List of ALL key responsibilities EXACTLY as they appear in the text (do not summarize or limit the count, include every single point)
         6. priority_tasks: Top 3-5 most critical tasks (subset of tasks)
-        7. skills: Technical and domain skills required (list of 5-15 items)
+        7. skills: ALL Technical and domain skills required EXACTLY as they appear (do not summarize or limit the count, include every single point)
         8. tools: Software, platforms, tools used (list of 3-10 items)
         9. technologies: Frameworks, languages, tech stack (list of 3-10 items)
-        10. qualifications:
-            - education: Required education level
-            - experience_years: Years of experience (e.g., "3-5 years")
+        10. qualifications: EXACTLY as they appear in the text, DO NOT summarize
+            - education: Required education level (extract full exact text)
+            - experience_years: Years of experience (extract full exact text, do not shorten)
             - certifications: Professional certifications (list, can be empty)
         11. working_relationships: Key stakeholders and reporting structure
             - reports_to: Who this role reports to
             - team_size: Size of team they manage (if any)
-            - stakeholders: Key internal/external stakeholders
+            - stakeholders: Key internal and external stakeholders (list ALL exactly as they appear, e.g., "Internal: All Departments", "External: Auditors")
         
         IMPORTANT RULES:
         - Return ONLY valid JSON, no explanations or markdown

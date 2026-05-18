@@ -155,29 +155,49 @@ async def _sync_published_reference_jd(
 
 def transform_reference_to_jd_session_schema(ref_data: dict) -> dict:
     """Maps reference JD fields to jd_sessions.jd_structured format"""
+    if not isinstance(ref_data, dict):
+        import json
+        if isinstance(ref_data, str):
+            try:
+                ref_data = json.loads(ref_data)
+            except:
+                ref_data = {}
+        else:
+            ref_data = {}
+
+    def safe_get_dict(d, key):
+        val = d.get(key)
+        return val if isinstance(val, dict) else {}
+
+    def safe_get_list(d, key):
+        val = d.get(key)
+        return val if isinstance(val, list) else []
+
+    wr = safe_get_dict(ref_data, "working_relationships")
+    qual = safe_get_dict(ref_data, "qualifications")
+
+    # Combine tools and technologies safely
+    tools_list = safe_get_list(ref_data, "tools")
+    tech_list = safe_get_list(ref_data, "technologies")
+    combined_tools = tools_list + tech_list
+
     return {
         "employee_information": {
-            "job_title": ref_data.get("role_title", ""),
-            "department": ref_data.get("department", ""),
-            "reports_to": ref_data.get("working_relationships", {}).get(
-                "reports_to", ""
-            ),
-            "team_size": ref_data.get("working_relationships", {}).get("team_size", ""),
+            "job_title": ref_data.get("role_title") or ref_data.get("title") or "Unknown",
+            "department": ref_data.get("department") or "Unknown",
+            "reports_to": wr.get("reports_to") or "",
+            "team_size": wr.get("team_size") or "",
         },
-        "purpose": ref_data.get("purpose", ""),
-        "responsibilities": ref_data.get("tasks", []),
-        "skills": ref_data.get("skills", []),
-        "tools": ref_data.get("tools", []) + ref_data.get("technologies", []),
-        "education": ref_data.get("qualifications", {}).get("education", ""),
-        "experience": ref_data.get("qualifications", {}).get("experience_years", ""),
+        "purpose": ref_data.get("purpose") or "",
+        "responsibilities": safe_get_list(ref_data, "tasks") or safe_get_list(ref_data, "responsibilities"),
+        "skills": safe_get_list(ref_data, "skills"),
+        "tools": combined_tools,
+        "education": qual.get("education") or "",
+        "experience": qual.get("experience_years") or qual.get("experience") or "",
         "working_relationships": {
-            "reports_to": ref_data.get("working_relationships", {}).get(
-                "reports_to", ""
-            ),
-            "team_size": ref_data.get("working_relationships", {}).get("team_size", ""),
-            "stakeholders": ref_data.get("working_relationships", {}).get(
-                "stakeholders", []
-            ),
+            "reports_to": wr.get("reports_to") or "",
+            "team_size": wr.get("team_size") or "",
+            "stakeholders": safe_get_list(wr, "stakeholders"),
         },
     }
 

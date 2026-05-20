@@ -41,6 +41,14 @@ class Settings(BaseSettings):
 
     @property
     def DATABASE_URL(self) -> str:
+        """Return a database URL.
+        If any of the required PostgreSQL settings are missing, fall back to an
+        in‑memory SQLite database for local development and testing.
+        """
+        required = [self.DATABASE_NAME, self.DATABASE_USER_NAME, self.DATABASE_PASS]
+        if any(not v for v in required):
+            # Use SQLite in the backend root directory for simplicity
+            return f"sqlite+aiosqlite:///{self.backend_root / 'test.db'}"
         encoded_pass = quote_plus(self.DATABASE_PASS)
         return (
             f"postgresql+asyncpg://{self.DATABASE_USER_NAME}:"

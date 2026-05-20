@@ -62,9 +62,12 @@ async def init_db():
     """Create core tables and lightweight compatibility objects on startup."""
     try:
         async with engine.begin() as conn:
-            await conn.run_sync(Base.metadata.create_all)
+
 
             # Add trigger function for updated_at — Using a DO block to make it safer for concurrent workers
+            # Ensure timestamp columns for RBAC workflow exist
+            await conn.execute(text("ALTER TABLE jd_sessions ADD COLUMN IF NOT EXISTS sent_to_manager_at TIMESTAMP WITH TIME ZONE"))
+            await conn.execute(text("ALTER TABLE jd_sessions ADD COLUMN IF NOT EXISTS sent_to_hr_at TIMESTAMP WITH TIME ZONE"))
             await conn.execute(
                 text("""
                 DO $$

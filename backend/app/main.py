@@ -5,8 +5,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from contextlib import asynccontextmanager
 from sqlalchemy import text
-from app.version import VERSION
-from app.core.database import init_db, engine
+from .version import VERSION
+from .core.database import init_db, engine
 import app.models  # Ensure models are registered for init_db
 from app.core.config import settings
 from app.core.cache import cache_health

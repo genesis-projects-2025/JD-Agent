@@ -566,6 +566,11 @@ async def update_questionnaire_status(
             )
 
     record.status = new_status
+    # Update timestamps for workflow progression
+    if new_status == "sent_to_manager":
+        record.sent_to_manager_at = datetime.datetime.now(datetime.timezone.utc)
+    elif new_status == "sent_to_hr":
+        record.sent_to_hr_at = datetime.datetime.now(datetime.timezone.utc)
     await db.commit()
     await db.refresh(record)
 

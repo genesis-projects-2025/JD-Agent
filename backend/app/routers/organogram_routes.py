@@ -88,7 +88,7 @@ async def login_organogram(request: LoginRequest, db: AsyncSession = Depends(get
         computed_role = "employee"
 
     # Hardcode override for HR testing request
-    if request.emp_code == "C0014":
+    if request.emp_code == "E6679":
         computed_role = "hr"
 
 

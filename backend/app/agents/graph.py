@@ -277,7 +277,7 @@ async def run_interview_turn_stream(
             "progress": {},
         }
         # pyrefly: ignore [bad-argument-type]
-        gap_result = await _gap_check(gap_state)
+        gap_result = await _gap_check(gap_state)  # pyright: ignore
 
         # 8. Update session memory — capture the agent the ENGINE actually used.
         # The interview engine does its own mid-turn routing internally.

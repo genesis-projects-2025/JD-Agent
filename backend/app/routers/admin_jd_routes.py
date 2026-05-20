@@ -82,21 +82,16 @@ async def _sync_published_reference_jd(
     *,
     commit: bool,
 ) -> JDSession:
-    # pyrefly: ignore [bad-argument-type]
     transformed_data = transform_reference_to_jd_session_schema(
-        # pyrefly: ignore [bad-argument-type]
         jd.structured_data or {}
     )
     jd_text = generate_jd_text_from_structured_data(transformed_data)
 
     await _ensure_employee_record(
         db,
-        # pyrefly: ignore [bad-argument-type]
-        jd.employee_id,
-        # pyrefly: ignore [bad-argument-type]
-        jd.employee_name or "Unknown Employee",
-        # pyrefly: ignore [bad-argument-type]
-        jd.department,
+        jd.employee_id, # pyright: ignore[reportArgumentType]
+        jd.employee_name or "Unknown Employee", # pyright: ignore[reportArgumentType]
+        jd.department, # pyright: ignore[reportArgumentType]
     )
 
     result = await db.execute(
@@ -501,7 +496,7 @@ async def get_reference_jd(
             "pdf_filename": jd.pdf_filename,
             "processing_status": jd.processing_status,
             "uploaded_at": jd.uploaded_at.isoformat(),
-            "published_at": jd.published_at.isoformat() if jd.published_at else None,
+            "published_at": jd.published_at.isoformat() if jd.published_at else None,  # pyright: ignore
             "uploaded_by": jd.uploaded_by,
         }
     }
@@ -548,7 +543,7 @@ async def preview_reference_jd(
 
     # Transform to jd_sessions schema
     # pyrefly: ignore [bad-argument-type]
-    transformed_data = transform_reference_to_jd_session_schema(jd.structured_data)
+    transformed_data = transform_reference_to_jd_session_schema(jd.structured_data) # pyright: ignore[reportArgumentType]
 
     # Generate markdown text
     jd_text = generate_jd_text_from_structured_data(transformed_data)
@@ -597,6 +592,6 @@ async def publish_jd(
             "jd_session_id": str(session.id),
             "employee_id": jd.employee_id,
             "processing_status": jd.processing_status,
-            "published_at": jd.published_at.isoformat() if jd.published_at else None,
+            "published_at": jd.published_at.isoformat() if jd.published_at else None,  # pyright: ignore
         },
     }

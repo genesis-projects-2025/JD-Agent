@@ -108,7 +108,10 @@ async def cache_health() -> dict[str, str]:
     if not REDIS_AVAILABLE or _redis_client is None:
         return {"status": "disabled"}
     try:
-        await _redis_client.ping()
+        if asyncio.iscoroutinefunction(_redis_client.ping):
+            await _redis_client.ping()
+        else:
+            _redis_client.ping()  # pyright: ignore
         return {"status": "ok"}
     except Exception as e:
         logger.debug(f"Cache PING failed: {e}")

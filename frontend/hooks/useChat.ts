@@ -28,7 +28,10 @@ function shouldShowToolSelection(parsed: JDAgentResponse): boolean {
 function shouldShowPrioritySelection(parsed: JDAgentResponse): boolean {
   const taskList = parsed.task_list;
   const alreadySelected = Boolean(parsed.employee_role_insights?.priority_tasks?.length);
-  return !alreadySelected && Boolean(taskList?.length);
+  const isWorkflowAgent =
+    parsed.current_agent === "WorkflowIdentifierAgent" ||
+    parsed.progress?.current_agent === "WorkflowIdentifierAgent";
+  return isWorkflowAgent && !alreadySelected && Boolean(taskList?.length);
 }
 
 export function useChat(onSaveSuccess?: () => void, autoInit: boolean = true) {

@@ -292,6 +292,7 @@ def compute_progress(insights: dict, current_agent: str = "BasicInfoAgent") -> d
         "completion_percentage": round(final_percentage, 1),
         "depth_scores": depth_scores,
         "current_agent": current_agent,
+        "missing_insight_areas": [],
         "status": "ready_for_generation"
         if current_agent == "JDGeneratorAgent"
         else "collecting",

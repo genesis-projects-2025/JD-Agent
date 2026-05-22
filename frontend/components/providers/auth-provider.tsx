@@ -37,6 +37,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             if (urlEmpCode) {
                 try {
                     // Decode if it's base64 encoded
+
                     const decoded = atob(urlEmpCode);
                     if (/^[a-zA-Z0-9_-]+$/.test(decoded)) {
                         urlEmpCode = decoded;

@@ -89,6 +89,7 @@ def _session_from_cache_dict(data: dict) -> SessionMemory:
     memory.insights = data.get("insights", {})
     memory.progress = data.get("progress", {})
     memory.generated_jd = data.get("generated_jd")
+    memory.jd_structured = data.get("jd_structured")
     memory.current_agent = data.get("current_agent", "BasicInfoAgent")
     history = data.get("full_history", [])
     memory.load_history_from_db(history, llm_limit=6)
@@ -194,11 +195,10 @@ async def hydrate_session_from_db(session_id: str, db: AsyncSession) -> SessionM
         turns_result = await db.execute(
             fut_select(ConversationTurn)
             .where(ConversationTurn.session_id == record.id)
-            .order_by(ConversationTurn.turn_index.desc())
-            .limit(6)
+            .order_by(ConversationTurn.turn_index.asc())
         )
-        recent_turns = list(reversed(turns_result.scalars().all()))
-        history = [{"role": t.role, "content": t.content} for t in recent_turns]
+        all_turns = turns_result.scalars().all()
+        history = [{"role": t.role, "content": t.content} for t in all_turns]
         memory.load_history_from_db(history, llm_limit=6)
 
     # Cache for next request
@@ -493,7 +493,7 @@ async def confirm_skills(
         db=db,
         session_id=jd_id,
         insights=session_memory.insights,
-        progress=session_memory.progress,
+        progress=session_memory.to_dict(),
         conversation_history=session_memory.full_history,
         employee_id=session_memory.employee_id or "",
     )
@@ -519,7 +519,7 @@ async def confirm_tools(
         db=db,
         session_id=jd_id,
         insights=session_memory.insights,
-        progress=session_memory.progress,
+        progress=session_memory.to_dict(),
         conversation_history=session_memory.full_history,
         employee_id=session_memory.employee_id or "",
     )
@@ -554,7 +554,7 @@ async def confirm_priority_tasks(
         db=db,
         session_id=jd_id,
         insights=session_memory.insights,
-        progress=session_memory.progress,
+        progress=session_memory.to_dict(),
         conversation_history=session_memory.full_history,
         employee_id=session_memory.employee_id or "",
     )

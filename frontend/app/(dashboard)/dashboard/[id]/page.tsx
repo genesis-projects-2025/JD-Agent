@@ -944,7 +944,7 @@ function ManagerView({ user }: { user: AuthUser }) {
                               </Link>
                             ) : (
                               <Link
-                                href={`/dashboard/${emp.employee_id}`}
+                                href={`/dashboard/${btoa(emp.employee_id)}`}
                                 className="inline-flex items-center gap-2 text-[10px] font-medium text-primary-600 hover:text-primary-700 transition-colors"
                               >
                                 NO JD
@@ -1476,7 +1476,20 @@ export default function DynamicDashboardPage() {
   const params = useParams();
   const router = useRouter();
   const searchParams = useSearchParams();
-  const urlId = params.id as string;
+  let urlId = params.id as string;
+  
+  // Decode the URL ID if it's base64 encoded
+  if (urlId) {
+    try {
+      const decoded = atob(urlId);
+      if (/^[a-zA-Z0-9_-]+$/.test(decoded)) {
+        urlId = decoded;
+      }
+    } catch (e) {
+      // Use as-is if not base64
+    }
+  }
+
   const currentView = searchParams.get("view");
 
   const [user, setUser] = useState<AuthUser | null>(null);

@@ -319,6 +319,7 @@ async def run_interview_turn_stream(
             "ready_for_jd": gap_result.get("ready_for_jd", False),
             "suggested_skills": gap_result.get("suggested_skills", []),
             "suggested_tools": gap_result.get("suggested_tools", []),
+            "suggested_tasks": gap_result.get("suggested_tasks", []),
             "gaps": gap_result.get("gaps", []),
             "quality_score": gap_result.get("quality_score", 0),
         }
@@ -445,6 +446,7 @@ def _build_frontend_response(result: dict, session_memory) -> dict:
                         "description": desc,
                         "frequency": t.get("frequency", "regular"),
                         "category": t.get("category", "technical"),
+                        "is_suggestion": False,
                     }
                 )
             else:
@@ -453,10 +455,28 @@ def _build_frontend_response(result: dict, session_memory) -> dict:
                         "description": desc,
                         "frequency": "regular",
                         "category": "operational",
+                        "is_suggestion": False,
                     }
                 )
 
-        logger.info(f"[Graph] Final task_list count for frontend: {len(task_list)}")
+        # Merge RAG-suggested tasks
+        suggested_tasks = result.get("suggested_tasks", [])
+        logger.info(f"[Graph] Merging {len(suggested_tasks)} RAG-suggested tasks into task_list")
+
+        existing_descs = {t["description"].lower().strip() for t in task_list}
+        for task_desc in suggested_tasks:
+            cleaned_desc = task_desc.strip()
+            if cleaned_desc.lower().strip() not in existing_descs:
+                task_list.append(
+                    {
+                        "description": cleaned_desc,
+                        "frequency": "regular",
+                        "category": "role-standard",
+                        "is_suggestion": True,
+                    }
+                )
+
+        logger.info(f"[Graph] Final task_list count for frontend (including suggestions): {len(task_list)}")
 
     final_jd = insights.get("final_jd", {})
 
@@ -491,6 +511,7 @@ def _build_frontend_response(result: dict, session_memory) -> dict:
         "jd_text_format": final_jd.get("jd_text_format", ""),
         "suggested_skills": suggested_skills,
         "suggested_tools": suggested_tools,
+        "suggested_tasks": result.get("suggested_tasks", []),
         "task_list": task_list,
         "current_agent": current_agent,
         "analytics": {

@@ -33,7 +33,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     useEffect(() => {
         const authenticate = async () => {
             // 1. URL check for `?emp_cd=...` (High priority)
-            const urlEmpCode = searchParams.get("emp_cd");
+            let urlEmpCode = searchParams.get("emp_cd");
+            if (urlEmpCode) {
+                try {
+                    // Decode if it's base64 encoded
+                    const decoded = atob(urlEmpCode);
+                    if (/^[a-zA-Z0-9_-]+$/.test(decoded)) {
+                        urlEmpCode = decoded;
+                    }
+                } catch (e) {
+                    // Use as-is if not base64
+                }
+            }
 
             // 2. Local Cache check (Fast path - using Cookies)
             const cachedId = getCookie(cookieKeys.EMPLOYEE_ID);

@@ -52,6 +52,8 @@ class AgentState(TypedDict):
     # ── Output ────────────────────────────────────────────────────────────
     next_question: str       # The conversational response to send to user
     suggested_skills: list   # Skills panel for frontend
+    suggested_tools: list    # Tools panel for frontend
+    suggested_tasks: list    # Tasks suggestions panel for frontend
 
     # ── Iterative Deep Dive Helpers ───────────────────────────────────────
     visited_tasks: list[str]  # Tasks that have completed deep dives
@@ -103,6 +105,8 @@ def create_initial_state(
         },
         next_question="",
         suggested_skills=[],
+        suggested_tools=[],
+        suggested_tasks=[],
         visited_tasks=visited_tasks or [],
         active_deep_dive_task=active_deep_dive_task,
         conversation_summary=conversation_summary,

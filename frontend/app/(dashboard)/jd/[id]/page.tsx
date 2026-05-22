@@ -84,6 +84,13 @@ export default function JDPage() {
  }
  };
 
+ const rolesMatch = (target: string, current: string) => {
+   if (target === current) return true;
+   if (target === "manager" && current === "head") return true;
+   if (target === "hr" && current === "admin") return true;
+   return false;
+ };
+
  const handleTextChange = (field: string, val: string) => {
  setEditedData((prev: any) => ({ ...prev, [field]: val }));
  };
@@ -225,7 +232,7 @@ export default function JDPage() {
  if (comments && comments.length > 0) {
  const { markFeedbackRead } = await import("@/lib/api");
  const unreadComments = comments.filter(
- (c: any) => !c.is_read && c.target_role === u?.role,
+ (c: any) => !c.is_read && rolesMatch(c.target_role, u?.role || ""),
  );
 
  if (unreadComments.length > 0) {
@@ -276,7 +283,8 @@ export default function JDPage() {
  onClick={() => {
  const u = getCurrentUser();
  if (u?.employee_id) {
- router.push(`/dashboard/${u.employee_id}`);
+ const encodedId = btoa(u.employee_id);
+ router.push(`/dashboard/${encodedId}`);
  } else {
  router.push("/");
  }
@@ -310,7 +318,8 @@ export default function JDPage() {
  setJd(updated);
  setReviewComments(comments);
  
- router.push(`/dashboard/${user.employee_id}`);
+ const encodedId = btoa(user.employee_id);
+ router.push(`/dashboard/${encodedId}`);
  router.refresh();
  } catch (e: any) {
  alert(e.message || "Failed to reject JD.");
@@ -403,7 +412,8 @@ export default function JDPage() {
     // route directly to HR instead of manager.
     let targetStatus = "sent_to_manager";
     if (!u.reporting_manager_code || u.reporting_manager_code === "E6679") {
- }
+       targetStatus = "sent_to_hr";
+    }
 
  await submitJD(jd.id, jd.employee_id, targetStatus);
  const updated = await fetchJD(jd.id);
@@ -474,13 +484,13 @@ export default function JDPage() {
  return;
  }
 
- let url = `/dashboard/${u.employee_id}`;
+ let url = `/dashboard/${btoa(u.employee_id)}`;
  if (jd) {
  const isManagerRole = u.role === "manager" || u.role === "head";
  if (isManagerRole && (jd.status === "sent_to_manager" || jd.status === "sent_to_hr")) {
  // For heads, they might care about both. But pending is the default for managers.
  url += "?view=pending";
- } else if (u.role === "hr" && jd.status === "sent_to_hr") {
+ } else if ((u.role === "hr" || u.role === "admin") && jd.status === "sent_to_hr") {
  url += "?view=approvals";
  } else if (jd.status.includes("rejected")) {
  url += "?view=feedback";
@@ -599,7 +609,7 @@ export default function JDPage() {
  )}
  </div>
 
- {(role === "manager" || role === "head" || role === "hr") && (
+ {(role === "manager" || role === "head" || role === "hr" || role === "admin") && (
  <div className="flex flex-col gap-3 min-w-[240px] w-full lg:w-auto mt-2 lg:mt-0 order-last lg:order-none">
  {(role === "manager" || role === "head") && jd.status === "sent_to_manager" && (
 
@@ -693,7 +703,7 @@ export default function JDPage() {
  </button>
  )}
 
- {role === "hr" && jd.status === "sent_to_hr" && (
+ {(role === "hr" || role === "admin") && jd.status === "sent_to_hr" && (
  <div className="flex flex-col sm:flex-row flex-wrap gap-3 w-full">
  <button
  onClick={handleHRApprove}
@@ -727,7 +737,7 @@ export default function JDPage() {
  )}
 
  {/* HR Owner Actions (for their own drafts) */}
- {role === "hr" &&
+ {(role === "hr" || role === "admin") &&
  ["draft", "jd_generated"].includes(jd.status) && (
  <div className="flex flex-col sm:flex-row gap-3 w-full">
  <button
@@ -764,7 +774,7 @@ export default function JDPage() {
  </button>
  </div>
  )}
- {role === "hr" && jd.status === "approved" && (
+ {(role === "hr" || role === "admin") && jd.status === "approved" && (
  <button
  disabled
  className="w-full px-6 py-4 bg-purple-50 text-purple-600 border border-purple-200 rounded-md font-medium flex items-center justify-center gap-2 text-[15px] cursor-not-allowed shadow-sm"
@@ -838,7 +848,7 @@ export default function JDPage() {
  {reviewComments.length > 0 &&
  jd.status.includes("rejected") &&
  reviewComments[0].action === "rejected" &&
- reviewComments[0].target_role === role && (
+ rolesMatch(reviewComments[0].target_role, role) && (
  <div className="bg-red-50 border-2 border-red-200 rounded-[32px] p-6 mb-8 animate-in slide-in-from-top-4 duration-500 shadow-md shadow-red-900/5">
  <div className="flex items-start gap-4">
  <div className="w-12 h-12 bg-red-100 rounded-md flex items-center justify-center flex-shrink-0 animate-pulse">

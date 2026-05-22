@@ -9,7 +9,19 @@ import { PlayCircle, ArrowRight, FilePlus } from "lucide-react";
 export default function HomePage({ params }: { params: Promise<{ id: string }> }) {
   const [user, setUser] = useState<AuthUser | null>(null);
   const resolvedParams = use(params);
-  const employeeId = resolvedParams.id;
+  
+  // Decode the ID from the URL if it's base64 encoded
+  const employeeId = (() => {
+    try {
+      const decoded = atob(resolvedParams.id);
+      if (/^[a-zA-Z0-9_-]+$/.test(decoded)) {
+        return decoded;
+      }
+      return resolvedParams.id;
+    } catch (e) {
+      return resolvedParams.id;
+    }
+  })();
 
   useEffect(() => {
     // Defer user loading to avoid hydration mismatch
@@ -105,7 +117,7 @@ export default function HomePage({ params }: { params: Promise<{ id: string }> }
         {/* Action Buttons (Below Video) */}
         <div className="flex flex-col sm:flex-row items-center justify-center gap-4 mb-20">
           <Link
-            href={`/dashboard/${employeeId}`}
+            href={`/dashboard/${btoa(employeeId)}`}
             className="w-full sm:w-auto px-8 py-4 bg-white text-slate-900 border border-slate-200 rounded-md shadow-sm hover:shadow-md hover:border-slate-300 transition-all font-medium flex items-center justify-center gap-2"
           >
             Go to Dashboard

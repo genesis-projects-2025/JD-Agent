@@ -2,7 +2,9 @@ export interface TaskListItem {
   description: string;
   frequency?: string;
   category?: string;
+  is_suggestion?: boolean;
 }
+
 
 export interface WorkflowStepData {
   trigger?: string;

@@ -106,8 +106,8 @@ export function useUnreadFeedback(
   return useQuery({
     queryKey: qk.unreadFeedback(employeeId ?? "", role),
     queryFn: () => fetchUnreadFeedback(employeeId!, role),
-    // HR also needs feedback — they can see what they've sent to managers
-    enabled: !!employeeId && (role === "employee" || role === "manager" || role === "hr"),
+    // HR/Managers also need feedback
+    enabled: !!employeeId && ["employee", "manager", "head", "hr", "admin"].includes(role),
     staleTime: 120_000,        // ← 2 min, was 60s
     refetchInterval: 120_000,  // ← 2 min polling, was 60s
     refetchIntervalInBackground: false, // ← don't poll when tab is hidden

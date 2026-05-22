@@ -87,7 +87,10 @@ export default function FeedbackPage() {
  <div className="px-4 xl:px-0 flex flex-col sm:flex-row sm:items-end justify-between gap-6 relative z-10">
  <div>
  <button
- onClick={() => router.push(`/dashboard/${employeeId}`)}
+ onClick={() => {
+ const encodedId = btoa(employeeId);
+ router.push(`/dashboard/${encodedId}`);
+ }}
  className="flex items-center gap-2 text-surface-400 hover:text-primary-600 transition-colors text-[11px] font-medium mb-6 group"
  >
  <ArrowLeft className="w-4 h-4 group-hover:-translate-x-1 transition-transform" />
@@ -103,7 +106,7 @@ export default function FeedbackPage() {
  Feedback Hub
  </h1>
  <p className="text-surface-500 mt-2 text-sm sm:text-base max-w-xl font-medium leading-relaxed">
- {currentUser?.role === "hr"
+ {(currentUser?.role === "hr" || currentUser?.role === "admin")
  ? "Track change requests you've sent to managers."
  : "Review and address feedback on your strategic role architectures."}
  </p>
@@ -184,7 +187,7 @@ export default function FeedbackPage() {
  )}
  {item.action === "approve"
  ? "Approved"
- : item.reviewer_role === "hr"
+ : (item.reviewer_role === "hr" || item.reviewer_role === "admin")
  ? "HR Rejected"
  : "Manager Rejected"}
  </span>

@@ -41,8 +41,23 @@ const STATUS_META: Record<
  action: "View JD",
  },
  sent_to_manager: {
- label: "Sent for Review",
+ label: "Manager Review",
  dot: "bg-purple-500",
+ action: "View JD",
+ },
+ manager_rejected: {
+ label: "Manager Rejected",
+ dot: "bg-rose-500",
+ action: "View JD",
+ },
+ sent_to_hr: {
+ label: "HR Review",
+ dot: "bg-indigo-500",
+ action: "View JD",
+ },
+ hr_rejected: {
+ label: "HR Rejected",
+ dot: "bg-rose-600",
  action: "View JD",
  },
  approved: { label: "Approved", dot: "bg-emerald-600", action: "View JD" },
@@ -71,9 +86,14 @@ function SessionCard({
  isResuming: boolean;
 }) {
  const meta = STATUS_META[session.status] ?? STATUS_META.draft;
- const isJDDone = ["jd_generated", "sent_to_manager", "approved"].includes(
- session.status,
- );
+ const isJDDone = [
+  "jd_generated",
+  "sent_to_manager",
+  "manager_rejected",
+  "sent_to_hr",
+  "hr_rejected",
+  "approved",
+ ].includes(session.status);
 
  return (
  <div className="flex items-center gap-4 px-5 py-4 bg-white rounded-md border border-neutral-200 hover:border-blue-300 hover:shadow-sm transition-all duration-200">
@@ -151,15 +171,20 @@ export default function ContinueSessionBanner() {
  fetchSessions();
  }, []);
 
- const handleResume = (session: SessionRecord) => {
- setResumingId(session.id);
- const isJDDone = ["jd_generated", "sent_to_manager", "approved"].includes(
- session.status,
- );
- router.push(
- isJDDone ? `/jd/${session.id}` : `/questionnaire/${session.id}`,
- );
- };
+  const handleResume = (session: SessionRecord) => {
+    setResumingId(session.id);
+    const isJDDone = [
+      "jd_generated",
+      "sent_to_manager",
+      "manager_rejected",
+      "sent_to_hr",
+      "hr_rejected",
+      "approved",
+    ].includes(session.status);
+    router.push(
+      isJDDone ? `/jd/${session.id}` : `/questionnaire/${session.id}`,
+    );
+  };
 
  // Loading skeleton
  if (loading)

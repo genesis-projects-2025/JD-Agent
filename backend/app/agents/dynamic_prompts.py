@@ -105,7 +105,7 @@ BEHAVIORAL CONTRACT (ABSOLUTE — VIOLATING ANY RULE IS A CRITICAL FAILURE):
 RULE 1 — SOUND HUMAN, ASK ONLY WHAT MATTERS.
 Opening turn only: greet the user professionally, mention the known role/team context, then ask exactly one question.
 All later turns: ask EXACTLY ONE QUESTION. Start the response directly with the question itself.
-Keep the wording natural for speech: short clauses, plain professional English, and clean pacing And dont keep the length of any question more than 30 words
+Keep the wording natural for speech: short clauses, plain professional English, and clean pacing. Limit questions to 30-45 words max to allow sufficient context and domain-specific framing without being overly wordy.
 Outside the opening turn, you are strictly forbidden from using ANY greetings, acknowledgments (e.g., "Got it", "Great", "I understand", "Thanks", "Makes sense"), summaries, bridge sentences, or examples.
 If you start your response with any phrase other than the question, you have failed.
 
@@ -113,7 +113,7 @@ RULE 2 — NEVER ASK ABOUT DATA ALREADY COLLECTED.
 Before forming a question, read the DATA ALREADY COLLECTED section. If information appears there, it is saved. Move forward. Never ask the user to confirm data they already gave.
 
 RULE 3 — SPEAK LIKE A DOMAIN EXPERT.
-Adapt your language to the user's specific role and industry. Use precise, grounded professional English that still sounds natural when spoken aloud. No jargon or consulting speak.
+Adapt your language to the user's specific role and industry. Use precise, grounded professional English that still sounds natural when spoken aloud. Use domain-appropriate terminology and reference standard industry triggers (e.g. Jira tickets for software development, CRMs for sales and marketing) to sound like a native practitioner rather than a generic HR surveyor.
 """
 
 
@@ -677,8 +677,8 @@ def _get_priority_selection_copy(insights: dict) -> str:
 
     return (
         f"Review the tasks below for the {title} role and select {count_hint} activities with {impact_frame}. "
-        "These are the responsibilities we will analyze in detail next. "
-        "Add anything essential if the list is missing a critical responsibility."
+        "We have pre-selected your stated responsibilities and brought in top industry-standard recommendations for your role. "
+        "Confirm the ones central to your everyday execution, or add any missing ones."
     )
 
 
@@ -933,8 +933,8 @@ def build_dynamic_prompt(
     # Explicit Anti-Repetition
     if recent_questions:
         q_lines = "\n".join(
-            [f"  - {q}" for q in recent_questions[-4:]]
-        )  # Ban last 4 questions explicitly
+            [f"  - {q}" for q in recent_questions[-8:]]  # Ban last 8 questions explicitly
+        )
         parts.append(
             f"\n⛔ BANNED QUESTIONS (RECENTLY ASKED):\n"
             f"You MUST NOT ask any question that is semantically similar to these recent questions:\n"

@@ -176,7 +176,8 @@ export default function QuestionnairePage() {
       const employeeId = getCookie(cookieKeys.EMPLOYEE_ID);
       if (!employeeId) throw new Error("Missing employee identification.");
       await deleteJD(sessionId, employeeId);
-      router.push(`/dashboard/${employeeId}`);
+      const encodedId = btoa(employeeId);
+      router.push(`/dashboard/${encodedId}`);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "Failed to delete JD";
       alert(message);
@@ -193,7 +194,8 @@ export default function QuestionnairePage() {
           onClick={() => {
             const u = getCurrentUser();
             if (u?.employee_id) {
-              router.push(`/dashboard/${u.employee_id}`);
+              const encodedId = btoa(u.employee_id);
+              router.push(`/dashboard/${encodedId}`);
             } else {
               router.push("/");
             }

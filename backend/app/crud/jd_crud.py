@@ -226,10 +226,19 @@ async def save_questionnaire_jd(
 
     safe_structured = _safe_jsonb(jd_structured)
     safe_insights = _safe_jsonb(employee_insights)
-    safe_progress = _safe_jsonb(progress)
+    # Ensure safe_progress is a mutable dict
+    safe_progress = dict(_safe_jsonb(progress)) if progress else {}
 
     title = _extract_title(safe_structured)
     department = _extract_department(safe_structured)
+
+    # Determine status transition to post-generation status if JD text exists
+    target_status = status
+    if (jd_text or safe_structured) and (target_status in ["collecting", "ready_for_generation", "draft"] or not target_status):
+        target_status = "jd_generated"
+
+    if target_status:
+        safe_progress["status"] = target_status
 
     emp_name_from_insights = safe_insights.get("identity_context", {}).get(
         "employee_name"
@@ -265,13 +274,14 @@ async def save_questionnaire_jd(
         # Save working memory (questions_asked) into conversation_state JSONB
         record.conversation_state = safe_progress
 
-        if status:
+        if target_status:
             if not record.status or record.status in [
                 "draft",
                 "collecting",
+                "ready_for_generation",
                 "jd_generated",
             ]:
-                record.status = status
+                record.status = target_status
 
         if title:
             record.title = title
@@ -282,7 +292,7 @@ async def save_questionnaire_jd(
         record = JDSession(
             id=session_uuid,
             employee_id=employee_id,
-            status=status or "draft",
+            status=target_status or "draft",
             title=title or "New Strategic Role",
             department=department,
             conversation_state=safe_progress,
@@ -479,10 +489,10 @@ async def update_questionnaire_jd(
         is_manager = (
             editor
             and creator
-            and editor.role == "manager"
+            and editor.role in ["manager", "head"]
             and creator.reporting_manager_code == editor.id
         )
-        is_hr = editor and editor.role == "hr"
+        is_hr = editor and editor.role in ["hr", "admin"]
 
         if not is_manager and not is_hr:
             raise PermissionError(
@@ -554,10 +564,10 @@ async def update_questionnaire_status(
         is_manager = (
             editor
             and creator
-            and editor.role == "manager"
+            and editor.role in ["manager", "head"]
             and creator.reporting_manager_code == editor.id
         )
-        is_hr = editor and editor.role == "hr"
+        is_hr = editor and editor.role in ["hr", "admin"]
         is_owner_submitting = record.employee_id == employee_id
 
         if not is_manager and not is_hr and not is_owner_submitting:
@@ -566,6 +576,15 @@ async def update_questionnaire_status(
             )
 
     record.status = new_status
+    # Also update status inside conversation_state JSONB if it exists
+    if record.conversation_state:
+        try:
+            state = dict(record.conversation_state)
+            state["status"] = new_status
+            record.conversation_state = state
+        except Exception as e:
+            logger.warning(f"Failed to update status inside conversation_state: {e}")
+
     # Update timestamps for workflow progression
     if new_status == "sent_to_manager":
         record.sent_to_manager_at = datetime.datetime.now(datetime.timezone.utc)
@@ -787,7 +806,7 @@ async def create_review_comment(
             
             # If rejected by HR, status is hr_rejected.
             # Otherwise (Manager/Head), status is manager_rejected.
-            if reviewer and reviewer.role == "hr":
+            if reviewer and reviewer.role in ["hr", "admin"]:
                 record.status = "hr_rejected"
             else:
                 record.status = "manager_rejected"
@@ -1007,7 +1026,7 @@ async def get_all_feedback_for_user(
             for c, jd, creator, reviewer in rows
         ]
 
-    elif user_role == "hr":
+    elif user_role in ["hr", "admin"]:
         from sqlalchemy.orm import aliased
 
         EmpCreator = aliased(Employee, name="emp_creator")

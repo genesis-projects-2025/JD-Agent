@@ -19,7 +19,9 @@ export default function HomePage() {
 
  const handleGoToDashboard = () => {
  if (isAuthenticated && employeeId) {
- router.push(`/dashboard/${employeeId}`);
+ // Encode the ID for URL safety
+ const encodedId = btoa(employeeId);
+ router.push(`/dashboard/${encodedId}`);
  }
  };
 

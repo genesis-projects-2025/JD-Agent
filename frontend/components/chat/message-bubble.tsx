@@ -48,21 +48,44 @@ export default function MessageBubble({
   const [isToolsConfirming, setIsToolsConfirming] = useState(false);
 
   // ── Priority Tasks State ──────────────────────────────────────────────────
-  const normaliseTasks = (
-    raw: Array<{ description: string; frequency?: string; category?: string } | string> | undefined
-  ): string[] => {
-    if (!raw) return [];
-    return raw
-      .map((t) => (typeof t === "string" ? t.trim() : t.description?.trim() ?? ""))
-      .filter(Boolean);
+  const splitTasks = (
+    raw: Array<import("../../types/jd-agent").TaskListItem | string> | undefined
+  ): { core: string[]; suggested: string[] } => {
+    const core: string[] = [];
+    const suggested: string[] = [];
+    if (!raw) return { core, suggested };
+
+    raw.forEach((t) => {
+      if (typeof t === "string") {
+        const cleaned = t.trim();
+        if (cleaned) core.push(cleaned);
+      } else {
+        const cleaned = t.description?.trim() ?? "";
+        if (cleaned) {
+          if (t.is_suggestion) {
+            suggested.push(cleaned);
+          } else {
+            core.push(cleaned);
+          }
+        }
+      }
+    });
+
+    return { core, suggested };
   };
 
-  const [availableTasks, setAvailableTasks] = useState<string[]>(() =>
-    normaliseTasks(message.tasks)
-  );
-  const [selectedTasks, setSelectedTasks] = useState<string[]>(() =>
-    normaliseTasks(message.tasks)
-  );
+  const [coreTasks, setCoreTasks] = useState<string[]>(() => {
+    const { core } = splitTasks(message.tasks);
+    return core;
+  });
+  const [suggestedTasks, setSuggestedTasks] = useState<string[]>(() => {
+    const { suggested } = splitTasks(message.tasks);
+    return suggested;
+  });
+  const [selectedTasks, setSelectedTasks] = useState<string[]>(() => {
+    const { core } = splitTasks(message.tasks);
+    return core;
+  });
   const [newTask, setNewTask] = useState("");
   const [isTasksConfirmed, setIsTasksConfirmed] = useState(false);
   const [isTasksConfirming, setIsTasksConfirming] = useState(false);
@@ -108,9 +131,10 @@ export default function MessageBubble({
       setSelectedTools(message.tools);
     }
     if (message.tasks && message.tasks.length > 0) {
-      const normalised = normaliseTasks(message.tasks);
-      setAvailableTasks(normalised);
-      setSelectedTasks(normalised);
+      const { core, suggested } = splitTasks(message.tasks);
+      setCoreTasks(core);
+      setSuggestedTasks(suggested);
+      setSelectedTasks(core);
     }
   }, [message.skills, message.tools, message.tasks]);
 
@@ -181,9 +205,13 @@ export default function MessageBubble({
   const addCustomTask = () => {
     if (!newTask.trim() || isTasksConfirmed) return;
     const task = newTask.trim();
-    if (!availableTasks.includes(task)) {
-      setAvailableTasks((prev) => [...prev, task]);
+    if (!coreTasks.includes(task) && !suggestedTasks.includes(task)) {
+      setCoreTasks((prev) => [...prev, task]);
       setSelectedTasks((prev) => [...prev, task]);
+    } else if (suggestedTasks.includes(task)) {
+      if (!selectedTasks.includes(task)) {
+        setSelectedTasks((prev) => [...prev, task]);
+      }
     }
     setNewTask("");
   };
@@ -230,13 +258,19 @@ export default function MessageBubble({
             {displayText ? (
               displayText.trim().replace(/\n{3,}/g, "\n\n")
             ) : message.isStreaming ? (
-              <div className="flex items-center gap-2 text-surface-400 py-1">
+              <div className="flex items-center gap-2 text-surface-400 py-1 animate-in fade-in duration-300">
                 <div className="flex gap-1">
                   <span className="w-1.5 h-1.5 bg-primary-400 rounded-md animate-bounce [animation-delay:-0.3s]" />
                   <span className="w-1.5 h-1.5 bg-primary-400 rounded-md animate-bounce [animation-delay:-0.15s]" />
                   <span className="w-1.5 h-1.5 bg-primary-400 rounded-md animate-bounce" />
                 </div>
-                <span className="text-[10px] font-medium ml-1">Thinking...</span>
+                <span className="text-[10px] font-medium ml-1">
+                  {message.currentAgent === "ToolsAgent"
+                    ? "Searching, validating, and synthesizing suggested tools using Gemini..."
+                    : message.currentAgent === "SkillsAgent"
+                    ? "Searching, validating, and synthesizing suggested skills using Gemini..."
+                    : "Thinking..."}
+                </span>
               </div>
             ) : null}
             {message.isStreaming && displayText.length > 0 && isTyping && (
@@ -245,7 +279,7 @@ export default function MessageBubble({
           </div>
 
           {/* ── PRIORITY TASK SELECTION UI ──────────────────────────────── */}
-          {message.isPrioritySelection && availableTasks.length > 0 && (
+          {message.isPrioritySelection && (coreTasks.length > 0 || suggestedTasks.length > 0) && (
             <div className="mt-6 space-y-5 pt-5 border-t border-surface-100">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
@@ -263,34 +297,78 @@ export default function MessageBubble({
                 Select the 3–5 most critical, high-impact tasks from your role. These will be deep-dived for the Job Description.
               </p>
 
-              <div className="flex flex-col gap-2">
-                {availableTasks.map((task, idx) => {
-                  const isSelected = selectedTasks.includes(task);
-                  return (
-                    <button
-                      key={task + idx}
-                      disabled={isTasksConfirmed}
-                      onClick={() => toggleTask(task)}
-                      className={`flex items-start gap-3 px-3 py-3 rounded-md text-[12px] font-medium text-left transition-all duration-200 border ${
-                        isSelected
-                          ? "bg-primary-50 text-primary-900 border-primary-300 shadow-sm"
-                          : "bg-surface-50 text-surface-700 border-surface-200 hover:bg-surface-100"
-                      } ${isTasksConfirmed ? "opacity-60 cursor-not-allowed" : "active:scale-[0.99]"}`}
-                    >
-                      <div
-                        className={`flex-shrink-0 w-4 h-4 mt-0.5 rounded border transition-all ${
-                          isSelected
-                            ? "bg-primary-600 border-primary-600 flex items-center justify-center"
-                            : "border-surface-300 bg-white"
-                        }`}
-                      >
-                        {isSelected && <Check className="w-2.5 h-2.5 text-white" />}
-                      </div>
-                      <span className="leading-relaxed">{task}</span>
-                    </button>
-                  );
-                })}
-              </div>
+              {coreTasks.length > 0 && (
+                <div className="space-y-2">
+                  <h5 className="text-[10px] font-bold text-surface-400 uppercase tracking-wider">
+                    Stated Responsibilities (Pre-selected)
+                  </h5>
+                  <div className="flex flex-col gap-2">
+                    {coreTasks.map((task, idx) => {
+                      const isSelected = selectedTasks.includes(task);
+                      return (
+                        <button
+                          key={`core-${task}-${idx}`}
+                          disabled={isTasksConfirmed}
+                          onClick={() => toggleTask(task)}
+                          className={`flex items-start gap-3 px-3 py-3 rounded-md text-[12px] font-medium text-left transition-all duration-200 border ${
+                            isSelected
+                              ? "bg-primary-50 text-primary-900 border-primary-300 shadow-sm"
+                              : "bg-surface-50 text-surface-700 border-surface-200 hover:bg-surface-100"
+                          } ${isTasksConfirmed ? "opacity-60 cursor-not-allowed" : "active:scale-[0.99]"}`}
+                        >
+                          <div
+                            className={`flex-shrink-0 w-4 h-4 mt-0.5 rounded border transition-all ${
+                              isSelected
+                                ? "bg-primary-600 border-primary-600 flex items-center justify-center"
+                                : "border-surface-300 bg-white"
+                            }`}
+                          >
+                            {isSelected && <Check className="w-2.5 h-2.5 text-white" />}
+                          </div>
+                          <span className="leading-relaxed">{task}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {suggestedTasks.length > 0 && (
+                <div className="space-y-2 pt-2">
+                  <h5 className="flex items-center gap-1.5 text-[10px] font-bold text-violet-600 uppercase tracking-wider">
+                    <Sparkles className="w-3 h-3 text-violet-500 animate-pulse" />
+                    Recommended for your role (Add in one click)
+                  </h5>
+                  <div className="flex flex-col gap-2">
+                    {suggestedTasks.map((task, idx) => {
+                      const isSelected = selectedTasks.includes(task);
+                      return (
+                        <button
+                          key={`suggested-${task}-${idx}`}
+                          disabled={isTasksConfirmed}
+                          onClick={() => toggleTask(task)}
+                          className={`flex items-start gap-3 px-3 py-3 rounded-md text-[12px] font-medium text-left transition-all duration-300 border ${
+                            isSelected
+                              ? "bg-violet-50 text-violet-900 border-violet-300 shadow-sm"
+                              : "bg-white text-surface-700 border-surface-200 hover:border-violet-300 hover:bg-violet-50/20"
+                          } ${isTasksConfirmed ? "opacity-60 cursor-not-allowed" : "active:scale-[0.99]"}`}
+                        >
+                          <div
+                            className={`flex-shrink-0 w-4 h-4 mt-0.5 rounded border transition-all ${
+                              isSelected
+                                ? "bg-violet-600 border-violet-600 flex items-center justify-center"
+                                : "border-surface-300 bg-white"
+                            }`}
+                          >
+                            {isSelected && <Check className="w-2.5 h-2.5 text-white" />}
+                          </div>
+                          <span className="leading-relaxed">{task}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
 
               {!isTasksConfirmed && (
                 <div className="mt-4 space-y-3">

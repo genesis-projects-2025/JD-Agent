@@ -39,6 +39,8 @@ import {
 import FeedbackModal from "@/components/feedback/FeedbackModal";
 
 const STATUS_CONFIG: Record<string, { label: string; dotColor: string }> = {
+    collecting: { label: "In Progress", dotColor: "bg-amber-400" },
+    ready_for_generation: { label: "Ready to Gen", dotColor: "bg-blue-400" },
     draft: { label: "Draft", dotColor: "bg-amber-400" },
     jd_generated: { label: "Draft", dotColor: "bg-amber-400" },
     sent_to_manager: { label: "Under Review", dotColor: "bg-blue-400" },
@@ -100,7 +102,7 @@ export default function Sidebar() {
     const links: NavItem[] = [
         {
             name: "Dashboard",
-            href: employeeId ? `/dashboard/${employeeId}` : "/",
+            href: employeeId ? `/dashboard/${btoa(employeeId)}` : "/",
             icon: LayoutDashboard,
             description: "My job descriptions",
         },
@@ -115,14 +117,14 @@ export default function Sidebar() {
     if (role === "manager" || role === "head") {
         links.push({
             name: "Approvals",
-            href: employeeId ? `/feedback/${employeeId}` : "/",
+            href: employeeId ? `/feedback/${btoa(employeeId)}` : "/",
             icon: AlertTriangle,
             description: "Pending reviews",
         });
-    } else if (role === "hr") {
+    } else if (role === "hr" || role === "admin") {
         links.push({
             name: "Reviews",
-            href: employeeId ? `/feedback/${employeeId}` : "/",
+            href: employeeId ? `/feedback/${btoa(employeeId)}` : "/",
             icon: ShieldCheck,
             description: "Final approvals",
         });
@@ -197,7 +199,7 @@ export default function Sidebar() {
             >
                 <div className="p-6 flex items-center justify-between shrink-0">
                     <Link
-                        href={employeeId ? `/home/${employeeId}` : "/"}
+                        href={employeeId ? `/home/${btoa(employeeId)}` : "/"}
                         className="flex items-center gap-3 group transition-opacity hover:opacity-80"
                     >
                         <div className="h-10 w-auto flex items-center justify-center group-hover:scale-105 transition-transform">

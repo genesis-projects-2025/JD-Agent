@@ -117,6 +117,7 @@ def _reconcile_session_memory(memory: SessionMemory) -> SessionMemory:
         return memory
 
     review_statuses = {
+        "jd_generated",
         "sent_to_manager",
         "manager_rejected",
         "sent_to_hr",
@@ -182,6 +183,9 @@ async def hydrate_session_from_db(session_id: str, db: AsyncSession) -> SessionM
         # Restore full session state (questions_asked, progress, etc)
         # pyrefly: ignore [bad-argument-type]
         memory.from_dict(record.conversation_state or {})
+        # Make sure progress status matches the database column record status (source of truth)
+        if record.status:
+            memory.progress["status"] = record.status
         # pyrefly: ignore [bad-assignment]
         memory.generated_jd = record.jd_text
         # pyrefly: ignore [bad-assignment]
@@ -396,7 +400,7 @@ async def generate_jd_endpoint(
         db=db,
         session_id=session_id,
         insights=session_memory.insights,
-        progress=session_memory.progress,
+        progress=session_memory.to_dict(),
         conversation_history=session_memory.full_history,
         employee_id=session_memory.employee_id or "",
         employee_name=session_memory.employee_name,
@@ -404,6 +408,8 @@ async def generate_jd_endpoint(
     )
 
     await invalidate_pattern(f"cache:jd_detail:*{session_id}*")
+    await invalidate_pattern(f"session:{session_id}")
+    await _cache_session(session_memory)
 
     return {
         "id": session_id,
@@ -430,6 +436,11 @@ async def save_jd(request: SaveJDRequest, db: AsyncSession = Depends(get_db)):
         for m in (session_memory.full_history or [])
     ]
 
+    # Update local session memory object to keep it consistent
+    session_memory.generated_jd = request.jd_text
+    session_memory.jd_structured = request.jd_structured
+    session_memory.progress["status"] = "jd_generated"
+
     try:
         record = await save_questionnaire_jd(
             db=db,
@@ -437,13 +448,10 @@ async def save_jd(request: SaveJDRequest, db: AsyncSession = Depends(get_db)):
             jd_text=request.jd_text,
             jd_structured=request.jd_structured,
             employee_insights=session_memory.insights,
-            progress=session_memory.progress,
+            progress=session_memory.to_dict(),
             employee_id=request.employee_id or session_memory.employee_id or "",
             conversation_history=db_history,
-            # pyrefly: ignore [bad-argument-type]
-            status=session_memory.progress.get("status")
-            if isinstance(session_memory.progress, dict)
-            else None,
+            status="jd_generated",
         )
 
         await invalidate_pattern("cache:jd_list:*")
@@ -451,6 +459,8 @@ async def save_jd(request: SaveJDRequest, db: AsyncSession = Depends(get_db)):
         await invalidate_pattern("cache:hr_pending:*")
         await invalidate_pattern("cache:dept_stats:*")
         await invalidate_pattern(f"cache:jd_detail:*{session_id}*")
+        await invalidate_pattern(f"session:{session_id}")
+        await _cache_session(session_memory)
 
         return {
             "status": "success",
@@ -487,6 +497,8 @@ async def confirm_skills(
         conversation_history=session_memory.full_history,
         employee_id=session_memory.employee_id or "",
     )
+    await invalidate_pattern(f"cache:jd_detail:*{jd_id}*")
+    await _cache_session(session_memory)
 
     return {"status": "success", "message": "Skills confirmed and stored."}
 
@@ -511,6 +523,8 @@ async def confirm_tools(
         conversation_history=session_memory.full_history,
         employee_id=session_memory.employee_id or "",
     )
+    await invalidate_pattern(f"cache:jd_detail:*{jd_id}*")
+    await _cache_session(session_memory)
 
     return {"status": "success", "message": "Tools confirmed and stored."}
 
@@ -878,6 +892,7 @@ async def update_jd_status(
         await invalidate_pattern("cache:hr_pending:*")
         await invalidate_pattern("cache:dept_stats:*")
         await invalidate_pattern(f"cache:jd_detail:*{jd_id}*")
+        await invalidate_pattern(f"session:{jd_id}")
 
         return {
             "status": "success",
@@ -908,6 +923,7 @@ async def delete_jd(jd_id: str, employee_id: str, db: AsyncSession = Depends(get
         await invalidate_pattern("cache:hr_pending:*")
         await invalidate_pattern("cache:dept_stats:*")
         await invalidate_pattern(f"cache:jd_detail:*{jd_id}*")
+        await invalidate_pattern(f"session:{jd_id}")
 
         return {"status": "success", "message": "JD deleted successfully."}
     except PermissionError as e:

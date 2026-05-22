@@ -160,7 +160,8 @@ export default function DashboardPage() {
   // Auto-redirect to dynamic dashboard if we have a user
   useEffect(() => {
     if (isMounted && user?.employee_id) {
-      router.replace(`/dashboard/${user.employee_id}`);
+      const encodedId = btoa(user.employee_id);
+      router.replace(`/dashboard/${encodedId}`);
     }
   }, [isMounted, user, router]);
 
@@ -503,7 +504,7 @@ export default function DashboardPage() {
 
         {/* Department Stats View */}
         {activeTab === "departments" &&
-          role === "hr" &&
+          (role === "hr" || role === "admin") &&
           !selectedDepartment && (
             <div className="bg-white rounded-md border border-surface-200 shadow-md overflow-hidden mb-8">
               <div className="px-4 sm:px-8 py-5 sm:py-6 border-b border-surface-100 flex flex-col sm:flex-row sm:items-center justify-between bg-surface-50/50 gap-4">
@@ -591,7 +592,7 @@ export default function DashboardPage() {
           )}
 
         {/* Detailed Department Employee List */}
-        {activeTab === "departments" && role === "hr" && selectedDepartment && (
+        {activeTab === "departments" && (role === "hr" || role === "admin") && selectedDepartment && (
           <div className="bg-white rounded-md border border-surface-200 shadow-md overflow-hidden mb-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
             <div className="px-4 sm:px-8 py-5 sm:py-6 border-b border-surface-100 flex flex-col sm:flex-row sm:items-center justify-between bg-surface-50/50 gap-4">
               <div className="flex items-center gap-3">
@@ -722,7 +723,7 @@ export default function DashboardPage() {
               <h2 className="text-lg sm:text-xl font-medium text-surface-900 ">
                 {activeTab === "my_jds"
                   ? "Your Job Descriptions"
-                  : role === "hr"
+                  : (role === "hr" || role === "admin")
                     ? "Documents in your HR Queue"
                     : "Your Team's Documents"}
               </h2>

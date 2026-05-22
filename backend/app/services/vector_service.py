@@ -57,6 +57,40 @@ def _canonical_department(metadata: dict[str, Any]) -> str:
     return str(metadata.get("department") or metadata.get("dept") or "").strip()
 
 
+def _is_matching_department(dept1: str, dept2: str) -> bool:
+    d1 = str(dept1).strip().lower()
+    d2 = str(dept2).strip().lower()
+    if not d1 or not d2:
+        return False
+    if d1 == d2:
+        return True
+    
+    synonyms = {
+        "r&d": {"research & development", "research and development", "analytical r&d", "chemical r&d", "nano r&d", "r & d", "r and d"},
+        "research & development": {"r&d", "research and development", "analytical r&d", "chemical r&d", "nano r&d", "r & d", "r and d"},
+        "research and development": {"r&d", "research & development", "analytical r&d", "chemical r&d", "nano r&d", "r & d", "r and d"},
+        "hr": {"hrd", "human resources", "hr & admin", "hr - bhr", "hr operations"},
+        "human resources": {"hr", "hrd", "hr & admin", "hr - bhr", "hr operations"},
+        "hrd": {"hr", "human resources", "hr & admin", "hr - bhr", "hr operations"},
+        "finance": {"finance & accounting", "accounts", "accounting", "finance and accounting"},
+        "finance & accounting": {"finance", "accounts", "accounting", "finance and accounting"},
+        "accounts": {"finance", "finance & accounting", "accounting", "finance and accounting"},
+        "qa": {"quality assurance", "cqa", "cqa & qa"},
+        "quality assurance": {"qa", "cqa"},
+        "cqa": {"qa", "quality assurance"},
+        "qc": {"quality control"},
+        "quality control": {"qc"},
+        "scm": {"procurement", "material sourcing", "supply chain", "supply chain management"},
+        "procurement": {"scm", "material sourcing", "supply chain", "supply chain management"},
+    }
+    
+    if d1 in synonyms and d2 in synonyms[d1]:
+        return True
+    if d2 in synonyms and d1 in synonyms[d2]:
+        return True
+    return d1 in d2 or d2 in d1
+
+
 def _canonical_experience(metadata: dict[str, Any]) -> str:
     return str(metadata.get("experience_level") or metadata.get("level") or "").strip()
 
@@ -342,12 +376,13 @@ async def query_advanced_context(
             candidate_experience = _canonical_experience(metadata)
             role_overlap = _role_overlap_score(role_query, candidate_role or text)
 
-            if score < 0.3 or not text or role_overlap < 0.34:
+            if score < 0.3 or not text:
                 continue
-            if department and candidate_department and department.strip().lower() != candidate_department.lower():
-                score -= 0.08
-            elif department and candidate_department:
-                score += 0.04
+            if department and candidate_department:
+                if _is_matching_department(department, candidate_department):
+                    score += 0.04
+                else:
+                    score -= 0.20
             if experience_level and candidate_experience and experience_level.lower() != candidate_experience.lower():
                 score -= 0.03
 
@@ -444,10 +479,11 @@ async def find_similar_jds(
             candidate_level = _canonical_experience(metadata)
             overlap = _role_overlap_score(role_title or "", candidate_role or str(metadata.get("text", "")))
             score = float(match.get("score", 0))
-            if role_title and overlap < 0.34:
-                continue
-            if department and candidate_department and department.strip().lower() != candidate_department.lower():
-                score -= 0.08
+            if department and candidate_department:
+                if _is_matching_department(department, candidate_department):
+                    score += 0.04
+                else:
+                    score -= 0.20
             if level and candidate_level and level.lower() != candidate_level.lower():
                 score -= 0.03
 

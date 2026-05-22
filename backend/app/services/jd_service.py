@@ -212,6 +212,7 @@ def build_fallback_response(session_memory: SessionMemory) -> str:
             jd_structured_data=None,
             jd_text_format="",
             suggested_skills=[],
+            suggested_tools=[],
             approval=Approval(),
             analytics=Analytics(),
         )
@@ -231,6 +232,7 @@ def build_fallback_response(session_memory: SessionMemory) -> str:
                 "jd_structured_data": {},
                 "jd_text_format": "",
                 "suggested_skills": [],
+                "suggested_tools": [],
                 "analytics": {
                     "questions_asked": 0,
                     "questions_answered": 0,
@@ -277,6 +279,7 @@ def wrap_plain_text_into_json(
                     "jd_structured_data": candidate.get("jd_structured_data", {}),
                     "jd_text_format": candidate.get("jd_text_format", ""),
                     "suggested_skills": candidate.get("suggested_skills", []),
+                    "suggested_tools": candidate.get("suggested_tools", []),
                     "analytics": candidate.get(
                         "analytics",
                         {
@@ -310,6 +313,7 @@ def wrap_plain_text_into_json(
         "jd_structured_data": {},
         "jd_text_format": "",
         "suggested_skills": [],
+        "suggested_tools": [],
         "analytics": {
             "questions_asked": 0,
             "questions_answered": 0,
@@ -680,6 +684,8 @@ def _process_llm_response(
             "next_question": assistant_text,
             "progress": session_memory.progress,
             "suggested_skills": parsed_json.get("suggested_skills", []),
+            "suggested_tools": parsed_json.get("suggested_tools", []),
+            "employee_role_insights": merged_insights,
         }
     )
     session_memory.update_recent("user", user_message)
@@ -692,6 +698,10 @@ def _process_llm_response(
     parsed_json["current_agent"] = current_agent
     parsed_json["jd_structured_data"] = {}
     parsed_json["jd_text_format"] = ""
+    if "suggested_tools" not in parsed_json:
+        parsed_json["suggested_tools"] = parsed_json.get("suggested_tools", [])
+    if "suggested_skills" not in parsed_json:
+        parsed_json["suggested_skills"] = parsed_json.get("suggested_skills", [])
 
     reply_content = json.dumps(parsed_json, separators=(",", ":"))
 

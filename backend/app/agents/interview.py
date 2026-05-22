@@ -608,9 +608,17 @@ def build_interview_messages(
 
     # 1. Generate the Master System Prompt (Persona + State + Mission)
     retrieved_context = kwargs.get("retrieved_context", [])
+    previous_questions_text = kwargs.get("previous_questions_text") or []
     
     # Extract recent questions to pass to prompt for explicit anti-repetition
     recent_questions = []
+    
+    # 1a. Seed with all actual question texts from the session memory (cross-phase)
+    for q_text in previous_questions_text:
+        if q_text and q_text.strip() and q_text.strip() not in recent_questions:
+            recent_questions.append(q_text.strip())
+
+    # 1b. Extract from recent messages sliding window as fallback/supplement
     for msg in recent_messages[-10:]:
         if msg.get("role") == "assistant":
             content = msg.get("content", "")
@@ -621,7 +629,9 @@ def build_interview_messages(
                 except Exception:
                     pass
             if content and content.strip():
-                recent_questions.append(content.strip())
+                clean_content = content.strip()
+                if clean_content not in recent_questions:
+                    recent_questions.append(clean_content)
 
     system_content = build_system_messages(
         phase=agent_name,
@@ -1170,6 +1180,7 @@ Keep it professional and brief."""
             user_message,
             transition_context,
             retrieved_context=retrieved_context,
+            previous_questions_text=previous_questions_text,
         )
 
         # Step 1: Call Conversational LLM for purely "Zero-Filler Questions"
@@ -1421,6 +1432,7 @@ Keep it professional and brief."""
             user_message,
             transition_context,
             retrieved_context=retrieved_context,
+            previous_questions_text=previous_questions_text,
         )
 
         response_text = ""

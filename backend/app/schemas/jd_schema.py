@@ -15,6 +15,8 @@ class EmployeeRoleInsights(BaseModel):
     technologies: List[str] = Field(default_factory=list)  # Frameworks/Platforms
     skills: List[str] = Field(default_factory=list)        # Technical/Domain skills
     qualifications: Dict = Field(default_factory=dict)     # {"education": [], "certifications": []}
+    tools_confirmed: bool = Field(default=False)
+    skills_confirmed: bool = Field(default=False)
     
     # Deprecated fields (kept for backward compatibility during transition if needed)
     identity_context: Dict = Field(default_factory=dict)
@@ -81,6 +83,7 @@ class ChatResponse(BaseModel):
     )
     
     suggested_skills: List[str] = Field(default_factory=list)
+    suggested_tools: List[str] = Field(default_factory=list)
 
     jd_structured_data: Optional[JDStructuredData] = Field(
         default_factory=JDStructuredData

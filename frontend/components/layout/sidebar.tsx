@@ -200,8 +200,12 @@ export default function Sidebar() {
                         href={employeeId ? `/home/${employeeId}` : "/"}
                         className="flex items-center gap-3 group transition-opacity hover:opacity-80"
                     >
-                        <div className="w-10 h-10 bg-gradient-to-br from-primary-500 to-primary-700 rounded-md flex items-center justify-center shadow-md shadow-primary-900/50 group-hover:scale-105 transition-transform">
-                            <FileText className="w-5 h-5 text-white" />
+                        <div className="h-10 w-auto flex items-center justify-center group-hover:scale-105 transition-transform">
+                            <img
+                                src="https://company-logo-wtn.s3.ap-southeast-2.amazonaws.com/logo.png"
+                                alt="Pulse Pharma Logo"
+                                className="h-full object-contain"
+                            />
                         </div>
                         <div>
                             <h1 className="text-lg font-medium ">JD</h1>

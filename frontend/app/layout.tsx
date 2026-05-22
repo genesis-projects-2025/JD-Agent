@@ -14,9 +14,13 @@ const inter = Inter({
 });
 
 export const metadata = {
- title: "JD Intelligence — Pulse Pharma",
+ title: "Pulse Pharma — JD Intelligence",
  description:
  "Enterprise job description management and approval system for Pulse Pharma.",
+ icons: {
+ icon: "https://company-logo-wtn.s3.ap-southeast-2.amazonaws.com/logo.png",
+ apple: "https://company-logo-wtn.s3.ap-southeast-2.amazonaws.com/logo.png",
+ },
 };
 
 export default function RootLayout({

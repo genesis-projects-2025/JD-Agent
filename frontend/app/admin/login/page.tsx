@@ -80,9 +80,13 @@ export default function AdminLoginPage() {
         <div className="w-full max-w-md">
           {/* Logo/Header */}
           <div className="text-center mb-12">
-            <div className="relative inline-flex items-center justify-center w-20 h-20 rounded-3xl bg-gradient-to-br from-blue-500 to-purple-600 shadow-2xl shadow-blue-500/25 mb-6">
-              <ShieldCheck className="w-10 h-10 text-white" />
-              <div className="absolute inset-0 rounded-3xl bg-gradient-to-br from-blue-500 to-purple-600 blur-md opacity-50"></div>
+            <div className="relative inline-flex items-center justify-center h-20 w-auto mb-6">
+              <img 
+                src="https://company-logo-wtn.s3.ap-southeast-2.amazonaws.com/logo.png" 
+                alt="Pulse Pharma Logo" 
+                className="h-full object-contain relative z-10" 
+              />
+              <div className="absolute inset-0 bg-white/10 blur-xl rounded-full scale-150"></div>
             </div>
             <h1 className="text-4xl font-bold text-white mb-3 tracking-tight">
               Admin Portal

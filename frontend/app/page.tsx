@@ -35,8 +35,12 @@ export default function HomePage() {
  <nav className="fixed top-0 left-0 right-0 z-50 bg-white/80 backdrop-blur-xl border-b border-neutral-100">
  <div className="max-w-7xl mx-auto px-6 h-20 flex items-center justify-between">
  <div className="flex items-center gap-3">
- <div className="w-10 h-10 bg-gradient-to-br from-blue-600 to-blue-800 rounded-md flex items-center justify-center shadow-md shadow-blue-900/20">
- <FileText className="w-5 h-5 text-white" />
+ <div className="h-10 w-auto flex items-center justify-center">
+ <img 
+ src="https://company-logo-wtn.s3.ap-southeast-2.amazonaws.com/logo.png" 
+ alt="Pulse Pharma Logo" 
+ className="h-full object-contain" 
+ />
  </div>
  <span className="text-xl font-medium text-neutral-900 hidden sm:inline-block">
  Pulse Pharma Intelligence

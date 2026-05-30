@@ -502,7 +502,7 @@ def _compact_insights(insights: dict) -> dict:
         return {}
     return {k: v for k, v in insights.items() if v not in (None, {}, [], "")}
 
-
+# Context filtering logic to determine what information to inject into the prompt for each agent.
 def _apply_context_filter(insights: dict, agent_name: str) -> dict:
     """Provides the agent with access to relevant data while prioritizing their mission.
 
@@ -567,7 +567,7 @@ def _apply_context_filter(insights: dict, agent_name: str) -> dict:
     
     return result
 
-
+#this function is used to build the identity block for the prompt, which provides pre-filled employee information that the agent can use without asking the user again. It extracts relevant fields from the insights and formats them into a clear block of text.
 def _build_identity_block(insights: dict) -> str:
     """Build pre-filled identity context block."""
     identity = insights.get("identity_context") or {}

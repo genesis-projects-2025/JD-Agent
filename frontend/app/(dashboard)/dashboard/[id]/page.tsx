@@ -1478,16 +1478,22 @@ export default function DynamicDashboardPage() {
   const searchParams = useSearchParams();
   let urlId = params.id as string;
   
-  // Decode the URL ID if it's base64 encoded
+  // Decode the URL ID recursively if it's base64 encoded
   if (urlId) {
-    try {
-      const decoded = atob(urlId);
-      if (/^[a-zA-Z0-9_-]+$/.test(decoded)) {
-        urlId = decoded;
+    let current = urlId;
+    while (true) {
+      try {
+        const decoded = atob(decodeURIComponent(current));
+        if (/^[a-zA-Z0-9_=\-\+\/%]+$/.test(decoded)) {
+          current = decoded;
+        } else {
+          break;
+        }
+      } catch (e) {
+        break;
       }
-    } catch (e) {
-      // Use as-is if not base64
     }
+    urlId = current;
   }
 
   const currentView = searchParams.get("view");

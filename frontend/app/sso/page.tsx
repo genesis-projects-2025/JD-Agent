@@ -17,17 +17,20 @@ function SSOSync() {
       
       // Decode if it's base64 encoded
       if (employee_id) {
-        try {
-          const decoded = atob(employee_id);
-          // If decoding succeeds but results in garbage characters (like when atob("E10695") returns "]:÷"),
-          // we should stick with the original string. Valid decoded IDs should be printable characters.
-          // Most employee IDs are alphanumeric (e.g., E10695).
-          if (/^[a-zA-Z0-9_-]+$/.test(decoded)) {
-            employee_id = decoded;
+        let current = employee_id;
+        while (true) {
+          try {
+            const decoded = atob(decodeURIComponent(current));
+            if (/^[a-zA-Z0-9_=\-\+\/%]+$/.test(decoded)) {
+              current = decoded;
+            } else {
+              break;
+            }
+          } catch (e) {
+            break;
           }
-        } catch (e) {
-          // Use as-is if not base64
         }
+        employee_id = current;
       }
 
       if (!employee_id) {

@@ -10,17 +10,22 @@ export default function HomePage({ params }: { params: Promise<{ id: string }> }
   const [user, setUser] = useState<AuthUser | null>(null);
   const resolvedParams = use(params);
   
-  // Decode the ID from the URL if it's base64 encoded
+  // Decode the ID from the URL recursively if it's base64 encoded
   const employeeId = (() => {
-    try {
-      const decoded = atob(resolvedParams.id);
-      if (/^[a-zA-Z0-9_-]+$/.test(decoded)) {
-        return decoded;
+    let current = resolvedParams.id;
+    while (true) {
+      try {
+        const decoded = atob(decodeURIComponent(current));
+        if (/^[a-zA-Z0-9_=\-\+\/%]+$/.test(decoded)) {
+          current = decoded;
+        } else {
+          break;
+        }
+      } catch (e) {
+        break;
       }
-      return resolvedParams.id;
-    } catch (e) {
-      return resolvedParams.id;
     }
+    return current;
   })();
 
   useEffect(() => {

@@ -35,16 +35,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             // 1. URL check for `?emp_cd=...` (High priority)
             let urlEmpCode = searchParams.get("emp_cd");
             if (urlEmpCode) {
-                try {
-                    // Decode if it's base64 encoded
-
-                    const decoded = atob(urlEmpCode);
-                    if (/^[a-zA-Z0-9_-]+$/.test(decoded)) {
-                        urlEmpCode = decoded;
+                let current = urlEmpCode;
+                while (true) {
+                    try {
+                        const decoded = atob(decodeURIComponent(current));
+                        if (/^[a-zA-Z0-9_=\-\+\/%]+$/.test(decoded)) {
+                            current = decoded;
+                        } else {
+                            break;
+                        }
+                    } catch (e) {
+                        break;
                     }
-                } catch (e) {
-                    // Use as-is if not base64
                 }
+                urlEmpCode = current;
             }
 
             // 2. Local Cache check (Fast path - using Cookies)

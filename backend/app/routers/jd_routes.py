@@ -787,6 +787,13 @@ async def get_jd(jd_id: str, db: AsyncSession = Depends(get_db)):
     record = await get_questionnaire(db, jd_id)
     if not record:
         raise HTTPException(status_code=404, detail="JD not found")
+    
+    from app.models.user_model import Employee
+    from sqlalchemy.future import select
+    emp_result = await db.execute(select(Employee).where(Employee.id == record.employee_id))
+    emp_record = emp_result.scalar_one_or_none()
+    employee_name = emp_record.name if emp_record else "Unknown Employee"
+
     history = [
         {"role": t.role, "content": t.content}
         for t in (record.conversation_turns or [])
@@ -794,6 +801,7 @@ async def get_jd(jd_id: str, db: AsyncSession = Depends(get_db)):
     return {
         "id": str(record.id),
         "employee_id": record.employee_id,
+        "employee_name": employee_name,
         "title": record.title,
         "status": record.status,
         "version": record.version,

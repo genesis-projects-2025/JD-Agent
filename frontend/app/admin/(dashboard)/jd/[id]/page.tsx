@@ -182,44 +182,130 @@ export default function AdminJDViewPage() {
                     uploaded_at: new Date().toISOString(),
                     text_length: 2450
                 });
-            } else if (data.jd_structured && !data.structured_data) {
-                // Safely transform backend's jd_structured to frontend's expected structured_data
-                const s = data.jd_structured;
-                const empInfo = s.employee_information || {};
-                const qual = {
-                    education: s.education || "",
-                    experience_years: s.experience || "",
-                    certifications: s.certifications || []
+            } else {
+                // Robust parsing and Pulse Pharma Schema Alignment (Inflight Migration)
+                const safeParseObject = (obj: any): any => {
+                    if (!obj) return {};
+                    if (typeof obj !== "string") return obj;
+                    try {
+                        const parsed = JSON.parse(obj);
+                        return typeof parsed === "string" ? safeParseObject(parsed) : parsed;
+                    } catch (e) {
+                        return {};
+                    }
                 };
-                const wr = s.working_relationships || {};
-                
+
+                let pStruct = safeParseObject(data.jd_structured);
+
+                // Fallback: If structured data is completely empty, try pulling it from the generated_jd block
+                if (
+                    !pStruct ||
+                    Object.keys(pStruct).length === 0 ||
+                    (!pStruct.responsibilities && !pStruct.key_responsibilities)
+                ) {
+                    try {
+                        const p = safeParseObject(data.generated_jd);
+                        if (p.jd_structured_data) {
+                            pStruct = p.jd_structured_data;
+                        } else if (p.role_summary || p.key_responsibilities || p.responsibilities) {
+                            pStruct = p;
+                        }
+                    } catch (e) { }
+                }
+
+                // --- Pulse Pharma Schema Alignment (Inflight Migration) ---
+                if (pStruct && typeof pStruct === "object") {
+                    // Map legacy/LLM keys to new keys if they exist and new keys are empty
+                    if (pStruct.key_responsibilities && !pStruct.responsibilities) {
+                        pStruct.responsibilities = pStruct.key_responsibilities;
+                    }
+                    if (pStruct.technical_skills && !pStruct.skills) {
+                        pStruct.skills = pStruct.technical_skills;
+                    }
+                    if (pStruct.required_skills && !pStruct.skills) {
+                        pStruct.skills = pStruct.required_skills;
+                    }
+                    if (pStruct.tools_used && !pStruct.tools) {
+                        pStruct.tools = pStruct.tools_used;
+                    }
+                    if (pStruct.tools_and_technologies && !pStruct.tools) {
+                        pStruct.tools = pStruct.tools_and_technologies;
+                    }
+                    if (pStruct.role_summary && !pStruct.purpose) {
+                        pStruct.purpose = pStruct.role_summary;
+                    }
+                    if (pStruct.performance_metrics && !pStruct.metrics) {
+                        pStruct.metrics = pStruct.performance_metrics;
+                    }
+                    if (pStruct.stakeholder_interactions && !pStruct.stakeholders) {
+                        pStruct.stakeholders = pStruct.stakeholder_interactions;
+                    }
+                    if (pStruct.additional_details && !pStruct.additional) {
+                        pStruct.additional = pStruct.additional_details;
+                    }
+                    
+                    // talent_bar -> top-level education/experience (LLM schema fix)
+                    if (pStruct.talent_bar && typeof pStruct.talent_bar === "object") {
+                        pStruct.education = pStruct.education || pStruct.talent_bar.education || "";
+                        pStruct.experience = pStruct.experience || pStruct.talent_bar.experience || "";
+                    }
+                    // qualifications nested -> top-level
+                    if (pStruct.qualifications && typeof pStruct.qualifications === "object") {
+                        pStruct.education = pStruct.education || pStruct.qualifications.education || "";
+                        pStruct.experience = pStruct.experience || pStruct.qualifications.experience || "";
+                    }
+                }
+
+                // Final Failsafe for missing keys
+                if (!pStruct || typeof pStruct !== "object") pStruct = {};
+                pStruct.responsibilities = pStruct.responsibilities || [];
+                pStruct.skills = pStruct.skills || [];
+                pStruct.tools = pStruct.tools || [];
+                pStruct.purpose = pStruct.purpose || "";
+                pStruct.education = pStruct.education || "";
+                pStruct.experience = pStruct.experience || "";
+                pStruct.metrics = pStruct.metrics || [];
+                pStruct.stakeholders = pStruct.stakeholders || {};
+                pStruct.additional = pStruct.additional || {};
+                pStruct.team_structure = pStruct.team_structure || {};
+                pStruct.work_environment = pStruct.work_environment || {};
+
+                // Map to frontend's expected JDData structure
+                const empInfo = pStruct.employee_information || {};
+                const wr = pStruct.working_relationships || {};
+
+                const structuredData = {
+                    role_title: empInfo.job_title || data.title || "Unknown Role",
+                    department: empInfo.department || "General",
+                    level: pStruct.experience || "Mid",
+                    purpose: pStruct.purpose || "",
+                    tasks: pStruct.responsibilities || [],
+                    priority_tasks: pStruct.responsibilities ? pStruct.responsibilities.slice(0, 3) : [],
+                    skills: pStruct.skills || [],
+                    tools: pStruct.tools || [],
+                    technologies: pStruct.tools || [],
+                    qualifications: {
+                        education: pStruct.education || "",
+                        experience_years: pStruct.experience || "",
+                        certifications: pStruct.certifications || []
+                    },
+                    working_relationships: {
+                        reports_to: wr.reports_to || empInfo.reports_to || "",
+                        team_size: wr.team_size || empInfo.team_size || "",
+                        stakeholders: Array.isArray(pStruct.stakeholders) ? pStruct.stakeholders : []
+                    }
+                };
+
                 setJdData({
                     id: data.id || jdId,
                     employee_id: data.employee_id || "EMP001",
                     employee_name: data.employee_name || "Employee",
-                    structured_data: {
-                        role_title: empInfo.job_title || data.title || "Unknown Role",
-                        department: empInfo.department || "General",
-                        level: s.experience || "Mid",
-                        purpose: s.purpose || "",
-                        tasks: s.responsibilities || [],
-                        priority_tasks: s.responsibilities ? s.responsibilities.slice(0, 3) : [],
-                        skills: s.skills || [],
-                        tools: s.tools || [],
-                        technologies: s.tools || [],
-                        qualifications: qual,
-                        working_relationships: {
-                            reports_to: wr.reports_to || empInfo.reports_to || "",
-                            team_size: wr.team_size || empInfo.team_size || "",
-                            stakeholders: wr.stakeholders || []
-                        }
-                    },
-                    processing_status: data.status || "approved",
-                    uploaded_at: data.created_at || new Date().toISOString(),
-                    text_length: data.generated_jd ? data.generated_jd.length : 0
+                    jd_structured: pStruct,
+                    structured_data: data.structured_data || structuredData,
+                    processing_status: data.status || data.processing_status || "approved",
+                    uploaded_at: data.created_at || data.uploaded_at || new Date().toISOString(),
+                    text_length: data.generated_jd ? data.generated_jd.length : (data.text_length || 0)
                 });
-            } else {
-                setJdData(data);
             }
         } catch (err) {
             console.error("Failed to load JD data", err);

@@ -62,7 +62,11 @@ async def init_db():
     """Create core tables and lightweight compatibility objects on startup."""
     try:
         async with engine.begin() as conn:
-
+            # If using SQLite (e.g. for local testing/development), return early
+            # since SQLite does not support PostgreSQL-specific DDL and PL/pgSQL syntax.
+            if conn.dialect.name == "sqlite":
+                logger.info("ℹ️ SQLite database detected. Skipping PostgreSQL-specific database migrations.")
+                return
 
             # Add trigger function for updated_at — Using a DO block to make it safer for concurrent workers
             # Ensure timestamp columns for RBAC workflow exist

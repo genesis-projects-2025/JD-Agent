@@ -203,7 +203,7 @@ frontend/
   - `create_async_engine`: pool_size=5, `pool_recycle=1800s`, `pool_pre_ping=True`.
   - `AsyncSessionLocal`: `expire_on_commit=False`.
   - `get_db()`: async generator that yields session, rolls back on exception, closes on exit.
-  - `init_db()`: idempotently adds `sent_to_manager_at`/`sent_to_hr_at` columns, `touch_updated_at` trigger function, `trg_jd_sessions_updated` trigger, and `source_reference_jd_id` column + unique partial index using `DO $$ ... $$` blocks.
+  - `init_db()`: checks the database dialect; if using SQLite, it returns early to skip PostgreSQL-specific DDL and PL/pgSQL triggers, ensuring safe local startup. Otherwise, it idempotently adds `sent_to_manager_at`/`sent_to_hr_at` columns, `touch_updated_at` trigger function, `trg_jd_sessions_updated` trigger, and `source_reference_jd_id` column + unique partial index using `DO $$ ... $$` blocks.
 - **Inbound Connections:** `main.py` → `init_db()`, `engine`. All routers → `get_db` dependency. `gunicorn.conf.py` → `engine.sync_engine.dispose()`.
 - **Outbound Connections:** `app/core/config.py` → `settings.DATABASE_URL`, `settings.DATABASE_SSL`.
 - **Critical Failure Points:**

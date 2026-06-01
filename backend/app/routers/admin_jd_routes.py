@@ -21,9 +21,8 @@ from app.services.jd_intelligence import JDIntelligenceService
 from app.services.pdf_processor import PDFProcessor
 from app.services.vector_service import index_approved_jd
 
-# Ensure uploads directory exists
-UPLOADS_DIR = settings.jd_upload_dir
-UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
+# UPLOADS_DIR = settings.jd_upload_dir
+# No local uploads directory creation needed for stateless production architecture.
 
 router = APIRouter(prefix="/admin/jds", tags=["admin-jd"])
 logger = logging.getLogger(__name__)
@@ -340,21 +339,9 @@ async def upload_jd_document(
     )
 
     # ===== STEP 6: SAVE FILE =====
-    file_saved = False
-    pdf_path = None
-    try:
-        # Save original file
-        file_path = UPLOADS_DIR / f"{jd_id}_{file.filename}"
-        file_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(file_path, "wb") as f:
-            f.write(file_content)
-
-        pdf_path = str(file_path)
-        file_saved = True
-        logger.info(f"[UPLOAD] File saved to {pdf_path}")
-    except Exception as file_error:
-        logger.warning(f"[UPLOAD] File save failed: {str(file_error)}")
-        file_saved = False
+    # Skip saving file bytes to local disk for stateless production stability.
+    # The file's text and structured content are fully processed in-memory.
+    pdf_path = f"in_db://{file.filename}"
 
     # ===== STEP 7: SAVE TO REFERENCE_JD TABLE =====
     db_saved = False
@@ -515,11 +502,8 @@ async def delete_reference_jd(
     if not jd:
         raise HTTPException(status_code=404, detail="JD not found")
 
-    # Delete file
-    # pyrefly: ignore [bad-argument-type]
-    if jd.pdf_path and os.path.exists(jd.pdf_path):
-        # pyrefly: ignore [bad-argument-type]
-        os.remove(jd.pdf_path)
+    # No local file deletion needed since uploads are processed and stored entirely in-memory and in the DB.
+    pass
 
     # Delete from database
     await db.execute(delete(ReferenceJD).where(ReferenceJD.id == jd_id))

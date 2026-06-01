@@ -3,11 +3,13 @@
 
 import { useEffect, useState, use } from "react";
 import Link from "next/link";
-import { getCurrentUser, AuthUser } from "@/lib/api";
-import { PlayCircle, ArrowRight, FilePlus } from "lucide-react";
+import { getCurrentUser, AuthUser, API_URL } from "@/lib/api";
+import { getCookie, setCookie, cookieKeys } from "@/lib/cookies";
+import { PlayCircle, ArrowRight, FilePlus, Loader2 } from "lucide-react";
 
 export default function HomePage({ params }: { params: Promise<{ id: string }> }) {
   const [user, setUser] = useState<AuthUser | null>(null);
+  const [authenticating, setAuthenticating] = useState(true);
   const resolvedParams = use(params);
   
   // Decode the ID from the URL recursively if it's base64 encoded
@@ -29,13 +31,41 @@ export default function HomePage({ params }: { params: Promise<{ id: string }> }
   })();
 
   useEffect(() => {
-    // Defer user loading to avoid hydration mismatch
-    const timer = setTimeout(() => {
-      const currentUser = getCurrentUser();
-      setUser(currentUser);
-    }, 0);
-    return () => clearTimeout(timer);
-  }, []);
+    const authenticateAndLoad = async () => {
+      try {
+        const currentUser = getCurrentUser();
+        
+        // Edge Case: If already logged in as the correct employee, fast path!
+        if (currentUser && currentUser.employee_id === employeeId) {
+          setUser(currentUser);
+          setAuthenticating(false);
+          return;
+        }
+
+        // Silent Background SSO Sync:
+        // Hit sso-sync endpoint using decoded employeeId to set cookies silently
+        const res = await fetch(`${API_URL}/auth/sso-sync`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ emp_code: employeeId }),
+        });
+
+        if (res.ok) {
+          const data = await res.json();
+          // Set authentication cookies securely
+          setCookie(cookieKeys.AUTH_USER, JSON.stringify(data.employee));
+          setCookie(cookieKeys.EMPLOYEE_ID, data.employee.employee_id);
+          setUser(data.employee);
+        }
+      } catch (e) {
+        console.warn("Silent SSO sync failed:", e);
+      } finally {
+        setAuthenticating(false);
+      }
+    };
+
+    authenticateAndLoad();
+  }, [employeeId]);
 
   return (
     <div className="w-full h-full overflow-y-auto bg-slate-50 relative selection:bg-blue-100 selection:text-blue-900">
@@ -60,15 +90,26 @@ export default function HomePage({ params }: { params: Promise<{ id: string }> }
 
             {/* User Info */}
             <div className="flex items-center gap-4">
-              {user && (
-                <div className="hidden sm:block text-right">
-                  <p className="text-sm font-medium text-slate-900">{user.name}</p>
-                  <p className="text-xs text-slate-500">{user.role || 'Employee'} • {employeeId}</p>
+              {authenticating ? (
+                <div className="flex items-center gap-2 text-slate-400 font-medium text-xs bg-slate-50 px-3 py-1.5 rounded-md border border-slate-100 animate-pulse">
+                  <Loader2 className="w-3.5 h-3.5 animate-spin text-slate-400" />
+                  Verifying profile...
+                </div>
+              ) : user ? (
+                <>
+                  <div className="hidden sm:block text-right">
+                    <p className="text-sm font-medium text-slate-900">{user.name}</p>
+                    <p className="text-xs text-slate-500">{user.role || 'Employee'} • {employeeId}</p>
+                  </div>
+                  <div className="w-10 h-10 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center font-bold shadow-inner">
+                    {user?.name ? user.name.charAt(0).toUpperCase() : "U"}
+                  </div>
+                </>
+              ) : (
+                <div className="flex items-center gap-2 text-red-600 font-medium text-xs bg-red-50 px-3 py-1.5 rounded-md border border-red-100">
+                  Access Restricted
                 </div>
               )}
-              <div className="w-10 h-10 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center font-bold shadow-inner">
-                {user?.name ? user.name.charAt(0).toUpperCase() : "U"}
-              </div>
             </div>
           </div>
         </div>

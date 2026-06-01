@@ -11,7 +11,7 @@ export default function FacebookPrivacyPolicy() {
       <h1>Privacy Policy</h1>
 
       <p>
-        This application is used by Nutri Health Foundation to send WhatsApp
+        This application is used by Pulse Pharmaceuticals to send WhatsApp
         notifications to customers.
       </p>
 

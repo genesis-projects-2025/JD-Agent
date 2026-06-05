@@ -41,13 +41,13 @@ import FeedbackModal from "@/components/feedback/FeedbackModal";
 const STATUS_CONFIG: Record<string, { label: string; dotColor: string }> = {
     collecting: { label: "In Progress", dotColor: "bg-amber-400" },
     ready_for_generation: { label: "Ready to Gen", dotColor: "bg-blue-400" },
-    draft: { label: "Draft", dotColor: "bg-amber-400" },
-    jd_generated: { label: "Draft", dotColor: "bg-amber-400" },
+    draft: { label: "Draft", dotColor: "bg-neutral-400" },
+    jd_generated: { label: "Generated", dotColor: "bg-emerald-400" },
     sent_to_manager: { label: "Under Review", dotColor: "bg-blue-400" },
     manager_rejected: { label: "Needs Rev", dotColor: "bg-red-400" },
     sent_to_hr: { label: "HR Review", dotColor: "bg-purple-400" },
     hr_rejected: { label: "Action Reqd", dotColor: "bg-red-400" },
-    approved: { label: "Approved", dotColor: "bg-emerald-400" },
+    approved: { label: "Approved", dotColor: "bg-emerald-500" },
     rejected: { label: "Rejected", dotColor: "bg-red-400" },
 };
 
@@ -143,8 +143,10 @@ export default function Sidebar() {
     const isActive = (href: string) => {
         if (href === "/" && pathname !== "/") return false;
         const baseHref = href.split("?")[0];
+        // Exact match for leaf routes like /questionnaire (no trailing segments)
         const isBaseMatch =
-            pathname === baseHref || pathname.startsWith(baseHref + "/");
+            pathname === baseHref ||
+            (baseHref !== "/questionnaire" && pathname.startsWith(baseHref + "/"));
         if (!isBaseMatch) return false;
         if (!href.includes("?")) return !currentView;
         const linkView = href.split("view=")[1]?.split("&")[0];
@@ -251,7 +253,7 @@ export default function Sidebar() {
                                         className={`font-medium text-sm ${active ? "text-white" : ""} flex items-center gap-2`}
                                     >
                                         {link.name}
-                                        {link.name.includes("Feedback") &&
+                                        {(link.name === "Approvals" || link.name === "Reviews") &&
                                             unreadFeedbackCount > 0 && (
                                                 <span className="inline-flex items-center justify-center w-5 h-5 text-[10px] font-medium bg-red-500 text-white rounded-md animate-pulse shadow-md shadow-red-500/30">
                                                     {unreadFeedbackCount}

@@ -21,6 +21,7 @@ export default function ChatWindow({
   onContinue,
   onReplayLatestAgentMessage,
   onToggleVoicePlayback,
+  isResumed = false,
 }: {
   messages: Message[];
   hydrated?: boolean;
@@ -38,6 +39,7 @@ export default function ChatWindow({
   onContinue?: () => void;
   onReplayLatestAgentMessage?: () => void;
   onToggleVoicePlayback?: () => void;
+  isResumed?: boolean;
 }) {
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const isAtBottomRef = useRef(true);
@@ -100,10 +102,10 @@ export default function ChatWindow({
               <div className="flex items-center gap-2 sm:gap-3 px-2 sm:px-4 py-1.5 sm:py-2 bg-surface-50 rounded-md border border-surface-200">
                 <div className="w-2 h-2 bg-accent-500 rounded-md animate-pulse shadow-[0_0_8px_rgba(16,185,129,0.5)]" />
                 <span className="text-[10px] sm:text-xs font-medium text-surface-700 tracking-wider hidden sm:block">
-                  Session Synced
+                  {isResumed ? "Session Resumed" : "Session Synced"}
                 </span>
                 <span className="text-[10px] font-medium text-surface-700 tracking-wider sm:hidden">
-                  Synced
+                  {isResumed ? "Resumed" : "Synced"}
                 </span>
               </div>
 
@@ -189,7 +191,7 @@ export default function ChatWindow({
                   <div className="flex items-center gap-2 mt-2">
                     <Loader2 className="w-4 h-4 text-primary-500 animate-spin" />
                     <span className="text-[10px] sm:text-xs font-bold text-primary-600 uppercase tracking-[0.2em] animate-pulse">
-                      LLM is preparing wait for it....
+                      {isResumed ? "Restoring your session..." : "LLM is preparing wait for it...."}
                     </span>
                   </div>
                 </div>

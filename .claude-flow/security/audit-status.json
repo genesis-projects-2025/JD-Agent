@@ -1,0 +1,30 @@
+{
+  "status": "PENDING",
+  "cvesFixed": 0,
+  "totalCves": 3,
+  "criticalVulnerabilities": [
+    {
+      "id": "CVE-1",
+      "description": "Input validation bypass",
+      "severity": "critical",
+      "status": "pending",
+      "fixedBy": "input-validator.ts"
+    },
+    {
+      "id": "CVE-2",
+      "description": "Path traversal vulnerability",
+      "severity": "critical",
+      "status": "pending",
+      "fixedBy": "path-validator.ts"
+    },
+    {
+      "id": "CVE-3",
+      "description": "Command injection vulnerability",
+      "severity": "critical",
+      "status": "pending",
+      "fixedBy": "safe-executor.ts"
+    }
+  ],
+  "lastAudit": "2026-06-05T15:44:39+05:30",
+  "autoSynced": true
+}

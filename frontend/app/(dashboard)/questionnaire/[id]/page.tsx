@@ -34,7 +34,7 @@ export default function QuestionnairePage() {
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [composerValue, setComposerValue] = useState("");
-  const [showReferenceJDs, setShowReferenceJDs] = useState(true);
+  const [showReferenceJDs, setShowReferenceJDs] = useState(false);
 
   const {
     messages,
@@ -96,9 +96,17 @@ export default function QuestionnairePage() {
     return "";
   }, [messages]);
 
-  // Auto-open panel when JD is generated
+  // Track whether hydration has completed at least once.
+  // We only auto-open the panel for JDs generated in THIS session,
+  // not for sessions restored from the DB on resume.
+  const hydratedOnceRef = useRef(false);
   useEffect(() => {
-    if (jd && status === "jd_generated") {
+    if (hydrated) hydratedOnceRef.current = true;
+  }, [hydrated]);
+
+  // Auto-open panel only when JD is freshly generated (not on DB restore)
+  useEffect(() => {
+    if (jd && status === "jd_generated" && hydratedOnceRef.current) {
       setShowPanel(true);
     }
   }, [jd, status]);
@@ -219,7 +227,7 @@ export default function QuestionnairePage() {
 
         {/* JD Ready indicator */}
         <div className="flex items-center gap-2 sm:gap-3 shrink-0">
-          {jd && status === "jd_generated" && (
+          {jd && ["jd_generated", "approved", "sent_to_manager", "sent_to_hr", "manager_rejected", "hr_rejected"].includes(status) && (
             <button
               onClick={() => setShowPanel((p) => !p)}
               className="flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-1.5 sm:py-2 bg-primary-600 text-white rounded-md text-[10px] sm:text-[11px] font-medium hover:bg-primary-700 transition-all shadow-md shadow-primary-500/20 active:scale-95 whitespace-nowrap"
@@ -322,6 +330,7 @@ export default function QuestionnairePage() {
             onPriorityTaskSelect={handlePriorityTasksSelect}
             onReplayLatestAgentMessage={handleReplayLatestAgentMessage}
             onToggleVoicePlayback={() => setPlaybackEnabled(!playbackEnabled)}
+            isResumed={hydrated && messages.length > 1}
             onGenerateJD={() => {
               setShowPanel(true);
               handleGenerateJD();
@@ -358,6 +367,7 @@ export default function QuestionnairePage() {
             isListening={isListening}
             onToggleListening={toggleListening}
             disabled={
+              !hydrated ||
               isGenerating ||
               isGeneratingJD ||
               (isRateLimited && retryTimer > 0)

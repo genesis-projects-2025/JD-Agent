@@ -149,10 +149,6 @@ export default function ContinueSessionBanner() {
  setError(false);
  try {
  const employeeId = getOrCreateEmployeeId();
- const res = await fetch(
- `${process.env.NEXT_PUBLIC_API_URL}/jd/employee/${employeeId}`,
- );
- if (!res.ok) throw new Error();
  const data: SessionRecord[] = await fetchEmployeeJDs(employeeId);
  setSessions(
  data.sort(

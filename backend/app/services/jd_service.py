@@ -417,12 +417,7 @@ def build_markdown_from_structured(structured: dict) -> str:
         lines.append("|---|---|")
         if wr.get("reporting_to"):
             lines.append(f"| **Reporting to** | {wr['reporting_to']} |")
-        if wr.get("team_size"):
-            lines.append(f"| **Team** | {wr['team_size']} |")
-        if wr.get("internal_stakeholders"):
-            lines.append(
-                f"| **Internal Stakeholders** | {wr['internal_stakeholders']} |"
-            )
+
         if wr.get("external_stakeholders"):
             lines.append(
                 f"| **External Stakeholders** | {wr['external_stakeholders']} |"

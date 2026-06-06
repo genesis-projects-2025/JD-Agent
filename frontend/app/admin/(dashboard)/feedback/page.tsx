@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { API_URL } from "@/lib/api";
+import { formatDateTime } from "@/lib/format-date";
 import {
  Loader2,
  Search,
@@ -101,15 +102,7 @@ export default function AdminFeedbackInbox() {
 
  const selectedFeedback = feedbacks.find((fb) => fb.id === selectedId);
 
- const formatDate = (dateString: string) => {
- const d = new Date(dateString);
- return new Intl.DateTimeFormat("en-US", {
- month: "short",
- day: "numeric",
- hour: "numeric",
- minute: "2-digit",
- }).format(d);
- };
+ const formatDate = (dateString: string) => formatDateTime(dateString);
 
  if (loading) {
  return (

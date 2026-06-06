@@ -243,6 +243,11 @@ export default function AdminJDViewPage() {
                     if (pStruct.additional_details && !pStruct.additional) {
                         pStruct.additional = pStruct.additional_details;
                     }
+
+                    // Preserve job_level / joblevel through migration
+                    if (pStruct.joblevel && !pStruct.job_level) {
+                        pStruct.job_level = pStruct.joblevel;
+                    }
                     
                     // talent_bar -> top-level education/experience (LLM schema fix)
                     if (pStruct.talent_bar && typeof pStruct.talent_bar === "object") {
@@ -269,6 +274,8 @@ export default function AdminJDViewPage() {
                 pStruct.additional = pStruct.additional || {};
                 pStruct.team_structure = pStruct.team_structure || {};
                 pStruct.work_environment = pStruct.work_environment || {};
+                // Preserve job_level at top level — critical for PDF render
+                pStruct.job_level = pStruct.job_level || pStruct.joblevel || "";
 
                 // Map to frontend's expected JDData structure
                 const empInfo = pStruct.employee_information || {};
@@ -284,6 +291,7 @@ export default function AdminJDViewPage() {
                     skills: pStruct.skills || [],
                     tools: pStruct.tools || [],
                     technologies: pStruct.tools || [],
+                    job_level: pStruct.job_level || "",
                     qualifications: {
                         education: pStruct.education || "",
                         experience_years: pStruct.experience || "",

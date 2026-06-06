@@ -492,7 +492,9 @@ export default function JDPreviewPanel({
                                                     title="Working Relationships"
                                                 >
                                                     <div className="space-y-2">
-                                                        {Object.entries(safeData.working_relationships).map(
+                                                        {Object.entries(safeData.working_relationships)
+                                                            .filter(([k]) => !["team", "team_size", "internal", "internal_stakeholders", "stakeholders"].includes(k.toLowerCase()))
+                                                            .map(
                                                             ([k, v]) => (
                                                                 <div
                                                                     key={k}

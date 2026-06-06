@@ -8,6 +8,7 @@ import { useAuth } from '@/components/providers/auth-provider'
 import { getCookie, cookieKeys } from '@/lib/cookies'
 import Link from 'next/link'
 import { downloadJDPdfClient } from '@/lib/download-jd-pdf'
+import { formatDateTime } from '@/lib/format-date'
 import { PdfDocumentView } from '@/components/jd/pdf-document-view'
 import {
   fetchAdminReferenceJDs,
@@ -185,8 +186,7 @@ export default function JDLibraryPage() {
   const successCount = results.filter(r => r.status === 'success').length
   const errorCount = results.filter(r => r.status === 'error').length
 
-  const formatDate = (dateStr: string) =>
-    new Date(dateStr).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+  const formatDate = (dateStr: string) => formatDateTime(dateStr)
 
   return (
     <div className="w-full">

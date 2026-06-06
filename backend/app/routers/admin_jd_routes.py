@@ -205,7 +205,6 @@ def generate_jd_text_from_structured_data(structured_data: dict) -> str:
     md.append(f"# {emp_info.get('job_title', 'Job Title')}")
     md.append(f"**Department:** {emp_info.get('department', '')}")
     md.append(f"**Reports to:** {emp_info.get('reports_to', '')}")
-    md.append(f"**Team Size:** {emp_info.get('team_size', '')}")
     md.append("")
 
     # Purpose
@@ -253,12 +252,6 @@ def generate_jd_text_from_structured_data(structured_data: dict) -> str:
         md.append("## Working Relationships")
         if wr.get("reports_to"):
             md.append(f"**Reports to:** {wr['reports_to']}")
-        if wr.get("team_size"):
-            md.append(f"**Team Size:** {wr['team_size']}")
-        if wr.get("stakeholders"):
-            md.append("**Key Stakeholders:**")
-            for stakeholder in wr["stakeholders"]:
-                md.append(f"- {stakeholder}")
         md.append("")
 
     return "\n".join(md)

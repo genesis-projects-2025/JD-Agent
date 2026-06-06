@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { API_URL } from "@/lib/api";
+import { formatDate } from "@/lib/format-date";
 import {
     Users,
     CheckCircle,
@@ -553,16 +554,7 @@ export default function AdminDashboard() {
                                                 </td>
                                                 {/* Updated */}
                                                 <td className="px-4 sm:px-6 py-4 text-sm text-slate-500">
-                                                    {item.updated_at
-                                                        ? new Date(item.updated_at).toLocaleDateString(
-                                                            "en-IN",
-                                                            {
-                                                                day: "2-digit",
-                                                                month: "short",
-                                                                year: "numeric",
-                                                            },
-                                                        )
-                                                        : "—"}
+                                                    {item.updated_at ? formatDate(item.updated_at) : "—"}
                                                 </td>
                                                 {/* Status */}
                                                 <td className="px-3 sm:px-6 py-4">
@@ -630,16 +622,7 @@ export default function AdminDashboard() {
                                                 </td>
                                                 {/* Last Active */}
                                                 <td className="px-4 sm:px-6 py-4 text-sm text-slate-500">
-                                                    {item.last_active
-                                                        ? new Date(item.last_active).toLocaleDateString(
-                                                            "en-IN",
-                                                            {
-                                                                day: "2-digit",
-                                                                month: "short",
-                                                                year: "numeric",
-                                                            },
-                                                        )
-                                                        : "—"}
+                                                    {item.last_active ? formatDate(item.last_active) : "—"}
                                                 </td>
                                                  {/* Action */}
                                                  <td className="px-3 sm:px-6 py-4">

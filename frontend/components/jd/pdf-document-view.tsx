@@ -84,8 +84,7 @@ export function PdfDocumentView({ data, roleTitle, dept }: Props) {
   if (!data) return null;
 
   const designation = getField(data, "job_title", "title", "designation") || roleTitle || "—";
-  const band = getField(data, "band");
-  const grade = getField(data, "grade");
+  const jobLevel = getField(data, "job_level", "joblevel", "grade");
   const func = getField(data, "department", "function") || dept || "—";
   const location = getField(data, "location");
   const reportingTo =
@@ -143,8 +142,7 @@ export function PdfDocumentView({ data, roleTitle, dept }: Props) {
         <tbody>
           <tr><td colSpan={2} style={thStyle}>Job / Role Information</td></tr>
           <LabelRow label="Designation" value={designation} />
-          <LabelRow label="Band &amp; Band Name" value={band} />
-          <LabelRow label="Grade" value={grade} />
+          <LabelRow label="Job Level" value={jobLevel} />
           <LabelRow label="Function" value={func} />
           <LabelRow label="Location" value={location} />
 
@@ -189,8 +187,6 @@ export function PdfDocumentView({ data, roleTitle, dept }: Props) {
         <tbody>
           <tr><td colSpan={2} style={thStyle}>Working Relationships</td></tr>
           <LabelRow label="Reporting to" value={reportingTo} />
-          <LabelRow label="Team" value={teamSize} />
-          <LabelRow label="Internal Stakeholders" value={internal} />
           <LabelRow label="External Stakeholders" value={external} />
         </tbody>
       </table>

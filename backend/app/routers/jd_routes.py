@@ -250,7 +250,7 @@ async def init_jd(request: InitJDRequest, db: AsyncSession = Depends(get_db)):
         from sqlalchemy import text
 
         org_query = text("""
-            SELECT designation, location, date_of_joining
+            SELECT designation, location, date_of_joining, joblevel
             FROM organogram
             WHERE code = :code
         """)
@@ -263,6 +263,8 @@ async def init_jd(request: InitJDRequest, db: AsyncSession = Depends(get_db)):
                 identity_context["location"] = org_row["location"]
             if org_row.get("date_of_joining"):
                 identity_context["date_of_joining"] = org_row["date_of_joining"]
+            if org_row.get("joblevel"):
+                identity_context["job_level"] = org_row["joblevel"]
         elif emp.role:
             identity_context["title"] = emp.role
 
@@ -441,12 +443,29 @@ async def save_jd(request: SaveJDRequest, db: AsyncSession = Depends(get_db)):
     session_memory.jd_structured = request.jd_structured
     session_memory.progress["status"] = "jd_generated"
 
+    # ── Stamp job_level from organogram into jd_structured so PDF always renders it ──
+    jd_structured_with_level = dict(request.jd_structured or {})
+    if not jd_structured_with_level.get("job_level") and not jd_structured_with_level.get("joblevel"):
+        try:
+            from sqlalchemy import text as _text
+            emp_id = request.employee_id or session_memory.employee_id or ""
+            if emp_id:
+                lv_res = await db.execute(
+                    _text("SELECT joblevel FROM organogram WHERE code = :code"),
+                    {"code": emp_id},
+                )
+                lv_row = lv_res.mappings().first()
+                if lv_row and lv_row.get("joblevel"):
+                    jd_structured_with_level["job_level"] = lv_row["joblevel"]
+        except Exception as _e:
+            logger.warning(f"Could not stamp job_level into jd_structured: {_e}")
+
     try:
         record = await save_questionnaire_jd(
             db=db,
             session_id=session_id,
             jd_text=request.jd_text,
-            jd_structured=request.jd_structured,
+            jd_structured=jd_structured_with_level,
             employee_insights=session_memory.insights,
             progress=session_memory.to_dict(),
             employee_id=request.employee_id or session_memory.employee_id or "",
@@ -794,6 +813,21 @@ async def get_jd(jd_id: str, db: AsyncSession = Depends(get_db)):
     emp_record = emp_result.scalar_one_or_none()
     employee_name = emp_record.name if emp_record else "Unknown Employee"
 
+    # ── Stamp job_level if missing (for JDs saved before the job_level fix) ──
+    jd_structured = dict(record.jd_structured or {})
+    if not jd_structured.get("job_level") and not jd_structured.get("joblevel") and record.employee_id:
+        try:
+            from sqlalchemy import text as _text
+            lv_res = await db.execute(
+                _text("SELECT joblevel FROM organogram WHERE code = :code"),
+                {"code": record.employee_id},
+            )
+            lv_row = lv_res.mappings().first()
+            if lv_row and lv_row.get("joblevel"):
+                jd_structured["job_level"] = lv_row["joblevel"]
+        except Exception as _e:
+            logger.warning(f"Could not stamp job_level in GET /{jd_id}: {_e}")
+
     history = [
         {"role": t.role, "content": t.content}
         for t in (record.conversation_turns or [])
@@ -806,7 +840,7 @@ async def get_jd(jd_id: str, db: AsyncSession = Depends(get_db)):
         "status": record.status,
         "version": record.version,
         "generated_jd": record.jd_text,
-        "jd_structured": record.jd_structured,
+        "jd_structured": jd_structured,
         "responses": record.insights,
         "conversation_history": history,
         "conversation_state": record.conversation_state,

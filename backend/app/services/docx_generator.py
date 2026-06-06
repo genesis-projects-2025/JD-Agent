@@ -241,8 +241,7 @@ def generate_jd_docx(
     """
     # ── Extract fields ────────────────────────────────────────────────────────
     designation = _get(jd_data, "job_title", "title", "designation") or title or "—"
-    band = _get(jd_data, "band")
-    grade = _get(jd_data, "grade")
+    job_level = _get(jd_data, "job_level", "joblevel", "grade")
     func = _get(jd_data, "department", "function") or department or "—"
     location = _get(jd_data, "location")
 
@@ -305,29 +304,26 @@ def generate_jd_docx(
         lr.font.size = Pt(16)
 
     # ── TABLE 1: Job / Role Information ──────────────────────────────────────
-    t1 = doc.add_table(rows=8, cols=2)
+    t1 = doc.add_table(rows=7, cols=2)
     t1.alignment = WD_TABLE_ALIGNMENT.CENTER
 
     _section_header_row(t1, 0, "Job / Role Information")
     _data_row(t1, 1, "Designation", designation)
-    _data_row(t1, 2, "Band & Band Name", band)
-    _data_row(t1, 3, "Grade", grade)
-    _data_row(t1, 4, "Function", func)
-    _data_row(t1, 5, "Location", location)
-    _section_header_row(t1, 6, "Job Description")
-    _job_desc_content_row(t1, 7, purpose, responsibilities)
+    _data_row(t1, 2, "Job Level", job_level)
+    _data_row(t1, 3, "Function", func)
+    _data_row(t1, 4, "Location", location)
+    _section_header_row(t1, 5, "Job Description")
+    _job_desc_content_row(t1, 6, purpose, responsibilities)
 
     doc.add_paragraph().paragraph_format.space_after = Pt(6)
 
     # ── TABLE 2: Working Relationships ────────────────────────────────────────
-    t2 = doc.add_table(rows=5, cols=2)
+    t2 = doc.add_table(rows=3, cols=2)
     t2.alignment = WD_TABLE_ALIGNMENT.CENTER
 
     _section_header_row(t2, 0, "Working Relationships")
     _data_row(t2, 1, "Reporting to", reporting_to)
-    _data_row(t2, 2, "Team", team_size)
-    _data_row(t2, 3, "Internal Stakeholders", internal)
-    _data_row(t2, 4, "External Stakeholders", external)
+    _data_row(t2, 2, "External Stakeholders", external)
 
     doc.add_paragraph().paragraph_format.space_after = Pt(6)
 

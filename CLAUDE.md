@@ -1,5 +1,147 @@
 # Ruflo — Claude Code Configuration
 
+---
+
+## 🧠 AI Memory Rule (CRITICAL — Always Follow)
+
+> **After EVERY conversation or code change on this project, update this file (`CLAUDE.md`) immediately.**
+>
+> - If a new column/table is added → update the DB schema section
+> - If a file is edited → update the HR Modifications or relevant section
+> - If a new feature is built → add a summary entry
+> - If files are added or removed → update the Project Structure section
+>
+> This file is the **single source of truth** for project context across sessions. Keeping it current means no time is wasted re-scanning the codebase next time.
+
+---
+
+## 📌 Project Context (Read This First)
+
+### What is this project?
+**JD-Agent** is an AI-powered Job Description (JD) creation platform for **Ruflo** (internal HR tool). It uses a multi-agent LangGraph pipeline backed by FastAPI, with a Next.js 14 frontend. Employees interact with an AI chat to generate structured JDs, which then go through a Manager → HR approval workflow.
+
+### Tech Stack
+- **Backend**: FastAPI · LangGraph · Google Gemini · Pinecone (vector store) · Redis (session cache)
+- **Frontend**: Next.js 14 · TypeScript
+- **Database**: **Aiven PostgreSQL** (production) — NOT SQLite. The `ruvector.db` file does NOT exist and is intentionally removed.
+- **Deployment**: Backend on Render, Frontend on Vercel (or similar)
+
+### Key Environment Variables (in `.env`)
+- `DATABASE_URL` — Aiven PostgreSQL connection string
+- `REDIS_URL` — Redis connection
+- `GEMINI_API_KEY` — Google Gemini
+- `PINECONE_API_KEY` / `PINECONE_INDEX` — Pinecone vector store
+
+---
+
+## 🗄️ Database Schema (Aiven PostgreSQL)
+
+### `organogram` table
+Stores the full employee hierarchy imported from Darwinbox.
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `id` | serial PK | |
+| `employee_id` | varchar | e.g. `E1234` |
+| `employee_name` | varchar | |
+| `designation` | varchar | Job title |
+| `department` | varchar | |
+| `date_of_joining` | date | |
+| `location` | varchar | |
+| `reporting_manager_id` | varchar | |
+| `reporting_manager_name` | varchar | |
+| `joblevel` | varchar | **Added June 2026** — e.g. `Level 1` to `Level 5` |
+
+### `employees` table
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `id` | serial PK | |
+| `employee_id` | varchar | |
+| `name` | varchar | |
+| `email` | varchar | |
+| `department` | varchar | |
+| `designation` | varchar | |
+| `job_level` | varchar | **Added June 2026** — mirrors `organogram.joblevel` |
+| `role` | varchar | `employee` / `manager` / `hr` |
+
+### Job Level Mapping (Darwinbox standard)
+| Level | Designations |
+|-------|--------------|
+| Level 1 | Director, CEO, MD |
+| Level 2 | Head, Senior General Manager, General Manager |
+| Level 3 | Manager, Deputy Manager, Assistant Manager |
+| Level 4 | Executive, Senior Executive, Junior Executive |
+| Level 5 | Trainee Executive, Intern |
+
+---
+
+## 🛠️ HR Modifications Made (June 2026)
+
+Based on HR instructions, the JD template was updated across the codebase:
+
+1. **Removed `Band` and `Band Name` fields** from the JD template
+2. **Renamed `Grade` → `Job Level`** everywhere
+3. **Removed `Team` and `Internal Stakeholders` fields** from Working Relationships section
+
+### Files changed for HR modifications:
+| File | Change |
+|------|--------|
+| `backend/app/services/docx_generator.py` | Removed Band rows, renamed Grade → Job Level in DOCX export |
+| `backend/app/services/jd_service.py` | Stripped Team/Internal Stakeholders from markdown |
+| `backend/app/routers/admin_jd_routes.py` | Removed team size/stakeholder logic in markdown generation |
+| `frontend/components/jd/jd-preview-panel.tsx` | Added filter to exclude Band, Team, Internal Stakeholders keys in UI |
+| `frontend/components/jd/pdf-document-view.tsx` | Refactored labels; Grade → Job Level in PDF export |
+| `frontend/lib/download-jd-pdf.ts` | Updated PDF export HTML to match field removals and renaming |
+| `backend/app/routers/jd_routes.py` | **Bug fix (June 2026):** (1) `init_jd` fetches `joblevel` from organogram into session. (2) `save_jd` stamps `job_level` into `jd_structured`. (3) `GET /{jd_id}` stamps `job_level` from organogram at read time for old JDs missing the field. |
+| `frontend/app/admin/(dashboard)/jd/[id]/page.tsx` | **Bug fix (June 2026):** Added `job_level` preservation through the schema migration block. Added `job_level` to `structuredData` remapping. Ensures Job Level always passes through to `PdfDocumentView`. |
+| `frontend/lib/format-date.ts` | **Bug fix (June 2026):** Created shared date utility (`formatDate`, `formatDateTime`, `formatShortDate`) with fixed `en-GB` locale + `timeZone: "UTC"` to prevent React hydration mismatches in admin pages. |
+| `frontend/app/admin/(dashboard)/dashboard/page.tsx` | Replaced inline `toLocaleDateString('en-IN')` with `formatDate()` from shared utility. |
+| `frontend/app/admin/(dashboard)/jd-library/page.tsx` | Replaced inline `toLocaleDateString('en-US')` with `formatDateTime()` from shared utility. |
+| `frontend/app/admin/(dashboard)/feedback/page.tsx` | Replaced `Intl.DateTimeFormat('en-US')` with `formatDateTime()` from shared utility. |
+| `frontend/app/admin/jds/[id]/page.tsx` | Replaced inline `toLocaleDateString('en-US')` with `formatDateTime()` from shared utility. |
+
+---
+
+## 📁 Project Structure
+
+```
+JD-Agent/
+├── backend/
+│   ├── app/
+│   │   ├── routers/          # FastAPI route handlers
+│   │   │   ├── jd_routes.py          # Main JD chat/stream/generate/save
+│   │   │   └── admin_jd_routes.py    # Admin JD management & markdown export
+│   │   ├── services/
+│   │   │   ├── jd_intelligence.py    # JDStructuredData schema + AI extraction
+│   │   │   ├── jd_service.py         # JD business logic + markdown rendering
+│   │   │   └── docx_generator.py     # Word DOCX export
+│   │   ├── schemas/
+│   │   │   └── jd_schema.py          # Pydantic schemas
+│   │   └── agents/                   # LangGraph agent nodes
+├── frontend/
+│   ├── components/
+│   │   └── jd/
+│   │       ├── jd-preview-panel.tsx  # Live JD preview UI
+│   │       ├── pdf-document-view.tsx # PDF render component
+│   │       └── ...
+│   └── lib/
+│       └── download-jd-pdf.ts        # PDF download logic
+└── scripts/
+    └── optimize_server.sh
+```
+
+---
+
+## ⚠️ Important Notes
+- **No `ruvector.db`** — was a local SQLite dev artifact, intentionally deleted. All data is in Aiven PostgreSQL.
+- **No raw Excel files** — `JD's - Employee ID's.xlsx` and `Job level_Grade.xlsx` have been fully migrated into the DB and deleted.
+- **JD Template Reuse**: The system matches JD templates by `(department, title)`. If two employees share the same dept + title, the second person sees the existing JD and doesn't need to redo it. To avoid cross-team conflicts, department names should be specific (e.g. `Marketing - Brand A` not just `Marketing`).
+- **`JDStructuredData`** in `jd_intelligence.py` is the **source of truth** schema for all JD content fields.
+
+---
+
+
 ## Rules
 
 - Do what has been asked; nothing more, nothing less

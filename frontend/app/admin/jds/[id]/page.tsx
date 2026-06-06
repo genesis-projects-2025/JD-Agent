@@ -4,6 +4,7 @@
 import { useState, useEffect } from 'react'
 import { useRouter, useParams } from 'next/navigation'
 import { getCookie, cookieKeys } from '@/lib/cookies'
+import { formatDateTime } from '@/lib/format-date'
 import {
   fetchAdminReferenceJD,
   fetchAdminReferenceJDPreview,
@@ -126,8 +127,7 @@ export default function JDDetailPage() {
     )
   }
 
-  const formatDate = (dateStr: string) =>
-    new Date(dateStr).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+  const formatDate = (dateStr: string) => formatDateTime(dateStr)
 
   return (
     <div className="w-full">

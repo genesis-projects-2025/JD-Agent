@@ -85,8 +85,7 @@ export function downloadJDPdfClient(data: any, roleTitle?: string, dept?: string
   if (!data) { alert("No JD data available to download."); return; }
 
   const designation  = esc(getField(data, "job_title", "title", "designation") || roleTitle || "—");
-  const band         = esc(getField(data, "band"));
-  const grade        = esc(getField(data, "grade"));
+  const jobLevel     = esc(getField(data, "job_level", "joblevel", "grade"));
   const func         = esc(getField(data, "department", "function") || dept || "—");
   const location     = esc(getField(data, "location"));
   const reportingTo  = esc(
@@ -180,8 +179,7 @@ export function downloadJDPdfClient(data: any, roleTitle?: string, dept?: string
             <tbody>
               ${sectionHeader("Job / Role Information")}
       ${labelRow("Designation", designation)}
-      ${labelRow("Band &amp; Band Name", band)}
-      ${labelRow("Grade", grade)}
+      ${labelRow("Job Level", jobLevel)}
       ${labelRow("Function", func)}
       ${labelRow("Location", location)}
       
@@ -216,8 +214,6 @@ export function downloadJDPdfClient(data: any, roleTitle?: string, dept?: string
     <tbody>
       ${sectionHeader("Working Relationships")}
       ${labelRow("Reporting to", reportingTo)}
-      ${labelRow("Team", teamSize)}
-      ${labelRow("Internal Stakeholders", internal)}
       ${labelRow("External Stakeholders", external)}
     </tbody>
   </table>

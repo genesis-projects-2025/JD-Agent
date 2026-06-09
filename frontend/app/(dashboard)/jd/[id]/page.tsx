@@ -844,70 +844,73 @@ export default function JDPage() {
  </div>
  </div>
 
- {/* Feedback Banner (if rejected and targeted at current role) */}
- {reviewComments.length > 0 &&
- jd.status.includes("rejected") &&
- reviewComments[0].action === "rejected" &&
- rolesMatch(reviewComments[0].target_role, role) && (
- <div className="bg-red-50 border-2 border-red-200 rounded-[32px] p-6 mb-8 animate-in slide-in-from-top-4 duration-500 shadow-md shadow-red-900/5">
- <div className="flex items-start gap-4">
- <div className="w-12 h-12 bg-red-100 rounded-md flex items-center justify-center flex-shrink-0 animate-pulse">
- <AlertTriangle className="w-6 h-6 text-red-600" />
- </div>
- <div className="flex-1">
- <h3 className="text-lg font-medium text-red-900 mb-1">
- Revision Requested
- </h3>
- <p className="text-red-700 text-sm leading-relaxed mb-4">
- {reviewComments[0].reviewer_name} requested changes to this
- document:
- </p>
- <div className="bg-white/60 backdrop-blur-sm rounded-md p-4 border border-red-200/50">
- <p className="text-red-800 text-[15px] font-medium leading-relaxed italic">
- "{reviewComments[0].comment}"
- </p>
- </div>
- <div className="mt-4 flex items-center gap-2">
- <span className="text-[10px] font-medium text-red-400 bg-red-100/50 px-2 py-1 rounded-md">
- Action Required: Update and resubmit
- </span>
- </div>
- </div>
- </div>
- </div>
- )}
+  {/* Feedback Banner: find the most recent rejection targeting the current user's role */}
+  {(() => {
+    // Search the full comment list (newest first) for a rejection aimed at this user
+    const latestRejection = [...reviewComments]
+      .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+      .find((c: any) => c.action === "rejected" && rolesMatch(c.target_role, role));
+    if (!latestRejection || !jd.status.includes("rejected")) return null;
+    return (
+      <div className="bg-red-50 border-2 border-red-200 rounded-[32px] p-6 mb-8 animate-in slide-in-from-top-4 duration-500 shadow-md shadow-red-900/5">
+        <div className="flex items-start gap-4">
+          <div className="w-12 h-12 bg-red-100 rounded-md flex items-center justify-center flex-shrink-0 animate-pulse">
+            <AlertTriangle className="w-6 h-6 text-red-600" />
+          </div>
+          <div className="flex-1">
+            <h3 className="text-lg font-medium text-red-900 mb-1">
+              Revision Requested
+            </h3>
+            <p className="text-red-700 text-sm leading-relaxed mb-4">
+              {latestRejection.reviewer_name || "Reviewer"} requested changes to this document:
+            </p>
+            <div className="bg-white/60 backdrop-blur-sm rounded-md p-4 border border-red-200/50">
+              <p className="text-red-800 text-[15px] font-medium leading-relaxed italic">
+                "{latestRejection.comment}"
+              </p>
+            </div>
+            <div className="mt-4 flex items-center gap-2">
+              <span className="text-[10px] font-medium text-red-400 bg-red-100/50 px-2 py-1 rounded-md">
+                Action Required: Update and resubmit
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  })()}
 
- {/* Review Audit Trail - Hidden if banner is shown to avoid redundancy, or shown compact */}
- {reviewComments.length > 1 && (
- <div className="space-y-3 mb-8">
- <h3 className="text-[11px] font-medium text-surface-500 px-1">
- Previous Review Activity
- </h3>
- <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
- {reviewComments.slice(1).map((rc: any) => (
- <div
- key={rc.id}
- className={`rounded-md p-4 border ${rc.action === "rejected"
- ? "bg-red-50/30 border-red-100"
- : "bg-emerald-50/30 border-emerald-100"
- }`}
- >
- <div className="flex items-center justify-between mb-1">
- <span className="text-[10px] font-medium text-surface-500">
- {rc.reviewer_role} Review
- </span>
- <span className="text-[10px] text-surface-400">
- {new Date(rc.created_at).toLocaleDateString()}
- </span>
- </div>
- <p className="text-xs font-medium text-surface-700 line-clamp-2">
- {rc.comment}
- </p>
- </div>
- ))}
- </div>
- </div>
- )}
+  {/* Review Audit Trail — all review history shown compactly */}
+  {reviewComments.length > 0 && (
+  <div className="space-y-3 mb-8">
+  <h3 className="text-[11px] font-medium text-surface-500 px-1">
+  Review Activity
+  </h3>
+  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+  {reviewComments.map((rc: any) => (
+  <div
+  key={rc.id}
+  className={`rounded-md p-4 border ${rc.action === "rejected"
+  ? "bg-red-50/30 border-red-100"
+  : "bg-emerald-50/30 border-emerald-100"
+  }`}
+  >
+  <div className="flex items-center justify-between mb-1">
+  <span className="text-[10px] font-medium text-surface-500">
+  {rc.reviewer_role ? `${rc.reviewer_role} Review` : "Review"}
+  </span>
+  <span className="text-[10px] text-surface-400">
+  {new Date(rc.created_at).toLocaleDateString()}
+  </span>
+  </div>
+  <p className="text-xs font-medium text-surface-700 line-clamp-2">
+  {rc.comment}
+  </p>
+  </div>
+  ))}
+  </div>
+  </div>
+  )}
 
  {/* Main Content Area */}
  <div className="bg-white rounded-md md:rounded-[32px] border border-surface-200 shadow-md overflow-hidden transition-all duration-500">

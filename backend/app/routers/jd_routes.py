@@ -443,22 +443,34 @@ async def save_jd(request: SaveJDRequest, db: AsyncSession = Depends(get_db)):
     session_memory.jd_structured = request.jd_structured
     session_memory.progress["status"] = "jd_generated"
 
-    # ── Stamp job_level from organogram into jd_structured so PDF always renders it ──
+    # ── Stamp job_level and location from organogram into jd_structured so PDF always renders them ──
     jd_structured_with_level = dict(request.jd_structured or {})
-    if not jd_structured_with_level.get("job_level") and not jd_structured_with_level.get("joblevel"):
+    needs_level = not jd_structured_with_level.get("job_level") and not jd_structured_with_level.get("joblevel")
+    needs_location = not jd_structured_with_level.get("location")
+    if (needs_level or needs_location) and (request.employee_id or session_memory.employee_id):
         try:
             from sqlalchemy import text as _text
             emp_id = request.employee_id or session_memory.employee_id or ""
             if emp_id:
-                lv_res = await db.execute(
-                    _text("SELECT joblevel FROM organogram WHERE code = :code"),
-                    {"code": emp_id},
-                )
+                fields = []
+                if needs_level:
+                    fields.append("joblevel")
+                if needs_location:
+                    fields.append("location")
+                query_str = f"SELECT {', '.join(fields)} FROM organogram WHERE code = :code"
+                lv_res = await db.execute(_text(query_str), {"code": emp_id})
                 lv_row = lv_res.mappings().first()
-                if lv_row and lv_row.get("joblevel"):
-                    jd_structured_with_level["job_level"] = lv_row["joblevel"]
+                if lv_row:
+                    if "employee_information" not in jd_structured_with_level or not isinstance(jd_structured_with_level["employee_information"], dict):
+                        jd_structured_with_level["employee_information"] = {}
+                    if needs_level and lv_row.get("joblevel"):
+                        jd_structured_with_level["job_level"] = lv_row["joblevel"]
+                        jd_structured_with_level["employee_information"]["job_level"] = lv_row["joblevel"]
+                    if needs_location and lv_row.get("location"):
+                        jd_structured_with_level["location"] = lv_row["location"]
+                        jd_structured_with_level["employee_information"]["location"] = lv_row["location"]
         except Exception as _e:
-            logger.warning(f"Could not stamp job_level into jd_structured: {_e}")
+            logger.warning(f"Could not stamp organogram fields into jd_structured: {_e}")
 
     try:
         record = await save_questionnaire_jd(
@@ -813,20 +825,32 @@ async def get_jd(jd_id: str, db: AsyncSession = Depends(get_db)):
     emp_record = emp_result.scalar_one_or_none()
     employee_name = emp_record.name if emp_record else "Unknown Employee"
 
-    # ── Stamp job_level if missing (for JDs saved before the job_level fix) ──
+    # ── Stamp job_level and location if missing (for JDs saved before the fixes) ──
     jd_structured = dict(record.jd_structured or {})
-    if not jd_structured.get("job_level") and not jd_structured.get("joblevel") and record.employee_id:
+    needs_level = not jd_structured.get("job_level") and not jd_structured.get("joblevel")
+    needs_location = not jd_structured.get("location")
+    if (needs_level or needs_location) and record.employee_id:
         try:
             from sqlalchemy import text as _text
-            lv_res = await db.execute(
-                _text("SELECT joblevel FROM organogram WHERE code = :code"),
-                {"code": record.employee_id},
-            )
+            fields = []
+            if needs_level:
+                fields.append("joblevel")
+            if needs_location:
+                fields.append("location")
+            query_str = f"SELECT {', '.join(fields)} FROM organogram WHERE code = :code"
+            lv_res = await db.execute(_text(query_str), {"code": record.employee_id})
             lv_row = lv_res.mappings().first()
-            if lv_row and lv_row.get("joblevel"):
-                jd_structured["job_level"] = lv_row["joblevel"]
+            if lv_row:
+                if "employee_information" not in jd_structured or not isinstance(jd_structured["employee_information"], dict):
+                    jd_structured["employee_information"] = {}
+                if needs_level and lv_row.get("joblevel"):
+                    jd_structured["job_level"] = lv_row["joblevel"]
+                    jd_structured["employee_information"]["job_level"] = lv_row["joblevel"]
+                if needs_location and lv_row.get("location"):
+                    jd_structured["location"] = lv_row["location"]
+                    jd_structured["employee_information"]["location"] = lv_row["location"]
         except Exception as _e:
-            logger.warning(f"Could not stamp job_level in GET /{jd_id}: {_e}")
+            logger.warning(f"Could not stamp organogram fields in GET /{jd_id}: {_e}")
 
     history = [
         {"role": t.role, "content": t.content}

@@ -93,13 +93,20 @@ Based on HR instructions, the JD template was updated across the codebase:
 | `frontend/components/jd/jd-preview-panel.tsx` | Added filter to exclude Band, Team, Internal Stakeholders keys in UI |
 | `frontend/components/jd/pdf-document-view.tsx` | Refactored labels; Grade → Job Level in PDF export |
 | `frontend/lib/download-jd-pdf.ts` | Updated PDF export HTML to match field removals and renaming |
-| `backend/app/routers/jd_routes.py` | **Bug fix (June 2026):** (1) `init_jd` fetches `joblevel` from organogram into session. (2) `save_jd` stamps `job_level` into `jd_structured`. (3) `GET /{jd_id}` stamps `job_level` from organogram at read time for old JDs missing the field. |
+| `backend/app/routers/jd_routes.py` | **Bug fix (June 2026):** (1) `init_jd` fetches `joblevel` from organogram into session. (2) `save_jd` stamps `job_level` and `location` into `jd_structured`. (3) `GET /{jd_id}` stamps `job_level` and `location` from organogram at read time for old JDs missing these fields. |
 | `frontend/app/admin/(dashboard)/jd/[id]/page.tsx` | **Bug fix (June 2026):** Added `job_level` preservation through the schema migration block. Added `job_level` to `structuredData` remapping. Ensures Job Level always passes through to `PdfDocumentView`. |
 | `frontend/lib/format-date.ts` | **Bug fix (June 2026):** Created shared date utility (`formatDate`, `formatDateTime`, `formatShortDate`) with fixed `en-GB` locale + `timeZone: "UTC"` to prevent React hydration mismatches in admin pages. |
 | `frontend/app/admin/(dashboard)/dashboard/page.tsx` | Replaced inline `toLocaleDateString('en-IN')` with `formatDate()` from shared utility. |
 | `frontend/app/admin/(dashboard)/jd-library/page.tsx` | Replaced inline `toLocaleDateString('en-US')` with `formatDateTime()` from shared utility. |
 | `frontend/app/admin/(dashboard)/feedback/page.tsx` | Replaced `Intl.DateTimeFormat('en-US')` with `formatDateTime()` from shared utility. |
 | `frontend/app/admin/jds/[id]/page.tsx` | Replaced inline `toLocaleDateString('en-US')` with `formatDateTime()` from shared utility. |
+| `frontend/components/jd/pdf-document-view.tsx` | **Format fix (June 2026):** Removed `Working Relationships` table. Added `Reporting Manager` row inside Job/Role Information. Renamed `Function` → `Department`. |
+| `frontend/lib/download-jd-pdf.ts` | **Format fix (June 2026):** Same as above — removed Working Relationships table, added Reporting Manager inside Job/Role Info, renamed Function → Department in downloadable PDF. |
+| `frontend/app/(dashboard)/jd/[id]/page.tsx` | **Feedback fix (June 2026):** Rewritten feedback banner to search the full `reviewComments` list (sorted by `created_at` descending) for the most recent rejection targeting the current user's role. Now employees reliably see manager/HR rejection comments. Also shows full review audit trail (all comments, not just slice(1)). |
+| `backend/app/core/database.py` | **DB Timeout Fix (June 2026):** Restructured engine config to apply PostgreSQL-specific options (pool_size=3, max_overflow=2, pool_recycle=300, SSL connection args) conditionally only when the DATABASE_URL is PostgreSQL, preventing startup timeouts and respecting Aiven free tier connection limits. |
+| `backend/app/routers/admin_jd_routes.py` | **Admin Preview Fix (June 2026):** Updated `transform_reference_to_jd_session_schema` to map `location` and `job_level` from ReferenceJD structured data so they render correctly in admin previews. |
+| `frontend/app/layout.tsx` | **Hydration Fix (June 2026):** Added `suppressHydrationWarning` to the `<html>` tag to silence Next.js development hydration mismatches caused by client-side browser extensions injecting custom attributes (like `data-eazyreach`). |
+| `backend/app/crud/jd_crud.py` | **Feedback Notification Fix (June 2026):** Fixed query bug where `not JDReviewComment.is_read` compiled incorrectly in SQLAlchemy as `AND false`, completely blocking unread feedback notifications. Replaced it with `.is_(False)` to restore active sidebar notification counts. |
 
 ---
 

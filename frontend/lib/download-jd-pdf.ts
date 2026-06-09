@@ -180,8 +180,9 @@ export function downloadJDPdfClient(data: any, roleTitle?: string, dept?: string
               ${sectionHeader("Job / Role Information")}
       ${labelRow("Designation", designation)}
       ${labelRow("Job Level", jobLevel)}
-      ${labelRow("Function", func)}
+      ${labelRow("Department", func)}
       ${labelRow("Location", location)}
+      ${labelRow("Reporting Manager", reportingTo)}
       
       <!-- About Pulse -->
       <tr>
@@ -209,16 +210,7 @@ export function downloadJDPdfClient(data: any, roleTitle?: string, dept?: string
     </tbody>
   </table>
 
-  <!-- Table 2: Working Relationships -->
-  <table ${TABLE}>
-    <tbody>
-      ${sectionHeader("Working Relationships")}
-      ${labelRow("Reporting to", reportingTo)}
-      ${labelRow("External Stakeholders", external)}
-    </tbody>
-  </table>
-
-  <!-- Table 3: Skills / Competencies -->
+  <!-- Table 2: Skills / Competencies -->
   <table ${TABLE}>
     <tbody>
       ${sectionHeader("Skills/ Competencies Required")}

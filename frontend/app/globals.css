@@ -23,8 +23,8 @@
   --color-surface-900: #0f172a;
 
   /* Typography */
-  --font-heading: var(--font-body);
-  --font-body: "Helvetica Neue", Helvetica, Arial, sans-serif;
+  --font-body: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  --font-heading: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
 
   /* Elevation */
   --shadow-premium:

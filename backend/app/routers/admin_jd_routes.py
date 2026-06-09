@@ -175,13 +175,21 @@ def transform_reference_to_jd_session_schema(ref_data: dict) -> dict:
     tech_list = safe_get_list(ref_data, "technologies")
     combined_tools = tools_list + tech_list
 
+    emp_info = safe_get_dict(ref_data, "employee_information")
+    loc_val = ref_data.get("location") or emp_info.get("location") or ""
+    lvl_val = ref_data.get("job_level") or ref_data.get("level") or emp_info.get("job_level") or emp_info.get("joblevel") or ""
+
     return {
         "employee_information": {
             "job_title": ref_data.get("role_title") or ref_data.get("title") or "Unknown",
             "department": ref_data.get("department") or "Unknown",
             "reports_to": wr.get("reports_to") or "",
             "team_size": wr.get("team_size") or "",
+            "location": loc_val,
+            "job_level": lvl_val,
         },
+        "location": loc_val,
+        "job_level": lvl_val,
         "purpose": ref_data.get("purpose") or "",
         "responsibilities": safe_get_list(ref_data, "tasks") or safe_get_list(ref_data, "responsibilities"),
         "skills": safe_get_list(ref_data, "skills"),

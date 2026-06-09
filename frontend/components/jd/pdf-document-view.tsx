@@ -143,8 +143,9 @@ export function PdfDocumentView({ data, roleTitle, dept }: Props) {
           <tr><td colSpan={2} style={thStyle}>Job / Role Information</td></tr>
           <LabelRow label="Designation" value={designation} />
           <LabelRow label="Job Level" value={jobLevel} />
-          <LabelRow label="Function" value={func} />
+          <LabelRow label="Department" value={func} />
           <LabelRow label="Location" value={location} />
+          <LabelRow label="Reporting Manager" value={reportingTo} />
 
           {/* About Pulse */}
           <tr>
@@ -182,14 +183,7 @@ export function PdfDocumentView({ data, roleTitle, dept }: Props) {
         </tbody>
       </table>
 
-      {/* Table 2: Working Relationships */}
-      <table style={tableStyle}>
-        <tbody>
-          <tr><td colSpan={2} style={thStyle}>Working Relationships</td></tr>
-          <LabelRow label="Reporting to" value={reportingTo} />
-          <LabelRow label="External Stakeholders" value={external} />
-        </tbody>
-      </table>
+
 
       {/* Table 3: Skills / Competencies */}
       <table style={tableStyle}>

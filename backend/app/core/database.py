@@ -7,33 +7,38 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-# Configure SSL for asyncpg
-connect_args = {
-    "server_settings": {"jit": "off"},  # Disable JIT for short queries
-    "command_timeout": 60,
-}
+_is_postgres = settings.DATABASE_URL.startswith("postgresql")
 
-# Handle SSL configuration for asyncpg
-if settings.DATABASE_SSL and settings.DATABASE_SSL != "disable":
-    if settings.DATABASE_SSL == "require":
-        # For development, we'll disable SSL verification
-        # In production, you should configure proper SSL certificates
-        import ssl
-        ssl_context = ssl.create_default_context()
-        ssl_context.check_hostname = False
-        ssl_context.verify_mode = ssl.CERT_NONE
-        connect_args["ssl"] = ssl_context
+# asyncpg-specific connect args — only relevant for PostgreSQL
+connect_args: dict = {}
+if _is_postgres:
+    connect_args = {
+        "server_settings": {"jit": "off"},  # Disable JIT for short queries
+        "command_timeout": 60,
+    }
+    # SSL configuration for asyncpg (Aiven requires SSL)
+    if settings.DATABASE_SSL and settings.DATABASE_SSL != "disable":
+        if settings.DATABASE_SSL == "require":
+            import ssl
+            ssl_context = ssl.create_default_context()
+            ssl_context.check_hostname = False
+            ssl_context.verify_mode = ssl.CERT_NONE
+            connect_args["ssl"] = ssl_context
 
-engine = create_async_engine(
-    settings.DATABASE_URL,
+_engine_kwargs: dict = dict(
     echo=False,
     pool_pre_ping=True,
-    pool_size=5,  # 5 per worker × 2 workers = 10 total (was 10×2=20, too many for Aiven free)
-    max_overflow=5,  # Allow burst to 10 per worker max
-    pool_recycle=1800,  # Recycle every 30 min (not 1 hour — Aiven kills idle at 5min)
-    pool_timeout=30,  # Wait max 30s for a connection
     connect_args=connect_args,
 )
+if _is_postgres:
+    _engine_kwargs.update(
+        pool_size=3,        # 3 per worker — keeps total well under Aiven free tier limit
+        max_overflow=2,     # Burst to 5 per worker max
+        pool_recycle=300,   # Recycle every 5 min — matches Aiven idle timeout
+        pool_timeout=30,    # Wait max 30s for a connection
+    )
+
+engine = create_async_engine(settings.DATABASE_URL, **_engine_kwargs)
 
 AsyncSessionLocal = async_sessionmaker(
     bind=engine,

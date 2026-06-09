@@ -79,7 +79,7 @@ export default function AdminLayout({
             >
                 <div className="p-8 pb-4 flex items-center justify-between">
                     <div className="flex items-center gap-4">
-                        <div className="w-12 h-12 rounded-md bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white text-xl shadow-md shadow-blue-900/40 border border-blue-400/20">
+                        <div className="w-12 h-12 rounded-md bg-slate-800 flex items-center justify-center text-white text-xl border border-slate-700">
                             <ShieldCheck className="w-6 h-6" />
                         </div>
                         <div>
@@ -110,16 +110,16 @@ export default function AdminLayout({
                                 key={item.href}
                                 href={item.href}
                                 className={`flex items-center gap-4 px-5 py-4 rounded-md transition-all group relative ${isActive
-                                        ? "bg-blue-600 text-white shadow-md shadow-blue-900/40"
+                                        ? "bg-slate-800 text-white"
                                         : "hover:bg-slate-800/50 hover:text-white"
                                     }`}
                             >
                                 <item.icon
-                                    className={`w-5 h-5 transition-transform group-hover:scale-110 ${isActive ? "text-white" : "text-slate-500"}`}
+                                    className={`w-5 h-5 ${isActive ? "text-blue-400" : "text-slate-500 group-hover:text-slate-300"}`}
                                 />
                                 <span className="font-medium text-sm">{item.label}</span>
                                 {isActive && (
-                                    <div className="absolute right-4 w-1.5 h-1.5 bg-white rounded-md animate-pulse shadow-[0_0_8px_white]"></div>
+                                    <div className="absolute left-0 top-3 bottom-3 w-1 bg-blue-500 rounded-r"></div>
                                 )}
                             </Link>
                         );
@@ -172,9 +172,8 @@ export default function AdminLayout({
                                 Admin Console
                             </span>
                         </div>
-                        <div className="relative group">
-                            <div className="absolute -inset-1 bg-gradient-to-tr from-blue-500 to-indigo-600 rounded-md blur opacity-40 group-hover:opacity-100 transition duration-500"></div>
-                            <div className="relative w-12 h-12 bg-slate-100 rounded-md flex items-center justify-center text-slate-900 font-medium border-2 border-white shadow-md cursor-default overflow-hidden group-hover:scale-110 transition-transform">
+                        <div className="relative">
+                            <div className="w-12 h-12 bg-slate-200 rounded-md flex items-center justify-center text-slate-800 font-semibold border border-slate-300 shadow-sm cursor-default">
                                 <span className="text-lg">M</span>
                             </div>
                         </div>

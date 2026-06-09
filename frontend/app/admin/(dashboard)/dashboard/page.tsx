@@ -248,29 +248,25 @@ export default function AdminDashboard() {
             label: "Total Employees",
             value: stats?.total_employees || 0,
             icon: Users,
-            gradient: "from-blue-500 to-blue-600",
-            shadow: "shadow-blue-200/60",
+            bg: "bg-blue-50 text-blue-600 border-blue-100",
         },
         {
             label: "Pending JDs",
             value: stats?.pending_jds || 0,
             icon: Clock,
-            gradient: "from-amber-400 to-orange-500",
-            shadow: "shadow-amber-200/60",
+            bg: "bg-amber-50 text-amber-600 border-amber-100",
         },
         {
             label: "Approved JDs",
             value: stats?.approved_jds || 0,
             icon: CheckCircle,
-            gradient: "from-emerald-500 to-teal-600",
-            shadow: "shadow-emerald-200/60",
+            bg: "bg-emerald-50 text-emerald-600 border-emerald-100",
         },
         {
             label: "Rejected JDs",
             value: stats?.rejected_jds || 0,
             icon: XCircle,
-            gradient: "from-rose-500 to-pink-600",
-            shadow: "shadow-rose-200/60",
+            bg: "bg-rose-50 text-rose-600 border-rose-100",
         },
     ];
 
@@ -281,26 +277,23 @@ export default function AdminDashboard() {
                 {statCards.map((s, i) => (
                     <div
                         key={i}
-                        className={`relative overflow-hidden rounded-md sm:rounded-md bg-gradient-to-br ${s.gradient} p-4 sm:p-6 text-white shadow-md ${s.shadow} hover:shadow-md hover:-translate-y-0.5 transition-all duration-300`}
+                        className="bg-white border border-slate-200 rounded-lg p-4 sm:p-6 shadow-sm hover:shadow-md transition-all duration-300"
                     >
-                        {/* Decorative circles */}
-                        <div className="absolute -top-6 -right-6 w-20 h-20 sm:w-24 sm:h-24 bg-white/10 rounded-md" />
-                        <div className="absolute -bottom-4 -left-4 w-14 h-14 sm:w-16 sm:h-16 bg-white/5 rounded-md" />
-
-                        <div className="relative">
-                            <div className="flex items-center justify-between mb-3 sm:mb-4">
-                                <s.icon className="w-6 h-6 sm:w-7 sm:h-7 opacity-90" />
-                                <span className="text-[10px] sm:text-xs font-medium bg-white/20 px-2 py-0.5 sm:px-2.5 sm:py-1 rounded-md">
-                                    Live
-                                </span>
-                            </div>
-                            <h3 className="text-xl sm:text-2xl md:text-3xl lg:text-4xl font-extrabold ">
-                                {s.value}
-                            </h3>
-                            <p className="text-xs sm:text-sm font-medium opacity-90 mt-0.5">
+                        <div className="flex items-center justify-between mb-3 sm:mb-4">
+                            <span className="text-[10px] sm:text-xs font-semibold text-slate-500 uppercase tracking-wider">
                                 {s.label}
-                            </p>
+                            </span>
+                            <div className={`p-2 rounded-lg border ${s.bg}`}>
+                                <s.icon className="w-5 h-5 sm:w-6 sm:h-6" />
+                            </div>
                         </div>
+                        <h3 className="text-2xl sm:text-3xl font-bold text-slate-900 tracking-tight">
+                            {s.value}
+                        </h3>
+                        <p className="text-[10px] sm:text-xs text-slate-400 mt-1.5 flex items-center gap-1.5">
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                            Live data
+                        </p>
                     </div>
                 ))}
             </div>

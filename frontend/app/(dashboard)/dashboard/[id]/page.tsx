@@ -646,6 +646,7 @@ function ManagerView({ user }: { user: AuthUser }) {
     employee_id: string;
     name: string;
     designation?: string;
+    department?: string;
     reporting_manager?: string;
     jd_id?: string;
     jd_status?: string;
@@ -689,6 +690,27 @@ function ManagerView({ user }: { user: AuthUser }) {
     // "feedback" or "my_team" or other: return empty or allJds as fallback
     return [];
   }, [filter, allJds, myJds]);
+
+  // Group team employees by department
+  const groupedEmployees = useMemo(() => {
+    const groups: Record<string, TeamEmployee[]> = {};
+    myTeamEmployees.forEach((emp) => {
+      const dept = emp.department || "Other";
+      if (!groups[dept]) groups[dept] = [];
+      groups[dept].push(emp);
+    });
+    // Sort departments so 'Cell Therapeutics' or alphabetical comes first
+    return Object.keys(groups)
+      .sort((a, b) => {
+        if (a.toLowerCase() === 'cell therapeutics') return -1;
+        if (b.toLowerCase() === 'cell therapeutics') return 1;
+        return a.localeCompare(b);
+      })
+      .reduce((acc, key) => {
+        acc[key] = groups[key];
+        return acc;
+      }, {} as Record<string, TeamEmployee[]>);
+  }, [myTeamEmployees]);
 
   useEffect(() => {
     async function load() {
@@ -896,77 +918,89 @@ function ManagerView({ user }: { user: AuthUser }) {
               )}
 
 
-              {/* Employee Directory */}
-              <div className="bg-white rounded-[2.5rem] border border-surface-200 shadow-md overflow-hidden">
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left border-collapse">
-                    <thead>
-                      <tr className="bg-surface-50/50">
-                        <th className="px-6 py-5 text-[10px] font-medium text-surface-400 border-b border-surface-100">Team Member</th>
-                        <th className="px-6 py-5 text-[10px] font-medium text-surface-400 border-b border-surface-100">Designation</th>
-                        <th className="px-6 py-5 text-[10px] font-medium text-surface-400 border-b border-surface-100">JD Status</th>
-                        <th className="px-6 py-5 text-[10px] font-medium text-surface-400 border-b border-surface-100">Action</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-surface-50">
-                      {myTeamEmployees.map((emp) => (
-                        <tr key={emp.employee_id} className="hover:bg-surface-50/50 transition-colors group">
-                          <td className="px-6 py-5">
-                            <div className="flex items-center gap-3">
-                              <div className="w-10 h-10 rounded-md bg-primary-50 text-primary-600 flex items-center justify-center font-medium text-xs ring-1 ring-primary-100">
-                                {emp.name.split(' ').map((n: string) => n[0]).join('').slice(0, 2).toUpperCase()}
-                              </div>
-                              <div>
-                                <p className="font-medium text-surface-900 text-sm">{emp.name}</p>
-                                <p className="text-[10px] font-medium text-surface-400 font-mono ">{emp.employee_id}</p>
-                              </div>
-                            </div>
-                          </td>
-                          <td className="px-6 py-5">
-                            <p className="text-xs font-medium text-surface-600 leading-snug">{emp.designation}</p>
-                            <p className="text-[10px] text-surface-400 mt-0.5">Manager: {emp.reporting_manager || 'None'}</p>
-                          </td>
-                          <td className="px-6 py-5">
-                            <div className={`inline-flex items-center gap-2 px-3 py-1 rounded-lg border text-[10px] font-medium ${STATUS_CONFIG[emp.jd_status as keyof typeof STATUS_CONFIG]?.bg || 'bg-surface-100 border-surface-200 text-surface-500'
-                              } ${STATUS_CONFIG[emp.jd_status as keyof typeof STATUS_CONFIG]?.color || ''}`}>
-                              <span className={`w-1.5 h-1.5 rounded-md bg-current opacity-40`} />
-                              {STATUS_CONFIG[emp.jd_status as keyof typeof STATUS_CONFIG]?.label || emp.jd_status}
-                            </div>
-                          </td>
-                          <td className="px-6 py-5">
-                            {emp.jd_id ? (
-                              <Link
-                                href={`/jd/${emp.jd_id}`}
-                                className="inline-flex items-center gap-2 text-[10px] font-medium text-emerald-600 hover:text-emerald-700 transition-colors"
-                              >
-                                View JD
-                                <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-1 transition-transform" />
-                              </Link>
-                            ) : (
-                              <Link
-                                href={`/dashboard/${btoa(emp.employee_id)}`}
-                                className="inline-flex items-center gap-2 text-[10px] font-medium text-primary-600 hover:text-primary-700 transition-colors"
-                              >
-                                NO JD
-                                <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-1 transition-transform" />
-                              </Link>
-                            )}
-                          </td>
-
-                        </tr>
-                      ))}
-                      {myTeamEmployees.length === 0 && (
-                        <tr>
-                          <td colSpan={4} className="px-6 py-20 text-center">
-                            <Users className="w-12 h-12 text-surface-200 mx-auto mb-4" />
-                            <p className="text-surface-500 font-medium">No team members identified in your scope.</p>
-                          </td>
-                        </tr>
-                      )}
-                    </tbody>
-                  </table>
+              {/* Employee Directory Grouped by Department */}
+              {myTeamEmployees.length === 0 ? (
+                <div className="bg-white rounded-[2.5rem] border border-surface-200 shadow-md p-20 text-center">
+                  <Users className="w-12 h-12 text-surface-200 mx-auto mb-4" />
+                  <p className="text-surface-500 font-medium">No team members identified in your scope.</p>
                 </div>
-              </div>
+              ) : (
+                <div className="space-y-8">
+                  {Object.entries(groupedEmployees).map(([deptName, emps]) => (
+                    <div key={deptName} className="space-y-4">
+                      <div className="flex items-center gap-2.5 px-2">
+                        <span className="w-1.5 h-4 rounded-full bg-primary-500 shadow-sm" />
+                        <h3 className="text-sm font-semibold text-surface-800 tracking-wide">{deptName}</h3>
+                        <span className="text-[10px] font-bold bg-primary-50 text-primary-600 px-2 py-0.5 rounded-full ring-1 ring-primary-100/30">
+                          {emps.length} {emps.length === 1 ? 'member' : 'members'}
+                        </span>
+                      </div>
+                      
+                      <div className="bg-white rounded-[2.5rem] border border-surface-200 shadow-md overflow-hidden">
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-left border-collapse">
+                            <thead>
+                              <tr className="bg-surface-50/50">
+                                <th className="px-6 py-5 text-[10px] font-medium text-surface-400 border-b border-surface-100 w-1/3">Team Member</th>
+                                <th className="px-6 py-5 text-[10px] font-medium text-surface-400 border-b border-surface-100 w-1/3">Designation</th>
+                                <th className="px-6 py-5 text-[10px] font-medium text-surface-400 border-b border-surface-100">JD Status</th>
+                                <th className="px-6 py-5 text-[10px] font-medium text-surface-400 border-b border-surface-100">Action</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-surface-50">
+                              {emps.map((emp) => (
+                                <tr key={emp.employee_id} className="hover:bg-surface-50/50 transition-colors group">
+                                  <td className="px-6 py-5">
+                                    <div className="flex items-center gap-3">
+                                      <div className="w-10 h-10 rounded-md bg-primary-50 text-primary-600 flex items-center justify-center font-medium text-xs ring-1 ring-primary-100">
+                                        {emp.name.split(' ').map((n: string) => n[0]).join('').slice(0, 2).toUpperCase()}
+                                      </div>
+                                      <div>
+                                        <p className="font-medium text-surface-900 text-sm">{emp.name}</p>
+                                        <p className="text-[10px] font-medium text-surface-400 font-mono ">{emp.employee_id}</p>
+                                      </div>
+                                    </div>
+                                  </td>
+                                  <td className="px-6 py-5">
+                                    <p className="text-xs font-medium text-surface-600 leading-snug">{emp.designation}</p>
+                                    <p className="text-[10px] text-surface-400 mt-0.5">Manager: {emp.reporting_manager || 'None'}</p>
+                                  </td>
+                                  <td className="px-6 py-5">
+                                    <div className={`inline-flex items-center gap-2 px-3 py-1 rounded-lg border text-[10px] font-medium ${STATUS_CONFIG[emp.jd_status as keyof typeof STATUS_CONFIG]?.bg || 'bg-surface-100 border-surface-200 text-surface-500'
+                                      } ${STATUS_CONFIG[emp.jd_status as keyof typeof STATUS_CONFIG]?.color || ''}`}>
+                                      <span className={`w-1.5 h-1.5 rounded-md bg-current opacity-40`} />
+                                      {STATUS_CONFIG[emp.jd_status as keyof typeof STATUS_CONFIG]?.label || emp.jd_status}
+                                    </div>
+                                  </td>
+                                  <td className="px-6 py-5">
+                                    {emp.jd_id ? (
+                                      <Link
+                                        href={`/jd/${emp.jd_id}`}
+                                        className="inline-flex items-center gap-2 text-[10px] font-medium text-emerald-600 hover:text-emerald-700 transition-colors"
+                                      >
+                                        View JD
+                                        <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-1 transition-transform" />
+                                      </Link>
+                                    ) : (
+                                      <Link
+                                        href={`/dashboard/${btoa(emp.employee_id)}`}
+                                        className="inline-flex items-center gap-2 text-[10px] font-medium text-primary-600 hover:text-primary-700 transition-colors"
+                                      >
+                                        NO JD
+                                        <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-1 transition-transform" />
+                                      </Link>
+                                    )}
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           ) : (
             <JDGrid jds={jds} showEmployee={filter !== "my_jds"} />

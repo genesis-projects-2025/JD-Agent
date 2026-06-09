@@ -111,6 +111,21 @@ class DashboardService:
         if not row:
             return []
             
-        dept_query = text("SELECT code FROM organogram WHERE department = :dept")
-        dept_res = await db.execute(dept_query, {"dept": row[0]})
+        dept = row[0]
+        if dept and dept.strip().lower() == 'cell therapeutics':
+            dept_query = text("""
+                SELECT code FROM organogram 
+                WHERE department IN (
+                    'Cell Therapeutics', 
+                    'PCT- Protein Purification', 
+                    'PCT- Cell Biology', 
+                    'PCT- Bioinformatic', 
+                    'PCT - Microbiology'
+                )
+            """)
+            dept_res = await db.execute(dept_query)
+        else:
+            dept_query = text("SELECT code FROM organogram WHERE department = :dept")
+            dept_res = await db.execute(dept_query, {"dept": dept})
+            
         return [r[0] for r in dept_res.fetchall()]

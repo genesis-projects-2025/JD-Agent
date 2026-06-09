@@ -132,22 +132,56 @@ async def get_department_employees(
     try:
         offset = (page - 1) * limit
         
+        is_cell_tx = department_name and department_name.strip().lower() == 'cell therapeutics'
+        
         # 1. Fetch approved templates map for department
-        approved_query = text("""
-            SELECT id, title
-            FROM jd_sessions
-            WHERE department = :dept
-              AND status = 'approved'
-              AND title IS NOT NULL
-        """)
-        approved_res = await db.execute(approved_query, {"dept": department_name})
-        approved_map = {row.title: str(row.id) for row in approved_res.fetchall()}
+        if is_cell_tx:
+            approved_query = text("""
+                SELECT id, department, title
+                FROM jd_sessions
+                WHERE department IN (
+                    'Cell Therapeutics', 
+                    'PCT- Protein Purification', 
+                    'PCT- Cell Biology', 
+                    'PCT- Bioinformatic', 
+                    'PCT - Microbiology'
+                )
+                  AND status = 'approved'
+                  AND title IS NOT NULL
+            """)
+            approved_res = await db.execute(approved_query)
+            approved_map = {(row.department, row.title): str(row.id) for row in approved_res.fetchall()}
+        else:
+            approved_query = text("""
+                SELECT id, department, title
+                FROM jd_sessions
+                WHERE department = :dept
+                  AND status = 'approved'
+                  AND title IS NOT NULL
+            """)
+            approved_res = await db.execute(approved_query, {"dept": department_name})
+            approved_map = {(row.department, row.title): str(row.id) for row in approved_res.fetchall()}
 
         # 2. Query organogram for department employees and join latest personal JD session
         join_type = "JOIN" if only_submitted else "LEFT JOIN"
         status_filter = ""
         if only_submitted:
             status_filter = "AND lj.status IN ('sent_to_manager', 'manager_rejected', 'sent_to_hr', 'hr_rejected', 'approved', 'rejected', 'revision_requested')"
+
+        if is_cell_tx:
+            dept_filter = """
+                o.department IN (
+                    'Cell Therapeutics', 
+                    'PCT- Protein Purification', 
+                    'PCT- Cell Biology', 
+                    'PCT- Bioinformatic', 
+                    'PCT - Microbiology'
+                )
+            """
+            params = {"limit": limit, "offset": offset}
+        else:
+            dept_filter = "o.department = :dept"
+            params = {"dept": department_name, "limit": limit, "offset": offset}
 
         query = text(f"""
             WITH LatestJDs AS (
@@ -170,16 +204,12 @@ async def get_department_employees(
                 lj.updated_at as last_updated
             FROM organogram o
             {join_type} LatestJDs lj ON o.code = lj.employee_id AND lj.rn = 1 {status_filter}
-            WHERE o.department = :dept
+            WHERE {dept_filter}
             ORDER BY o.employee_name ASC
             LIMIT :limit OFFSET :offset
         """)
         
-        result = await db.execute(query, {
-            "dept": department_name,
-            "limit": limit,
-            "offset": offset
-        })
+        result = await db.execute(query, params)
         
         employees = []
         for row in result.mappings():
@@ -188,9 +218,9 @@ async def get_department_employees(
             last_updated = row.last_updated
             
             # Resolve zero-bloat shared role approved JDs
-            if (not status or status in ["draft", "jd_generated", "collecting"]) and row.designation in approved_map:
+            if (not status or status in ["draft", "jd_generated", "collecting"]) and (row.department, row.designation) in approved_map:
                 status = "approved"
-                jd_id = approved_map[row.designation]
+                jd_id = approved_map[(row.department, row.designation)]
             elif not status or status in ["draft", "jd_generated", "collecting"]:
                 status = "Not Submitted"
                 
@@ -198,6 +228,7 @@ async def get_department_employees(
                 "employee_id": row.employee_id,
                 "name": row.name,
                 "designation": row.designation,
+                "department": row.department,
                 "reporting_manager": row.reporting_manager,
                 "jd_status": status,
                 "jd_id": jd_id,
@@ -333,6 +364,7 @@ async def get_my_team_employees(
                     "employee_id": row.employee_id,
                     "name": row.name,
                     "designation": row.designation,
+                    "department": row.department,
                     "reporting_manager": row.reporting_manager,
                     "jd_status": status,
                     "jd_id": jd_id,

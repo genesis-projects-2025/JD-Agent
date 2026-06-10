@@ -260,10 +260,7 @@ def generate_jd_docx(
     purpose = _get(jd_data, "purpose", "role_summary")
     responsibilities = _get_list(jd_data, "responsibilities", "key_responsibilities")
     skills = _get_list(jd_data, "skills", "technical_skills", "required_skills")
-    tools = _get_list(jd_data, "tools", "tools_and_technologies")
-    all_skills = skills + [f"{t} (Tool/Platform)" for t in tools]
-    if not all_skills:
-        all_skills = ["To be confirmed with line manager."]
+    tools = _get_list(jd_data, "tools", "tools_and_technologies", "tools_used")
 
     education = _get(jd_data, "education")
     experience = _get(jd_data, "experience")
@@ -328,7 +325,7 @@ def generate_jd_docx(
     doc.add_paragraph().paragraph_format.space_after = Pt(6)
 
     # ── TABLE 3: Skills / Competencies ────────────────────────────────────────
-    t3 = doc.add_table(rows=2, cols=2)
+    t3 = doc.add_table(rows=3, cols=2)
     t3.alignment = WD_TABLE_ALIGNMENT.CENTER
 
     _section_header_row(t3, 0, "Skills/ Competencies Required")
@@ -336,7 +333,13 @@ def generate_jd_docx(
         t3,
         1,
         "Skills",
-        all_skills,
+        skills if skills else ["To be confirmed with line manager."],
+    )
+    _data_row(
+        t3,
+        2,
+        "Tools / Platforms",
+        tools if tools else ["To be confirmed with line manager."],
     )
 
     doc.add_paragraph().paragraph_format.space_after = Pt(6)

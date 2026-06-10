@@ -101,9 +101,8 @@ export function downloadJDPdfClient(data: any, roleTitle?: string, dept?: string
   const external     = esc(getStakeholder(data, "external") || "Not applicable");
   const purpose      = esc(getField(data, "purpose", "role_summary"));
   const responsibilities = getArray(data, "responsibilities", "key_responsibilities");
-  const skills       = getArray(data, "skills", "required_skills");
+  const skills       = getArray(data, "skills", "technical_skills", "required_skills");
   const tools        = getArray(data, "tools", "tools_used", "tools_and_technologies");
-  const allSkills    = [...skills, ...tools.map((t: string) => `${t} (Tool/Platform)`)];
   const education    = esc(getField(data, "education") || data?.talent_bar?.education || "");
   const experience   = esc(getField(data, "experience") || data?.talent_bar?.experience || "");
   const eduExp       = [education, experience].filter(Boolean).join("<br/><br/>");
@@ -218,7 +217,14 @@ export function downloadJDPdfClient(data: any, roleTitle?: string, dept?: string
         <td style="font-weight:bold;padding:7px 10px;width:35%;border:1px solid #999;
                    vertical-align:top;font-size:11pt">Skills</td>
         <td style="padding:7px 10px;border:1px solid #999;vertical-align:top;font-size:11pt">
-          ${listHtml(allSkills)}
+          ${listHtml(skills)}
+        </td>
+      </tr>
+      <tr>
+        <td style="font-weight:bold;padding:7px 10px;width:35%;border:1px solid #999;
+                   vertical-align:top;font-size:11pt">Tools / Platforms</td>
+        <td style="padding:7px 10px;border:1px solid #999;vertical-align:top;font-size:11pt">
+          ${listHtml(tools)}
         </td>
       </tr>
     </tbody>

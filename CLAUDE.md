@@ -107,6 +107,9 @@ Based on HR instructions, the JD template was updated across the codebase:
 | `backend/app/routers/admin_jd_routes.py` | **Admin Preview Fix (June 2026):** Updated `transform_reference_to_jd_session_schema` to map `location` and `job_level` from ReferenceJD structured data so they render correctly in admin previews. |
 | `frontend/app/layout.tsx` | **Hydration Fix (June 2026):** Added `suppressHydrationWarning` to the `<html>` tag to silence Next.js development hydration mismatches caused by client-side browser extensions injecting custom attributes (like `data-eazyreach`). |
 | `backend/app/crud/jd_crud.py` | **Feedback Notification Fix (June 2026):** Fixed query bug where `not JDReviewComment.is_read` compiled incorrectly in SQLAlchemy as `AND false`, completely blocking unread feedback notifications. Replaced it with `.is_(False)` to restore active sidebar notification counts. |
+| `frontend/components/jd/pdf-document-view.tsx` | **Skills & Tools Separation (June 2026):** Separated Skills and Tools/Platforms into distinct rows in Table 3 of the PDF preview panel. |
+| `frontend/lib/download-jd-pdf.ts` | **Skills & Tools Separation (June 2026):** Separated Skills and Tools/Platforms into distinct rows in client-side PDF download template. |
+| `backend/app/services/docx_generator.py` | **Skills & Tools Separation (June 2026):** Separated Skills and Tools/Platforms into distinct rows in the generated Word (.docx) document. |
 
 ---
 

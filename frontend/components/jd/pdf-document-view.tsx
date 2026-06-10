@@ -103,7 +103,6 @@ export function PdfDocumentView({ data, roleTitle, dept }: Props) {
   const responsibilities = getArray(data, "responsibilities", "key_responsibilities");
   const skills = getArray(data, "skills", "technical_skills");
   const tools = getArray(data, "tools", "tools_used", "tools_and_technologies");
-  const allSkills = [...skills, ...tools.map((t: string) => `${t} (Tool/Platform)`)];
 
   // Safe extraction taking into account nested qualifications map
   const rawEducation = data.qualifications?.education || getField(data, "education") || data?.talent_bar?.education;
@@ -192,10 +191,22 @@ export function PdfDocumentView({ data, roleTitle, dept }: Props) {
           <tr>
             <td style={tdLabelStyle}>Skills</td>
             <td style={tdValueStyle}>
-              {allSkills.length === 0 ? "To be confirmed with line manager." : (
+              {skills.length === 0 ? "To be confirmed with line manager." : (
                 <ul style={{ margin: 0, paddingLeft: "20px", listStyleType: "disc" }}>
-                  {allSkills.map((s, i) => (
+                  {skills.map((s, i) => (
                     <li key={i} style={{ marginBottom: "3px" }}>{s}</li>
+                  ))}
+                </ul>
+              )}
+            </td>
+          </tr>
+          <tr>
+            <td style={tdLabelStyle}>Tools / Platforms</td>
+            <td style={tdValueStyle}>
+              {tools.length === 0 ? "To be confirmed with line manager." : (
+                <ul style={{ margin: 0, paddingLeft: "20px", listStyleType: "disc" }}>
+                  {tools.map((t, i) => (
+                    <li key={i} style={{ marginBottom: "3px" }}>{t}</li>
                   ))}
                 </ul>
               )}

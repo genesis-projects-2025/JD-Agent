@@ -51,7 +51,27 @@ class DashboardService:
         mgr_res = await db.execute(mgr_query, {"mgr_code": mgr_code})
         mgr_row = mgr_res.fetchone()
         
-        if not mgr_row or mgr_row[0] != dept:
+        if not mgr_row:
+            return True
+            
+        mgr_dept = mgr_row[0]
+        
+        # Define department families/groups that should be treated as the same department
+        cell_tx_group = {
+            'cell therapeutics', 
+            'pct- protein purification', 
+            'pct- cell biology', 
+            'pct- bioinformatic', 
+            'pct - microbiology'
+        }
+        
+        dept_lower = dept.strip().lower() if dept else ""
+        mgr_dept_lower = mgr_dept.strip().lower() if mgr_dept else ""
+        
+        if dept_lower in cell_tx_group and mgr_dept_lower in cell_tx_group:
+            return False
+            
+        if mgr_dept != dept:
             return True
             
         return False
@@ -112,7 +132,17 @@ class DashboardService:
             return []
             
         dept = row[0]
-        if dept and dept.strip().lower() == 'cell therapeutics':
+        
+        # Define department families/groups that should be treated as the same department
+        cell_tx_group = {
+            'cell therapeutics', 
+            'pct- protein purification', 
+            'pct- cell biology', 
+            'pct- bioinformatic', 
+            'pct - microbiology'
+        }
+        
+        if dept and dept.strip().lower() in cell_tx_group:
             dept_query = text("""
                 SELECT code FROM organogram 
                 WHERE department IN (

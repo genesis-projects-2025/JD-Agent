@@ -80,7 +80,7 @@ async def login_organogram(request: LoginRequest, db: AsyncSession = Depends(get
 
     if not has_manager:
         computed_role = "hr"
-    elif is_head:
+    elif is_head and has_reports:
         computed_role = "head"
     elif has_reports:
         computed_role = "manager"

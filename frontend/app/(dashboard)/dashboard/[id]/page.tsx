@@ -1060,7 +1060,12 @@ function HRView({ user }: { user: AuthUser }) {
   const jds = useMemo(() => {
     if (filter === "my_jds") return myJds;
     if (filter === "all") return allJds;
-    // For other filters like "sent_to_hr", default to allJds (maintain previous behavior)
+    if (filter === "sent_to_hr") {
+      return allJds.filter((j) => j.status === "sent_to_hr");
+    }
+    if (filter === "approved") {
+      return allJds.filter((j) => j.status === "approved");
+    }
     return allJds;
   }, [filter, allJds, myJds]);
 

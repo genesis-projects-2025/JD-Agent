@@ -2,7 +2,7 @@
 
 "use client";
 
-import { useEffect, useState, useLayoutEffect, useMemo, type ElementType } from "react";
+import { useEffect, useState, useLayoutEffect, useMemo, Suspense, type ElementType } from "react";
 import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import {
@@ -20,6 +20,7 @@ import {
   Users,
   ChevronLeft,
   Trash2,
+  Target,
 } from "lucide-react";
 
 import { DeleteModal } from "@/components/ui/delete-modal";
@@ -48,6 +49,7 @@ import {
 
 type JDListItem = {
   id: string;
+  employee_id?: string;
   title: string | null;
   status: string;
   version: number;
@@ -219,11 +221,13 @@ function JDGrid({
                   {jd.title || "Untitled Strategic Role"}
                 </h3>
 
-                {/* Show employee name for manager/HR views */}
-                {showEmployee && jd.employee_name && (
-                  <p className="text-xs text-primary-600 font-medium mb-1 flex items-center gap-1">
-                    <Users className="w-3 h-3" />
-                    {jd.employee_name}
+                {/* Show employee name and ID for manager/HR views */}
+                {showEmployee && (jd.employee_name || jd.employee_id) && (
+                  <p className="text-xs text-primary-600 font-medium mb-1 flex items-center gap-1.5">
+                    <Users className="w-3 h-3 text-primary-500" />
+                    <span>
+                      {jd.employee_name || "Unknown"} ({jd.employee_id})
+                    </span>
                     {jd.department && (
                       <span className="text-surface-400 font-medium">
                         {" "}
@@ -243,10 +247,25 @@ function JDGrid({
               </div>
 
               <div className="flex items-center justify-between pt-6 border-t border-surface-50">
-                <span className="text-xs font-medium text-primary-600 group-hover:translate-x-1 transition-transform inline-flex items-center gap-2">
-                  View JD
-                  <ArrowRight className="w-4 h-4" />
-                </span>
+                <div className="flex items-center gap-4">
+                  <span className="text-xs font-medium text-primary-600 group-hover:translate-x-1 transition-transform inline-flex items-center gap-2">
+                    View JD
+                    <ArrowRight className="w-4 h-4" />
+                  </span>
+                  {["jd_generated", "sent_to_manager", "manager_rejected", "sent_to_hr", "hr_rejected", "approved"].includes(jd.status) && (
+                    <button
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        router.push(`/jd/${jd.id}?tab=kra-kpi`);
+                      }}
+                      className="text-xs font-medium text-indigo-600 hover:text-indigo-800 inline-flex items-center gap-1.5 transition-colors border-l border-surface-200 pl-4"
+                    >
+                      <Target className="w-3.5 h-3.5 text-indigo-500" />
+                      View KRA / KPI
+                    </button>
+                  )}
+                </div>
                 <div className="flex gap-2">
                   {/* Delete button only shown if the current user is the owner (in employee view) and status is a deletable one */}
                   {!showEmployee && ["collecting", "draft", "manager_rejected", "hr_rejected", "jd_generated"].includes(jd.status) && (
@@ -670,7 +689,11 @@ function ManagerView({ user }: { user: AuthUser }) {
         ? "my_team"
         : currentView === "my_jds"
           ? "my_jds"
-          : "all",
+          : currentView === "pending"
+            ? "pending"
+            : currentView === "approved"
+              ? "approved"
+              : "pending", // Default to "pending" (Action Required) as the primary view
   );
 
   // Derived JDs based on filter
@@ -1511,7 +1534,7 @@ function LoadingScreen() {
 
 // ── Root: reads role → renders correct view ───────────────────────────────────
 
-export default function DynamicDashboardPage() {
+function DashboardContent() {
   const params = useParams();
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -1520,11 +1543,13 @@ export default function DynamicDashboardPage() {
   // Decode the URL ID recursively if it's base64 encoded
   if (urlId) {
     let current = urlId;
-    while (true) {
+    let depth = 0;
+    while (depth < 5) {
       try {
         const decoded = atob(decodeURIComponent(current));
-        if (/^[a-zA-Z0-9_=\-\+\/%]+$/.test(decoded)) {
+        if (decoded && decoded !== current && /^[a-zA-Z0-9_=\-\+\/%]+$/.test(decoded)) {
           current = decoded;
+          depth++;
         } else {
           break;
         }
@@ -1575,7 +1600,8 @@ export default function DynamicDashboardPage() {
         });
     }, 0);
     return () => clearTimeout(timer);
-  }, [urlId, router]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [urlId]);
 
   if (!ready) return <LoadingScreen />;
 
@@ -1586,4 +1612,12 @@ export default function DynamicDashboardPage() {
 
   // Default to EmployeeView
   return <EmployeeView employeeId={empId} user={user} />;
+}
+
+export default function DynamicDashboardPage() {
+  return (
+    <Suspense fallback={<LoadingScreen />}>
+      <DashboardContent />
+    </Suspense>
+  );
 }

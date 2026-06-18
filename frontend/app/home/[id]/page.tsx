@@ -15,11 +15,13 @@ export default function HomePage({ params }: { params: Promise<{ id: string }> }
   // Decode the ID from the URL recursively if it's base64 encoded
   const employeeId = (() => {
     let current = resolvedParams.id;
-    while (true) {
+    let depth = 0;
+    while (depth < 5) {
       try {
         const decoded = atob(decodeURIComponent(current));
-        if (/^[a-zA-Z0-9_=\-\+\/%]+$/.test(decoded)) {
+        if (decoded && decoded !== current && /^[a-zA-Z0-9_=\-\+\/%]+$/.test(decoded)) {
           current = decoded;
+          depth++;
         } else {
           break;
         }

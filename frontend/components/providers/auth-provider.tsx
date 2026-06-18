@@ -1,6 +1,6 @@
 "use client";
 
-import React, { createContext, useContext, useEffect, useState } from "react";
+import React, { createContext, useContext, useEffect, useState, useMemo } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Loader2, ShieldAlert } from "lucide-react";
 import { loginWithOrganogram } from "@/lib/api";
@@ -30,17 +30,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
 
+    // Derive a stable primitive from searchParams to avoid re-running on every render
+    const empCd = useMemo(() => searchParams.get("emp_cd") ?? "", [searchParams.get("emp_cd")]);
+
     useEffect(() => {
         const authenticate = async () => {
             // 1. URL check for `?emp_cd=...` (High priority)
-            let urlEmpCode = searchParams.get("emp_cd");
+            let urlEmpCode = empCd || null;
             if (urlEmpCode) {
                 let current = urlEmpCode;
-                while (true) {
+                let depth = 0;
+                while (depth < 5) {
                     try {
                         const decoded = atob(decodeURIComponent(current));
-                        if (/^[a-zA-Z0-9_=\-\+\/%]+$/.test(decoded)) {
+                        if (decoded && decoded !== current && /^[a-zA-Z0-9_=\-\+\/%]+$/.test(decoded)) {
                             current = decoded;
+                            depth++;
                         } else {
                             break;
                         }
@@ -87,7 +92,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         };
 
         authenticate();
-    }, [searchParams, router]);
+    // Stable string — avoids the searchParams object reference changing every render
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [empCd]);
 
     // 3. One-time cleanup of legacy localStorage/sessionStorage
     useEffect(() => {

@@ -203,6 +203,7 @@ async def get_hierarchy(
         def get_all_descendants(start_territory: str) -> set:
             result_set = set()
             queue = [start_territory]
+            visited = {start_territory.strip().lower()}
 
             while queue:
                 current = queue.pop(0)
@@ -215,7 +216,11 @@ async def get_hierarchy(
                     and (r.get("Area_Name") or "").strip().lower() == current.strip().lower()
                 ]
                 for child in children:
-                    queue.append(child.get("Territory") or "")
+                    child_terr = child.get("Territory") or ""
+                    child_terr_lower = child_terr.strip().lower()
+                    if child_terr_lower not in visited:
+                        visited.add(child_terr_lower)
+                        queue.append(child_terr)
 
             return result_set
 
@@ -231,7 +236,14 @@ async def get_hierarchy(
         by_territory = {r.get("Territory"): r for r in filtered_rows}
 
         # STEP 4: BUILD TREE RECURSIVELY
-        def build_node(terr: str):
+        def build_node(terr: str, path_visited: set = None):
+            if path_visited is None:
+                path_visited = set()
+            
+            terr_key = terr.strip().lower()
+            if terr_key in path_visited:
+                return None
+
             emp = by_territory.get(terr)
             if not emp:
                 return None
@@ -243,12 +255,13 @@ async def get_hierarchy(
                 and (r.get("Area_Name") or "").strip().lower() == terr.strip().lower()
             ]
 
+            path_visited.add(terr_key)
             children = {}
             for child in child_rows:
-                terr = child.get("Territory") or ""
-                child_node = build_node(terr)
+                child_terr = child.get("Territory") or ""
+                child_node = build_node(child_terr, path_visited.copy())
                 if child_node:
-                    children[terr] = child_node
+                    children[child_terr] = child_node
 
             return {
                 "empName": emp.get("Emp_Name"),

@@ -810,7 +810,10 @@ class InterviewEngine:
                 from app.agents.semantic_cleaner import deduplicate_and_professionalize
 
                 merged = list(set(existing) | set(new_items))
-                insights[field] = await deduplicate_and_professionalize(merged, field, role_title=target_role)
+                dept_name = (insights.get("identity_context") or {}).get("department") or insights.get("department") or ""
+                insights[field] = await deduplicate_and_professionalize(
+                    merged, field, role_title=target_role, department=dept_name
+                )
                 logger.info(f"[Auto-Populate] Added {len(new_items)} items to {field}.")
         except Exception as e:
             logger.error(f"[Auto-Populate] Failed: {e}")
@@ -1131,21 +1134,22 @@ Keep it professional and brief."""
             from app.agents.semantic_cleaner import deduplicate_and_professionalize
 
             target_role = (insights.get("identity_context") or {}).get("title", "General Role")
+            dept_name = (insights.get("identity_context") or {}).get("department") or insights.get("department") or ""
             if new_agent == "WorkflowIdentifierAgent":
                 insights["tasks"] = await deduplicate_and_professionalize(
-                    insights.get("tasks") or [], "tasks", role_title=target_role
+                    insights.get("tasks") or [], "tasks", role_title=target_role, department=dept_name
                 )
             elif new_agent == "DeepDiveAgent":
                 insights["priority_tasks"] = await deduplicate_and_professionalize(
-                    insights.get("priority_tasks") or [], "priority_tasks", role_title=target_role
+                    insights.get("priority_tasks") or [], "priority_tasks", role_title=target_role, department=dept_name
                 )
             elif new_agent == "ToolsAgent":
                 insights["tools"] = await deduplicate_and_professionalize(
-                    insights.get("tools") or [], "tools", role_title=target_role
+                    insights.get("tools") or [], "tools", role_title=target_role, department=dept_name
                 )
             elif new_agent == "SkillsAgent":
                 insights["skills"] = await deduplicate_and_professionalize(
-                    insights.get("skills") or [], "skills", role_title=target_role
+                    insights.get("skills") or [], "skills", role_title=target_role, department=dept_name
                 )
 
             agent_name = new_agent
@@ -1350,6 +1354,7 @@ Keep it professional and brief."""
             cleaning_tasks = []
 
             target_role = (insights.get("identity_context") or {}).get("title", "General Role")
+            dept_name = (insights.get("identity_context") or {}).get("department") or insights.get("department") or ""
             if new_agent == "WorkflowIdentifierAgent":
                 yield {
                     "type": "status",
@@ -1357,26 +1362,28 @@ Keep it professional and brief."""
                 }
                 cleaning_tasks.append(
                     deduplicate_and_professionalize(
-                        insights.get("tasks") or [], "tasks", role_title=target_role
+                        insights.get("tasks") or [], "tasks", role_title=target_role, department=dept_name
                     )
                 )
             elif new_agent == "DeepDiveAgent":
                 yield {"type": "status", "content": "Analyzing priority tasks..."}
                 cleaning_tasks.append(
                     deduplicate_and_professionalize(
-                        insights.get("priority_tasks", []), "priority_tasks", role_title=target_role
+                        insights.get("priority_tasks", []), "priority_tasks", role_title=target_role, department=dept_name
                     )
                 )
             elif new_agent == "ToolsAgent":
                 yield {"type": "status", "content": "Refining technical toolset..."}
                 cleaning_tasks.append(
-                    deduplicate_and_professionalize(insights.get("tools", []), "tools", role_title=target_role)
+                    deduplicate_and_professionalize(
+                        insights.get("tools", []), "tools", role_title=target_role, department=dept_name
+                    )
                 )
             elif new_agent == "SkillsAgent":
                 yield {"type": "status", "content": "Validating technical skills..."}
                 cleaning_tasks.append(
                     deduplicate_and_professionalize(
-                        insights.get("skills", []), "skills", role_title=target_role
+                        insights.get("skills", []), "skills", role_title=target_role, department=dept_name
                     )
                 )
 

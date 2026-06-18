@@ -700,3 +700,159 @@ export async function publishAdminReferenceJD(jdId: string): Promise<AdminPublis
   if (!res.ok) throw new Error("Failed to publish JD");
   return res.json();
 }
+
+// ── KRA / KPI API ─────────────────────────────────────────────────────────────
+
+export interface KRAThreshold {
+  excellent: string;
+  meets_expectation: string;
+  below_expectation: string;
+}
+
+export interface KPISuggestion {
+  kpi_id: string;
+  metric: string;
+  description?: string;
+  target: string;
+  measurement_method: string;
+  frequency: string;
+  threshold: KRAThreshold;
+}
+
+export interface KRASuggestion {
+  kra_id: string;
+  title: string;
+  description: string;
+  source_tasks: string[];
+  suggested_weight: number;
+  manager_impact?: string;
+}
+
+export interface FinalKRA {
+  kra_id: string;
+  title: string;
+  description: string;
+  source_tasks: string[];
+  weight: number;
+  manager_impact?: string;
+  kpis: KPISuggestion[];
+}
+
+export type GenerationStep =
+  | "kra_selection"
+  | "kpi_generation"
+  | "kpi_selection"
+  | "weight_adjustment"
+  | "confirmed";
+
+export interface KRAKPIRecord {
+  id: string;
+  jd_session_id: string;
+  employee_id: string;
+  manager_employee_id: string | null;
+  generation_step: GenerationStep;
+  kra_suggestions: { kra_suggestions: KRASuggestion[]; total_suggested_weight: number } | null;
+  selected_kra_ids: string[] | null;
+  kpi_suggestions: Record<string, { kra_title: string; kpi_suggestions: KPISuggestion[] }> | null;
+  selected_kpi_ids: Record<string, string[]> | null;
+  kras: { kras: FinalKRA[]; total_weight: number } | null;
+  status: "draft" | "confirmed";
+  generated_at: string | null;
+  confirmed_at: string | null;
+}
+
+export interface PrerequisiteStatus {
+  ready: boolean;
+  missing: string[];
+  message: string;
+  current_step: GenerationStep | null;
+}
+
+// ─── API functions ────────────────────────────────────────────────────────────
+
+export async function fetchKRAKPIStatus(
+  jdSessionId: string,
+  employeeId: string,
+): Promise<PrerequisiteStatus> {
+  const res = await fetch(
+    `${API_URL}/kra-kpi/${jdSessionId}/status?employee_id=${encodeURIComponent(employeeId)}`,
+  );
+  if (!res.ok) throw new Error("Failed to check KRA/KPI status");
+  return res.json();
+}
+
+export async function generateKRASuggestions(
+  jdSessionId: string,
+  employeeId: string,
+  bypassManager: boolean = false,
+): Promise<{ status: string; generation_step: GenerationStep; kra_suggestions: KRAKPIRecord["kra_suggestions"] }> {
+  const url = `${API_URL}/kra-kpi/generate/${jdSessionId}?employee_id=${encodeURIComponent(employeeId)}${
+    bypassManager ? "&bypass_manager=true" : ""
+  }`;
+  const res = await fetch(url, { method: "POST" });
+  const data = await res.json();
+  if (!res.ok) {
+    const err = new Error(data?.detail?.message || "KRA generation failed") as ApiError;
+    err.detail = data?.detail?.message;
+    (err as any).missing = data?.detail?.missing || [];
+    throw err;
+  }
+  return data;
+}
+
+export async function fetchKRAKPI(jdSessionId: string): Promise<KRAKPIRecord | null> {
+  const res = await fetch(`${API_URL}/kra-kpi/${jdSessionId}`);
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error("Failed to fetch KRA/KPI");
+  return res.json();
+}
+
+export async function selectKRAs(
+  jdSessionId: string,
+  selectedKraIds: string[],
+): Promise<{ status: string; generation_step: GenerationStep; kpi_suggestions: KRAKPIRecord["kpi_suggestions"] }> {
+  const res = await fetch(`${API_URL}/kra-kpi/${jdSessionId}/select-kras`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ selected_kra_ids: selectedKraIds }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: "Selection failed" }));
+    throw new Error(err.detail || "KRA selection failed");
+  }
+  return res.json();
+}
+
+export async function selectKPIs(
+  jdSessionId: string,
+  selectedKpiIds: Record<string, string[]>,
+): Promise<{ status: string; generation_step: GenerationStep; kras: KRAKPIRecord["kras"] }> {
+  const res = await fetch(`${API_URL}/kra-kpi/${jdSessionId}/select-kpis`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ selected_kpi_ids: selectedKpiIds }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: "Selection failed" }));
+    throw new Error(err.detail || "KPI selection failed");
+  }
+  return res.json();
+}
+
+export async function saveKRAWeights(
+  jdSessionId: string,
+  kras: FinalKRA[],
+  confirm = false,
+): Promise<{ status: string; generation_step: GenerationStep; kras: KRAKPIRecord["kras"] }> {
+  const res = await fetch(`${API_URL}/kra-kpi/${jdSessionId}/weights`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ kras, confirm }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: "Save failed" }));
+    throw new Error(err.detail || "Failed to save weights");
+  }
+  return res.json();
+}
+

@@ -10,6 +10,10 @@ from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
+# Globally track if Redis is actually responsive
+REDIS_AVAILABLE = False
+_redis_client = None
+
 # Try to import redis; if not installed, cache is silently disabled
 try:
     import redis.asyncio as aioredis
@@ -17,14 +21,27 @@ try:
     _redis_client = aioredis.from_url(
         settings.REDIS_URL,
         decode_responses=True,
-        socket_connect_timeout=1,
-        socket_timeout=1,
+        socket_connect_timeout=0.25,  # Short timeout for connection
+        socket_timeout=0.25,          # Short timeout for socket operations
     )
     REDIS_AVAILABLE = True
 except ImportError:
-    _redis_client = None
-    REDIS_AVAILABLE = False
     logger.warning("redis package not installed — caching disabled")
+
+
+async def check_redis_connection() -> bool:
+    """Test Redis connection asynchronously and disable caching if unreachable."""
+    global REDIS_AVAILABLE
+    if not REDIS_AVAILABLE or _redis_client is None:
+        return False
+    try:
+        await asyncio.wait_for(_redis_client.ping(), timeout=0.3)
+        logger.info("✅ Redis server verified - caching layer active")
+        return True
+    except Exception as e:
+        logger.info(f"ℹ️ Redis server not reachable on startup: {e} - disabling caching layer to prevent latency")
+        REDIS_AVAILABLE = False
+        return False
 
 
 def cached_response(key_prefix: str, ttl: int = 60, include_query_params: bool = True):
@@ -61,39 +78,46 @@ def cached_response(key_prefix: str, ttl: int = 60, include_query_params: bool =
 
 async def get_cache(key: str) -> Optional[Any]:
     """Return cached value or None if miss / Redis unavailable."""
+    global REDIS_AVAILABLE
     if not REDIS_AVAILABLE or _redis_client is None:
         return None
     try:
         data = await _redis_client.get(key)
         return json.loads(data) if data else None
     except Exception as e:
-        logger.debug(f"Cache GET failed for {key}: {e}")
+        logger.warning(f"⚠️ Redis GET failed for {key}: {e} - disabling caching layer to prevent latency")
+        REDIS_AVAILABLE = False
         return None
 
 
 async def set_cache(key: str, value: Any, ttl: int = 30) -> None:
     """Store value with TTL (seconds). Silent failure if Redis unavailable."""
+    global REDIS_AVAILABLE
     if not REDIS_AVAILABLE or _redis_client is None:
         return
     try:
         await _redis_client.setex(key, ttl, json.dumps(value, default=str))
     except Exception as e:
-        logger.debug(f"Cache SET failed for {key}: {e}")
+        logger.warning(f"⚠️ Redis SET failed for {key}: {e} - disabling caching layer to prevent latency")
+        REDIS_AVAILABLE = False
 
 
 async def invalidate_cache(*keys: str) -> None:
     """Delete one or more exact cache keys."""
+    global REDIS_AVAILABLE
     if not REDIS_AVAILABLE or _redis_client is None:
         return
     try:
         if keys:
             await _redis_client.delete(*keys)
     except Exception as e:
-        logger.debug(f"Cache DELETE failed: {e}")
+        logger.warning(f"⚠️ Redis DELETE failed: {e} - disabling caching layer to prevent latency")
+        REDIS_AVAILABLE = False
 
 
 async def invalidate_pattern(pattern: str) -> None:
     """Delete all keys matching a glob pattern e.g. 'jds:employee:*'."""
+    global REDIS_AVAILABLE
     if not REDIS_AVAILABLE or _redis_client is None:
         return
     try:
@@ -101,7 +125,8 @@ async def invalidate_pattern(pattern: str) -> None:
         if keys:
             await _redis_client.delete(*keys)
     except Exception as e:
-        logger.debug(f"Cache pattern DELETE failed for {pattern}: {e}")
+        logger.warning(f"⚠️ Redis pattern DELETE failed for {pattern}: {e} - disabling caching layer to prevent latency")
+        REDIS_AVAILABLE = False
 
 
 async def cache_health() -> dict[str, str]:

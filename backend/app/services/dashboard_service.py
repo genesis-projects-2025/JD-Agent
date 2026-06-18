@@ -8,24 +8,28 @@ class DashboardService:
         """
         Builds a set of all recursive report employee codes (direct and indirect).
         """
-        all_reports = set()
-        queue = [manager_code]
-        
-        while queue:
-            current_manager = queue.pop(0)
-            query = text("""
-                SELECT code FROM organogram 
-                WHERE reporting_manager_code = :mgr_code
-            """)
-            result = await db.execute(query, {"mgr_code": current_manager})
-            reports = [row[0] for row in result.fetchall()]
-            
-            for report_code in reports:
-                if report_code not in all_reports:
-                    all_reports.add(report_code)
-                    queue.append(report_code)
-                    
-        return all_reports
+        query = text("""
+            WITH RECURSIVE reports AS (
+                SELECT code FROM organogram WHERE reporting_manager_code = :mgr_code
+                UNION
+                SELECT o.code FROM organogram o
+                INNER JOIN reports r ON o.reporting_manager_code = r.code
+            )
+            SELECT code FROM reports
+        """)
+        result = await db.execute(query, {"mgr_code": manager_code})
+        return {row[0] for row in result.fetchall()}
+
+    @staticmethod
+    async def get_direct_reports(db: AsyncSession, manager_code: str) -> Set[str]:
+        """
+        Builds a set of all direct report employee codes (immediate reports only).
+        """
+        query = text("""
+            SELECT code FROM organogram WHERE reporting_manager_code = :mgr_code
+        """)
+        result = await db.execute(query, {"mgr_code": manager_code})
+        return {row[0] for row in result.fetchall()}
 
     @staticmethod
     async def is_department_head(db: AsyncSession, emp_code: str) -> bool:
@@ -121,19 +125,28 @@ class DashboardService:
         }
 
     @staticmethod
-    async def get_department_employees(db: AsyncSession, emp_code: str) -> List[str]:
+    async def get_headed_departments(db: AsyncSession, emp_code: str) -> Set[str]:
         """
-        Gets all employee codes in the same department as the given employee.
+        Gets all departments headed by the given employee.
+        This includes their own department, plus the departments of all recursive reports.
         """
-        query = text("SELECT department FROM organogram WHERE code = :code")
-        res = await db.execute(query, {"code": emp_code})
-        row = res.fetchone()
-        if not row:
-            return []
-            
-        dept = row[0]
+        query = text("""
+            WITH RECURSIVE reports AS (
+                SELECT code, department FROM organogram WHERE reporting_manager_code = :mgr_code
+                UNION
+                SELECT o.code, o.department FROM organogram o
+                INNER JOIN reports r ON o.reporting_manager_code = r.code
+            )
+            SELECT DISTINCT department FROM (
+                SELECT department FROM organogram WHERE code = :mgr_code
+                UNION ALL
+                SELECT department FROM reports WHERE department IS NOT NULL AND department != ''
+            ) all_depts
+        """)
+        res = await db.execute(query, {"mgr_code": emp_code})
+        depts = {r[0] for r in res.fetchall() if r[0]}
         
-        # Define department families/groups that should be treated as the same department
+        # Also expand with cell_tx_group if any department is in cell_tx_group
         cell_tx_group = {
             'cell therapeutics', 
             'pct- protein purification', 
@@ -141,21 +154,27 @@ class DashboardService:
             'pct- bioinformatic', 
             'pct - microbiology'
         }
-        
-        if dept and dept.strip().lower() in cell_tx_group:
-            dept_query = text("""
-                SELECT code FROM organogram 
-                WHERE department IN (
-                    'Cell Therapeutics', 
-                    'PCT- Protein Purification', 
-                    'PCT- Cell Biology', 
-                    'PCT- Bioinformatic', 
-                    'PCT - Microbiology'
-                )
-            """)
-            dept_res = await db.execute(dept_query)
-        else:
-            dept_query = text("SELECT code FROM organogram WHERE department = :dept")
-            dept_res = await db.execute(dept_query, {"dept": dept})
+        has_cell_tx = any(d.strip().lower() in cell_tx_group for d in depts)
+        if has_cell_tx:
+            depts.update([
+                'Cell Therapeutics', 
+                'PCT- Protein Purification', 
+                'PCT- Cell Biology', 
+                'PCT- Bioinformatic', 
+                'PCT - Microbiology'
+            ])
             
+        return depts
+
+    @staticmethod
+    async def get_department_employees(db: AsyncSession, emp_code: str) -> List[str]:
+        """
+        Gets all employee codes in any department headed by the given employee.
+        """
+        depts = await DashboardService.get_headed_departments(db, emp_code)
+        if not depts:
+            return []
+            
+        dept_query = text("SELECT code FROM organogram WHERE department = ANY(:depts)")
+        dept_res = await db.execute(dept_query, {"depts": list(depts)})
         return [r[0] for r in dept_res.fetchall()]

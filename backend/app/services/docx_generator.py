@@ -226,7 +226,10 @@ def _get_stakeholder(data: dict, itype: str) -> str:
 
 
 def generate_jd_docx(
-    jd_data: dict, title: str | None = None, department: str | None = None
+    jd_data: dict,
+    title: str | None = None,
+    department: str | None = None,
+    kra_kpi_data: dict | None = None,
 ) -> BytesIO:
     """
     Generate a Pulse Pharma branded DOCX from structured JD data.
@@ -366,6 +369,113 @@ def generate_jd_docx(
     _para_spacing(vp4)
     vr4 = vp4.add_run(edu_exp)
     vr4.font.size = Pt(11)
+
+    # ── KRA / KPI Framework ───────────────────────────────────────────────────
+    if kra_kpi_data and kra_kpi_data.get("kras"):
+        # Add a page break
+        doc.add_page_break()
+
+        kp_title_para = doc.add_paragraph()
+        kp_title_para.alignment = WD_ALIGN_PARAGRAPH.LEFT
+        _para_spacing(kp_title_para, before=12, after=6)
+        kp_title_run = kp_title_para.add_run(
+            "Key Result Areas (KRAs) & Key Performance Indicators (KPIs)"
+        )
+        kp_title_run.bold = True
+        kp_title_run.font.size = Pt(14)
+
+        kras = kra_kpi_data["kras"]
+        for kra in kras:
+            num_kpis = len(kra.get("kpis", []))
+            total_rows = 3 + num_kpis
+
+            t_kra = doc.add_table(rows=total_rows, cols=2)
+            t_kra.alignment = WD_TABLE_ALIGNMENT.CENTER
+
+            # Row 0: KRA Header (merged)
+            r0 = t_kra.rows[0]
+            r0.cells[0].merge(r0.cells[1])
+            _set_cell_properties(r0.cells[0], bg_color=HEADER_COLOR, borders=True)
+            p0 = r0.cells[0].paragraphs[0]
+            _para_spacing(p0)
+            run0 = p0.add_run(
+                f"KRA: {kra.get('title')} (Weight: {kra.get('weight', 0)}%)"
+            )
+            run0.bold = True
+            run0.font.size = Pt(11)
+
+            # Row 1: KRA Description (merged)
+            r1 = t_kra.rows[1]
+            r1.cells[0].merge(r1.cells[1])
+            _set_cell_properties(r1.cells[0], borders=True, valign="top")
+            p1 = r1.cells[0].paragraphs[0]
+            _para_spacing(p1)
+            p1.add_run("Description: ").bold = True
+            run1 = p1.add_run(kra.get("description", ""))
+            run1.font.size = Pt(11)
+
+            # Row 2: KPI Section Header (merged)
+            r2 = t_kra.rows[2]
+            r2.cells[0].merge(r2.cells[1])
+            _set_cell_properties(r2.cells[0], bg_color="E6E6E6", borders=True)
+            p2 = r2.cells[0].paragraphs[0]
+            _para_spacing(p2)
+            run2 = p2.add_run("Key Performance Indicators (KPIs)")
+            run2.bold = True
+            run2.font.size = Pt(11)
+
+            # Row 3+: KPIs details
+            for idx, kpi in enumerate(kra.get("kpis", [])):
+                row_idx = 3 + idx
+                row = t_kra.rows[row_idx]
+                lc, rc = row.cells[0], row.cells[1]
+                for cell in (lc, rc):
+                    _set_cell_properties(cell, borders=True, valign="top")
+
+                # Left cell: Metric & Description
+                lp = lc.paragraphs[0]
+                _para_spacing(lp)
+                lmr = lp.add_run(f"{kpi.get('metric')}\n")
+                lmr.bold = True
+                lmr.font.size = Pt(11)
+
+                if kpi.get("description"):
+                    ldr = lp.add_run(kpi.get("description"))
+                    ldr.font.size = Pt(10)
+                    ldr.italic = True
+
+                # Right cell: Target, Measured Via, Frequency, Thresholds
+                rp = rc.paragraphs[0]
+                _para_spacing(rp)
+
+                rp.add_run("Target: ").bold = True
+                rp.add_run(f"{kpi.get('target')}\n").font.size = Pt(11)
+
+                rp.add_run("Measured Via: ").bold = True
+                rp.add_run(f"{kpi.get('measurement_method')}\n").font.size = Pt(11)
+
+                rp.add_run("Frequency: ").bold = True
+                rp.add_run(f"{kpi.get('frequency')}\n").font.size = Pt(11)
+
+                # Thresholds
+                thresh = kpi.get("threshold", {})
+                if thresh:
+                    rp.add_run("Thresholds:\n").bold = True
+
+                    rp.add_run("  • Below Expectation: ").font.size = Pt(10)
+                    rp.add_run(f"{thresh.get('below_expectation', '')}\n").font.size = Pt(10)
+
+                    rp.add_run("  • Meets Expectation: ").font.size = Pt(10)
+                    rp.add_run(f"{thresh.get('meets_expectation', '')}\n").font.size = Pt(10)
+
+                    rp.add_run("  • Excellent: ").font.size = Pt(10)
+                    rp.add_run(f"{thresh.get('excellent', '')}").font.size = Pt(10)
+
+            # Spacer between KRAs
+            doc.add_paragraph().paragraph_format.space_after = Pt(6)
+
+        # Space before disclaimer
+        doc.add_paragraph().paragraph_format.space_after = Pt(12)
 
     # ── Footer disclaimer ──────────────────────────────────────────────────────
     fp = doc.add_paragraph()

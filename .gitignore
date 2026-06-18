@@ -1,6 +1,11 @@
 node_modules/
+node_modules.nosync/
 .next/
+.next.nosync/
 venv/
+venv.nosync/
+build.nosync/
+frontend/Users/
 
 # Python bytecode
 __pycache__/

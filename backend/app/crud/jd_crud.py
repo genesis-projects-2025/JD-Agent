@@ -119,7 +119,7 @@ def _trigger_rag_indexing(record: JDSession):
     elif any(k in exp_text for k in ["principal", "architect", "staff", "10+"]):
         exp_level = "Expert"
 
-    asyncio.create_task(
+    task = asyncio.create_task(
         index_approved_jd(
             jd_id=str(record.id),
             structured_data=record.jd_structured,
@@ -127,6 +127,17 @@ def _trigger_rag_indexing(record: JDSession):
             experience_level=exp_level,
         )
     )
+    
+    # Add error handler to log failures
+    def _handle_task_error(t):
+        try:
+            t.result()
+        except Exception as e:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"RAG indexing task failed for JD {record.id}: {e}")
+    
+    task.add_done_callback(_handle_task_error)
 
 
 async def _harvest_organic_skills(
@@ -716,6 +727,7 @@ async def list_manager_pending_jds(
     result = await db.execute(
         select(JDSession)
         .join(Employee, JDSession.employee_id == Employee.id)
+        .options(selectinload(JDSession.employee))
         .where(
             (Employee.reporting_manager_code == manager_id)
             & (
@@ -738,6 +750,7 @@ async def list_manager_pending_jds(
 async def list_hr_pending_jds(db: AsyncSession) -> list[JDSession]:
     result = await db.execute(
         select(JDSession)
+        .options(selectinload(JDSession.employee))
         .where(JDSession.status.in_(["sent_to_hr", "hr_rejected", "approved"]))
         .order_by(JDSession.updated_at.desc())
     )

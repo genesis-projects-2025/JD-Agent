@@ -35,6 +35,8 @@ import {
     ChevronRight,
     Clock,
     Loader2,
+    MessageSquare,
+    Target,
 } from "lucide-react";
 import FeedbackModal from "@/components/feedback/FeedbackModal";
 
@@ -81,7 +83,7 @@ export default function Sidebar() {
     );
 
     const { data: unreadFeedback = [] } = useUnreadFeedback(
-        isMounted && employeeId && (role === "employee" || role === "manager")
+        isMounted && employeeId
             ? employeeId
             : null,
         role,
@@ -99,6 +101,9 @@ export default function Sidebar() {
         description: string;
     };
 
+    const approvedJd = jds.find((j: any) => j.status === "approved") || jds[0];
+    const targetJdId = approvedJd?.id;
+
     const links: NavItem[] = [
         {
             name: "Dashboard",
@@ -112,9 +117,22 @@ export default function Sidebar() {
             icon: FilePlus,
             description: "Start AI interview",
         },
+        {
+            name: "KRA / KPI",
+            href: targetJdId ? `/jd/${targetJdId}?tab=kra-kpi` : "/questionnaire",
+            icon: Target,
+            description: "My performance goals",
+        },
     ];
 
-    if (role === "manager" || role === "head") {
+    if (role === "employee") {
+        links.push({
+            name: "Feedback",
+            href: employeeId ? `/feedback/${btoa(employeeId)}` : "/",
+            icon: MessageSquare,
+            description: "Review comments",
+        });
+    } else if (role === "manager" || role === "head") {
         links.push({
             name: "Approvals",
             href: employeeId ? `/feedback/${btoa(employeeId)}` : "/",
@@ -231,7 +249,7 @@ export default function Sidebar() {
                         const active = isActive(link.href);
                         return (
                             <Link
-                                key={link.href}
+                                key={link.name}
                                 href={link.href}
                                 className={`
  group relative flex items-center gap-3 px-4 py-3.5 rounded-md
@@ -253,7 +271,7 @@ export default function Sidebar() {
                                         className={`font-medium text-sm ${active ? "text-white" : ""} flex items-center gap-2`}
                                     >
                                         {link.name}
-                                        {(link.name === "Approvals" || link.name === "Reviews") &&
+                                        {(link.name === "Approvals" || link.name === "Reviews" || link.name === "Feedback") &&
                                             unreadFeedbackCount > 0 && (
                                                 <span className="inline-flex items-center justify-center w-5 h-5 text-[10px] font-medium bg-red-500 text-white rounded-md animate-pulse shadow-md shadow-red-500/30">
                                                     {unreadFeedbackCount}

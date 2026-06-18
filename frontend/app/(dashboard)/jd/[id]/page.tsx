@@ -1,8 +1,8 @@
 // app/(dashboard)/jd/[id]/page.tsx
 "use client";
 
-import { useParams, useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
+import { useEffect, useState, Suspense } from "react";
 import { downloadJDPdfClient } from "@/lib/download-jd-pdf";
 import {
  FileText,
@@ -21,6 +21,7 @@ import {
  Download,
  ChevronDown,
  FileDown,
+ Target,
 } from "lucide-react";
 import {
  fetchJD,
@@ -32,13 +33,16 @@ import {
  createReviewComment,
  fetchReviewComments,
  downloadJDDocx,
+ fetchKRAKPIStatus,
 } from "@/lib/api";
 
 import FeedbackModal from "@/components/feedback/FeedbackModal";
 import { ReviewRejectModal } from "@/components/ui/review-reject-modal";
 import { PdfDocumentView } from "@/components/jd/pdf-document-view";
+import { KRAKPIPanel } from "@/components/jd/kra-kpi-panel";
+import { KRAKPIPrereqModal } from "@/components/ui/kra-kpi-prereq-modal";
 
-export default function JDPage() {
+function JDPageContent() {
  const params = useParams();
  const router = useRouter();
  const jdId = params.id as string;
@@ -64,13 +68,43 @@ export default function JDPage() {
  const [editedData, setEditedData] = useState<any>({});
  const [isSavingEdit, setIsSavingEdit] = useState(false);
  const [isApproving, setIsApproving] = useState(false);
- const [activeTab, setActiveTab] = useState<"structured">("structured");
+  const searchParams = useSearchParams();
+  const tabParam = searchParams.get("tab");
+  const [activeTab, setActiveTab] = useState<"structured" | "kra-kpi">(
+      tabParam === "kra-kpi" ? "kra-kpi" : "structured"
+  );
+ const [currentUser, setCurrentUser] = useState<any>(null);
  const [isMounted, setIsMounted] = useState(false);
+ const [prereqStatus, setPrereqStatus] = useState<any>(null);
+ const [isPrereqModalOpen, setIsPrereqModalOpen] = useState(false);
+ const [prereqMissing, setPrereqMissing] = useState<string[]>([]);
 
 
  useEffect(() => {
  setIsMounted(true);
  }, []);
+
+ useEffect(() => {
+   if (tabParam === "kra-kpi") {
+     if (jd && !jd.generated_jd) {
+       setPrereqMissing(["employee_jd"]);
+       setIsPrereqModalOpen(true);
+       setActiveTab("structured");
+       router.replace(`/jd/${jdId}`);
+       return;
+     }
+      if (prereqStatus && !prereqStatus.ready && prereqStatus.current_step !== "confirmed") {
+        setPrereqMissing(prereqStatus.missing || []);
+        setIsPrereqModalOpen(true);
+        setActiveTab("structured");
+        router.replace(`/jd/${jdId}`);
+        return;
+      }
+     setActiveTab("kra-kpi");
+   } else {
+     setActiveTab("structured");
+   }
+ }, [tabParam, jd, prereqStatus, router, jdId]);
 
  // Helper to deep unwrap double-stringified JSON objects from the LLM core
  const safeParseObject = (obj: any): any => {
@@ -121,15 +155,21 @@ export default function JDPage() {
  useEffect(() => {
  const init = async () => {
  try {
- const u = getCurrentUser();
- if (u) setRole(u.role);
+  const u = getCurrentUser();
+  if (u) { setRole(u.role); setCurrentUser(u); }
 
- const [data, comments] = await Promise.all([
- fetchJD(jdId),
- fetchReviewComments(jdId).catch(() => []),
- ]);
- setJd(data);
- setReviewComments(comments);
+  const [data, comments] = await Promise.all([
+  fetchJD(jdId),
+  fetchReviewComments(jdId).catch(() => []),
+  ]);
+  setJd(data);
+  setReviewComments(comments);
+
+  if (data.generated_jd && u) {
+    fetchKRAKPIStatus(jdId, u.employee_id)
+      .then(setPrereqStatus)
+      .catch(() => setPrereqStatus(null));
+  }
 
  // Initialize edit states
  let pText = data.generated_jd || "";
@@ -488,8 +528,9 @@ export default function JDPage() {
  if (jd) {
  const isManagerRole = u.role === "manager" || u.role === "head";
  if (isManagerRole && (jd.status === "sent_to_manager" || jd.status === "sent_to_hr")) {
- // For heads, they might care about both. But pending is the default for managers.
  url += "?view=pending";
+ } else if (isManagerRole && jd.status === "approved") {
+ url += "?view=approved";
  } else if ((u.role === "hr" || u.role === "admin") && jd.status === "sent_to_hr") {
  url += "?view=approvals";
  } else if (jd.status.includes("rejected")) {
@@ -914,7 +955,68 @@ export default function JDPage() {
 
  {/* Main Content Area */}
  <div className="bg-white rounded-md md:rounded-[32px] border border-surface-200 shadow-md overflow-hidden transition-all duration-500">
- {isEditing ? (
+
+  {/* Tab bar — shown when not editing */}
+  {!isEditing && (
+   <div className="flex border-b border-surface-100">
+    <button
+     onClick={() => setActiveTab("structured")}
+     className={`flex items-center gap-1.5 px-5 py-3 text-sm font-medium transition-colors border-b-2 ${
+      activeTab === "structured"
+       ? "border-primary-500 text-primary-600"
+       : "border-transparent text-surface-500 hover:text-surface-700"
+     }`}
+    >
+     <FileText className="w-4 h-4" />
+     Job Description
+    </button>
+    <button
+     onClick={async () => {
+       if (!jd?.generated_jd) {
+         setPrereqMissing(["employee_jd"]);
+         setIsPrereqModalOpen(true);
+         return;
+       }
+       let currentStatus = prereqStatus;
+       if (!currentStatus && currentUser) {
+         try {
+           currentStatus = await fetchKRAKPIStatus(jdId, currentUser.employee_id);
+           setPrereqStatus(currentStatus);
+         } catch (e) {}
+       }
+        if (currentStatus && !currentStatus.ready && currentStatus.current_step !== "confirmed") {
+          setPrereqMissing(currentStatus.missing || []);
+          setIsPrereqModalOpen(true);
+          return;
+        }
+       setActiveTab("kra-kpi");
+     }}
+     className={`flex items-center gap-1.5 px-5 py-3 text-sm font-medium transition-colors border-b-2 ${
+      activeTab === "kra-kpi"
+       ? "border-primary-500 text-primary-600"
+       : "border-transparent text-surface-500 hover:text-surface-700"
+     }`}
+    >
+     <Target className="w-4 h-4" />
+     KRA / KPI
+    </button>
+   </div>
+  )}
+
+  {/* KRA/KPI tab content */}
+  {activeTab === "kra-kpi" && currentUser && (
+   <div className="p-5 sm:p-8">
+    <KRAKPIPanel
+     jdSessionId={jdId}
+     employeeId={currentUser.employee_id || jd?.employee_id || ""}
+     isManager={role === "manager" || role === "head" || role === "hr" || role === "admin"}
+    />
+   </div>
+  )}
+
+  {/* JD content (shown when structured tab active) */}
+  {(activeTab === "structured" || isEditing) && (
+   isEditing ? (
  <div className="overflow-y-auto custom-scrollbar max-h-[70vh]">
  <div className="w-full bg-surface-50 border border-surface-200 rounded-md p-5 sm:p-8 space-y-8 sm:space-y-12 shadow-inner min-h-full">
  {/* Job Title */}
@@ -1048,7 +1150,8 @@ export default function JDPage() {
  </div>
  </div>
  </div>
- )}
+ ))
+ }
  </div>
 
  <FeedbackModal
@@ -1065,7 +1168,32 @@ export default function JDPage() {
  reviewerRole={rejectingAs}
  jdTitle={jd?.title || ""}
  />
+
+ <KRAKPIPrereqModal
+ isOpen={isPrereqModalOpen}
+ onClose={() => setIsPrereqModalOpen(false)}
+ missing={prereqMissing}
+ managerCode={currentUser?.reporting_manager_code}
+ employeeId={currentUser?.employee_id || jd?.employee_id}
+ />
  </div>
  </div>
  );
+}
+
+export default function JDPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-screen bg-surface-50 flex flex-col items-center justify-center p-6">
+          <Loader2 className="w-10 h-10 text-primary-600 animate-spin mb-4" />
+          <p className="text-sm font-medium text-surface-400 animate-pulse">
+            Loading Job Description...
+          </p>
+        </div>
+      }
+    >
+      <JDPageContent />
+    </Suspense>
+  );
 }

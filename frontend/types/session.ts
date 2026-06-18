@@ -1,6 +1,8 @@
 export interface SessionListItem {
   id: string;
   employee_id: string;
+  employee_name?: string;
+  department?: string;
   title: string | null;
   status: string;
   version: number;

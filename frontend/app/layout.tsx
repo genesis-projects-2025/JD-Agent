@@ -5,13 +5,10 @@ import { AuthProvider } from "@/components/providers/auth-provider";
 import { QueryProvider } from "@/components/providers/query-provider";
 import { ErrorBoundary } from "@/components/error-boundary";
 import { Suspense } from "react";
-import { Inter } from "next/font/google";
-
-const inter = Inter({
- subsets: ["latin"],
- variable: "--font-inter",
- display: "swap",
-});
+// Bypassed next/font/google to prevent compilation hang on font download
+const inter = {
+  variable: "font-sans",
+};
 
 export const metadata = {
  title: "Pulse Pharma — JD Intelligence",

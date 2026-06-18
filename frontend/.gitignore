@@ -19,6 +19,10 @@
 
 # production
 /build
+build.nosync/
+node_modules.nosync/
+.next.nosync/
+Users/
 
 # misc
 .DS_Store

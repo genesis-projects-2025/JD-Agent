@@ -110,6 +110,40 @@ Based on HR instructions, the JD template was updated across the codebase:
 | `frontend/components/jd/pdf-document-view.tsx` | **Skills & Tools Separation (June 2026):** Separated Skills and Tools/Platforms into distinct rows in Table 3 of the PDF preview panel. |
 | `frontend/lib/download-jd-pdf.ts` | **Skills & Tools Separation (June 2026):** Separated Skills and Tools/Platforms into distinct rows in client-side PDF download template. |
 | `backend/app/services/docx_generator.py` | **Skills & Tools Separation (June 2026):** Separated Skills and Tools/Platforms into distinct rows in the generated Word (.docx) document. |
+| `backend/app/models/kra_kpi_model.py` | **KRA/KPI Feature (June 2026):** New `kra_kpi_sessions` DB table. Stores generated KRAs/KPIs linked to a JD session. Requires employee JD + manager JD + manager KRAs before generation is allowed. |
+| `backend/app/agents/kra_kpi_agent.py` | **KRA/KPI Feature (June 2026):** LLM-based KRA/KPI generator with domain-aware prompting (engineering/sales/HR/finance/data), cascade alignment to manager KRAs, weight normalization, and threshold generation. |
+| `backend/app/services/kra_kpi_service.py` | **KRA/KPI Feature (June 2026):** Service layer with `check_prerequisites()` (validates all 3 sources), `generate_kra_kpi_for_employee()` (full pipeline), and `MissingPrerequisiteError` for structured missing-info responses. |
+| `backend/app/routers/kra_kpi_routes.py` | **KRA/KPI Feature (June 2026):** REST routes: GET status, POST generate, GET fetch, PUT update/confirm. Missing prerequisites return HTTP 422 with structured body. |
+| `backend/app/main.py` | **KRA/KPI Feature (June 2026):** Registered `kra_kpi_router`. |
+| `backend/app/models/__init__.py` | **KRA/KPI Feature (June 2026):** Registered `KRAKPISession` model. |
+| `frontend/components/jd/kra-kpi-panel.tsx` | **KRA/KPI Feature (June 2026):** React panel with prerequisite banner, weight distribution bar, expandable KRA cards, KPI tables, thresholds, and generate/confirm buttons. |
+| `frontend/lib/api.ts` | **KRA/KPI Feature (June 2026):** Added TypeScript interfaces (KRA, KPI, KRAKPIRecord, PrerequisiteStatus) and 4 API functions (fetchKRAKPIStatus, generateKRAKPI, fetchKRAKPI, updateKRAKPI). |
+| `frontend/app/(dashboard)/jd/[id]/page.tsx` | **KRA/KPI Feature (June 2026):** Added KRA/KPI tab alongside JD tab. Fixed JSX tab nesting syntax error, correctly matching tab conditionals for both edit and preview. |
+| `backend/app/core/database.py` | **KRA/KPI Feature (June 2026):** Added automatic table generation (`Base.metadata.create_all`) inside `init_db` to auto-provision the `kra_kpi_sessions` table on startup. |
+| `backend/app/services/docx_generator.py` | **KRA/KPI Feature (June 2026):** Appended KRA/KPI framework export support. Formats KRAs, weights, KPI metrics, description, and three-tiered thresholds matching company styles. |
+| `backend/app/routers/jd_routes.py` | **KRA/KPI Feature (June 2026):** Fetches active confirmed KRA/KPI sessions in `download_jd_docx` and sends to docx generator. |
+| `backend/app/routers/organogram_routes.py` | **Freeze Fix (June 2026):** Added visited sets/cycle detection to `get_all_descendants` and `build_node` to prevent infinite loops and process blocking on circular organogram data. |
+| `frontend/app/home/[id]/page.tsx` | **Freeze Fix (June 2026):** Bounded recursive base64 decoding of URL ID parameters to 5 levels max and verified decoded output change to prevent infinite loops. |
+| `frontend/app/sso/page.tsx` | **Freeze Fix (June 2026):** Bounded recursive base64 URL ID parameter decoding to 5 levels max with decoded change verification. |
+| `frontend/app/(dashboard)/dashboard/[id]/page.tsx` | **Freeze Fix (June 2026):** Bounded recursive base64 URL ID parameter decoding to 5 levels max with decoded change verification. |
+| `frontend/components/providers/auth-provider.tsx` | **Freeze Fix (June 2026):** Bounded recursive base64 `emp_cd` parameter decoding to 5 levels max with decoded change verification. |
+| `frontend/package.json` | **Freeze Fix (June 2026):** Removed `--turbopack` flag from `dev` script to ensure custom webpack alias configs for `victory-vendor` are loaded. |
+| `frontend/app/layout.tsx` | **Freeze Fix (June 2026):** Replaced `Inter` Google Fonts loader with system font fallbacks to prevent Next.js compilation from hanging on font downloads. |
+| `frontend/.env.local` / `frontend/.env.example` | **Freeze Fix (June 2026):** Recreated `.env` files to clear iCloud dataless placeholder freezes (`SF_DATALESS` flag). |
+| `backend/venv`, `frontend/node_modules`, `frontend/.next` | **Freeze Fix (June 2026):** Symlinked heavy directories to `.nosync` folders to bypass iCloud Drive file locks and high CPU usage. |
+| `backend/app/routers/admin_routes.py` | **KRA/KPI Paste Feature (June 2026):** Added `/admin/kra-kpi/analyze-paste` and `/admin/kra-kpi/confirm-paste` endpoints. Defined module-level logger. |
+| `backend/app/services/kra_kpi_service.py` | **KRA/KPI Paste Feature (June 2026):** Added `analyze_kra_kpi_text` (Gemini-backed raw content parser) and `save_kra_kpi_from_paste` (confirmed session persistence layer). |
+| `frontend/app/admin/(dashboard)/jd-library/page.tsx` | **KRA/KPI Paste Feature (June 2026):** Integrated Paste Text Canvas option with a full interactive live preview layout of AI-extracted KRAs/KPIs and inferred JD details before dashboard deployment. |
+| `backend/app/services/dashboard_service.py` | **Multi-Dept Head Fix (June 2026):** Added `get_headed_departments` to locate all departments managed by a head (self + reports). Updated `get_department_employees` to fetch employee codes across all managed departments. |
+| `backend/app/routers/hr_routes.py` | **Multi-Dept Head Fix (June 2026):** Updated `get_department_employees` helper to accept single/multiple departments via SQL `ANY`. Updated `get_my_team_employees` to retrieve employees from all departments headed by the user. |
+| `backend/app/crud/jd_crud.py` | **Manager Action Required Fix (June 2026):** Loaded `employee` relation in `list_manager_pending_jds` and `list_hr_pending_jds` using `selectinload` to avoid N+1 and lazy-loading errors. |
+| `backend/app/routers/jd_routes.py` | **Manager Action Required Fix (June 2026):** Added `employee_name` and `department` to `_serialize_list_item` using async-safe `__dict__` relationship access. |
+| `frontend/types/session.ts` | **Manager Action Required Fix (June 2026):** Added `employee_name` and `department` fields to `SessionListItem` type. |
+| `frontend/app/(dashboard)/dashboard/[id]/page.tsx` | **Manager Action Required Fix (June 2026):** Added `employee_id` to `JDListItem`. Refactored `JDGrid` cards to display `employee_name (employee_id)` in manager/HR views. |
+| `backend/app/routers/hr_routes.py` | **Reload & Startup Fix (June 2026):** Changed `department_name` parameter type in `get_department_employees` to `str` to pass FastAPI startup path validation and prevent infinite reboot crash loops. |
+| `backend/watchfiles.toml` | **Reload & Startup Fix (June 2026):** Ignored `.nosync` folders and the `storage/` directory to prevent file change monitoring loops. |
+| `frontend/tsconfig.json` | **Typecheck Memory Fix (June 2026):** Added `.nosync` and `.next` directories to `exclude` to prevent Node process OOM during typescript compile checks. |
+
 
 ---
 
@@ -121,11 +155,17 @@ JD-Agent/
 │   ├── app/
 │   │   ├── routers/          # FastAPI route handlers
 │   │   │   ├── jd_routes.py          # Main JD chat/stream/generate/save
-│   │   │   └── admin_jd_routes.py    # Admin JD management & markdown export
+│   │   │   ├── admin_jd_routes.py    # Admin JD management & markdown export
+│   │   │   └── kra_kpi_routes.py     # KRA/KPI generation & management (NEW)
 │   │   ├── services/
 │   │   │   ├── jd_intelligence.py    # JDStructuredData schema + AI extraction
 │   │   │   ├── jd_service.py         # JD business logic + markdown rendering
-│   │   │   └── docx_generator.py     # Word DOCX export
+│   │   │   ├── docx_generator.py     # Word DOCX export
+│   │   │   └── kra_kpi_service.py    # KRA/KPI orchestration + prerequisite checks (NEW)
+│   │   ├── agents/
+│   │   │   └── kra_kpi_agent.py      # LLM-based KRA/KPI generator (NEW)
+│   │   ├── models/
+│   │   │   └── kra_kpi_model.py      # KRAKPISession DB table (NEW)
 │   │   ├── schemas/
 │   │   │   └── jd_schema.py          # Pydantic schemas
 │   │   └── agents/                   # LangGraph agent nodes
@@ -134,8 +174,10 @@ JD-Agent/
 │   │   └── jd/
 │   │       ├── jd-preview-panel.tsx  # Live JD preview UI
 │   │       ├── pdf-document-view.tsx # PDF render component
+│   │       ├── kra-kpi-panel.tsx     # KRA/KPI display panel (NEW)
 │   │       └── ...
 │   └── lib/
+│       ├── api.ts                    # + KRA/KPI API functions (UPDATED)
 │       └── download-jd-pdf.ts        # PDF download logic
 └── scripts/
     └── optimize_server.sh

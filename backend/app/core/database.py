@@ -67,6 +67,9 @@ async def init_db():
     """Create core tables and lightweight compatibility objects on startup."""
     try:
         async with engine.begin() as conn:
+            # Create all registered SQLAlchemy tables if they do not exist
+            await conn.run_sync(Base.metadata.create_all)
+
             # If using SQLite (e.g. for local testing/development), return early
             # since SQLite does not support PostgreSQL-specific DDL and PL/pgSQL syntax.
             if conn.dialect.name == "sqlite":

@@ -306,3 +306,17 @@ yarl==1.23.0
     # via aiohttp
 zipp==3.23.1
     # via importlib-metadata
+
+# Added manually for deployment stability
+sqlalchemy>=2.0.0
+asyncpg>=0.30.0
+redis>=5.0.0
+pinecone==9.1.0
+langchain-google-genai==4.2.5
+python-jose[cryptography]==3.5.0
+passlib[bcrypt]==1.7.4
+bcrypt==5.0.0
+PyMuPDF==1.27.2.3
+greenlet==3.5.1
+python-docx>=1.0.0
+langgraph>=0.1.0

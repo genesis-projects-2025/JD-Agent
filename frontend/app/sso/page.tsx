@@ -18,11 +18,13 @@ function SSOSync() {
       // Decode if it's base64 encoded
       if (employee_id) {
         let current = employee_id;
-        while (true) {
+        let depth = 0;
+        while (depth < 5) {
           try {
             const decoded = atob(decodeURIComponent(current));
-            if (/^[a-zA-Z0-9_=\-\+\/%]+$/.test(decoded)) {
+            if (decoded && decoded !== current && /^[a-zA-Z0-9_=\-\+\/%]+$/.test(decoded)) {
               current = decoded;
+              depth++;
             } else {
               break;
             }

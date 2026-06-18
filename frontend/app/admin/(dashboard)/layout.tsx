@@ -53,7 +53,7 @@ export default function AdminLayout({
     const navItems = [
         { label: "Dashboard", href: "/admin/dashboard", icon: LayoutDashboard },
         { label: "Feedback Inbox", href: "/admin/feedback", icon: Megaphone },
-        { label: "Jd-Library", href: "/admin/jd-library", icon: File }
+        { label: "JD & KRA Uploads", href: "/admin/jd-library", icon: File }
     ];
 
     return (

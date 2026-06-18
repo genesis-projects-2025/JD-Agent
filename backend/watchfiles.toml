@@ -1,0 +1,15 @@
+# Stop uvicorn --reload from watching venv directories (prevents reload loops)
+[default]
+ignore_paths = [
+  "venv",
+  "venv 2",
+  ".venv",
+  "venv.nosync",
+  "venv_dev.nosync",
+  "storage",
+  ".pytest_cache",
+  ".git",
+  "__pycache__",
+  "questionnaire.db",
+  "dummy.docx",
+]

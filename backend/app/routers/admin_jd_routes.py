@@ -130,7 +130,7 @@ async def _sync_published_reference_jd(
         await db.commit()
         await db.refresh(session)
 
-    asyncio.create_task(
+    task = asyncio.create_task(
         index_approved_jd(
             jd_id=str(session.id),
             structured_data=transformed_data,
@@ -143,6 +143,15 @@ async def _sync_published_reference_jd(
             source="published_reference_jd",
         )
     )
+    
+    # Add error handler to log failures
+    def _handle_task_error(t):
+        try:
+            t.result()
+        except Exception as e:
+            logger.error(f"RAG indexing task failed for reference JD {session.id}: {e}")
+    
+    task.add_done_callback(_handle_task_error)
 
     return session
 
@@ -379,6 +388,7 @@ async def upload_jd_document(
 
     # ===== STEP 8: RETURN RESPONSE =====
     structured_data = result.get("structured_data", {})
+    file_saved = True
 
     if file_saved and db_saved:
         return {

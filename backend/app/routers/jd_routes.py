@@ -783,6 +783,12 @@ async def download_jd_docx(
             detail="No generated JD available for download. Please generate a JD first.",
         )
 
+    from app.services.kra_kpi_service import get_kra_kpi_by_jd_session
+    kra_kpi_rec = await get_kra_kpi_by_jd_session(db, jd_id)
+    kra_kpi_data = None
+    if kra_kpi_rec and kra_kpi_rec.status == "confirmed":
+        kra_kpi_data = kra_kpi_rec.kras
+
     docx_buffer = generate_jd_docx(
         # pyrefly: ignore [bad-argument-type]
         jd_data=record.jd_structured,
@@ -790,6 +796,7 @@ async def download_jd_docx(
         title=record.title or "Untitled JD",
         # pyrefly: ignore [bad-argument-type]
         department=record.department or "",
+        kra_kpi_data=kra_kpi_data,
     )
 
     title = record.title or "Job Description"
@@ -1064,9 +1071,12 @@ async def get_reviews(jd_id: str, db: AsyncSession = Depends(get_db)):
 def _serialize_list_item(r) -> dict:
     if isinstance(r, dict):
         return r
+    employee = r.__dict__.get("employee")
     return {
         "id": str(r.id),
         "employee_id": r.employee_id,
+        "employee_name": employee.name if employee else None,
+        "department": r.department or (employee.department if employee else None),
         "title": r.title,
         "status": r.status,
         "version": r.version,

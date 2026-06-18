@@ -3,7 +3,7 @@
 
 import { useState, useRef, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import { Upload, FileText, CheckCircle, Loader2, Briefcase, Eye, X, FileTextIcon, Shield, Download, Send, ChevronDown } from 'lucide-react'
+import { Upload, FileText, CheckCircle, Loader2, Briefcase, Eye, X, FileTextIcon, Shield, Download, Send, ChevronDown, Target, Sparkles, AlertCircle, ArrowLeft } from 'lucide-react'
 import { useAuth } from '@/components/providers/auth-provider'
 import { getCookie, cookieKeys } from '@/lib/cookies'
 import Link from 'next/link'
@@ -49,7 +49,7 @@ export default function JDLibraryPage() {
   const { employeeId: authEmployeeId } = useAuth()
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [isCheckingAuth, setIsCheckingAuth] = useState(true)
-  const [activeTab, setActiveTab] = useState<'upload' | 'library'>('upload')
+  const [activeTab, setActiveTab] = useState<'upload' | 'upload_kra' | 'library'>('upload')
 
   // Publish states
   const [publishingId, setPublishingId] = useState<string | null>(null)
@@ -59,6 +59,100 @@ export default function JDLibraryPage() {
   const [previewData, setPreviewData] = useState<ReferenceJDPreviewResponse["data"] | null>(null)
   const [showPreview, setShowPreview] = useState(false)
   const [loadingPreview, setLoadingPreview] = useState(false)
+
+  // KRA/KPI upload states
+  const [kraFiles, setKraFiles] = useState<File[]>([])
+  const [kraEmployeeId, setKraEmployeeId] = useState('')
+  const [kraEmployeeName, setKraEmployeeName] = useState('')
+  const [kraUploading, setKraUploading] = useState(false)
+  const [currentKraFileIndex, setCurrentKraFileIndex] = useState(0)
+  const [kraResults, setKraResults] = useState<Array<{
+    file: string
+    status: 'success' | 'error'
+    message: string
+    data?: {
+      jd_session_id: string
+      kra_kpi_session_id: string
+      employee_id: string
+      employee_name: string
+      role_title: string
+      department: string
+      kras_count: number
+    }
+  }>>([])
+  const kraFileInputRef = useRef<HTMLInputElement>(null)
+
+  // KRA/KPI Paste modes and states
+  const [kraInputMode, setKraInputMode] = useState<'file' | 'paste'>('file')
+  const [kraPasteContent, setKraPasteContent] = useState('')
+  const [kraAnalysisResult, setKraAnalysisResult] = useState<any | null>(null)
+  const [analyzingKra, setAnalyzingKra] = useState(false)
+  const [confirmingKra, setConfirmingKra] = useState(false)
+
+  const handleAnalyzePaste = async () => {
+    if (!kraEmployeeId || !kraEmployeeName || !kraPasteContent.trim()) {
+      alert('Please fill in Employee ID, Employee Name, and paste raw KRA/KPA content')
+      return
+    }
+    setAnalyzingKra(true)
+    setKraAnalysisResult(null)
+    try {
+      const response = await fetch(`${API_URL}/admin/kra-kpi/analyze-paste`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${getCookie(cookieKeys.ADMIN_TOKEN)}`
+        },
+        body: JSON.stringify({
+          employee_id: kraEmployeeId,
+          employee_name: kraEmployeeName,
+          content: kraPasteContent
+        })
+      })
+      const data = await response.json()
+      if (!response.ok) {
+        throw new Error(data.detail || 'Analysis failed')
+      }
+      setKraAnalysisResult(data.data)
+    } catch (error: any) {
+      alert(error.message || 'Failed to analyze content')
+    } finally {
+      setAnalyzingKra(false)
+    }
+  }
+
+  const handleConfirmPaste = async () => {
+    if (!kraAnalysisResult) return
+    setConfirmingKra(true)
+    try {
+      const response = await fetch(`${API_URL}/admin/kra-kpi/confirm-paste`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${getCookie(cookieKeys.ADMIN_TOKEN)}`
+        },
+        body: JSON.stringify({
+          employee_id: kraEmployeeId,
+          employee_name: kraEmployeeName,
+          jd: kraAnalysisResult.jd,
+          kra_kpi: kraAnalysisResult.kra_kpi
+        })
+      })
+      const data = await response.json()
+      if (!response.ok) {
+        throw new Error(data.detail || 'Confirmation failed')
+      }
+      alert('KRA/KPI framework successfully confirmed and deployed to employee dashboard!')
+      // Reset
+      setKraPasteContent('')
+      setKraAnalysisResult(null)
+      setKraInputMode('file')
+    } catch (error: any) {
+      alert(error.message || 'Failed to save KRA/KPI framework')
+    } finally {
+      setConfirmingKra(false)
+    }
+  }
 
   useEffect(() => {
     const token = getCookie(cookieKeys.ADMIN_TOKEN)
@@ -145,6 +239,57 @@ export default function JDLibraryPage() {
     fetchJDs()
   }
 
+  const handleKraFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files) {
+      setKraFiles(Array.from(e.target.files).filter(file =>
+        file.type === 'application/pdf' ||
+        file.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
+        file.type === 'application/msword'
+      ))
+      setKraResults([])
+    }
+  }
+
+  const processKraFiles = async () => {
+    if (kraFiles.length === 0 || !kraEmployeeId || !kraEmployeeName) {
+      alert('Please select PDF/DOCX files and enter employee information')
+      return
+    }
+    setKraUploading(true)
+    setCurrentKraFileIndex(0)
+    const uploadResults = []
+    for (let i = 0; i < kraFiles.length; i++) {
+      const file = kraFiles[i]
+      setCurrentKraFileIndex(i + 1)
+      try {
+        const formData = new FormData()
+        formData.append('file', file)
+        formData.append('employee_id', kraEmployeeId)
+        formData.append('employee_name', kraEmployeeName)
+        const response = await fetch(`${API_URL}/admin/kra-kpi/upload`, {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${getCookie(cookieKeys.ADMIN_TOKEN)}` },
+          body: formData,
+        })
+        const data = await response.json()
+        uploadResults.push({
+          file: file.name,
+          status: response.ok ? 'success' as const : 'error' as const,
+          message: response.ok ? 'KRA/KPI document processed successfully' : (data.detail || 'Upload failed'),
+          data: response.ok ? data.data : undefined,
+        })
+      } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : 'Upload failed'
+        uploadResults.push({ file: file.name, status: 'error' as const, message })
+      }
+    }
+    setKraResults(uploadResults)
+    setKraUploading(false)
+    setKraFiles([])
+    if (kraFileInputRef.current) kraFileInputRef.current.value = ''
+  }
+
+
   const handlePublish = async (jdId: string) => {
     setPublishingId(jdId)
     try {
@@ -197,12 +342,16 @@ export default function JDLibraryPage() {
           className={`px-5 py-2.5 text-sm font-medium rounded-lg transition-all ${activeTab === 'upload' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
         >Upload JD</button>
         <button
+          onClick={() => setActiveTab('upload_kra')}
+          className={`px-5 py-2.5 text-sm font-medium rounded-lg transition-all ${activeTab === 'upload_kra' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+        >Upload KRA/KPI</button>
+        <button
           onClick={() => setActiveTab('library')}
           className={`px-5 py-2.5 text-sm font-medium rounded-lg transition-all ${activeTab === 'library' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
         >Reference Library</button>
       </div>
 
-      {activeTab === 'upload' ? (
+      {activeTab === 'upload' && (
         <div className="max-w-3xl">
           {/* Upload Card */}
           <div className="bg-white rounded-2xl border border-slate-200 p-8 shadow-sm">
@@ -310,8 +459,318 @@ export default function JDLibraryPage() {
             </div>
           )}
         </div>
-      ) : (
-        /* Reference Library Tab */
+      )}
+
+      {activeTab === 'upload_kra' && (
+        <div className="max-w-6xl">
+          {/* Input Mode Switcher */}
+          <div className="flex gap-2 mb-6 bg-slate-100/80 p-1 rounded-xl w-fit border border-slate-200/50">
+            <button
+              onClick={() => { setKraInputMode('file'); setKraAnalysisResult(null); }}
+              className={`px-4 py-2 text-xs font-medium rounded-lg transition-all flex items-center gap-2 ${kraInputMode === 'file' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+            >
+              <FileText className="w-3.5 h-3.5" />
+              File Upload Mode
+            </button>
+            <button
+              onClick={() => { setKraInputMode('paste'); setKraResults([]); }}
+              className={`px-4 py-2 text-xs font-medium rounded-lg transition-all flex items-center gap-2 ${kraInputMode === 'paste' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+            >
+              <Sparkles className="w-3.5 h-3.5" />
+              Paste Text Canvas
+            </button>
+          </div>
+
+          {!kraAnalysisResult ? (
+            <div className="max-w-3xl bg-white rounded-2xl border border-slate-200 p-8 shadow-sm">
+              <div className="flex items-center gap-4 mb-8">
+                <div className="p-3 bg-indigo-50 rounded-xl border border-indigo-100">
+                  {kraInputMode === 'file' ? <Upload className="w-6 h-6 text-indigo-600" /> : <Sparkles className="w-6 h-6 text-indigo-600" />}
+                </div>
+                <div>
+                  <h2 className="text-2xl font-semibold text-slate-900">
+                    {kraInputMode === 'file' ? 'Upload KRA/KPI Document' : 'KRA/KPI Paste Canvas'}
+                  </h2>
+                  <p className="text-slate-600 mt-1">
+                    {kraInputMode === 'file' 
+                      ? 'Import and parse existing employee KRA & KPI documents using AI analysis' 
+                      : 'Paste raw KRA/KPA points directly to extract structure and deploy to employee dashboard'}
+                  </p>
+                </div>
+              </div>
+
+              <div className="space-y-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-2">Employee ID *</label>
+                    <input type="text" value={kraEmployeeId} onChange={(e) => setKraEmployeeId(e.target.value)} placeholder="e.g., EMP001"
+                      className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-500 transition-all" disabled={kraUploading || analyzingKra} />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-2">Employee Name *</label>
+                    <input type="text" value={kraEmployeeName} onChange={(e) => setKraEmployeeName(e.target.value)} placeholder="e.g., John Manager"
+                      className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-500 transition-all" disabled={kraUploading || analyzingKra} />
+                  </div>
+                </div>
+
+                {kraInputMode === 'file' ? (
+                  <>
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-2">Select Files (PDF or DOCX) *</label>
+                      <div className={`border-2 border-dashed rounded-xl p-10 text-center cursor-pointer transition-all ${kraFiles.length > 0 ? 'border-indigo-400 bg-indigo-50/30' : 'border-slate-300 hover:border-indigo-400 hover:bg-slate-50'}`}
+                        onClick={() => !kraUploading && kraFileInputRef.current?.click()}>
+                        <input ref={kraFileInputRef} type="file" multiple accept=".pdf,.docx,.doc" onChange={handleKraFileSelect} className="hidden" disabled={kraUploading} />
+                        <Upload className="w-10 h-10 mx-auto text-slate-400 mb-3" />
+                        <p className="text-slate-600 text-sm">{kraFiles.length > 0 ? `${kraFiles.length} file(s) selected` : 'Click to browse or drag and drop'}</p>
+                        <p className="text-slate-400 text-xs mt-1">Supported: PDF, DOCX, DOC | Maximum file size: 10MB</p>
+                      </div>
+                    </div>
+                    {kraFiles.length > 0 && (
+                      <div className="bg-slate-50 rounded-xl p-4 border border-slate-200">
+                        <h3 className="text-sm font-medium text-slate-700 mb-3">Selected Files:</h3>
+                        <div className="space-y-2">
+                          {kraFiles.map((file, i) => (
+                            <div key={i} className="flex items-center gap-3 text-sm text-slate-600 bg-white rounded-lg px-3 py-2 border border-slate-100">
+                              <FileText className="w-4 h-4 text-indigo-500" /><span className="flex-1">{file.name}</span>
+                              <span className="text-slate-400">{(file.size / 1024).toFixed(1)} KB</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    <button onClick={processKraFiles} disabled={kraUploading || kraFiles.length === 0 || !kraEmployeeId || !kraEmployeeName}
+                      className={`w-full py-4 px-6 rounded-xl font-medium text-sm transition-all ${kraUploading || kraFiles.length === 0 || !kraEmployeeId || !kraEmployeeName ? 'bg-slate-200 text-slate-400 cursor-not-allowed' : 'bg-indigo-600 text-white hover:bg-indigo-700 shadow-lg shadow-indigo-200'}`}>
+                      {kraUploading ? (<span className="flex items-center justify-center gap-3"><Loader2 className="w-5 h-5 animate-spin" />Processing {currentKraFileIndex} of {kraFiles.length}...</span>) : `Upload & Process KRA/KPI`}
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <div>
+                      <div className="flex justify-between items-center mb-2">
+                        <label className="block text-sm font-medium text-slate-700">Paste KRA / KPA Text Canvas *</label>
+                        <span className="text-xs text-slate-400">Pasted characters: {kraPasteContent.length}</span>
+                      </div>
+                      <textarea
+                        value={kraPasteContent}
+                        onChange={(e) => setKraPasteContent(e.target.value)}
+                        placeholder="Paste your unstructured KRA/KPA content here... Examples:
+- Focus on maintaining 99.9% system uptime
+- Conduct weekly code reviews and mentor 3 junior engineers
+- Deliver sprint items on time with under 2% bug leakage
+- Standardize REST API integration and write OpenAPI schemas"
+                        className="w-full min-h-[250px] p-5 bg-white border border-slate-200 rounded-xl text-slate-800 placeholder-slate-400 font-mono text-sm focus:outline-none focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 shadow-inner resize-y transition-all"
+                        disabled={analyzingKra}
+                      />
+                    </div>
+                    <button
+                      onClick={handleAnalyzePaste}
+                      disabled={analyzingKra || !kraPasteContent.trim() || !kraEmployeeId || !kraEmployeeName}
+                      className={`w-full py-4 px-6 rounded-xl font-medium text-sm transition-all flex items-center justify-center gap-2 ${analyzingKra || !kraPasteContent.trim() || !kraEmployeeId || !kraEmployeeName ? 'bg-slate-200 text-slate-400 cursor-not-allowed' : 'bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-700 hover:to-violet-700 text-white shadow-lg shadow-indigo-200'}`}
+                    >
+                      {analyzingKra ? (
+                        <>
+                          <Loader2 className="w-5 h-5 animate-spin" />
+                          AI is analyzing raw text content...
+                        </>
+                      ) : (
+                        <>
+                          <Sparkles className="w-5 h-5" />
+                          Analyze Paste & Preview KRAs/KPIs
+                        </>
+                      )}
+                    </button>
+                  </>
+                )}
+              </div>
+            </div>
+          ) : (
+            /* Paste Canvas Analysis Preview Panel */
+            <div className="space-y-8">
+              <div className="bg-slate-50 border border-slate-200 p-6 rounded-2xl flex items-center justify-between shadow-sm">
+                <div>
+                  <div className="flex items-center gap-2 text-indigo-700 font-semibold text-sm">
+                    <Sparkles className="w-4 h-4 animate-pulse" />
+                    Structured KRA/KPI AI Preview
+                  </div>
+                  <h2 className="text-xl font-bold text-slate-900 mt-1">
+                    {kraAnalysisResult.jd?.role_title || 'Untitled Role'} — {kraAnalysisResult.jd?.department || 'General'}
+                  </h2>
+                  <p className="text-sm text-slate-500 mt-0.5">
+                    For {kraEmployeeName} ({kraEmployeeId}) • Level: {kraAnalysisResult.jd?.level || 'Mid'}
+                  </p>
+                </div>
+                <button
+                  onClick={() => setKraAnalysisResult(null)}
+                  className="flex items-center gap-2 px-4 py-2 border border-slate-200 rounded-lg text-sm font-medium bg-white text-slate-600 hover:bg-slate-50 hover:text-slate-800 transition-colors shadow-sm"
+                >
+                  <ArrowLeft className="w-4 h-4" />
+                  Edit Text Canvas
+                </button>
+              </div>
+
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                {/* Inferred Job Profile */}
+                <div className="lg:col-span-1 space-y-6">
+                  <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
+                    <h3 className="text-md font-semibold text-slate-900 border-b border-slate-100 pb-3 mb-4 flex items-center gap-2">
+                      <FileText className="w-4 h-4 text-indigo-500" />
+                      Inferred Job Profile
+                    </h3>
+                    <div className="space-y-4">
+                      <div>
+                        <span className="text-xs text-slate-400 uppercase font-bold tracking-wider">Role Summary</span>
+                        <p className="text-sm text-slate-600 mt-1 leading-relaxed">{kraAnalysisResult.jd?.purpose}</p>
+                      </div>
+                      <div>
+                        <span className="text-xs text-slate-400 uppercase font-bold tracking-wider">Reports To</span>
+                        <p className="text-sm text-slate-700 font-medium mt-0.5">{kraAnalysisResult.jd?.working_relationships?.reports_to || 'N/A'}</p>
+                      </div>
+                      <div>
+                        <span className="text-xs text-slate-400 uppercase font-bold tracking-wider">Department</span>
+                        <p className="text-sm text-slate-700 font-medium mt-0.5">{kraAnalysisResult.jd?.department || 'N/A'}</p>
+                      </div>
+                      <div>
+                        <span className="text-xs text-slate-400 uppercase font-bold tracking-wider">Core Skills</span>
+                        <div className="flex flex-wrap gap-1.5 mt-1.5">
+                          {kraAnalysisResult.jd?.skills?.slice(0, 8).map((skill: string, i: number) => (
+                            <span key={i} className="px-2 py-0.5 bg-slate-100 border border-slate-200 rounded text-xs text-slate-600">{skill}</span>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Structured KRAs & KPIs */}
+                <div className="lg:col-span-2 space-y-6">
+                  <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
+                    <div className="flex items-center justify-between border-b border-slate-100 pb-4 mb-4">
+                      <h3 className="text-md font-semibold text-slate-900 flex items-center gap-2">
+                        <Target className="w-4 h-4 text-indigo-500" />
+                        Key Result Areas (KRAs)
+                      </h3>
+                      <span className="text-xs font-semibold px-2.5 py-1 bg-indigo-50 text-indigo-700 border border-indigo-100 rounded-lg">
+                        Total Weight: {kraAnalysisResult.kra_kpi?.kras?.reduce((acc: number, item: any) => acc + (item.weight || 0), 0)}%
+                      </span>
+                    </div>
+
+                    {/* Weight distribution visualizer bar */}
+                    <div className="h-2 w-full bg-slate-100 rounded-full overflow-hidden flex mb-6">
+                      {kraAnalysisResult.kra_kpi?.kras?.map((kra: any, idx: number) => {
+                        const colors = ['bg-indigo-500', 'bg-violet-500', 'bg-emerald-500', 'bg-amber-500', 'bg-rose-500', 'bg-blue-500'];
+                        const color = colors[idx % colors.length];
+                        return (
+                          <div
+                            key={idx}
+                            className={`${color} h-full`}
+                            style={{ width: `${kra.weight || 20}%` }}
+                            title={`${kra.title}: ${kra.weight}%`}
+                          />
+                        );
+                      })}
+                    </div>
+
+                    <div className="space-y-4">
+                      {kraAnalysisResult.kra_kpi?.kras?.map((kra: any, idx: number) => (
+                        <div key={idx} className="border border-slate-150 rounded-xl overflow-hidden shadow-sm hover:border-slate-300 transition-colors">
+                          <div className="bg-slate-50/70 p-4 border-b border-slate-150 flex items-center justify-between">
+                            <div>
+                              <span className="text-xs text-indigo-600 font-bold uppercase tracking-wider">KRA {idx + 1}</span>
+                              <h4 className="text-sm font-semibold text-slate-900 mt-0.5">{kra.title}</h4>
+                            </div>
+                            <span className="px-2.5 py-1 bg-indigo-50 border border-indigo-100 rounded-lg text-xs font-semibold text-indigo-700">
+                              Weight: {kra.weight}%
+                            </span>
+                          </div>
+                          <div className="p-4 space-y-3 bg-white">
+                            <p className="text-xs text-slate-500 leading-relaxed">{kra.description}</p>
+                            {kra.kpis && kra.kpis.length > 0 && (
+                              <div className="border-t border-slate-100 pt-3">
+                                <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Key Performance Indicators (KPIs)</span>
+                                <div className="space-y-2 mt-2">
+                                  {kra.kpis.map((kpi: any, kIdx: number) => (
+                                    <div key={kIdx} className="bg-slate-50/50 p-2.5 rounded-lg border border-slate-100/50 text-xs">
+                                      <div className="font-semibold text-slate-700">{kpi.title}</div>
+                                      <div className="text-slate-500 mt-0.5">{kpi.description}</div>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Action Buttons */}
+                  <div className="flex gap-4">
+                    <button
+                      onClick={() => setKraAnalysisResult(null)}
+                      className="flex-1 py-3 px-4 border border-slate-200 rounded-xl text-sm font-medium bg-white text-slate-600 hover:bg-slate-50 transition-colors shadow-sm"
+                    >
+                      Cancel & Re-edit Text
+                    </button>
+                    <button
+                      onClick={handleConfirmPaste}
+                      disabled={confirmingKra}
+                      className="flex-1 py-3 px-4 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white rounded-xl text-sm font-medium shadow-md shadow-emerald-100 flex items-center justify-center gap-2 transition-all disabled:opacity-50"
+                    >
+                      {confirmingKra ? (
+                        <>
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                          Saving to Employee Dashboard...
+                        </>
+                      ) : (
+                        <>
+                          <CheckCircle className="w-4 h-4" />
+                          Approve & Deploy to Dashboard
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Results for document uploads */}
+          {kraInputMode === 'file' && kraResults.length > 0 && (
+            <div className="mt-8 bg-white rounded-2xl border border-slate-200 p-8 shadow-sm">
+              <h2 className="text-xl font-semibold text-slate-900 mb-6">Processing Results</h2>
+              <div className="space-y-4">
+                {kraResults.map((result, index) => {
+                  const resultData = result.data
+                  return (
+                    <div key={index} className={`p-5 rounded-xl border ${result.status === 'success' ? 'border-emerald-200 bg-emerald-50/30' : 'border-red-200 bg-red-50/30'}`}>
+                      <div className="flex items-start justify-between">
+                        <div className="flex items-center gap-3">
+                          {result.status === 'success' ? <CheckCircle className="w-5 h-5 text-emerald-500" /> : <X className="w-5 h-5 text-red-500" />}
+                          <div>
+                            <p className="font-medium text-slate-800">{result.file}</p>
+                            <p className="text-sm text-slate-500">{result.message}</p>
+                            {resultData && (
+                              <div className="text-sm text-slate-600 mt-2 space-y-1 bg-white p-3 rounded-lg border border-slate-100">
+                                <p><strong className="text-slate-700">Role:</strong> {resultData.role_title} ({resultData.department})</p>
+                                <p><strong className="text-slate-700">Employee:</strong> {resultData.employee_name} ({resultData.employee_id})</p>
+                                <p><strong className="text-slate-700">KRAs Imported:</strong> {resultData.kras_count}</p>
+                                <p className="text-emerald-600 font-medium mt-1">✓ Dashboard JDSession & KRAKPISession confirmed and active.</p>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+              <button onClick={() => setKraResults([])} className="mt-4 text-sm text-slate-400 hover:text-slate-600">Clear Results</button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {activeTab === 'library' && (
         <div className="max-w-7xl">
           <div className="flex items-center justify-between mb-6">
             <div>

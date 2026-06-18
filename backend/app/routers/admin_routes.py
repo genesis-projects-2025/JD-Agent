@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, File, Form, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy import func
@@ -13,6 +13,10 @@ from app.core.config import settings
 from app.core.security import create_access_token
 from app.models.jd_session_model import JDSession
 from app.models.user_model import Employee
+from app.services.kra_kpi_service import process_kra_kpi_document
+import logging
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["Admin"])
 security = HTTPBearer()
@@ -218,3 +222,133 @@ async def get_admin_users(
         )
 
     return formatted_results
+
+
+@router.post("/admin/kra-kpi/upload")
+async def upload_kra_kpi_document(
+    file: UploadFile = File(...),
+    employee_id: str = Form(...),
+    employee_name: str = Form(...),
+    db: AsyncSession = Depends(get_db),
+    admin_role: str = Depends(get_current_admin),
+):
+    """
+    Upload and parse existing KRA/KPI document for an employee.
+    Auto-creates JDSession if missing, and creates a confirmed KRAKPISession.
+    """
+
+    allowed_types = {
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "docx",
+        "application/msword": "docx",  # Coerce .doc to .docx parser if needed, or fallback
+        "application/pdf": "pdf",
+    }
+
+    if file.content_type not in allowed_types:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid file type. Accepted: DOCX, PDF. Got: {file.content_type}",
+        )
+
+    file_type = allowed_types[file.content_type]
+    file_content = await file.read()
+
+    # Validate size (10MB max)
+    if len(file_content) > 10 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="File too large. Maximum 10MB")
+
+    try:
+        result = await process_kra_kpi_document(
+            db=db,
+            file_bytes=file_content,
+            filename=file.filename,
+            file_type=file_type,
+            employee_id=employee_id,
+            employee_name=employee_name,
+            admin_role=admin_role,
+        )
+        return {
+            "status": "success",
+            "message": "KRA/KPI framework uploaded, parsed, and confirmed successfully",
+            "data": result,
+        }
+    except Exception as e:
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.error(f"[UPLOAD KRA] Processing failed: {str(e)}")
+        raise HTTPException(
+            status_code=400,
+            detail=f"Failed to process KRA/KPI document: {str(e)}",
+        )
+
+
+class AnalyzePasteRequest(BaseModel):
+    employee_id: str
+    employee_name: str
+    content: str
+
+
+class ConfirmPasteRequest(BaseModel):
+    employee_id: str
+    employee_name: str
+    jd: dict
+    kra_kpi: dict
+
+
+@router.post("/admin/kra-kpi/analyze-paste")
+async def analyze_kra_kpi_paste_endpoint(
+    request: AnalyzePasteRequest,
+    admin_role: str = Depends(get_current_admin),
+):
+    """
+    Directly analyze pasted KRA/KPI raw text and return structured preview before confirmation.
+    """
+    from app.services.kra_kpi_service import analyze_kra_kpi_text
+    try:
+        result = await analyze_kra_kpi_text(
+            employee_id=request.employee_id,
+            employee_name=request.employee_name,
+            content=request.content,
+        )
+        return {
+            "status": "success",
+            "data": result,
+        }
+    except Exception as e:
+        logger.error(f"[PASTE KRA] Analysis failed: {str(e)}")
+        raise HTTPException(
+            status_code=400,
+            detail=f"Failed to analyze pasted KRA/KPI content: {str(e)}",
+        )
+
+
+@router.post("/admin/kra-kpi/confirm-paste")
+async def confirm_kra_kpi_paste_endpoint(
+    request: ConfirmPasteRequest,
+    db: AsyncSession = Depends(get_db),
+    admin_role: str = Depends(get_current_admin),
+):
+    """
+    Save the confirmed parsed KRA/KPI and inferred JD to the employee's active session.
+    """
+    from app.services.kra_kpi_service import save_kra_kpi_from_paste
+    try:
+        result = await save_kra_kpi_from_paste(
+            db=db,
+            employee_id=request.employee_id,
+            employee_name=request.employee_name,
+            jd_data=request.jd,
+            kra_kpi_data=request.kra_kpi,
+            admin_role=admin_role,
+        )
+        return {
+            "status": "success",
+            "message": "KRA/KPI framework confirmed and saved successfully to employee dashboard",
+            "data": result,
+        }
+    except Exception as e:
+        logger.error(f"[PASTE KRA] Save failed: {str(e)}")
+        raise HTTPException(
+            status_code=400,
+            detail=f"Failed to confirm KRA/KPI paste: {str(e)}",
+        )
+

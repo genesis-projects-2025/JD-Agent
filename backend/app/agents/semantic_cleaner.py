@@ -20,10 +20,12 @@ cleaner_llm = ChatGoogleGenerativeAI(
 
 CLEANING_PROMPT = """You are an Enterprise Data Sanctification Specialist parsing HR and job description data.
 
-Your job is to take a raw list of {item_type} and perform Enterprise Semantic Deduplication & Professionalization for the role of '{role_title}':
-1. SEMANTIC DEDUPLICATION: Group together any items that mean the exact same thing or heavily overlap.
-2. PROFESSIONALIZATION: Correct typos. Rewrite the grouped item into a polished, formal business tone.
-3. RELEVANCE CHECK: ONLY keep items that are genuinely part of the day-to-day toolkit or core performance drivers for a '{role_title}'.
+Your job is to take a raw list of {item_type} and perform Enterprise Semantic Deduplication & Professionalization for the role of '{role_title}' in the department of '{department}':
+1. SEMANTIC DEDUPLICATION & MERGING: Group together any items that mean the exact same thing or heavily overlap (e.g. merge 'SAP', 'Ariba', and 'ERP systems' into a single professional item like 'SAP Ariba' or 'ERP Systems (SAP)').
+2. PROFESSIONALIZATION: Correct typos. Rewrite the grouped item into a polished, formal business tone (concise noun phrases only).
+3. NOISE EXCLUSION: Completely remove explanatory notes, descriptive clauses, parenthetical side notes, or complete sentences (e.g. 'Depending on industry...').
+4. DEPARTMENT & ROLE RELEVANCE FILTER: Strictly filter out tools or skills that are irrelevant to the '{department}' department or the role of '{role_title}'. The tools/skills must be standard, specific, and appropriate to '{department}' (e.g., scientific/experimental tools/skills for R&D/Quality, manufacturing/operations/machinery tools/skills for Plant, financial/billing tools/skills for Finance, and IT/software tools/skills for Tech).
+5. SIZE CAP & SORT: Select and return AT MOST 20 of the most critical and relevant items, sorted by importance (most crucial items first).
 
 CRITICAL RULES FOR ITEM TYPE '{item_type}':
 
@@ -54,7 +56,10 @@ Return ONLY valid JSON in the following format:
 
 
 async def deduplicate_and_professionalize(
-    items: List[Union[str, dict]], item_type: str, role_title: str = "General Role"
+    items: List[Union[str, dict]], 
+    item_type: str, 
+    role_title: str = "General Role",
+    department: str = ""
 ) -> List[Union[str, dict]]:
     """Clean and deduplicate a list of items using an LLM.
 
@@ -63,7 +68,7 @@ async def deduplicate_and_professionalize(
     if not items:
         return []
 
-    logger.debug(f"[SemanticCleaner] Cleaning {len(items)} items of type '{item_type}'")
+    logger.debug(f"[SemanticCleaner] Cleaning {len(items)} items of type '{item_type}' in department '{department}'")
 
     if (
         item_type in ["tools", "skills"]
@@ -73,6 +78,7 @@ async def deduplicate_and_professionalize(
         return [items[0].strip().title() if len(items[0]) <= 15 else items[0]]
 
     try:
+        dept_str = department if department else "General Department"
         response = await cleaner_llm.ainvoke(
             [
                 SystemMessage(
@@ -80,10 +86,11 @@ async def deduplicate_and_professionalize(
                         item_type=item_type,
                         raw_list=json.dumps(items),
                         role_title=role_title,
+                        department=dept_str,
                     )
                 ),
                 HumanMessage(
-                    content=f"Clean and professionalize this list of {item_type} for the given role. Keep tools and skills completely separate."
+                    content=f"Clean and professionalize this list of {item_type} for the '{role_title}' in the '{dept_str}' department. Keep tools and skills completely separate, select at most 20 of the most important items, and filter out all noise."
                 ),
             ]
         )

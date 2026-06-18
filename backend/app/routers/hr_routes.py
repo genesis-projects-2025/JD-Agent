@@ -125,42 +125,46 @@ async def get_department_employees(
     db: AsyncSession = Depends(get_db)
 ):
     """
-    Fetches all employees for a given department along with their current JD status.
+    Fetches all employees for given department(s) along with their current JD status.
     Uses shared role JD coverage: if an approved template exists for this designation/department,
     employees with no personal JD are marked as approved.
     """
     try:
         offset = (page - 1) * limit
         
-        is_cell_tx = department_name and department_name.strip().lower() == 'cell therapeutics'
-        
-        # 1. Fetch approved templates map for department
-        if is_cell_tx:
-            approved_query = text("""
-                SELECT id, department, title
-                FROM jd_sessions
-                WHERE department IN (
-                    'Cell Therapeutics', 
-                    'PCT- Protein Purification', 
-                    'PCT- Cell Biology', 
-                    'PCT- Bioinformatic', 
-                    'PCT - Microbiology'
-                )
-                  AND status = 'approved'
-                  AND title IS NOT NULL
-            """)
-            approved_res = await db.execute(approved_query)
-            approved_map = {(row.department, row.title): str(row.id) for row in approved_res.fetchall()}
+        # Build set of departments
+        if isinstance(department_name, str):
+            depts = {department_name}
         else:
-            approved_query = text("""
-                SELECT id, department, title
-                FROM jd_sessions
-                WHERE department = :dept
-                  AND status = 'approved'
-                  AND title IS NOT NULL
-            """)
-            approved_res = await db.execute(approved_query, {"dept": department_name})
-            approved_map = {(row.department, row.title): str(row.id) for row in approved_res.fetchall()}
+            depts = set(department_name)
+            
+        cell_tx_group = {
+            'cell therapeutics', 
+            'pct- protein purification', 
+            'pct- cell biology', 
+            'pct- bioinformatic', 
+            'pct - microbiology'
+        }
+        
+        if any(d.strip().lower() in cell_tx_group for d in depts):
+            depts.update([
+                'Cell Therapeutics', 
+                'PCT- Protein Purification', 
+                'PCT- Cell Biology', 
+                'PCT- Bioinformatic', 
+                'PCT - Microbiology'
+            ])
+
+        # 1. Fetch approved templates map for department(s)
+        approved_query = text("""
+            SELECT id, department, title
+            FROM jd_sessions
+            WHERE department = ANY(:depts)
+              AND status = 'approved'
+              AND title IS NOT NULL
+        """)
+        approved_res = await db.execute(approved_query, {"depts": list(depts)})
+        approved_map = {(row.department, row.title): str(row.id) for row in approved_res.fetchall()}
 
         # 2. Query organogram for department employees and join latest personal JD session
         join_type = "JOIN" if only_submitted else "LEFT JOIN"
@@ -168,20 +172,8 @@ async def get_department_employees(
         if only_submitted:
             status_filter = "AND lj.status IN ('sent_to_manager', 'manager_rejected', 'sent_to_hr', 'hr_rejected', 'approved', 'rejected', 'revision_requested')"
 
-        if is_cell_tx:
-            dept_filter = """
-                o.department IN (
-                    'Cell Therapeutics', 
-                    'PCT- Protein Purification', 
-                    'PCT- Cell Biology', 
-                    'PCT- Bioinformatic', 
-                    'PCT - Microbiology'
-                )
-            """
-            params = {"limit": limit, "offset": offset}
-        else:
-            dept_filter = "o.department = :dept"
-            params = {"dept": department_name, "limit": limit, "offset": offset}
+        dept_filter = "o.department = ANY(:depts)"
+        params = {"depts": list(depts), "limit": limit, "offset": offset}
 
         query = text(f"""
             WITH LatestJDs AS (
@@ -246,24 +238,13 @@ async def get_department_employees(
 @router.get("/my-team-stats", dependencies=[Depends(manager_required)])
 async def get_my_team_stats(emp_code: str, db: AsyncSession = Depends(get_db)):
     """
-    Detects if the user is a Department Head or a Manager and returns 
-    the appropriate scoped JD statistics.
+    Returns the team-scoped JD statistics for a manager/head based on their direct reports.
     """
     try:
-        is_head = await DashboardService.is_department_head(db, emp_code)
-        
-        if is_head:
-            # Get all employees in the department
-            emp_codes = await DashboardService.get_department_employees(db, emp_code)
-            scope = "department"
-        else:
-            # Get recursive reports (subtree)
-            reports = await DashboardService.get_recursive_reports(db, emp_code)
-            emp_codes = list(reports)
-            scope = "team"
-
+        reports = await DashboardService.get_direct_reports(db, emp_code)
+        emp_codes = list(reports)
         stats = await DashboardService.get_team_stats(db, emp_codes)
-        stats["scope"] = scope
+        stats["scope"] = "team"
         return stats
 
     except Exception:
@@ -280,98 +261,86 @@ async def get_my_team_employees(
     db: AsyncSession = Depends(get_db)
 ):
     """
-    Returns a list of employees for the logged in manager/head with their JD status.
+    Returns a list of employees directly reporting to the logged-in manager/head with their JD status.
     Uses shared role approved JDs.
     """
     try:
-        is_head = await DashboardService.is_department_head(db, emp_code)
+        reports = await DashboardService.get_direct_reports(db, emp_code)
+        if not reports:
+            return []
         
-        if is_head:
-            # Get department name first
-            dept_query = text("SELECT department FROM organogram WHERE code = :code")
-            res = await db.execute(dept_query, {"code": emp_code})
-            row = res.fetchone()
-            if not row:
-                return []
-            return await get_department_employees(row[0], page, limit, False, db)
-        else:
-            # For managers, we fetch their recursive reports list
-            reports = await DashboardService.get_recursive_reports(db, emp_code)
-            if not reports:
-                return []
-            
-            # Fetch all approved templates map
-            approved_query = text("""
-                SELECT id, department, title
-                FROM jd_sessions
-                WHERE status = 'approved'
-                  AND department IS NOT NULL
-                  AND title IS NOT NULL
-            """)
-            approved_res = await db.execute(approved_query)
-            approved_map = {
-                (row.department, row.title): str(row.id)
-                for row in approved_res.fetchall()
-            }
+        # Fetch all approved templates map
+        approved_query = text("""
+            SELECT id, department, title
+            FROM jd_sessions
+            WHERE status = 'approved'
+              AND department IS NOT NULL
+              AND title IS NOT NULL
+        """)
+        approved_res = await db.execute(approved_query)
+        approved_map = {
+            (row.department, row.title): str(row.id)
+            for row in approved_res.fetchall()
+        }
 
-            offset = (page - 1) * limit
-            query = text("""
-                WITH LatestJDs AS (
-                    SELECT 
-                        id as jd_id,
-                        employee_id, 
-                        status,
-                        updated_at,
-                        ROW_NUMBER() OVER(PARTITION BY employee_id ORDER BY updated_at DESC) as rn
-                    FROM jd_sessions
-                )
+        offset = (page - 1) * limit
+        query = text("""
+            WITH LatestJDs AS (
                 SELECT 
-                    o.code as employee_id,
-                    o.employee_name as name,
-                    o.designation as designation,
-                    o.department as department,
-                    o.reporting_manager as reporting_manager,
-                    lj.jd_id as jd_session_id,
-                    lj.status as jd_status,
-                    lj.updated_at as last_updated
-                FROM organogram o
-                LEFT JOIN LatestJDs lj ON o.code = lj.employee_id AND lj.rn = 1
-                WHERE o.code = ANY(:codes)
-                ORDER BY o.employee_name ASC
-                LIMIT :limit OFFSET :offset
-            """)
+                    id as jd_id,
+                    employee_id, 
+                    status,
+                    updated_at,
+                    ROW_NUMBER() OVER(PARTITION BY employee_id ORDER BY updated_at DESC) as rn
+                FROM jd_sessions
+            )
+            SELECT 
+                o.code as employee_id,
+                o.employee_name as name,
+                o.designation as designation,
+                o.department as department,
+                o.reporting_manager as reporting_manager,
+                lj.jd_id as jd_session_id,
+                lj.status as jd_status,
+                lj.updated_at as last_updated
+            FROM organogram o
+            LEFT JOIN LatestJDs lj ON o.code = lj.employee_id AND lj.rn = 1
+            WHERE o.code = ANY(:codes)
+            ORDER BY o.employee_name ASC
+            LIMIT :limit OFFSET :offset
+        """)
 
-            result = await db.execute(query, {
-                "codes": list(reports),
-                "limit": limit,
-                "offset": offset
-            })
+        result = await db.execute(query, {
+            "codes": list(reports),
+            "limit": limit,
+            "offset": offset
+        })
+        
+        employees = []
+        for row in result.mappings():
+            status = row.jd_status
+            jd_id = row.jd_session_id
+            last_updated = row.last_updated
             
-            employees = []
-            for row in result.mappings():
-                status = row.jd_status
-                jd_id = row.jd_session_id
-                last_updated = row.last_updated
+            # Resolve zero-bloat shared role approved JDs
+            if (not status or status in ["draft", "jd_generated", "collecting"]) and (row.department, row.designation) in approved_map:
+                status = "approved"
+                jd_id = approved_map[(row.department, row.designation)]
+            elif not status or status in ["draft", "jd_generated", "collecting"]:
+                status = "Not Submitted"
                 
-                # Resolve zero-bloat shared role approved JDs
-                if (not status or status in ["draft", "jd_generated", "collecting"]) and (row.department, row.designation) in approved_map:
-                    status = "approved"
-                    jd_id = approved_map[(row.department, row.designation)]
-                elif not status or status in ["draft", "jd_generated", "collecting"]:
-                    status = "Not Submitted"
-                    
-                employees.append({
-                    "employee_id": row.employee_id,
-                    "name": row.name,
-                    "designation": row.designation,
-                    "department": row.department,
-                    "reporting_manager": row.reporting_manager,
-                    "jd_status": status,
-                    "jd_id": jd_id,
-                    "last_updated": last_updated.isoformat() if last_updated else None
-                })
+            employees.append({
+                "employee_id": row.employee_id,
+                "name": row.name,
+                "designation": row.designation,
+                "department": row.department,
+                "reporting_manager": row.reporting_manager,
+                "jd_status": status,
+                "jd_id": jd_id,
+                "last_updated": last_updated.isoformat() if last_updated else None
+            })
 
-            return employees
+        return employees
 
     except Exception as e:
         import traceback

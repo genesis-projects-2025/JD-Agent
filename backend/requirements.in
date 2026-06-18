@@ -2,5 +2,16 @@ fastapi
 litellm
 fastmcp
 anthropic
-python-dotenv  # Don't pin the version here, let the tools decide
-# Add your other main libraries...
+python-dotenv
+sqlalchemy
+asyncpg
+redis
+pinecone
+langchain-google-genai
+python-jose[cryptography]
+passlib[bcrypt]
+bcrypt
+PyMuPDF
+greenlet
+python-docx
+langgraph

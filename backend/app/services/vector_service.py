@@ -139,24 +139,62 @@ def get_pinecone_client() -> Pinecone:
     return _pc
 
 
-def _ensure_index_exists() -> None:
-    client = get_pinecone_client()
-    existing_indexes = [idx.name for idx in client.list_indexes()]
-    if _index_name not in existing_indexes:
-        logger.info("Creating Pinecone index: %s", _index_name)
-        client.create_index(
-            name=_index_name,
-            dimension=3072,
-            metric="cosine",
-            spec=ServerlessSpec(cloud="aws", region="us-east-1"),
+async def _ensure_index_exists_async() -> None:
+    """Async wrapper for Pinecone index creation with timeout."""
+    try:
+        def _sync_ensure():
+            client = get_pinecone_client()
+            try:
+                existing_indexes = [idx.name for idx in client.list_indexes()]
+            except Exception as e:
+                logger.warning(f"Could not list Pinecone indexes: {e}")
+                return  # Non-critical failure
+            
+            if _index_name not in existing_indexes:
+                logger.info("Creating Pinecone index: %s", _index_name)
+                try:
+                    client.create_index(
+                        name=_index_name,
+                        dimension=3072,
+                        metric="cosine",
+                        spec=ServerlessSpec(cloud="aws", region="us-east-1"),
+                    )
+                except Exception as e:
+                    logger.warning(f"Could not create Pinecone index: {e}")
+        
+        # Run sync Pinecone operations in thread pool with 10s timeout
+        await asyncio.wait_for(
+            asyncio.to_thread(_sync_ensure),
+            timeout=10.0
         )
+    except asyncio.TimeoutError:
+        logger.warning("Pinecone index check timed out after 10s - continuing anyway")
+    except Exception as e:
+        logger.warning(f"Pinecone initialization failed: {e} - continuing anyway")
 
 
 def get_index():
+    """Get Pinecone index (use get_index_async for async context)."""
     global _index
     if _index is None:
-        _ensure_index_exists()
-        _index = get_pinecone_client().Index(_index_name)
+        try:
+            _index = get_pinecone_client().Index(_index_name)
+        except Exception as e:
+            logger.error(f"Failed to get Pinecone index: {e}")
+            return None
+    return _index
+
+
+async def get_index_async():
+    """Async-safe getter for Pinecone index."""
+    global _index
+    if _index is None:
+        await _ensure_index_exists_async()
+        try:
+            _index = await asyncio.to_thread(lambda: get_pinecone_client().Index(_index_name))
+        except Exception as e:
+            logger.error(f"Failed to get Pinecone index: {e}")
+            return None
     return _index
 
 
@@ -174,7 +212,10 @@ async def vector_health() -> dict[str, Any]:
     if not settings.PINECONE_API_KEY:
         return {"status": "disabled"}
     try:
-        stats = await asyncio.to_thread(get_index().describe_index_stats)
+        idx = await get_index_async()
+        if idx is None:
+            return {"status": "degraded", "detail": "Could not connect to Pinecone"}
+        stats = await asyncio.to_thread(idx.describe_index_stats)
         return {
             "status": "ok",
             "index_name": _index_name,
@@ -206,7 +247,9 @@ async def index_approved_jd(
         )
 
         try:
-            get_index().delete(filter={"jd_id": jd_id})
+            idx = await get_index_async()
+            if idx:
+                await asyncio.to_thread(lambda: idx.delete(filter={"jd_id": jd_id}))
         except Exception as e:
             logger.warning("Failed to delete old vectors for JD %s: %s", jd_id, e)
 
@@ -323,7 +366,11 @@ async def index_approved_jd(
             return
 
         texts = [chunk["text"] for chunk in chunks]
-        vector_embeddings = get_embeddings().embed_documents(texts)
+        
+        # Wrap blocking embedding operation
+        vector_embeddings = await asyncio.to_thread(
+            lambda: get_embeddings().embed_documents(texts)
+        )
         vectors = [
             {
                 "id": chunk["id"],
@@ -332,7 +379,12 @@ async def index_approved_jd(
             }
             for index, chunk in enumerate(chunks)
         ]
-        get_index().upsert(vectors=vectors) # pyright: ignore[reportArgumentType]
+        
+        # Wrap blocking upsert operation
+        idx = await get_index_async()
+        if idx:
+            await asyncio.to_thread(lambda: idx.upsert(vectors=vectors))
+        
         logger.info("Advanced RAG: Indexed JD %s (%s blocks, source=%s)", jd_id, len(chunks), source)
     except Exception as e:
         logger.error("Failed to index JD: %s", e)
@@ -357,13 +409,24 @@ async def query_advanced_context(
             f"Role: {role_query.strip()}. Specifically looking for {categories[0]} "
             "and technical environment details."
         )
-        query_vec = get_embeddings().embed_query(query_text)
+        
+        # Wrap blocking embedding operation
+        query_vec = await asyncio.to_thread(
+            lambda: get_embeddings().embed_query(query_text)
+        )
 
-        results = get_index().query(
-            vector=query_vec,
-            filter={"category": categories[0]} if len(categories) == 1 else {"category": {"$in": categories}}, # pyright: ignore[reportArgumentType]
-            top_k=max(top_k * 3, 12),
-            include_metadata=True,
+        idx = await get_index_async()
+        if not idx:
+            return []
+
+        # Wrap blocking query operation
+        results = await asyncio.to_thread(
+            lambda: idx.query(
+                vector=query_vec,
+                filter={"category": categories[0]} if len(categories) == 1 else {"category": {"$in": categories}}, # pyright: ignore[reportArgumentType]
+                top_k=max(top_k * 3, 12),
+                include_metadata=True,
+            )
         )
 
         reranked: list[tuple[float, str]] = []
@@ -411,10 +474,10 @@ async def query_advanced_context(
 async def index_jd_document(jd_id: str, text: str, chunk_type: str, metadata: dict):
     """Index a single JD document chunk using canonical vector metadata."""
     try:
-        if asyncio.iscoroutinefunction(get_embeddings().embed_query):
-            embedding = await get_embeddings().embed_query(text)  # pyright: ignore
-        else:
-            embedding = get_embeddings().embed_query(text)
+        # Always wrap embedding in asyncio.to_thread
+        embedding = await asyncio.to_thread(
+            lambda: get_embeddings().embed_query(text)
+        )
 
         meta = _build_metadata(
             jd_id=jd_id,
@@ -428,7 +491,11 @@ async def index_jd_document(jd_id: str, text: str, chunk_type: str, metadata: di
         )
 
         vector_id = f"{jd_id}_{chunk_type}_{hash(text) % 10000}"
-        get_index().upsert(vectors=[{"id": vector_id, "values": embedding, "metadata": meta}])
+        idx = await get_index_async()
+        if idx:
+            await asyncio.to_thread(
+                lambda: idx.upsert(vectors=[{"id": vector_id, "values": embedding, "metadata": meta}])
+            )
         logger.info("Indexed JD chunk: %s - %s", jd_id, chunk_type)
     except Exception as e:
         logger.error("Failed to index JD document: %s", e)
@@ -456,15 +523,23 @@ async def find_similar_jds(
             return []
 
         query_text = ". ".join(query_parts)
-        if asyncio.iscoroutinefunction(get_embeddings().embed_query):
-            query_embedding = await get_embeddings().embed_query(query_text)  # pyright: ignore
-        else:
-            query_embedding = get_embeddings().embed_query(query_text)
+        
+        # Wrap blocking embedding operation
+        query_embedding = await asyncio.to_thread(
+            lambda: get_embeddings().embed_query(query_text)
+        )
 
-        results = get_index().query(
-            vector=query_embedding,
-            top_k=max(limit * 6, 12),
-            include_metadata=True,
+        idx = await get_index_async()
+        if not idx:
+            return []
+
+        # Wrap blocking query operation
+        results = await asyncio.to_thread(
+            lambda: idx.query(
+                vector=query_embedding,
+                top_k=max(limit * 6, 12),
+                include_metadata=True,
+            )
         )
 
         grouped: dict[str, dict[str, Any]] = {}

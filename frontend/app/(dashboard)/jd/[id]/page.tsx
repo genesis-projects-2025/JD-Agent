@@ -167,7 +167,7 @@ function JDPageContent() {
   setReviewComments(comments);
 
   if (data.generated_jd && u) {
-    fetchKRAKPIStatus(jdId, u.employee_id)
+    fetchKRAKPIStatus(jdId, data.employee_id)
       .then(setPrereqStatus)
       .catch(() => setPrereqStatus(null));
   }
@@ -1044,9 +1044,9 @@ function JDPageContent() {
          return;
        }
        let currentStatus = prereqStatus;
-       if (!currentStatus && currentUser) {
+       if (!currentStatus && jd) {
          try {
-           currentStatus = await fetchKRAKPIStatus(jdId, currentUser.employee_id);
+           currentStatus = await fetchKRAKPIStatus(jdId, jd.employee_id);
            setPrereqStatus(currentStatus);
          } catch (e) {}
        }
@@ -1236,12 +1236,15 @@ function JDPageContent() {
  />
 
  <KRAKPIPrereqModal
- isOpen={isPrereqModalOpen}
- onClose={() => setIsPrereqModalOpen(false)}
- missing={prereqMissing}
- managerCode={currentUser?.reporting_manager_code}
- employeeId={currentUser?.employee_id || jd?.employee_id}
- />
+    isOpen={isPrereqModalOpen}
+    onClose={() => setIsPrereqModalOpen(false)}
+    missing={prereqMissing}
+    employeeId={jd?.employee_id || ""}
+    employeeName={jd?.employee_name || "Employee"}
+    managerCode={jd?.reporting_manager_code || "unknown"}
+    currentUserId={currentUser?.employee_id || ""}
+    currentUserRole={currentUser?.role || ""}
+  />
  </div>
  </div>
  );

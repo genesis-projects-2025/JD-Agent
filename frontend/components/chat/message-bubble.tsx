@@ -35,14 +35,14 @@ export default function MessageBubble({
 
   // ── Skills State ──────────────────────────────────────────────────────────
   const [availableSkills, setAvailableSkills] = useState<string[]>(message.skills || []);
-  const [selectedSkills, setSelectedSkills] = useState<string[]>(message.skills || []);
+  const [selectedSkills, setSelectedSkills] = useState<string[]>([]);
   const [newSkill, setNewSkill] = useState("");
   const [isSkillsConfirmed, setIsSkillsConfirmed] = useState(false);
   const [isSkillsConfirming, setIsSkillsConfirming] = useState(false);
 
   // ── Tools State ───────────────────────────────────────────────────────────
   const [availableTools, setAvailableTools] = useState<string[]>(message.tools || []);
-  const [selectedTools, setSelectedTools] = useState<string[]>(message.tools || []);
+  const [selectedTools, setSelectedTools] = useState<string[]>([]);
   const [newTool, setNewTool] = useState("");
   const [isToolsConfirmed, setIsToolsConfirmed] = useState(false);
   const [isToolsConfirming, setIsToolsConfirming] = useState(false);
@@ -124,11 +124,11 @@ export default function MessageBubble({
   useEffect(() => {
     if (message.skills && message.skills.length > 0) {
       setAvailableSkills(message.skills);
-      setSelectedSkills(message.skills);
+      setSelectedSkills([]);
     }
     if (message.tools && message.tools.length > 0) {
       setAvailableTools(message.tools);
-      setSelectedTools(message.tools);
+      setSelectedTools([]);
     }
     if (message.tasks && message.tasks.length > 0) {
       const { core, suggested } = splitTasks(message.tasks);

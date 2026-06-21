@@ -161,7 +161,7 @@ Skills: {skills_str}
 Tools: {tools_str}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-MANAGER CONTEXT (REFERENCE ONLY — for weight calibration)
+MANAGER CONTEXT (REFERENCE ONLY — for alignment)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 Manager Title: {manager_title}
 Manager Responsibilities: {mgr_resp_block}
@@ -180,10 +180,10 @@ RULES (STRICT — violations break the system)
 1. Generate EXACTLY 6 to 7 KRAs. No more, no less.
 2. Each KRA must be distinct — no overlapping domains.
 3. KRAs must come from the employee's actual responsibilities and tasks.
-4. suggested_weight: Assign based on importance to the role. KRAs whose tasks most impact the manager's KRAs get HIGHER suggested weight. Weights must sum to 100.
+4. Do NOT include weights — the employee will assign weights manually after selection.
 5. source_tasks: List 1–3 actual task names from the employee's Priority Tasks above.
 6. description: 1 sentence describing the accountability domain.
-7. DO NOT generate KPIs in this step — only KRA titles, descriptions, weights, and source tasks.
+7. DO NOT generate KPIs in this step — only KRA titles, descriptions, and source tasks.
 8. KRA titles should be 3–5 words, professional, and role-specific. No generic titles like "General Tasks".
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -196,11 +196,9 @@ OUTPUT — RETURN ONLY THIS JSON (no markdown, no extra text)
       "title": "KRA Title",
       "description": "Single sentence describing this accountability domain.",
       "source_tasks": ["Task Name 1", "Task Name 2"],
-      "suggested_weight": 20,
       "manager_impact": "Brief note on how this KRA supports the manager's goals."
     }}
-  ],
-  "total_suggested_weight": 100
+  ]
 }}"""
 
 
@@ -360,15 +358,16 @@ async def generate_kra_suggestions(
     if not suggestions:
         raise ValueError("LLM returned no KRA suggestions")
 
-    # Ensure IDs and cap at 7
+    # Ensure IDs and cap at 7, strip any weight the LLM may have hallucinated
     suggestions = suggestions[:7]
     for i, kra in enumerate(suggestions):
         if not kra.get("kra_id"):
             kra["kra_id"] = f"kra_{i+1:03d}"
+        # Remove any weight fields — weights are set by the employee, not the agent
+        kra.pop("suggested_weight", None)
+        kra.pop("weight", None)
 
-    suggestions = _normalize_weights(suggestions, "suggested_weight")
     payload["kra_suggestions"] = suggestions
-    payload["total_suggested_weight"] = sum(k["suggested_weight"] for k in suggestions)
 
     logger.info(f"[KRAKPIAgent] Phase 1 complete: {len(suggestions)} KRAs suggested")
     return payload

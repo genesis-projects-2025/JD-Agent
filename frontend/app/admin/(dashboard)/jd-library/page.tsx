@@ -89,6 +89,10 @@ export default function JDLibraryPage() {
   const [analyzingKra, setAnalyzingKra] = useState(false)
   const [confirmingKra, setConfirmingKra] = useState(false)
 
+  // Missing JD Warning Modal States
+  const [showMissingJdModal, setShowMissingJdModal] = useState(false)
+  const [missingJdEmpDetails, setMissingJdEmpDetails] = useState<{ id: string; name: string } | null>(null)
+
   const handleAnalyzePaste = async () => {
     if (!kraEmployeeId || !kraEmployeeName || !kraPasteContent.trim()) {
       alert('Please fill in Employee ID, Employee Name, and paste raw KRA/KPA content')
@@ -111,7 +115,18 @@ export default function JDLibraryPage() {
       })
       const data = await response.json()
       if (!response.ok) {
-        throw new Error(data.detail || 'Analysis failed')
+        if (data.detail && typeof data.detail === 'object' && data.detail.code === 'MISSING_JD') {
+          setMissingJdEmpDetails({ id: kraEmployeeId, name: kraEmployeeName })
+          setShowMissingJdModal(true)
+          return
+        }
+        let errMsg = 'Analysis failed'
+        if (data.detail && typeof data.detail === 'object' && data.detail.message) {
+          errMsg = data.detail.message
+        } else if (typeof data.detail === 'string') {
+          errMsg = data.detail
+        }
+        throw new Error(errMsg)
       }
       setKraAnalysisResult(data.data)
     } catch (error: any) {
@@ -140,7 +155,18 @@ export default function JDLibraryPage() {
       })
       const data = await response.json()
       if (!response.ok) {
-        throw new Error(data.detail || 'Confirmation failed')
+        if (data.detail && typeof data.detail === 'object' && data.detail.code === 'MISSING_JD') {
+          setMissingJdEmpDetails({ id: kraEmployeeId, name: kraEmployeeName })
+          setShowMissingJdModal(true)
+          return
+        }
+        let errMsg = 'Confirmation failed'
+        if (data.detail && typeof data.detail === 'object' && data.detail.message) {
+          errMsg = data.detail.message
+        } else if (typeof data.detail === 'string') {
+          errMsg = data.detail
+        }
+        throw new Error(errMsg)
       }
       alert('KRA/KPI framework successfully confirmed and deployed to employee dashboard!')
       // Reset
@@ -244,7 +270,11 @@ export default function JDLibraryPage() {
       setKraFiles(Array.from(e.target.files).filter(file =>
         file.type === 'application/pdf' ||
         file.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
-        file.type === 'application/msword'
+        file.type === 'application/msword' ||
+        file.type === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' ||
+        file.type === 'application/vnd.ms-excel' ||
+        file.name.toLowerCase().endsWith('.xlsx') ||
+        file.name.toLowerCase().endsWith('.xls')
       ))
       setKraResults([])
     }
@@ -272,11 +302,20 @@ export default function JDLibraryPage() {
           body: formData,
         })
         const data = await response.json()
+        let errMsg = 'Upload failed'
+        if (data.detail) {
+          if (typeof data.detail === 'object' && data.detail.message) {
+            errMsg = data.detail.message
+          } else if (typeof data.detail === 'string') {
+            errMsg = data.detail
+          }
+        }
         uploadResults.push({
           file: file.name,
           status: response.ok ? 'success' as const : 'error' as const,
-          message: response.ok ? 'KRA/KPI document processed successfully' : (data.detail || 'Upload failed'),
+          message: response.ok ? 'KRA/KPI document processed successfully' : errMsg,
           data: response.ok ? data.data : undefined,
+          errorData: !response.ok ? data.detail : undefined,
         })
       } catch (error: unknown) {
         const message = error instanceof Error ? error.message : 'Upload failed'
@@ -287,6 +326,22 @@ export default function JDLibraryPage() {
     setKraUploading(false)
     setKraFiles([])
     if (kraFileInputRef.current) kraFileInputRef.current.value = ''
+
+    const successfulResult = uploadResults.find(r => r.status === 'success')
+    if (successfulResult && successfulResult.data) {
+      setKraAnalysisResult(successfulResult.data)
+      setKraResults([])
+    } else {
+      const failed = uploadResults.find(r => r.status === 'error')
+      if (failed) {
+        if (failed.errorData && typeof failed.errorData === 'object' && failed.errorData.code === 'MISSING_JD') {
+          setMissingJdEmpDetails({ id: kraEmployeeId, name: kraEmployeeName })
+          setShowMissingJdModal(true)
+        } else {
+          alert(failed.message || 'Processing failed')
+        }
+      }
+    }
   }
 
 
@@ -516,13 +571,13 @@ export default function JDLibraryPage() {
                 {kraInputMode === 'file' ? (
                   <>
                     <div>
-                      <label className="block text-sm font-medium text-slate-700 mb-2">Select Files (PDF or DOCX) *</label>
+                      <label className="block text-sm font-medium text-slate-700 mb-2">Select Files (PDF, DOCX, or Excel) *</label>
                       <div className={`border-2 border-dashed rounded-xl p-10 text-center cursor-pointer transition-all ${kraFiles.length > 0 ? 'border-indigo-400 bg-indigo-50/30' : 'border-slate-300 hover:border-indigo-400 hover:bg-slate-50'}`}
                         onClick={() => !kraUploading && kraFileInputRef.current?.click()}>
-                        <input ref={kraFileInputRef} type="file" multiple accept=".pdf,.docx,.doc" onChange={handleKraFileSelect} className="hidden" disabled={kraUploading} />
+                        <input ref={kraFileInputRef} type="file" multiple accept=".pdf,.docx,.doc,.xlsx,.xls" onChange={handleKraFileSelect} className="hidden" disabled={kraUploading} />
                         <Upload className="w-10 h-10 mx-auto text-slate-400 mb-3" />
                         <p className="text-slate-600 text-sm">{kraFiles.length > 0 ? `${kraFiles.length} file(s) selected` : 'Click to browse or drag and drop'}</p>
-                        <p className="text-slate-400 text-xs mt-1">Supported: PDF, DOCX, DOC | Maximum file size: 10MB</p>
+                        <p className="text-slate-400 text-xs mt-1">Supported: PDF, DOCX, Excel (.xlsx / .xls) | Maximum file size: 10MB</p>
                       </div>
                     </div>
                     {kraFiles.length > 0 && (
@@ -604,7 +659,7 @@ export default function JDLibraryPage() {
                   className="flex items-center gap-2 px-4 py-2 border border-slate-200 rounded-lg text-sm font-medium bg-white text-slate-600 hover:bg-slate-50 hover:text-slate-800 transition-colors shadow-sm"
                 >
                   <ArrowLeft className="w-4 h-4" />
-                  Edit Text Canvas
+                  {kraInputMode === 'file' ? 'Back to Upload' : 'Edit Text Canvas'}
                 </button>
               </div>
 
@@ -649,26 +704,30 @@ export default function JDLibraryPage() {
                         <Target className="w-4 h-4 text-indigo-500" />
                         Key Result Areas (KRAs)
                       </h3>
-                      <span className="text-xs font-semibold px-2.5 py-1 bg-indigo-50 text-indigo-700 border border-indigo-100 rounded-lg">
-                        Total Weight: {kraAnalysisResult.kra_kpi?.kras?.reduce((acc: number, item: any) => acc + (item.weight || 0), 0)}%
-                      </span>
+                      {kraAnalysisResult.kra_kpi?.kras?.some((k: any) => k.weight) && (
+                        <span className="text-xs font-semibold px-2.5 py-1 bg-indigo-50 text-indigo-700 border border-indigo-100 rounded-lg">
+                          Total Weight: {kraAnalysisResult.kra_kpi?.kras?.reduce((acc: number, item: any) => acc + (item.weight || 0), 0)}%
+                        </span>
+                      )}
                     </div>
 
                     {/* Weight distribution visualizer bar */}
-                    <div className="h-2 w-full bg-slate-100 rounded-full overflow-hidden flex mb-6">
-                      {kraAnalysisResult.kra_kpi?.kras?.map((kra: any, idx: number) => {
-                        const colors = ['bg-indigo-500', 'bg-violet-500', 'bg-emerald-500', 'bg-amber-500', 'bg-rose-500', 'bg-blue-500'];
-                        const color = colors[idx % colors.length];
-                        return (
-                          <div
-                            key={idx}
-                            className={`${color} h-full`}
-                            style={{ width: `${kra.weight || 20}%` }}
-                            title={`${kra.title}: ${kra.weight}%`}
-                          />
-                        );
-                      })}
-                    </div>
+                    {kraAnalysisResult.kra_kpi?.kras?.some((k: any) => k.weight) && (
+                      <div className="h-2 w-full bg-slate-100 rounded-full overflow-hidden flex mb-6">
+                        {kraAnalysisResult.kra_kpi?.kras?.map((kra: any, idx: number) => {
+                          const colors = ['bg-indigo-500', 'bg-violet-500', 'bg-emerald-500', 'bg-amber-500', 'bg-rose-500', 'bg-blue-500'];
+                          const color = colors[idx % colors.length];
+                          return (
+                            <div
+                              key={idx}
+                              className={`${color} h-full`}
+                              style={{ width: `${kra.weight || 20}%` }}
+                              title={`${kra.title}: ${kra.weight}%`}
+                            />
+                          );
+                        })}
+                      </div>
+                    )}
 
                     <div className="space-y-4">
                       {kraAnalysisResult.kra_kpi?.kras?.map((kra: any, idx: number) => (
@@ -678,9 +737,11 @@ export default function JDLibraryPage() {
                               <span className="text-xs text-indigo-600 font-bold uppercase tracking-wider">KRA {idx + 1}</span>
                               <h4 className="text-sm font-semibold text-slate-900 mt-0.5">{kra.title}</h4>
                             </div>
-                            <span className="px-2.5 py-1 bg-indigo-50 border border-indigo-100 rounded-lg text-xs font-semibold text-indigo-700">
-                              Weight: {kra.weight}%
-                            </span>
+                            {kra.weight ? (
+                              <span className="px-2.5 py-1 bg-indigo-50 border border-indigo-100 rounded-lg text-xs font-semibold text-indigo-700">
+                                Weight: {kra.weight}%
+                              </span>
+                            ) : null}
                           </div>
                           <div className="p-4 space-y-3 bg-white">
                             <p className="text-xs text-slate-500 leading-relaxed">{kra.description}</p>
@@ -709,7 +770,7 @@ export default function JDLibraryPage() {
                       onClick={() => setKraAnalysisResult(null)}
                       className="flex-1 py-3 px-4 border border-slate-200 rounded-xl text-sm font-medium bg-white text-slate-600 hover:bg-slate-50 transition-colors shadow-sm"
                     >
-                      Cancel & Re-edit Text
+                      {kraInputMode === 'file' ? 'Cancel & Re-upload' : 'Cancel & Re-edit Text'}
                     </button>
                     <button
                       onClick={handleConfirmPaste}
@@ -855,6 +916,52 @@ export default function JDLibraryPage() {
                 )}
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Missing JD Warning Modal */}
+      {showMissingJdModal && missingJdEmpDetails && (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl w-full max-w-md relative p-6 space-y-6 animate-in fade-in zoom-in-95 duration-200">
+            <div className="flex items-start gap-4">
+              <div className="p-3 bg-amber-50 rounded-xl text-amber-600 border border-amber-100 shrink-0">
+                <AlertCircle className="w-6 h-6" />
+              </div>
+              <div className="space-y-2">
+                <h3 className="text-lg font-semibold text-slate-900">Job Description Required</h3>
+                <p className="text-sm text-slate-600 leading-relaxed">
+                  Employee <strong className="text-slate-950">{missingJdEmpDetails.name}</strong> (<span className="font-mono text-xs text-indigo-600">{missingJdEmpDetails.id}</span>) does not have a prepared or approved Job Description (JD) yet.
+                </p>
+                <p className="text-sm text-slate-500 leading-relaxed">
+                  You must upload or define a Job Description for this employee before their KRA & KPI framework can be uploaded or paste-confirmed.
+                </p>
+              </div>
+            </div>
+            <div className="flex gap-3">
+              <button
+                onClick={() => {
+                  setShowMissingJdModal(false);
+                  setMissingJdEmpDetails(null);
+                }}
+                className="flex-1 py-2.5 px-4 border border-slate-200 rounded-xl text-sm font-medium bg-white text-slate-600 hover:bg-slate-50 transition-colors shadow-sm"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  setShowMissingJdModal(false);
+                  setMissingJdEmpDetails(null);
+                  setActiveTab('upload');
+                  // Pre-fill fields in JD tab
+                  setEmployeeId(missingJdEmpDetails.id);
+                  setEmployeeName(missingJdEmpDetails.name);
+                }}
+                className="flex-1 py-2.5 px-4 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-sm font-medium shadow-md shadow-indigo-100 transition-all flex items-center justify-center gap-1.5"
+              >
+                Go to JD Upload
+              </button>
+            </div>
           </div>
         </div>
       )}

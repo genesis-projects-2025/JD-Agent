@@ -7,8 +7,9 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname, useSearchParams } from "next/navigation";
+import { usePathname, useSearchParams, useRouter } from "next/navigation";
 import { useEffect, useState, useLayoutEffect } from "react";
+import { createPortal } from "react-dom";
 import { getCurrentUser } from "@/lib/api";
 import { useAuth } from "@/components/providers/auth-provider";
 import { useEmployeeJDs, useUnreadFeedback } from "@/hooks/useJDQueries";
@@ -67,7 +68,9 @@ function formatDate(dateStr: string | null): string {
 export default function Sidebar() {
     const pathname = usePathname();
     const searchParams = useSearchParams();
+    const router = useRouter();
     const { employeeId, isAuthenticated, logout } = useAuth();
+    const [showPrereqPopup, setShowPrereqPopup] = useState(false);
 
     const [isFeedbackOpen, setIsFeedbackOpen] = useState(false);
     const [isMounted, setIsMounted] = useState(false);
@@ -83,9 +86,7 @@ export default function Sidebar() {
     );
 
     const { data: unreadFeedback = [] } = useUnreadFeedback(
-        isMounted && employeeId
-            ? employeeId
-            : null,
+        isMounted && employeeId ? employeeId : null,
         role,
     );
 
@@ -101,7 +102,7 @@ export default function Sidebar() {
         description: string;
     };
 
-    const approvedJd = jds.find((j: any) => j.status === "approved") || jds[0];
+    const approvedJd = jds.find((j: any) => j.status === "approved");
     const targetJdId = approvedJd?.id;
 
     const links: NavItem[] = [
@@ -119,7 +120,7 @@ export default function Sidebar() {
         },
         {
             name: "KRA / KPI",
-            href: targetJdId ? `/jd/${targetJdId}?tab=kra-kpi` : "/questionnaire",
+            href: targetJdId ? `/jd/${targetJdId}?tab=kra-kpi` : "#",
             icon: Target,
             description: "My performance goals",
         },
@@ -159,16 +160,44 @@ export default function Sidebar() {
     }
 
     const isActive = (href: string) => {
+        if (href === "#") return false;
         if (href === "/" && pathname !== "/") return false;
-        const baseHref = href.split("?")[0];
-        // Exact match for leaf routes like /questionnaire (no trailing segments)
-        const isBaseMatch =
-            pathname === baseHref ||
-            (baseHref !== "/questionnaire" && pathname.startsWith(baseHref + "/"));
-        if (!isBaseMatch) return false;
-        if (!href.includes("?")) return !currentView;
-        const linkView = href.split("view=")[1]?.split("&")[0];
-        return currentView === linkView;
+        
+        const [baseHref, queryStr] = href.split("?");
+        
+        // Match routes by section context
+        let isSectionMatch = false;
+        if (baseHref.startsWith("/dashboard") && pathname.startsWith("/dashboard")) {
+            isSectionMatch = true;
+        } else if (baseHref.startsWith("/feedback") && pathname.startsWith("/feedback")) {
+            isSectionMatch = true;
+        } else if (baseHref === "/questionnaire" && pathname.startsWith("/questionnaire")) {
+            isSectionMatch = true;
+        } else if (baseHref.startsWith("/jd") && pathname.startsWith("/jd")) {
+            isSectionMatch = true;
+        } else {
+            isSectionMatch = pathname === baseHref || pathname.startsWith(baseHref + "/");
+        }
+            
+        if (!isSectionMatch) return false;
+        
+        if (queryStr) {
+            const linkParams = new URLSearchParams(queryStr);
+            for (const [key, value] of linkParams.entries()) {
+                if (searchParams.get(key) !== value) {
+                    return false;
+                }
+            }
+            return true;
+        } else {
+            if (searchParams.get("tab") === "kra-kpi" && baseHref !== "/questionnaire") {
+                return false;
+            }
+            if (currentView) {
+                return false;
+            }
+            return true;
+        }
     };
 
     useEffect(() => {
@@ -251,6 +280,12 @@ export default function Sidebar() {
                             <Link
                                 key={link.name}
                                 href={link.href}
+                                onClick={(e) => {
+                                    if (link.name === "KRA / KPI" && !targetJdId) {
+                                        e.preventDefault();
+                                        setShowPrereqPopup(true);
+                                    }
+                                }}
                                 className={`
  group relative flex items-center gap-3 px-4 py-3.5 rounded-md
  transition-all duration-200 ease-out
@@ -400,6 +435,43 @@ export default function Sidebar() {
                         <span>Sign Out</span>
                     </button>
                 </div>
+
+                {showPrereqPopup && createPortal(
+                    <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-neutral-950/60 backdrop-blur-sm animate-in fade-in duration-300">
+                        <div 
+                            className="bg-white rounded-3xl p-6 sm:p-8 max-w-md w-full border border-neutral-100 shadow-2xl relative animate-in zoom-in-95 duration-300 text-neutral-900"
+                            onClick={(e) => e.stopPropagation()}
+                        >
+                            <div className="flex items-center justify-center w-12 h-12 bg-amber-50 rounded-2xl mb-6 border border-amber-100">
+                                <AlertTriangle className="w-6 h-6 text-amber-500" />
+                            </div>
+                            <h3 className="text-xl font-bold text-neutral-900 mb-3 tracking-tight">
+                                Job Description Required
+                            </h3>
+                            <p className="text-neutral-500 text-sm leading-relaxed mb-6">
+                                You must first complete and approve your Job Description (JD) before you can view your KRA & KPI framework.
+                            </p>
+                            <div className="flex gap-3">
+                                <button
+                                    onClick={() => setShowPrereqPopup(false)}
+                                    className="flex-1 py-3 px-4 bg-neutral-100 hover:bg-neutral-200 active:scale-[0.98] text-neutral-700 rounded-xl text-sm font-semibold transition-all cursor-pointer"
+                                >
+                                    Cancel
+                                </button>
+                                <button
+                                    onClick={() => {
+                                        setShowPrereqPopup(false);
+                                        router.push("/questionnaire");
+                                    }}
+                                    className="flex-1 py-3 px-4 bg-primary-600 hover:bg-primary-700 active:scale-[0.98] text-white rounded-xl text-sm font-semibold transition-all shadow-md shadow-primary-600/20 text-center cursor-pointer"
+                                >
+                                    Okay
+                                </button>
+                            </div>
+                        </div>
+                    </div>,
+                    document.body
+                )}
 
                 <FeedbackModal
                     isOpen={isFeedbackOpen}

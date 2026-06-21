@@ -184,6 +184,13 @@ async def get_department_employees(
                     updated_at,
                     ROW_NUMBER() OVER(PARTITION BY employee_id ORDER BY updated_at DESC) as rn
                 FROM jd_sessions
+            ),
+            LatestKRAs AS (
+                SELECT 
+                    jd_session_id,
+                    status as kra_kpi_status,
+                    ROW_NUMBER() OVER(PARTITION BY jd_session_id ORDER BY updated_at DESC) as rn
+                FROM kra_kpi_sessions
             )
             SELECT 
                 o.code as employee_id,
@@ -193,9 +200,11 @@ async def get_department_employees(
                 o.reporting_manager as reporting_manager,
                 lj.jd_id as jd_session_id,
                 lj.status as jd_status,
+                lk.kra_kpi_status as kra_kpi_status,
                 lj.updated_at as last_updated
             FROM organogram o
             {join_type} LatestJDs lj ON o.code = lj.employee_id AND lj.rn = 1 {status_filter}
+            LEFT JOIN LatestKRAs lk ON CAST(lj.jd_id AS VARCHAR) = lk.jd_session_id AND lk.rn = 1
             WHERE {dept_filter}
             ORDER BY o.employee_name ASC
             LIMIT :limit OFFSET :offset
@@ -224,6 +233,7 @@ async def get_department_employees(
                 "reporting_manager": row.reporting_manager,
                 "jd_status": status,
                 "jd_id": jd_id,
+                "kra_kpi_status": row.kra_kpi_status,
                 "last_updated": last_updated.isoformat() if last_updated else None
             })
 
@@ -293,6 +303,13 @@ async def get_my_team_employees(
                     updated_at,
                     ROW_NUMBER() OVER(PARTITION BY employee_id ORDER BY updated_at DESC) as rn
                 FROM jd_sessions
+            ),
+            LatestKRAs AS (
+                SELECT 
+                    jd_session_id,
+                    status as kra_kpi_status,
+                    ROW_NUMBER() OVER(PARTITION BY jd_session_id ORDER BY updated_at DESC) as rn
+                FROM kra_kpi_sessions
             )
             SELECT 
                 o.code as employee_id,
@@ -302,9 +319,11 @@ async def get_my_team_employees(
                 o.reporting_manager as reporting_manager,
                 lj.jd_id as jd_session_id,
                 lj.status as jd_status,
+                lk.kra_kpi_status as kra_kpi_status,
                 lj.updated_at as last_updated
             FROM organogram o
             LEFT JOIN LatestJDs lj ON o.code = lj.employee_id AND lj.rn = 1
+            LEFT JOIN LatestKRAs lk ON CAST(lj.jd_id AS VARCHAR) = lk.jd_session_id AND lk.rn = 1
             WHERE o.code = ANY(:codes)
             ORDER BY o.employee_name ASC
             LIMIT :limit OFFSET :offset
@@ -337,6 +356,7 @@ async def get_my_team_employees(
                 "reporting_manager": row.reporting_manager,
                 "jd_status": status,
                 "jd_id": jd_id,
+                "kra_kpi_status": row.kra_kpi_status,
                 "last_updated": last_updated.isoformat() if last_updated else None
             })
 

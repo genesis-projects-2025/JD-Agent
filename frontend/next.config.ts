@@ -1,8 +1,10 @@
 import type { NextConfig } from "next";
 import path from "path";
 
+const isDev = process.env.NODE_ENV === "development";
+
 const nextConfig: NextConfig = {
-  distDir: "build.nosync",
+  distDir: isDev ? "build-dev.nosync" : "build.nosync",
   transpilePackages: ["recharts"],
   typescript: {
     ignoreBuildErrors: true,

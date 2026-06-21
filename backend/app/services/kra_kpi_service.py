@@ -187,6 +187,19 @@ async def check_prerequisites(
         manager_kra_session = mgr_kra_result.scalars().first()
 
         if not manager_kra_session:
+            from app.models.kra_kpi_model import UploadedKRAKPI
+            uploaded_res = await db.execute(
+                select(UploadedKRAKPI).where(UploadedKRAKPI.employee_id == manager_employee_id)
+            )
+            manager_uploaded_kra = uploaded_res.scalars().first()
+            if manager_uploaded_kra:
+                class MockKRAKPISession:
+                    def __init__(self, uploaded):
+                        self.id = uploaded.id
+                        self.kras = uploaded.kras
+                manager_kra_session = MockKRAKPISession(manager_uploaded_kra)
+
+        if not manager_kra_session:
             missing.append("manager_kra_kpi")
             details["manager_kra_kpi"] = (
                 f"Your manager's KRA/KPI framework has not been created yet. "
@@ -216,6 +229,19 @@ async def check_prerequisites(
                     .order_by(KRAKPISession.updated_at.desc())
                 )
                 manager_kra_session = mgr_kra_result.scalars().first()
+
+                if not manager_kra_session:
+                    from app.models.kra_kpi_model import UploadedKRAKPI
+                    uploaded_res = await db.execute(
+                        select(UploadedKRAKPI).where(UploadedKRAKPI.employee_id == manager_employee_id)
+                    )
+                    manager_uploaded_kra = uploaded_res.scalars().first()
+                    if manager_uploaded_kra:
+                        class MockKRAKPISession:
+                            def __init__(self, uploaded):
+                                self.id = uploaded.id
+                                self.kras = uploaded.kras
+                        manager_kra_session = MockKRAKPISession(manager_uploaded_kra)
         except Exception:
             pass
 
@@ -430,11 +456,7 @@ async def select_kpis_and_build_final(
 
     selected_kra_ids = record.selected_kra_ids or []
 
-    # Build final KRAs list
-    num_kras = len(selected_kra_ids)
-    base_weight = 100 // num_kras
-    remainder = 100 - (base_weight * num_kras)
-
+    # Build final KRAs list — weights start as None, employee sets them in Step 3
     final_kras = []
     for i, kra_id in enumerate(selected_kra_ids):
         kra_base = kra_map.get(kra_id, {})
@@ -445,21 +467,19 @@ async def select_kpis_and_build_final(
         kpi_obj_map = {k["kpi_id"]: k for k in kpi_bank}
         selected_kpis = [kpi_obj_map[kid] for kid in kpi_ids if kid in kpi_obj_map]
 
-        weight = base_weight + (1 if i < remainder else 0)
-
         final_kras.append({
             "kra_id": kra_id,
             "title": kra_base.get("title", ""),
             "description": kra_base.get("description", ""),
             "source_tasks": kra_base.get("source_tasks", []),
-            "weight": weight,
+            "weight": None,  # Employee assigns weights manually in Step 3
             "manager_impact": kra_base.get("manager_impact", ""),
             "kpis": selected_kpis,
         })
 
     now = datetime.now(timezone.utc)
     record.selected_kpi_ids = selected_kpi_ids
-    record.kras = {"kras": final_kras, "total_weight": 100}
+    record.kras = {"kras": final_kras, "total_weight": 0}
     record.generation_step = "weight_adjustment"
     record.updated_at = now
 
@@ -485,6 +505,19 @@ async def save_weights_and_confirm(
     if abs(total - 100) > 1:  # Allow ±1 for rounding
         raise StepError(f"KRA weights must sum to 100. Current total: {total}")
 
+    # Validate KPI weights sum to 100 for each KRA
+    for kra in kras_with_weights:
+        kpis = kra.get("kpis", [])
+        if kpis:
+            kpi_total = sum(kp.get("weight", 0) for kp in kpis)
+            if abs(kpi_total - 100) > 1:
+                raise StepError(f"KPI weights for KRA '{kra.get('title')}' must sum to 100. Current total: {kpi_total}")
+            
+            # Normalize KPI weights to exactly 100
+            if kpi_total != 100:
+                diff = 100 - kpi_total
+                kpis[-1]["weight"] = kpis[-1]["weight"] + diff
+
     record = await get_kra_kpi_by_jd_session(db, jd_session_id)
     if not record:
         raise StepError("No KRA/KPI session found.")
@@ -508,11 +541,276 @@ async def save_weights_and_confirm(
     return record
 
 
+
+def parse_kra_kpi_excel(file_bytes: bytes, file_type_lower: str) -> list[dict]:
+    """
+    Directly extracts KRA and KPI data from Excel rows without LLM alteration,
+    resilient to headers and grouping patterns.
+    """
+    import io
+    rows = []
+    
+    if file_type_lower == "xlsx":
+        try:
+            import openpyxl
+            wb = openpyxl.load_workbook(io.BytesIO(file_bytes), data_only=True, read_only=True)
+            ws = wb.active
+            for row in ws.iter_rows(values_only=True):
+                rows.append(list(row))
+            wb.close()
+        except ImportError:
+            raise Exception("openpyxl is required to parse .xlsx files.")
+    elif file_type_lower == "xls":
+        try:
+            import xlrd
+            wb = xlrd.open_workbook(file_contents=file_bytes)
+            ws = wb.sheet_by_index(0)
+            for r_idx in range(ws.nrows):
+                rows.append(ws.row_values(r_idx))
+        except ImportError:
+            raise Exception("xlrd is required to parse .xls files.")
+    else:
+        raise Exception("Unsupported file type for direct Excel parsing")
+
+    if not rows:
+        raise Exception("Excel sheet is empty")
+
+    kra_title_col = -1
+    kra_desc_col = -1
+    kpi_title_col = -1
+    kpi_desc_col = -1
+    header_row_idx = -1
+
+    for idx, r in enumerate(rows[:10]):
+        cells = [str(c).lower().strip() if c is not None else "" for c in r]
+        for col_idx, cell in enumerate(cells):
+            if "kra" in cell or "key result" in cell:
+                if any(x in cell for x in ["desc", "detail", "definition"]):
+                    if kra_desc_col == -1:
+                        kra_desc_col = col_idx
+                else:
+                    if kra_title_col == -1:
+                        kra_title_col = col_idx
+            elif "kpi" in cell or "key performance" in cell or "metric" in cell or "indicator" in cell:
+                if any(x in cell for x in ["desc", "detail", "definition", "target"]):
+                    if kpi_desc_col == -1:
+                        kpi_desc_col = col_idx
+                else:
+                    if kpi_title_col == -1:
+                        kpi_title_col = col_idx
+        
+        if kra_title_col != -1 and kpi_title_col != -1:
+            header_row_idx = idx
+            break
+
+    if kra_title_col == -1:
+        num_cols = len(rows[0])
+        if num_cols == 1:
+            kra_title_col, kra_desc_col, kpi_title_col, kpi_desc_col = 0, 0, 0, 0
+        elif num_cols == 2:
+            kra_title_col, kra_desc_col, kpi_title_col, kpi_desc_col = 0, 0, 1, 1
+        elif num_cols == 3:
+            kra_title_col, kra_desc_col, kpi_title_col, kpi_desc_col = 0, 1, 2, 2
+        else:
+            kra_title_col, kra_desc_col, kpi_title_col, kpi_desc_col = 0, 1, 2, 3
+
+        first_row_cells = [str(c).lower().strip() if c is not None else "" for c in rows[0]]
+        if any(any(w in c for w in ["kra", "kpi", "title", "name", "desc"]) for c in first_row_cells):
+            header_row_idx = 0
+
+    start_row = header_row_idx + 1 if header_row_idx != -1 else 0
+    kras = []
+    current_kra = None
+
+    for r in rows[start_row:]:
+        if not any(c is not None and str(c).strip() != "" for c in r):
+            continue
+            
+        def get_cell_str(col_idx):
+            if 0 <= col_idx < len(r):
+                val = r[col_idx]
+                return str(val).strip() if val is not None else ""
+            return ""
+            
+        k_title = get_cell_str(kra_title_col)
+        k_desc = get_cell_str(kra_desc_col)
+        kp_title = get_cell_str(kpi_title_col)
+        kp_desc = get_cell_str(kpi_desc_col)
+        
+        if not k_title and not k_desc and not kp_title and not kp_desc:
+            continue
+            
+        if k_title or k_desc:
+            match = None
+            if k_title:
+                for k in kras:
+                    if k["title"].lower() == k_title.lower():
+                        match = k
+                        break
+            if match:
+                current_kra = match
+            else:
+                current_kra = {
+                    "title": k_title if k_title else (k_desc[:50] if k_desc else "KRA"),
+                    "description": k_desc,
+                    "kpis": []
+                }
+                kras.append(current_kra)
+        elif not current_kra:
+            current_kra = {
+                "title": "General",
+                "description": "General Key Result Area",
+                "kpis": []
+            }
+            kras.append(current_kra)
+            
+        if kp_title or kp_desc:
+            current_kra["kpis"].append({
+                "title": kp_title if kp_title else (kp_desc[:50] if kp_desc else "KPI"),
+                "description": kp_desc
+            })
+            
+    return kras
+
+
+async def infer_jd_from_kras(employee_id: str, employee_name: str, kras: list) -> dict:
+    """
+    Calls Gemini to infer the employee's JD shell/profile context based on the parsed KRAs.
+    Does not modify the KRAs/KPIs themselves.
+    """
+    from langchain_google_genai import ChatGoogleGenerativeAI
+    from langchain_core.prompts import ChatPromptTemplate
+    from app.core.config import settings
+    import json
+    
+    llm = ChatGoogleGenerativeAI(
+        google_api_key=settings.GEMINI_API_KEY,
+        model="gemini-2.5-pro",
+        temperature=0.2,
+        max_output_tokens=4000,
+        response_mime_type="application/json",
+    )
+    
+    kras_summary = []
+    for idx, k in enumerate(kras):
+        kpis_str = ", ".join([kp["title"] for kp in k.get("kpis", [])])
+        kras_summary.append(f"KRA {idx+1}: {k['title']} ({k.get('description', '')}) -> KPIs: {kpis_str}")
+    kras_text = "\n".join(kras_summary)
+    
+    prompt = ChatPromptTemplate.from_template("""
+    You are an expert HR analyst. Given an employee's Key Result Areas (KRAs) and Key Performance Indicators (KPIs), infer a professional Job Description (JD) matching this role.
+    
+    Employee Name: {employee_name}
+    Employee ID: {employee_id}
+    
+    EMPLOYEE'S KRAs AND KPIs:
+    {kras_text}
+    
+    RETURN A JSON OBJECT WITH THE FOLLOWING STRUCTURE (ONLY the "jd" block):
+    {{
+      "jd": {{
+        "role_title": "Job title/position (e.g. Senior Software Engineer)",
+        "department": "Department or function (e.g. Engineering)",
+        "level": "Seniority level (Junior, Mid, Senior, Lead, Head, Director, VP)",
+        "purpose": "Inferred main purpose/mission of the role (50-100 words)",
+        "tasks": ["Key responsibility 1", "Key responsibility 2", ...],
+        "priority_tasks": ["Top priority task 1", "Top priority task 2", ...],
+        "skills": ["Required technical or soft skill 1", "Required technical or soft skill 2", ...],
+        "tools": ["Tool 1", "Tool 2", ...],
+        "technologies": ["Technology/language 1", "Technology/language 2", ...],
+        "qualifications": {{
+          "education": "Required education (e.g. Bachelor's in CS)",
+          "experience_years": "Years of experience (e.g. 5+ years)",
+          "certifications": []
+        }},
+        "working_relationships": {{
+          "reports_to": "Reporting manager role title",
+          "team_size": "Approximate team size (e.g. 0-5)",
+          "stakeholders": []
+        }}
+      }}
+    }}
+    
+    CRITICAL CONSTRAINTS:
+    1. Return ONLY valid JSON matching the structure.
+    2. Do NOT add any markdown formatting wrapper.
+    """)
+    
+    chain = prompt | llm
+    response = await chain.ainvoke({
+        "employee_name": employee_name,
+        "employee_id": employee_id,
+        "kras_text": kras_text
+    })
+    
+    raw_content = response.content.strip()
+    if raw_content.startswith("```json"):
+        raw_content = raw_content[7:]
+    elif raw_content.startswith("```"):
+        raw_content = raw_content[3:]
+    if raw_content.endswith("```"):
+        raw_content = raw_content[:-3]
+    raw_content = raw_content.strip()
+    
+    return json.loads(raw_content).get("jd", {})
+
+
+def _extract_excel_text(file_bytes: bytes, file_type_lower: str) -> str:
+    """
+    Extract text from Excel files (.xlsx or .xls) for LLM processing.
+    Converts all sheets into a readable text representation.
+    """
+    import io
+    lines = []
+    
+    if file_type_lower == "xlsx":
+        try:
+            import openpyxl
+            wb = openpyxl.load_workbook(io.BytesIO(file_bytes), data_only=True, read_only=True)
+            for sheet_name in wb.sheetnames:
+                ws = wb[sheet_name]
+                lines.append(f"=== Sheet: {sheet_name} ===")
+                for row in ws.iter_rows(values_only=True):
+                    # Skip completely empty rows
+                    if not any(cell is not None for cell in row):
+                        continue
+                    row_text = "\t".join(str(cell) if cell is not None else "" for cell in row)
+                    lines.append(row_text)
+                lines.append("")
+            wb.close()
+        except ImportError:
+            raise Exception(
+                "openpyxl is required to parse .xlsx files. "
+                "Please install it: pip install openpyxl"
+            )
+    elif file_type_lower == "xls":
+        try:
+            import xlrd  # type: ignore
+            wb = xlrd.open_workbook(file_contents=file_bytes)
+            for sheet_idx in range(wb.nsheets):
+                ws = wb.sheet_by_index(sheet_idx)
+                lines.append(f"=== Sheet: {ws.name} ===")
+                for row_idx in range(ws.nrows):
+                    row = ws.row_values(row_idx)
+                    if not any(cell != "" and cell is not None for cell in row):
+                        continue
+                    row_text = "\t".join(str(cell) for cell in row)
+                    lines.append(row_text)
+                lines.append("")
+        except ImportError:
+            raise Exception(
+                "xlrd is required to parse .xls files. "
+                "Please install it: pip install xlrd"
+            )
+
+    return "\n".join(lines)
+
+
 async def process_kra_kpi_document(
     db: AsyncSession,
     file_bytes: bytes,
     filename: str,
-    file_type: str,  # "pdf" or "docx"
+    file_type: str,  # "pdf", "docx", "xlsx", or "xls"
     employee_id: str,
     employee_name: str,
     admin_role: str,
@@ -529,6 +827,7 @@ async def process_kra_kpi_document(
         transform_reference_to_jd_session_schema,
     )
     import json
+    import io
 
     file_type_lower = file_type.lower()
     
@@ -543,26 +842,93 @@ async def process_kra_kpi_document(
         if not is_valid:
             raise Exception(f"Invalid DOCX: {error_msg}")
         text = DOCXProcessor.extract_text(file_bytes)
+    elif file_type_lower in ("xlsx", "xls"):
+        try:
+            kras = parse_kra_kpi_excel(file_bytes, file_type_lower)
+            if kras:
+                jd_session_result = await db.execute(
+                    select(JDSession)
+                    .where(JDSession.employee_id == employee_id)
+                    .order_by(JDSession.updated_at.desc())
+                )
+                jd_session = jd_session_result.scalars().first()
+                
+                jd_data = {}
+                if jd_session and jd_session.jd_structured:
+                    structured = jd_session.jd_structured
+                    jd_data = {
+                        "role_title": jd_session.title or structured.get("role_title", "Unknown Role"),
+                        "department": jd_session.department or structured.get("department", "Unknown"),
+                        "level": structured.get("level", "Mid"),
+                        "purpose": structured.get("purpose", ""),
+                        "tasks": structured.get("tasks", []),
+                        "priority_tasks": structured.get("priority_tasks", []),
+                        "skills": structured.get("skills", []),
+                        "tools": structured.get("tools", []),
+                        "technologies": structured.get("technologies", []),
+                        "qualifications": structured.get("qualifications", {}),
+                        "working_relationships": structured.get("working_relationships", {})
+                    }
+                else:
+                    try:
+                        jd_data = await infer_jd_from_kras(employee_id, employee_name, kras)
+                    except Exception as infer_err:
+                        logger.error(f"Inferring JD failed: {infer_err}")
+                        jd_data = {
+                            "role_title": "Position for " + employee_name,
+                            "department": "General",
+                            "level": "Mid",
+                            "purpose": "Role mapped from uploaded KRA/KPI framework."
+                        }
+                
+                return {
+                    "jd": jd_data,
+                    "kra_kpi": {
+                        "kras": kras
+                    }
+                }
+        except Exception as excel_err:
+            logger.error(f"Direct Excel parsing failed: {excel_err}. Falling back to text extraction + LLM.")
+        
+        text = _extract_excel_text(file_bytes, file_type_lower)
     else:
         raise Exception(f"Unsupported file type: {file_type}")
 
     if not text or len(text.strip()) == 0:
-        raise Exception("Extracted text is empty")
+        raise Exception("Extracted text is empty — the file may be blank or unreadable")
 
-    # 2. Call Gemini to Parse KRA/KPI and JD
+
+
+    # 2. Query active JD session
+    jd_session_result = await db.execute(
+        select(JDSession)
+        .where(JDSession.employee_id == employee_id)
+        .order_by(JDSession.updated_at.desc())
+    )
+    jd_session = jd_session_result.scalars().first()
+
+    existing_jd_text = ""
+    if jd_session and jd_session.jd_text:
+        existing_jd_text = jd_session.jd_text
+
+    # 3. Call Gemini to Parse KRA/KPI and JD
     llm = ChatGoogleGenerativeAI(
         google_api_key=settings.GEMINI_API_KEY,
-        model="gemini-2.5-flash",
+        model="gemini-2.5-pro",
         temperature=0.2,
         max_output_tokens=8192,
         response_mime_type="application/json",
     )
     
     context = f"Employee ID: {employee_id}\nEmployee Name: {employee_name}\n"
+    if existing_jd_text:
+        context += f"\nEMPLOYEE'S EXISTING JOB DESCRIPTION:\n{existing_jd_text}\n"
     
     prompt = ChatPromptTemplate.from_template("""
     You are an expert HR analyst and organizational designer.
-    Extract the KRA (Key Result Area) and KPI (Key Performance Indicator) framework from the provided text, and infer a professional Job Description (JD) matching the role.
+    Extract the KRA (Key Result Area) and KPI (Key Performance Indicator) framework from the provided text.
+    Also, infer or align a professional Job Description (JD) matching the role and reflecting the extracted KRA/KPI responsibilities.
+    Do NOT generate or assign any weights to the KRAs.
     Return the result as a structured JSON object.
 
     {context}
@@ -599,7 +965,6 @@ async def process_kra_kpi_document(
             "kra_id": "kra_001",
             "title": "Title of the Key Result Area (e.g. Code Quality)",
             "description": "Description of the Key Result Area",
-            "weight": 25,
             "manager_impact": "How this KRA impacts the manager's success",
             "source_tasks": ["Key responsibility 1"],
             "kpis": [
@@ -616,9 +981,10 @@ async def process_kra_kpi_document(
 
     CRITICAL CONSTRAINTS:
     1. Return ONLY valid JSON. Do not include markdown code block formatting (like ```json ... ```).
-    2. The weights of all KRAs in the list must sum to exactly 100. If weights are not explicitly mentioned in the text, distribute them logically such that they sum to exactly 100.
+    2. Do NOT generate or assign any weights for KRAs/KPIs.
     3. Make sure to generate unique IDs like kra_001, kra_002, kpi_001, kpi_002, etc.
     4. Be extremely thorough. Do not summarize or omit responsibilities or indicators.
+    5. Keep descriptions clear and concise to prevent response truncation.
     """)
 
     # Format prompt and call
@@ -648,152 +1014,7 @@ async def process_kra_kpi_document(
     if not kras_list:
         raise Exception("No KRAs or KPIs could be extracted from the document")
 
-    # 3. Ensure Employee Record
-    employee = await _ensure_employee_record(db, employee_id, employee_name, extracted_jd.get("department"))
-
-    # 4. Check/Create JD Session
-    # Retrieve active JD session
-    jd_session_result = await db.execute(
-        select(JDSession)
-        .where(JDSession.employee_id == employee_id)
-        .order_by(JDSession.updated_at.desc())
-    )
-    jd_session = jd_session_result.scalars().first()
-    
-    # Transform structured JD data
-    ref_jd_data = {
-        "employee_id": employee_id,
-        "employee_name": employee_name,
-        "role_title": extracted_jd.get("role_title", "Unknown Role"),
-        "department": extracted_jd.get("department", "Unknown"),
-        "purpose": extracted_jd.get("purpose", ""),
-        "tasks": extracted_jd.get("tasks", []),
-        "priority_tasks": extracted_jd.get("priority_tasks", []),
-        "skills": extracted_jd.get("skills", []),
-        "tools": extracted_jd.get("tools", []),
-        "technologies": extracted_jd.get("technologies", []),
-        "qualifications": extracted_jd.get("qualifications", {}),
-        "working_relationships": extracted_jd.get("working_relationships", {})
-    }
-    
-    transformed_jd_structured = transform_reference_to_jd_session_schema(ref_jd_data)
-    jd_text = generate_jd_text_from_structured_data(transformed_jd_structured)
-
-    if not jd_session:
-        jd_session = JDSession(
-            id=uuid.uuid4(),
-            employee_id=employee_id,
-            title=extracted_jd.get("role_title", "Unknown Role"),
-            department=extracted_jd.get("department", "Unknown"),
-            jd_text=jd_text,
-            jd_structured=transformed_jd_structured,
-            status="approved",
-            version=1
-        )
-        db.add(jd_session)
-        await db.flush()
-    else:
-        # Update existing session to approved
-        jd_session.title = extracted_jd.get("role_title", "Unknown Role")
-        jd_session.department = extracted_jd.get("department", "Unknown")
-        jd_session.jd_text = jd_text
-        jd_session.jd_structured = transformed_jd_structured
-        jd_session.status = "approved"
-        await db.flush()
-
-    # 5. Check/Create KRA/KPI Session
-    # Retrieve active KRA/KPI session
-    kra_result = await db.execute(
-        select(KRAKPISession)
-        .where(KRAKPISession.jd_session_id == str(jd_session.id))
-        .order_by(KRAKPISession.updated_at.desc())
-    )
-    kra_session = kra_result.scalars().first()
-
-    # Get manager details
-    manager_employee_id = employee.reporting_manager_code
-    manager_jd_session_id = None
-    manager_kra_kpi_session_id = None
-
-    if manager_employee_id:
-        # Look for manager's active JDSession
-        mgr_jd_res = await db.execute(
-            select(JDSession)
-            .where(JDSession.employee_id == manager_employee_id)
-            .order_by(JDSession.updated_at.desc())
-        )
-        mgr_jd = mgr_jd_res.scalars().first()
-        if mgr_jd:
-            manager_jd_session_id = str(mgr_jd.id)
-
-        # Look for manager's active KRAKPISession
-        mgr_kra_res = await db.execute(
-            select(KRAKPISession)
-            .where(KRAKPISession.employee_id == manager_employee_id)
-            .order_by(KRAKPISession.updated_at.desc())
-        )
-        mgr_kra = mgr_kra_res.scalars().first()
-        if mgr_kra:
-            manager_kra_kpi_session_id = str(mgr_kra.id)
-
-    # Distribute weights if they don't sum to 100
-    total_weight = sum(k.get("weight", 0) for k in kras_list)
-    if total_weight != 100 and kras_list:
-        # Adjust last one or normalize
-        diff = 100 - total_weight
-        kras_list[-1]["weight"] = kras_list[-1].get("weight", 0) + diff
-
-    now = datetime.now(timezone.utc)
-    kra_payload = {"kras": kras_list, "total_weight": 100}
-
-    if not kra_session:
-        kra_session = KRAKPISession(
-            id=uuid.uuid4(),
-            jd_session_id=str(jd_session.id),
-            employee_id=employee_id,
-            manager_employee_id=manager_employee_id,
-            manager_jd_session_id=manager_jd_session_id,
-            manager_kra_kpi_session_id=manager_kra_kpi_session_id,
-            kra_suggestions={"kra_suggestions": kras_list},
-            selected_kra_ids=[k.get("kra_id") for k in kras_list],
-            kras=kra_payload,
-            status="confirmed",
-            generation_step="confirmed",
-            generation_model="gemini-2.5-flash",
-            generated_at=now,
-            confirmed_at=now,
-            created_at=now,
-            updated_at=now
-        )
-        db.add(kra_session)
-    else:
-        kra_session.kras = kra_payload
-        kra_session.status = "confirmed"
-        kra_session.generation_step = "confirmed"
-        kra_session.manager_employee_id = manager_employee_id
-        kra_session.manager_jd_session_id = manager_jd_session_id
-        kra_session.manager_kra_kpi_session_id = manager_kra_kpi_session_id
-        kra_session.confirmed_at = now
-        kra_session.updated_at = now
-
-    await db.commit()
-    await db.refresh(jd_session)
-    await db.refresh(kra_session)
-
-    # Invalidate caches
-    await invalidate_pattern(f"jds:employee:{employee_id}")
-    await invalidate_pattern("cache:manager_pending:*")
-    
-    return {
-        "jd_session_id": str(jd_session.id),
-        "kra_kpi_session_id": str(kra_session.id),
-        "employee_id": employee_id,
-        "employee_name": employee_name,
-        "role_title": extracted_jd.get("role_title"),
-        "department": extracted_jd.get("department"),
-        "kras_count": len(kras_list),
-        "status": "success",
-    }
+    return parsed_data
 
 
 async def analyze_kra_kpi_text(
@@ -814,7 +1035,7 @@ async def analyze_kra_kpi_text(
 
     llm = ChatGoogleGenerativeAI(
         google_api_key=settings.GEMINI_API_KEY,
-        model="gemini-2.5-flash",
+        model="gemini-2.5-pro",
         temperature=0.2,
         max_output_tokens=8192,
         response_mime_type="application/json",
@@ -825,6 +1046,7 @@ async def analyze_kra_kpi_text(
     prompt = ChatPromptTemplate.from_template("""
     You are an expert HR analyst and organizational designer.
     Extract the KRA (Key Result Area) and KPI (Key Performance Indicator) framework from the provided text, and infer a professional Job Description (JD) matching the role.
+    Do NOT generate or assign any weights to the KRAs.
     Return the result as a structured JSON object.
 
     {context}
@@ -861,7 +1083,6 @@ async def analyze_kra_kpi_text(
             "kra_id": "kra_001",
             "title": "Title of the Key Result Area (e.g. Code Quality)",
             "description": "Description of the Key Result Area",
-            "weight": 25,
             "manager_impact": "How this KRA impacts the manager's success",
             "source_tasks": ["Key responsibility 1"],
             "kpis": [
@@ -878,9 +1099,10 @@ async def analyze_kra_kpi_text(
 
     CRITICAL CONSTRAINTS:
     1. Return ONLY valid JSON. Do not include markdown code block formatting (like ```json ... ```).
-    2. The weights of all KRAs in the list must sum to exactly 100. If weights are not explicitly mentioned in the text, distribute them logically such that they sum to exactly 100.
+    2. Do NOT generate or assign any weights for KRAs/KPIs.
     3. Make sure to generate unique IDs like kra_001, kra_002, kpi_001, kpi_002, etc.
     4. Be extremely thorough. Do not summarize or omit responsibilities or indicators.
+    5. Keep descriptions clear and concise to prevent response truncation.
     """)
 
     chain = prompt | llm
@@ -913,7 +1135,7 @@ async def save_kra_kpi_from_paste(
     admin_role: str,
 ) -> dict:
     """
-    Save the confirmed JD and KRA/KPI parsed from the paste action into the database.
+    Save the confirmed JD and admin-uploaded KRA/KPI to the separate uploaded_kra_kpis table.
     """
     import uuid
     from datetime import datetime, timezone
@@ -923,6 +1145,7 @@ async def save_kra_kpi_from_paste(
         generate_jd_text_from_structured_data,
         transform_reference_to_jd_session_schema,
     )
+    from app.models.kra_kpi_model import UploadedKRAKPI
     
     # 1. Ensure Employee Record
     employee = await _ensure_employee_record(db, employee_id, employee_name, jd_data.get("department"))
@@ -962,96 +1185,96 @@ async def save_kra_kpi_from_paste(
         jd_session.status = "approved"
         await db.flush()
 
-    # 3. Check/Create KRA/KPI Session
-    # Retrieve active KRA/KPI session
-    kra_result = await db.execute(
-        select(KRAKPISession)
-        .where(KRAKPISession.jd_session_id == str(jd_session.id))
-        .order_by(KRAKPISession.updated_at.desc())
+    # 3. Check/Create Uploaded KRA/KPI
+    uploaded_result = await db.execute(
+        select(UploadedKRAKPI).where(UploadedKRAKPI.employee_id == employee_id)
     )
-    kra_session = kra_result.scalars().first()
+    uploaded_record = uploaded_result.scalars().first()
 
-    # Get manager details
-    manager_employee_id = employee.reporting_manager_code
-    manager_jd_session_id = None
-    manager_kra_kpi_session_id = None
-
-    if manager_employee_id:
-        mgr_jd_res = await db.execute(
-            select(JDSession)
-            .where(JDSession.employee_id == manager_employee_id)
-            .order_by(JDSession.updated_at.desc())
-        )
-        mgr_jd = mgr_jd_res.scalars().first()
-        if mgr_jd:
-            manager_jd_session_id = str(mgr_jd.id)
-
-        mgr_kra_res = await db.execute(
-            select(KRAKPISession)
-            .where(KRAKPISession.employee_id == manager_employee_id)
-            .order_by(KRAKPISession.updated_at.desc())
-        )
-        mgr_kra = mgr_kra_res.scalars().first()
-        if mgr_kra:
-            manager_kra_kpi_session_id = str(mgr_kra.id)
-
-    kras_list = kra_kpi_data.get("kras", [])
-    
-    # Distribute weights if they don't sum to 100
-    total_weight = sum(k.get("weight", 0) for k in kras_list)
-    if total_weight != 100 and kras_list:
-        diff = 100 - total_weight
-        kras_list[-1]["weight"] = kras_list[-1].get("weight", 0) + diff
+    # Clean the kras list to only keep title, description, and kpis (with title and description)
+    kras_clean = []
+    for kra in kra_kpi_data.get("kras", []):
+        kpis_clean = []
+        for kpi in kra.get("kpis", []):
+            kpis_clean.append({
+                "title": kpi.get("title", ""),
+                "description": kpi.get("description", "")
+            })
+        kras_clean.append({
+            "title": kra.get("title", ""),
+            "description": kra.get("description", ""),
+            "kpis": kpis_clean
+        })
 
     now = datetime.now(timezone.utc)
-    kra_payload = {"kras": kras_list, "total_weight": 100}
-
-    if not kra_session:
-        kra_session = KRAKPISession(
+    if not uploaded_record:
+        uploaded_record = UploadedKRAKPI(
             id=uuid.uuid4(),
-            jd_session_id=str(jd_session.id),
             employee_id=employee_id,
-            manager_employee_id=manager_employee_id,
-            manager_jd_session_id=manager_jd_session_id,
-            manager_kra_kpi_session_id=manager_kra_kpi_session_id,
-            kra_suggestions={"kra_suggestions": kras_list},
-            selected_kra_ids=[k.get("kra_id") for k in kras_list],
-            kras=kra_payload,
-            status="confirmed",
-            generation_step="confirmed",
-            generation_model="gemini-2.5-flash",
-            generated_at=now,
-            confirmed_at=now,
+            employee_name=employee_name,
+            kras={"kras": kras_clean},
             created_at=now,
             updated_at=now
         )
-        db.add(kra_session)
+        db.add(uploaded_record)
     else:
-        kra_session.kras = kra_payload
-        kra_session.status = "confirmed"
-        kra_session.generation_step = "confirmed"
-        kra_session.manager_employee_id = manager_employee_id
-        kra_session.manager_jd_session_id = manager_jd_session_id
-        kra_session.manager_kra_kpi_session_id = manager_kra_kpi_session_id
-        kra_session.confirmed_at = now
-        kra_session.updated_at = now
+        uploaded_record.employee_name = employee_name
+        uploaded_record.kras = {"kras": kras_clean}
+        uploaded_record.updated_at = now
 
     await db.commit()
     await db.refresh(jd_session)
-    await db.refresh(kra_session)
+    await db.refresh(uploaded_record)
 
     # Invalidate caches
     await invalidate_pattern(f"jds:employee:{employee_id}")
-    await invalidate_pattern("cache:manager_pending:*")
+    await invalidate_pattern(f"cache:jd_detail:*{jd_session.id}*")
     
     return {
         "jd_session_id": str(jd_session.id),
-        "kra_kpi_session_id": str(kra_session.id),
+        "uploaded_kra_kpi_id": str(uploaded_record.id),
         "employee_id": employee_id,
         "employee_name": employee_name,
         "role_title": jd_data.get("role_title"),
         "department": jd_data.get("department"),
-        "kras_count": len(kras_list),
+        "kras_count": len(kras_clean),
         "status": "success",
     }
+
+
+async def sync_kra_kpi_session_to_db(
+    db: AsyncSession,
+    session_id: str,
+    conversation_state: dict,
+    conversation_history: list,
+) -> KRAKPISession:
+    import uuid
+    from sqlalchemy import delete
+    from sqlalchemy.orm.attributes import flag_modified
+    from app.models.kra_kpi_model import KRAKPIConversationTurn
+
+    session_uuid = uuid.UUID(session_id) if isinstance(session_id, str) else session_id
+    result = await db.execute(select(KRAKPISession).where(KRAKPISession.id == session_uuid))
+    record = result.scalar_one_or_none()
+
+    if record:
+        record.conversation_state = conversation_state
+        flag_modified(record, "conversation_state")
+
+        # Sync conversation history turns
+        await db.execute(
+            delete(KRAKPIConversationTurn).where(KRAKPIConversationTurn.session_id == session_uuid)
+        )
+        for idx, turn in enumerate(conversation_history):
+            new_turn = KRAKPIConversationTurn(
+                session_id=session_uuid,
+                turn_index=idx,
+                role=turn.get("role", "unknown"),
+                content=turn.get("content", ""),
+            )
+            db.add(new_turn)
+
+        await db.commit()
+        await db.refresh(record)
+    return record
 

@@ -320,3 +320,5 @@ PyMuPDF==1.27.2.3
 greenlet==3.5.1
 python-docx>=1.0.0
 langgraph>=0.1.0
+openpyxl>=3.1.0
+xlrd>=2.0.1

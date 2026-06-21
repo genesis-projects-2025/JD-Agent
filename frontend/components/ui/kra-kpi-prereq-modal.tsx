@@ -101,7 +101,7 @@ export function KRAKPIPrereqModal({
                 className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-slate-900 hover:bg-slate-800 text-white font-semibold rounded-md shadow-md shadow-slate-900/20 transition-all text-sm"
               >
                 <ClipboardList className="w-4 h-4" />
-                Start JD Questionnaire
+                Okay
               </button>
               <button
                 onClick={goToDashboard}

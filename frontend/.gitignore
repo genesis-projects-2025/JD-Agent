@@ -20,8 +20,13 @@
 # production
 /build
 build.nosync/
+build-dev.nosync/
 node_modules.nosync/
+node_modules 2/
+node_modules 3/
 .next.nosync/
+.next 2/
+.next 3/
 Users/
 
 # misc

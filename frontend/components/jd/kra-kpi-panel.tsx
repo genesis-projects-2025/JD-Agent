@@ -16,6 +16,7 @@ import {
   RefreshCw,
   CheckCircle2,
   Lock,
+  Unlock,
   GripVertical,
   ArrowRight,
   ArrowLeft,
@@ -31,6 +32,7 @@ import {
   selectKRAs,
   selectKPIs,
   saveKRAWeights,
+  sendKRAKPIForApproval,
   type KRASuggestion,
   type KPISuggestion,
   type FinalKRA,
@@ -39,14 +41,12 @@ import {
   type GenerationStep,
 } from "@/lib/api";
 
-// ── Colours ───────────────────────────────────────────────────────────────────
-
-const PALETTE = [
-  { bg: "bg-violet-50", border: "border-violet-200", badge: "bg-violet-100 text-violet-700", bar: "bg-violet-500", check: "accent-violet-600" },
-  { bg: "bg-blue-50",   border: "border-blue-200",   badge: "bg-blue-100 text-blue-700",     bar: "bg-blue-500",   check: "accent-blue-600" },
-  { bg: "bg-emerald-50",border: "border-emerald-200",badge: "bg-emerald-100 text-emerald-700",bar: "bg-emerald-500",check: "accent-emerald-600" },
-  { bg: "bg-orange-50", border: "border-orange-200", badge: "bg-orange-100 text-orange-700", bar: "bg-orange-500", check: "accent-orange-600" },
-  { bg: "bg-rose-50",   border: "border-rose-200",   badge: "bg-rose-100 text-rose-700",     bar: "bg-rose-500",   check: "accent-rose-600" },
+export const PALETTE = [
+  { bg: "bg-slate-50/50", border: "border-slate-200", badge: "bg-slate-100 text-slate-700", bar: "bg-slate-700", check: "accent-slate-700" },
+  { bg: "bg-slate-50/50", border: "border-slate-200", badge: "bg-slate-100/90 text-slate-700", bar: "bg-slate-500", check: "accent-slate-600" },
+  { bg: "bg-slate-50/50", border: "border-slate-200", badge: "bg-slate-100/80 text-slate-700", bar: "bg-slate-400", check: "accent-slate-500" },
+  { bg: "bg-slate-50/50", border: "border-slate-200", badge: "bg-slate-200 text-slate-800", bar: "bg-slate-800", check: "accent-slate-800" },
+  { bg: "bg-slate-50/50", border: "border-slate-200", badge: "bg-slate-100/70 text-slate-600", bar: "bg-slate-600", check: "accent-slate-600" },
 ];
 
 // ── Progress Stepper ──────────────────────────────────────────────────────────
@@ -155,9 +155,6 @@ function KRASuggestionCard({
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap mb-1">
             <span className="font-semibold text-surface-900 text-sm">{kra.title}</span>
-            <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${c.badge}`}>
-              ~{kra.suggested_weight}% suggested
-            </span>
           </div>
           <p className="text-xs text-surface-500 leading-relaxed">{kra.description}</p>
           {kra.source_tasks && kra.source_tasks.length > 0 && (
@@ -218,7 +215,7 @@ function Step1KRASelection({
             Select <strong>3 to 5 KRAs</strong> that best represent your role's accountability areas.
           </p>
           <p className="text-xs text-surface-400 mt-0.5">
-            The AI suggested these from your JD. Manager's KRAs were used only to prioritise weights.
+            After selecting KPIs, you will assign weights to each KRA yourself in Step 3.
           </p>
         </div>
         <span className={`text-sm font-semibold px-3 py-1 rounded-full ${
@@ -457,75 +454,234 @@ function WeightBar({ kras }: { kras: FinalKRA[] }) {
   );
 }
 
+function WeightInput({
+  value,
+  onChange,
+  disabled = false,
+  className = "",
+}: {
+  value: number;
+  onChange: (val: number) => void;
+  disabled?: boolean;
+  className?: string;
+}) {
+  const [localVal, setLocalVal] = useState<string>(value === 0 ? "" : value.toString());
+
+  // Sync state if external changes occur (like rebalancing)
+  useEffect(() => {
+    const parsed = parseInt(localVal) || 0;
+    if (parsed !== value) {
+      setLocalVal(value === 0 ? "" : value.toString());
+    }
+  }, [value]);
+
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    let raw = e.target.value;
+    // Allow digits only
+    raw = raw.replace(/[^0-9]/g, "");
+
+    // Strip leading zeros if more than 1 character (e.g. "021" -> "21", "00" -> "0")
+    if (raw.length > 1 && raw.startsWith("0")) {
+      raw = raw.replace(/^0+/, "");
+      if (raw === "") raw = "0";
+    }
+
+    let num = parseInt(raw) || 0;
+    if (num > 100) {
+      num = 100;
+      raw = "100";
+    }
+
+    setLocalVal(raw);
+    onChange(num);
+  };
+
+  const handleBlur = () => {
+    const parsed = parseInt(localVal) || 0;
+    setLocalVal(parsed === 0 ? "" : parsed.toString());
+    onChange(parsed);
+  };
+
+  return (
+    <input
+      type="text"
+      inputMode="numeric"
+      pattern="[0-9]*"
+      disabled={disabled}
+      value={localVal}
+      onChange={handleChange}
+      onBlur={handleBlur}
+      className={className}
+    />
+  );
+}
+
 function DraggableKRARow({
-  kra, index, onWeightChange, onDragStart, onDragOver, onDrop, isDragging,
+  kra, index, onWeightChange, onDragStart, onDragOver, onDragEnd, isDragging,
+  isLocked, onLockToggle, onKpisReorder, onKpiWeightChange,
+  lockedKpiIds, onKpiLockToggle,
 }: {
   kra: FinalKRA;
   index: number;
   onWeightChange: (id: string, w: number) => void;
   onDragStart: (i: number) => void;
   onDragOver: (i: number) => void;
-  onDrop: () => void;
+  onDragEnd: () => void;
   isDragging: boolean;
+  isLocked: boolean;
+  onLockToggle: (id: string) => void;
+  onKpisReorder: (id: string, reorderedKpis: any[]) => void;
+  onKpiWeightChange: (kraId: string, kpiId: string, newW: number) => void;
+  lockedKpiIds: Set<string>;
+  onKpiLockToggle: (id: string) => void;
 }) {
-  const c = PALETTE[index % PALETTE.length];
   const [kpiOpen, setKpiOpen] = useState(false);
+  const [kpiDragFrom, setKpiDragFrom] = useState<number | null>(null);
+
+  const handleKpiDragOver = (idx: number) => {
+    if (kpiDragFrom === null || kpiDragFrom === idx) return;
+    const reordered = [...kra.kpis];
+    const [moved] = reordered.splice(kpiDragFrom, 1);
+    reordered.splice(idx, 0, moved);
+    onKpisReorder(kra.kra_id, reordered);
+    setKpiDragFrom(idx);
+  };
 
   return (
     <div
       draggable
       onDragStart={() => onDragStart(index)}
       onDragOver={(e) => { e.preventDefault(); onDragOver(index); }}
-      onDrop={onDrop}
-      className={`rounded-xl border-2 ${c.border} ${c.bg} transition-all ${isDragging ? "opacity-40 scale-[0.98]" : "opacity-100"}`}
+      onDragEnd={onDragEnd}
+      className={`bg-white rounded-xl border transition-all duration-200 ${
+        isDragging 
+          ? "border-primary-500 ring-2 ring-primary-100 bg-slate-50 shadow-md scale-[1.01]" 
+          : "border-slate-200 hover:border-slate-300 shadow-sm"
+      }`}
     >
       <div className="flex items-start gap-3 p-4">
         {/* Drag handle */}
-        <div className="flex-shrink-0 cursor-grab active:cursor-grabbing pt-1 text-surface-300 hover:text-surface-500">
+        <div className="flex-shrink-0 cursor-grab active:cursor-grabbing pt-1.5 text-slate-300 hover:text-slate-500">
           <GripVertical className="w-4 h-4" />
         </div>
 
         <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 mb-2">
-            <span className="font-semibold text-surface-900 text-sm">{kra.title}</span>
-            <span className={`text-xs px-2 py-0.5 rounded-full font-bold ${c.badge}`}>{kra.weight}%</span>
-          </div>
-          <p className="text-xs text-surface-500 mb-3">{kra.description}</p>
+          <div className="flex items-center justify-between gap-4 mb-2">
+            <div>
+              <span className="font-semibold text-slate-800 text-sm block sm:inline">{kra.title}</span>
+              <span className="text-[11px] text-slate-400 font-medium sm:ml-2">KRA #{index + 1}</span>
+            </div>
+            
+            {/* Weight adjustments & Lock */}
+            <div className="flex items-center gap-2 flex-shrink-0">
+              <button
+                onClick={() => onLockToggle(kra.kra_id)}
+                type="button"
+                className={`p-1.5 rounded-lg border transition-all ${
+                  isLocked
+                    ? "bg-slate-800 text-white border-slate-800 shadow-sm"
+                    : "bg-white text-slate-400 border-slate-200 hover:text-slate-600 hover:bg-slate-50"
+                }`}
+                title={isLocked ? "Unlock KRA weight" : "Lock KRA weight"}
+              >
+                {isLocked ? <Lock className="w-3.5 h-3.5" /> : <Unlock className="w-3.5 h-3.5" />}
+              </button>
 
-          {/* Weight slider */}
-          <div className="flex items-center gap-3">
-            <span className="text-xs text-surface-400 w-8">0%</span>
-            <input
-              type="range"
-              min={5}
-              max={60}
-              value={kra.weight}
-              onChange={(e) => onWeightChange(kra.kra_id, parseInt(e.target.value))}
-              className="flex-1 h-1.5 rounded-full appearance-none bg-surface-200 cursor-pointer"
-              style={{ accentColor: PALETTE[index % PALETTE.length].bar.replace("bg-", "").includes("violet") ? "#7c3aed" : undefined }}
-            />
-            <span className="text-xs text-surface-400 w-8 text-right">60%</span>
+              <div className="flex items-center bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 w-20 focus-within:border-slate-400 focus-within:bg-white transition-colors">
+                <WeightInput
+                  value={kra.weight ?? 0}
+                  disabled={isLocked}
+                  onChange={(val) => onWeightChange(kra.kra_id, val)}
+                  className="w-full bg-transparent text-sm font-semibold text-slate-700 text-center outline-none border-none disabled:opacity-60"
+                />
+                <span className="text-sm font-semibold text-slate-400 select-none">%</span>
+              </div>
+            </div>
           </div>
+          <p className="text-xs text-slate-500 leading-relaxed mb-3 pr-2">{kra.description}</p>
 
           {/* KPI toggle */}
           <button
             onClick={() => setKpiOpen(!kpiOpen)}
-            className="flex items-center gap-1 mt-2 text-xs text-surface-400 hover:text-surface-600 transition-colors"
+            className="flex items-center gap-1 mt-1 text-xs font-semibold text-slate-500 hover:text-slate-700 transition-colors"
           >
-            {kpiOpen ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
-            {kra.kpis.length} KPIs
+            {kpiOpen ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+            <span>{kra.kpis.length} KPIs</span>
           </button>
 
           {kpiOpen && (
-            <ul className="mt-2 space-y-1">
-              {kra.kpis.map((kpi) => (
-                <li key={kpi.kpi_id} className="text-xs flex items-start gap-1.5">
-                  <span className={`w-1.5 h-1.5 rounded-full mt-1.5 flex-shrink-0 ${c.bar}`} />
-                  <span className="text-surface-700 font-medium">{kpi.metric}</span>
-                  <span className="text-surface-400 ml-1">— {kpi.target}</span>
-                </li>
-              ))}
-            </ul>
+            <div className="mt-3 pl-6 border-l border-slate-200 space-y-2">
+              <ul className="space-y-1.5">
+                {kra.kpis.map((kpi, kpiIdx) => {
+                  const isKpiLocked = lockedKpiIds.has(kpi.kpi_id);
+                  return (
+                    <li
+                      key={kpi.kpi_id}
+                      draggable
+                      onDragStart={() => setKpiDragFrom(kpiIdx)}
+                      onDragOver={(e) => { e.preventDefault(); handleKpiDragOver(kpiIdx); }}
+                      onDragEnd={() => setKpiDragFrom(null)}
+                      className={`text-xs flex items-center gap-2 p-2 border rounded-lg transition-all ${
+                        kpiDragFrom === kpiIdx 
+                          ? "border-primary-500 bg-indigo-50/50 shadow-sm animate-pulse" 
+                          : "bg-slate-50 border-slate-100 hover:border-slate-300"
+                      }`}
+                    >
+                      <div className="cursor-grab active:cursor-grabbing text-slate-300 hover:text-slate-500 flex-shrink-0">
+                        <GripVertical className="w-3.5 h-3.5" />
+                      </div>
+                      <div className="flex-1 min-w-0 flex items-baseline gap-1 mr-2 flex-wrap">
+                        <span className="text-slate-700 font-medium">{kpi.metric}</span>
+                        <span className="text-slate-400 font-normal text-[11px]">— {kpi.target}</span>
+                        <span className="text-[10px] text-slate-400 font-semibold whitespace-nowrap ml-1 bg-slate-100 px-1.5 py-0.5 rounded">
+                          ({(((kpi.weight ?? 0) * (kra.weight ?? 0)) / 100).toFixed(1)}% overall)
+                        </span>
+                      </div>
+                      
+                      {/* KPI lock button & weight input */}
+                      <div className="flex items-center gap-1.5 ml-auto flex-shrink-0">
+                        <button
+                          onClick={() => onKpiLockToggle(kpi.kpi_id)}
+                          type="button"
+                          className={`p-1 rounded border transition-all ${
+                            isKpiLocked
+                              ? "bg-slate-800 text-white border-slate-800 shadow-sm"
+                              : "bg-white text-slate-400 border-slate-200 hover:text-slate-600 hover:bg-slate-50"
+                          }`}
+                          title={isKpiLocked ? "Unlock KPI weight" : "Lock KPI weight"}
+                        >
+                          {isKpiLocked ? <Lock className="w-3 h-3" /> : <Unlock className="w-3 h-3" />}
+                        </button>
+                        
+                        <div className="flex items-center bg-slate-50 border border-slate-200 rounded-lg px-1.5 py-0.5 w-16 focus-within:border-slate-400 focus-within:bg-white transition-colors">
+                          <WeightInput
+                            value={kpi.weight ?? 0}
+                            disabled={isKpiLocked}
+                            onChange={(val) => onKpiWeightChange(kra.kra_id, kpi.kpi_id, val)}
+                            className="w-full bg-transparent text-xs font-semibold text-slate-700 text-center outline-none border-none disabled:opacity-60"
+                          />
+                          <span className="text-xs font-semibold text-slate-400 select-none">%</span>
+                        </div>
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+              
+              {/* KPI total weight warning/success status */}
+              <div className="flex items-center justify-between text-[11px] font-semibold pt-1">
+                <span className="text-slate-500">KPI Weights Sum (must be 100%):</span>
+                <span className={`px-2 py-0.5 rounded ${
+                  Math.abs(kra.kpis.reduce((s, kp) => s + (kp.weight ?? 0), 0) - 100) <= 1
+                    ? "bg-emerald-50 text-emerald-700" 
+                    : "bg-amber-50 text-amber-700"
+                }`}>
+                  {kra.kpis.reduce((s, kp) => s + (kp.weight ?? 0), 0)}% 
+                  {Math.abs(kra.kpis.reduce((s, kp) => s + (kp.weight ?? 0), 0) - 100) > 1 && " ✕"}
+                  {Math.abs(kra.kpis.reduce((s, kp) => s + (kp.weight ?? 0), 0) - 100) <= 1 && " ✓"}
+                </span>
+              </div>
+            </div>
           )}
         </div>
       </div>
@@ -540,41 +696,183 @@ function Step3WeightAdjustment({
   onSave: (kras: FinalKRA[], confirm: boolean) => void;
   onBack: () => void;
 }) {
-  const [kras, setKras] = useState<FinalKRA[]>(initialKras);
-  const [dragFrom, setDragFrom] = useState<number | null>(null);
-  const [dragOver, setDragOver] = useState<number | null>(null);
-  const [saving, setSaving] = useState(false);
-  const [confirming, setConfirming] = useState(false);
-
-  const total = kras.reduce((s, k) => s + k.weight, 0);
-
-  const handleWeightChange = (id: string, newW: number) => {
-    setKras((prev) => {
-      const updated = prev.map((k) => (k.kra_id === id ? { ...k, weight: newW } : k));
-      // Rebalance: distribute remainder to others proportionally
-      const thisTotal = updated.reduce((s, k) => s + k.weight, 0);
-      const diff = 100 - thisTotal;
-      const others = updated.filter((k) => k.kra_id !== id);
-      if (others.length > 0) {
-        const othersTotal = others.reduce((s, k) => s + k.weight, 0);
-        return updated.map((k) => {
-          if (k.kra_id === id) return k;
-          const share = othersTotal > 0 ? (k.weight / othersTotal) * diff : diff / others.length;
-          return { ...k, weight: Math.max(5, Math.round(k.weight + share)) };
-        });
-      }
-      return updated;
+  // Initialize: if weights are null, distribute equally
+  const initializeWeights = (kras: FinalKRA[]): FinalKRA[] => {
+    const hasNulls = kras.some((k) => k.weight === null || k.weight === undefined);
+    let updatedKras = kras;
+    if (hasNulls) {
+      const base = Math.floor(100 / kras.length);
+      const remainder = 100 - base * kras.length;
+      updatedKras = kras.map((k, i) => ({ ...k, weight: base + (i === 0 ? remainder : 0) }));
+    }
+    
+    // Auto-initialize KPI weights to add up to 100% within each KRA
+    return updatedKras.map((k) => {
+      const kpis = k.kpis || [];
+      if (kpis.length === 0) return k;
+      const hasKpiNulls = kpis.some((kp: any) => kp.weight === null || kp.weight === undefined || kp.weight === 0);
+      if (!hasKpiNulls) return k;
+      const baseKpi = Math.floor(100 / kpis.length);
+      const remainderKpi = 100 - baseKpi * kpis.length;
+      const updatedKpis = kpis.map((kp: any, idx: number) => ({
+        ...kp,
+        weight: baseKpi + (idx === 0 ? remainderKpi : 0)
+      }));
+      return { ...k, kpis: updatedKpis };
     });
   };
 
-  const handleDrop = () => {
-    if (dragFrom === null || dragOver === null || dragFrom === dragOver) return;
-    const reordered = [...kras];
-    const [moved] = reordered.splice(dragFrom, 1);
-    reordered.splice(dragOver, 0, moved);
-    setKras(reordered);
-    setDragFrom(null);
-    setDragOver(null);
+  const [kras, setKras] = useState<FinalKRA[]>(initializeWeights(initialKras));
+  const [dragFrom, setDragFrom] = useState<number | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [confirming, setConfirming] = useState(false);
+  const [lockedIds, setLockedIds] = useState<Set<string>>(new Set());
+  const [lockedKpiIds, setLockedKpiIds] = useState<Set<string>>(new Set());
+
+  const total = kras.reduce((s, k) => s + (k.weight ?? 0), 0);
+  const isKraTotalValid = Math.abs(total - 100) <= 1;
+
+  const isKpisTotalValid = kras.every((kra) => {
+    const kpiSum = kra.kpis?.reduce((sum, kp) => sum + (kp.weight ?? 0), 0) ?? 0;
+    return kra.kpis?.length === 0 || Math.abs(kpiSum - 100) <= 1;
+  });
+
+  const isValidToSave = isKraTotalValid && isKpisTotalValid;
+
+  const handleLockToggle = (id: string) => {
+    setLockedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  };
+
+  const handleKpiLockToggle = (id: string) => {
+    setLockedKpiIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  };
+
+  const handleKpisReorder = (kraId: string, reorderedKpis: any[]) => {
+    setKras((prev) =>
+      prev.map((k) => (k.kra_id === kraId ? { ...k, kpis: reorderedKpis } : k))
+    );
+  };
+
+  const handleKpiWeightChange = (kraId: string, kpiId: string, newW: number) => {
+    if (lockedKpiIds.has(kpiId)) return;
+    const val = Math.max(0, Math.min(100, isNaN(newW) ? 0 : newW));
+
+    setKras((prev) =>
+      prev.map((k) => {
+        if (k.kra_id !== kraId) return k;
+        
+        const updatedKpis = k.kpis.map((kp) =>
+          kp.kpi_id === kpiId ? { ...kp, weight: val } : kp
+        );
+        
+        const othersUnlocked = updatedKpis.filter(
+          (kp) => kp.kpi_id !== kpiId && !lockedKpiIds.has(kp.kpi_id)
+        );
+        
+        if (othersUnlocked.length > 0) {
+          const lockedTotal = updatedKpis
+            .filter((kp) => kp.kpi_id !== kpiId && lockedKpiIds.has(kp.kpi_id))
+            .reduce((s, kp) => s + (kp.weight ?? 0), 0);
+            
+          const targetUnlockedTotal = Math.max(0, 100 - (lockedTotal + val));
+          const othersUnlockedTotal = othersUnlocked.reduce((s, kp) => s + (kp.weight ?? 0), 0);
+          
+          let currentSum = val + lockedTotal;
+          const nextKpis = updatedKpis.map((kp) => {
+            if (kp.kpi_id === kpiId || lockedKpiIds.has(kp.kpi_id)) {
+              return kp;
+            }
+            const newWeight = othersUnlockedTotal > 0
+              ? Math.round(((kp.weight ?? 0) / othersUnlockedTotal) * targetUnlockedTotal)
+              : Math.round(targetUnlockedTotal / othersUnlocked.length);
+            currentSum += newWeight;
+            return { ...kp, weight: newWeight };
+          });
+          
+          const roundingDiff = 100 - currentSum;
+          if (roundingDiff !== 0) {
+            const target = nextKpis.find(
+              (kp) => kp.kpi_id !== kpiId && !lockedKpiIds.has(kp.kpi_id)
+            );
+            if (target) {
+              target.weight = Math.max(0, (target.weight ?? 0) + roundingDiff);
+            }
+          }
+          return { ...k, kpis: nextKpis };
+        }
+        return { ...k, kpis: updatedKpis };
+      })
+    );
+  };
+
+  const handleWeightChange = (id: string, newW: number) => {
+    if (lockedIds.has(id)) return;
+    const val = Math.max(0, Math.min(100, isNaN(newW) ? 0 : newW));
+
+    setKras((prev) => {
+      const updated = prev.map((k) => (k.kra_id === id ? { ...k, weight: val } : k));
+      
+      const othersUnlocked = updated.filter((k) => k.kra_id !== id && !lockedIds.has(k.kra_id));
+      
+      if (othersUnlocked.length > 0) {
+        const lockedTotal = updated
+          .filter((k) => k.kra_id !== id && lockedIds.has(k.kra_id))
+          .reduce((s, k) => s + (k.weight ?? 0), 0);
+          
+        const targetUnlockedTotal = Math.max(0, 100 - (lockedTotal + val));
+        const othersUnlockedTotal = othersUnlocked.reduce((s, k) => s + (k.weight ?? 0), 0);
+        
+        let currentSum = val + lockedTotal;
+        const nextKras = updated.map((k) => {
+          if (k.kra_id === id || lockedIds.has(k.kra_id)) {
+            return k;
+          }
+          const newWeight = othersUnlockedTotal > 0
+            ? Math.round(((k.weight ?? 0) / othersUnlockedTotal) * targetUnlockedTotal)
+            : Math.round(targetUnlockedTotal / othersUnlocked.length);
+          currentSum += newWeight;
+          return { ...k, weight: newWeight };
+        });
+        
+        const roundingDiff = 100 - currentSum;
+        if (roundingDiff !== 0) {
+          const target = nextKras.find((k) => k.kra_id !== id && !lockedIds.has(k.kra_id));
+          if (target) {
+            target.weight = Math.max(0, (target.weight ?? 0) + roundingDiff);
+          }
+        }
+        return nextKras;
+      } else {
+        return updated;
+      }
+    });
+  };
+
+  const handleDragOverKRA = (index: number) => {
+    if (dragFrom === null || dragFrom === index) return;
+    setKras((prev) => {
+      const reordered = [...prev];
+      const [moved] = reordered.splice(dragFrom, 1);
+      reordered.splice(index, 0, moved);
+      return reordered;
+    });
+    setDragFrom(index);
   };
 
   const handleSave = async (confirm: boolean) => {
@@ -589,18 +887,28 @@ function Step3WeightAdjustment({
     <div className="space-y-4">
       <div>
         <p className="text-sm text-surface-600">
-          Drag KRAs to reorder them, and use the slider to adjust their weight. Weights must sum to 100%.
+          Assign weights to each KRA — they must add up to <strong>100%</strong>. Drag to reorder.
+        </p>
+        <p className="text-xs text-surface-400 mt-0.5">
+          Once you confirm, you can send the framework for manager approval.
         </p>
       </div>
 
       <WeightBar kras={kras} />
 
-      <div className={`flex items-center justify-between text-sm font-semibold px-3 py-2 rounded-lg ${Math.abs(total - 100) <= 1 ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-600"}`}>
+      <div className={`flex items-center justify-between text-sm font-semibold px-3 py-2 rounded-lg ${isKraTotalValid ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700"}`}>
         <span className="flex items-center gap-1.5">
           <BarChart3 className="w-4 h-4" /> Total Weight
         </span>
-        <span>{total}%</span>
+        <span>{total}% {Math.abs(total - 100) > 1 ? `(need ${100 - total > 0 ? "+" : ""}${100 - total}% more)` : "✓"}</span>
       </div>
+
+      {!isKpisTotalValid && (
+        <div className="flex items-center gap-2 text-xs font-semibold px-3 py-2 bg-amber-50 text-amber-700 rounded-lg border border-amber-200">
+          <AlertTriangle className="w-4.5 h-4.5 text-amber-500 shrink-0 mt-0.5" />
+          <span>KPI weights inside each KRA must sum to exactly 100%. Please expand each KRA to set them correctly.</span>
+        </div>
+      )}
 
       <div className="space-y-3">
         {kras.map((kra, i) => (
@@ -610,9 +918,15 @@ function Step3WeightAdjustment({
             index={i}
             onWeightChange={handleWeightChange}
             onDragStart={(idx) => setDragFrom(idx)}
-            onDragOver={(idx) => setDragOver(idx)}
-            onDrop={handleDrop}
+            onDragOver={handleDragOverKRA}
+            onDragEnd={() => setDragFrom(null)}
             isDragging={dragFrom === i}
+            isLocked={lockedIds.has(kra.kra_id)}
+            onLockToggle={handleLockToggle}
+            onKpisReorder={handleKpisReorder}
+            onKpiWeightChange={handleKpiWeightChange}
+            lockedKpiIds={lockedKpiIds}
+            onKpiLockToggle={handleKpiLockToggle}
           />
         ))}
       </div>
@@ -626,14 +940,14 @@ function Step3WeightAdjustment({
         </button>
         <button
           onClick={() => handleSave(false)}
-          disabled={saving || confirming || Math.abs(total - 100) > 1}
+          disabled={saving || confirming || !isValidToSave}
           className="flex-1 py-2.5 text-sm font-medium text-surface-700 border border-surface-200 rounded-xl hover:bg-surface-50 disabled:opacity-40 transition-colors"
         >
           {saving ? <Loader2 className="w-4 h-4 animate-spin mx-auto" /> : "Save Draft"}
         </button>
         <button
           onClick={() => handleSave(true)}
-          disabled={saving || confirming || Math.abs(total - 100) > 1}
+          disabled={saving || confirming || !isValidToSave}
           className="flex-1 flex items-center justify-center gap-2 py-2.5 bg-primary-600 text-white rounded-xl font-medium text-sm hover:bg-primary-700 disabled:opacity-40 transition-colors"
         >
           {confirming ? (
@@ -647,154 +961,385 @@ function Step3WeightAdjustment({
   );
 }
 
-// ── Confirmed View ────────────────────────────────────────────────────────────
+// ── Uploaded View (Admin Uploaded) ──────────────────────────────────────────
 
-function ConfirmedView({ record, onRegenerate }: { record: KRAKPIRecord; onRegenerate: () => void }) {
+function UploadedView({ record }: { record: KRAKPIRecord }) {
   const kras = record.kras?.kras ?? [];
-  const [openId, setOpenId] = useState<string | null>(kras[0]?.kra_id ?? null);
+  const [openId, setOpenId] = useState<string | null>(kras[0]?.title ?? null);
 
-  // Compute stats
   const totalKpis = kras.reduce((acc, kra) => acc + (kra.kpis?.length ?? 0), 0);
-  const totalWeight = kras.reduce((acc, kra) => acc + (kra.weight ?? 0), 0);
 
   return (
     <div className="space-y-6">
-      {/* Top Hero Card */}
-      <div className="bg-gradient-to-br from-emerald-600 via-emerald-600 to-teal-700 rounded-3xl p-6 text-white shadow-lg shadow-emerald-700/10 relative overflow-hidden">
-        {/* Glow decoration */}
-        <div className="absolute top-0 right-0 p-24 bg-white/10 rounded-full blur-2xl -translate-y-1/3 translate-x-1/3 pointer-events-none" />
-        <div className="absolute bottom-0 left-0 p-20 bg-emerald-400/20 rounded-full blur-2xl translate-y-1/2 -translate-x-1/2 pointer-events-none" />
-
-        <div className="relative z-10 space-y-4">
-          <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-xl bg-white/20 flex items-center justify-center backdrop-blur-md">
-              <Lock className="w-4 h-4 text-emerald-100" />
+      {/* Hero Status Banner */}
+      <div className="bg-gradient-to-br from-emerald-600 via-teal-600 to-emerald-800 rounded-3xl p-6 text-white shadow-xl relative overflow-hidden">
+        <div className="absolute inset-0 opacity-10">
+          <div className="absolute top-0 right-0 w-48 h-48 bg-white rounded-full blur-3xl -translate-y-1/2 translate-x-1/4" />
+          <div className="absolute bottom-0 left-0 w-40 h-40 bg-white rounded-full blur-3xl translate-y-1/2 -translate-x-1/4" />
+        </div>
+        <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div>
+            <div className="flex items-center gap-2.5 mb-2">
+              <div className="w-10 h-10 rounded-2xl bg-white/20 backdrop-blur flex items-center justify-center">
+                <CheckCircle2 className="w-6 h-6 text-white" />
+              </div>
+              <div>
+                <p className="text-[10px] font-bold tracking-[0.2em] text-emerald-100 uppercase">Performance Plan</p>
+                <h3 className="text-lg font-extrabold text-white leading-tight">Official KRA & KPI Framework</h3>
+              </div>
             </div>
-            <div>
-              <p className="text-[10px] font-semibold tracking-[0.2em] text-emerald-200 uppercase">Status</p>
-              <h3 className="text-sm font-semibold text-white">Performance Alignment Active</h3>
-            </div>
-            {record.confirmed_at && (
-              <span className="text-[11px] font-medium text-emerald-100 bg-white/15 px-2.5 py-1 rounded-lg ml-auto backdrop-blur-sm">
-                Confirmed {new Date(record.confirmed_at).toLocaleDateString("en-GB")}
-              </span>
-            )}
+            <p className="text-emerald-50/80 text-xs max-w-md">
+              Your official Key Result Areas and Key Performance Indicators uploaded directly by Admin.
+            </p>
           </div>
-
-          <div className="grid grid-cols-3 gap-4 pt-3 border-t border-white/10">
-            <div>
-              <span className="block text-[10px] font-medium text-emerald-200 uppercase tracking-wider mb-0.5">Accountability Areas</span>
-              <span className="text-2xl font-bold leading-none">{kras.length} KRAs</span>
+          <div className="flex items-center gap-6 self-start md:self-auto pt-4 md:pt-0 border-t md:border-t-0 border-white/10 w-full md:w-auto">
+            <div className="text-center flex-1 md:flex-initial">
+              <span className="text-2xl font-black leading-none">{kras.length}</span>
+              <p className="text-[10px] text-emerald-100/70 mt-0.5 font-medium uppercase tracking-wider">KRAs</p>
             </div>
-            <div>
-              <span className="block text-[10px] font-medium text-emerald-200 uppercase tracking-wider mb-0.5">Total KPIs</span>
-              <span className="text-2xl font-bold leading-none">{totalKpis} Indicators</span>
-            </div>
-            <div>
-              <span className="block text-[10px] font-medium text-emerald-200 uppercase tracking-wider mb-0.5">Assigned Weight</span>
-              <span className="text-2xl font-bold leading-none">{totalWeight}%</span>
+            <div className="text-center flex-1 md:flex-initial border-l border-white/15 pl-6">
+              <span className="text-2xl font-black leading-none">{totalKpis}</span>
+              <p className="text-[10px] text-emerald-100/70 mt-0.5 font-medium uppercase tracking-wider">KPIs</p>
             </div>
           </div>
         </div>
       </div>
 
-      {/* Visual Weight Distribution */}
-      <div className="bg-white border border-surface-200/60 rounded-2xl p-5 shadow-sm space-y-3">
-        <h4 className="text-xs font-semibold text-surface-800 uppercase tracking-wider flex items-center gap-1.5">
-          <BarChart3 className="w-4 h-4 text-primary-500" /> Goal Weight Weighting
+      {/* KRAs Accordion */}
+      <div className="space-y-3">
+        {kras.map((kra, i) => {
+          const c = PALETTE[i % PALETTE.length];
+          const isOpen = openId === kra.title;
+          return (
+            <div
+              key={i}
+              className={`rounded-2xl border ${isOpen ? c.border : "border-surface-150"} overflow-hidden transition-all bg-white shadow-sm hover:shadow-md`}
+            >
+              <button
+                onClick={() => setOpenId(isOpen ? null : kra.title)}
+                className={`w-full flex items-center justify-between p-5 text-left transition-colors ${isOpen ? c.bg : "hover:bg-surface-50/50"}`}
+              >
+                <div className="flex items-start gap-4">
+                  <div className={`w-8 h-8 rounded-xl ${c.badge} flex items-center justify-center shrink-0`}>
+                    <Target className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <span className={`text-[10px] font-bold uppercase tracking-wider ${isOpen ? "text-primary-700" : "text-surface-400"}`}>
+                      KRA {i + 1}
+                    </span>
+                    <h4 className="text-sm font-bold text-surface-950 mt-0.5 leading-tight">{kra.title}</h4>
+                  </div>
+                </div>
+                {isOpen ? <ChevronUp className="w-5 h-5 text-surface-400" /> : <ChevronDown className="w-5 h-5 text-surface-400" />}
+              </button>
+
+              {isOpen && (
+                <div className="p-5 border-t border-surface-100 space-y-4 bg-white animate-in slide-in-from-top-1 duration-150">
+                  <p className="text-xs text-surface-600 leading-relaxed">{kra.description}</p>
+                  
+                  {kra.kpis && kra.kpis.length > 0 && (
+                    <div className="space-y-2.5">
+                      <span className="text-[10px] text-surface-400 font-bold uppercase tracking-wider block">
+                        Key Performance Indicators (KPIs)
+                      </span>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        {kra.kpis.map((kpi: any, kIdx: number) => (
+                          <div key={kIdx} className="bg-surface-50 border border-surface-100 p-3.5 rounded-xl text-xs space-y-1 hover:border-surface-200 transition-colors">
+                            <div className="font-bold text-surface-900 leading-snug">{kpi.title}</div>
+                            <div className="text-surface-500 leading-relaxed">{kpi.description}</div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+
+// ── Confirmed View ────────────────────────────────────────────────────────────
+
+function ConfirmedView({
+  record,
+  onRegenerate,
+  onSendForApproval,
+}: {
+  record: KRAKPIRecord;
+  onRegenerate: () => void;
+  onSendForApproval: () => Promise<void>;
+}) {
+  const kras = record.kras?.kras ?? [];
+  const [openId, setOpenId] = useState<string | null>(kras[0]?.kra_id ?? null);
+  const [sending, setSending] = useState(false);
+  const [sendError, setSendError] = useState<string | null>(null);
+
+  // Compute stats
+  const totalKpis = kras.reduce((acc, kra) => acc + (kra.kpis?.length ?? 0), 0);
+  const totalWeight = kras.reduce((acc, kra) => acc + (kra.weight ?? 0), 0);
+
+  const status = record.status || "confirmed";
+
+  const statusConfig: Record<string, { gradient: string; title: string; badge: string; badgeColor: string }> = {
+    confirmed: {
+      gradient: "from-slate-900 via-slate-800 to-blue-950",
+      title: "KRA/KPI Framework Ready",
+      badge: "Confirmed",
+      badgeColor: "bg-blue-500/20 text-blue-300 border-blue-500/30",
+    },
+    sent_to_manager: {
+      gradient: "from-slate-900 via-slate-800 to-blue-950",
+      title: "Awaiting Manager Review",
+      badge: "Under Review",
+      badgeColor: "bg-amber-500/20 text-amber-300 border-amber-500/30",
+    },
+    manager_rejected: {
+      gradient: "from-slate-900 via-slate-800 to-blue-950",
+      title: "Manager Requested Revisions",
+      badge: "Needs Revision",
+      badgeColor: "bg-rose-500/20 text-rose-300 border-rose-500/30",
+    },
+    sent_to_hr: {
+      gradient: "from-slate-900 via-slate-800 to-blue-950",
+      title: "Awaiting HR Review",
+      badge: "HR Review",
+      badgeColor: "bg-purple-500/20 text-purple-300 border-purple-500/30",
+    },
+    hr_rejected: {
+      gradient: "from-slate-900 via-slate-800 to-blue-950",
+      title: "HR Requested Revisions",
+      badge: "Needs Revision",
+      badgeColor: "bg-rose-500/20 text-rose-300 border-rose-500/30",
+    },
+    approved: {
+      gradient: "from-slate-900 via-slate-800 to-blue-950",
+      title: "Performance Framework Approved",
+      badge: "Approved & Active",
+      badgeColor: "bg-emerald-500/20 text-emerald-300 border-emerald-500/30",
+    },
+    draft: {
+      gradient: "from-slate-900 via-slate-800 to-blue-950",
+      title: "KRA/KPI Draft",
+      badge: "Draft",
+      badgeColor: "bg-slate-500/20 text-slate-300 border-slate-500/30",
+    },
+  };
+
+  const cfg = statusConfig[status] ?? statusConfig["confirmed"];
+  const canSendForApproval = status === "confirmed" && Math.abs(totalWeight - 100) <= 1;
+  const isUnderReview = ["sent_to_manager", "sent_to_hr"].includes(status);
+  const isRejected = ["manager_rejected", "hr_rejected"].includes(status);
+
+  const handleSend = async () => {
+    setSending(true);
+    setSendError(null);
+    try {
+      await onSendForApproval();
+    } catch (e: any) {
+      setSendError(e.message || "Failed to send for approval");
+    } finally {
+      setSending(false);
+    }
+  };
+
+  return (
+    <div className="space-y-5">
+      {/* Hero Status Banner */}
+      <div className={`bg-gradient-to-br ${cfg.gradient} rounded-2xl p-5 text-white shadow-lg relative overflow-hidden`}>
+        <div className="absolute inset-0 opacity-10">
+          <div className="absolute top-0 right-0 w-48 h-48 bg-white rounded-full blur-3xl -translate-y-1/2 translate-x-1/4" />
+          <div className="absolute bottom-0 left-0 w-40 h-40 bg-white rounded-full blur-3xl translate-y-1/2 -translate-x-1/4" />
+        </div>
+        <div className="relative z-10">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2.5">
+              <div className="w-9 h-9 rounded-xl bg-white/15 backdrop-blur flex items-center justify-center">
+                {status === "approved" ? (
+                  <CheckCircle2 className="w-5 h-5 text-white" />
+                ) : isRejected ? (
+                  <AlertTriangle className="w-5 h-5 text-white" />
+                ) : (
+                  <Target className="w-5 h-5 text-white" />
+                )}
+              </div>
+              <div>
+                <p className="text-[10px] font-bold tracking-[0.15em] text-white/70 uppercase">KRA/KPI Status</p>
+                <h3 className="text-sm font-bold text-white leading-tight">{cfg.title}</h3>
+              </div>
+            </div>
+            <span className={`text-[11px] font-semibold px-3 py-1.5 rounded-lg ${cfg.badgeColor} backdrop-blur-sm border`}>
+              {cfg.badge}
+            </span>
+          </div>
+
+          <div className="grid grid-cols-3 gap-3 pt-3 border-t border-white/10">
+            <div className="text-center">
+              <span className="text-xl font-black leading-none">{kras.length}</span>
+              <p className="text-[10px] text-white/70 mt-0.5 font-medium">KRAs</p>
+            </div>
+            <div className="text-center border-x border-white/10">
+              <span className="text-xl font-black leading-none">{totalKpis}</span>
+              <p className="text-[10px] text-white/70 mt-0.5 font-medium">KPIs</p>
+            </div>
+            <div className="text-center">
+              <span className="text-xl font-black leading-none">{totalWeight}%</span>
+              <p className="text-[10px] text-white/70 mt-0.5 font-medium">Weight</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Rejection Comment */}
+      {isRejected && record.reviewer_comment && (
+        <div className="bg-rose-50 border border-rose-200 rounded-xl p-4 flex gap-3">
+          <AlertTriangle className="w-4 h-4 text-rose-500 flex-shrink-0 mt-0.5" />
+          <div>
+            <p className="text-xs font-bold text-rose-800 mb-1">
+              {status === "hr_rejected" ? "HR" : "Manager"} Revision Request
+            </p>
+            <p className="text-xs text-rose-700 leading-relaxed">{record.reviewer_comment}</p>
+          </div>
+        </div>
+      )}
+
+      {/* Send for Approval CTA — only shown when confirmed & weights = 100 */}
+      {canSendForApproval && (
+        <div className="bg-gradient-to-r from-primary-50 to-indigo-50 border border-primary-200 rounded-xl p-4 flex flex-col sm:flex-row items-center justify-between gap-3">
+          <div className="flex items-start gap-2.5">
+            <div className="w-8 h-8 bg-primary-100 rounded-lg flex items-center justify-center shrink-0">
+              <Sparkles className="w-4 h-4 text-primary-600" />
+            </div>
+            <div>
+              <p className="text-sm font-semibold text-primary-900">Ready for Manager Review</p>
+              <p className="text-xs text-primary-600 mt-0.5">Your KRA/KPI framework is confirmed. Send it to your manager for approval.</p>
+            </div>
+          </div>
+          <button
+            onClick={handleSend}
+            disabled={sending}
+            className="w-full sm:w-auto flex items-center justify-center gap-2 px-5 py-2.5 bg-primary-600 hover:bg-primary-700 text-white text-sm font-semibold rounded-xl transition-all shadow-md shadow-primary-600/25 active:scale-[0.98] disabled:opacity-50 whitespace-nowrap"
+          >
+            {sending ? (
+              <><Loader2 className="w-4 h-4 animate-spin" /> Sending…</>
+            ) : (
+              <><ArrowRight className="w-4 h-4" /> Send for Approval</>
+            )}
+          </button>
+        </div>
+      )}
+
+      {sendError && (
+        <div className="text-xs text-rose-700 bg-rose-50 border border-rose-200 rounded-lg px-3 py-2">{sendError}</div>
+      )}
+
+      {/* Under Review Status */}
+      {isUnderReview && (
+        <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 flex items-center gap-3">
+          <Loader2 className="w-4 h-4 text-blue-500 animate-spin shrink-0" />
+          <div>
+            <p className="text-xs font-bold text-blue-800">Awaiting {status === "sent_to_hr" ? "HR" : "Manager"} Review</p>
+            <p className="text-xs text-blue-600 mt-0.5">Your framework has been submitted and is under review.</p>
+          </div>
+        </div>
+      )}
+
+      {/* Weight Distribution */}
+      <div className="bg-white border border-surface-200/70 rounded-xl p-4 shadow-sm space-y-2.5">
+        <h4 className="text-xs font-bold text-surface-700 uppercase tracking-wider flex items-center gap-1.5">
+          <BarChart3 className="w-3.5 h-3.5 text-primary-500" /> Weight Distribution
         </h4>
         <WeightBar kras={kras} />
       </div>
 
-      {/* KRAs Collapsible Accordion List */}
-      <div className="space-y-3">
+      {/* KRAs Accordion */}
+      <div className="space-y-2.5">
         {kras.map((kra, i) => {
           const c = PALETTE[i % PALETTE.length];
           const isOpen = openId === kra.kra_id;
           return (
             <div
               key={kra.kra_id}
-              className={`rounded-2xl border-2 transition-all duration-300 ${
-                isOpen 
-                  ? `${c.border} ${c.bg} shadow-md shadow-neutral-100` 
+              className={`rounded-xl border-2 transition-all duration-200 ${
+                isOpen
+                  ? `${c.border} ${c.bg} shadow-md`
                   : "border-surface-100 bg-white hover:border-surface-200 hover:shadow-sm"
               }`}
             >
               <button
                 onClick={() => setOpenId(isOpen ? null : kra.kra_id)}
-                className="w-full flex items-center gap-3 px-5 py-4 text-left"
+                className="w-full flex items-center gap-3 px-4 py-3.5 text-left"
               >
                 <div className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${c.bar}`} />
                 <div className="flex-1 min-w-0">
-                  <span className="font-bold text-surface-900 text-sm sm:text-base tracking-tight leading-tight block">{kra.title}</span>
+                  <span className="font-bold text-surface-900 text-sm leading-tight block truncate">{kra.title}</span>
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
-                  <span className={`text-[11px] font-bold px-3 py-1 rounded-full border ${c.badge} ${c.border.replace("border-", "border-")}`}>
-                    {kra.weight}% weight
+                  <span className={`text-[11px] font-bold px-2.5 py-1 rounded-full border ${c.badge} ${c.border}`}>
+                    {kra.weight ?? "—"}% weight
                   </span>
-                  <span className="text-xs font-semibold bg-surface-100 text-surface-600 px-2.5 py-1 rounded-full border border-surface-200/50">
+                  <span className="text-xs font-semibold bg-surface-100 text-surface-600 px-2 py-1 rounded-full">
                     {kra.kpis?.length ?? 0} KPIs
                   </span>
-                  <div className={`p-1 rounded-md transition-transform ${isOpen ? "rotate-180 bg-current/5" : "bg-neutral-50"}`}>
-                    <ChevronDown className="w-4 h-4 text-surface-500" />
+                  <div className={`p-1 rounded transition-transform ${isOpen ? "rotate-180" : ""}`}>
+                    <ChevronDown className="w-4 h-4 text-surface-400" />
                   </div>
                 </div>
               </button>
 
               {isOpen && (
-                <div className="px-5 pb-5 border-t border-surface-200/10 pt-4 space-y-4">
-                  {/* Left-bordered Description Box */}
-                  <div className={`border-l-4 ${c.bar.replace("bg-", "border-")} pl-4 py-1.5`}>
-                    <p className="text-xs sm:text-sm text-surface-600 leading-relaxed font-medium">
-                      {kra.description}
-                    </p>
+                <div className="px-4 pb-4 pt-0 border-t border-surface-200/20 space-y-3">
+                  <div className={`border-l-4 ${c.bar.replace("bg-", "border-")} pl-3 py-1 mt-3`}>
+                    <p className="text-xs text-surface-600 leading-relaxed">{kra.description}</p>
                   </div>
 
-                  {/* KPI Grid */}
-                  <div className="space-y-3">
-                    <div className="flex items-center justify-between">
-                      <h5 className="text-[11px] font-semibold text-surface-500 uppercase tracking-wider">Key Performance Indicators</h5>
-                    </div>
-                    
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+                  <div className="space-y-2">
+                    <p className="text-[10px] font-bold text-surface-400 uppercase tracking-wider">Key Performance Indicators</p>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
                       {kra.kpis.map((kpi) => (
                         <div
                           key={kpi.kpi_id}
-                          className="bg-white border border-surface-150/70 rounded-xl p-4 shadow-sm hover:shadow-md transition-all flex flex-col justify-between"
+                          className="bg-white border border-surface-150 rounded-xl p-3.5 shadow-sm hover:shadow-md transition-shadow"
                         >
-                          <div className="space-y-3">
-                            <div className="flex items-start justify-between gap-2">
-                              <h6 className="font-bold text-surface-800 text-xs sm:text-sm leading-snug">{kpi.metric}</h6>
-                              <span className="text-[9px] font-bold bg-primary-50 text-primary-700 px-2 py-0.5 rounded-full border border-primary-100 shrink-0 uppercase tracking-wide">
+                          <div className="flex items-start justify-between gap-2 mb-2">
+                            <h6 className="font-bold text-surface-800 text-xs leading-snug">{kpi.metric}</h6>
+                            <div className="flex flex-col items-end gap-1 shrink-0">
+                              <span className="text-[9px] font-bold bg-primary-50 text-primary-700 px-2 py-0.5 rounded-full border border-primary-100 uppercase tracking-wide">
                                 {kpi.frequency}
                               </span>
-                            </div>
-                            <div className="bg-surface-50/50 rounded-lg p-2.5 border border-surface-100/50">
-                              <p className="text-[9px] font-semibold text-surface-400 uppercase tracking-wider mb-0.5">Target Metric</p>
-                              <p className="text-xs sm:text-sm font-bold text-primary-600">{kpi.target}</p>
+                              <span className="text-[9px] font-bold bg-slate-100 text-slate-700 px-2 py-0.5 rounded-full border border-slate-250">
+                                {kpi.weight ?? 0}% weight ({(((kpi.weight ?? 0) * (kra.weight ?? 0)) / 100).toFixed(1)}% overall)
+                              </span>
                             </div>
                           </div>
-
-                          <div className="mt-3 pt-3 border-t border-surface-100/60 space-y-2">
-                            <div className="flex items-start gap-1.5 text-xs text-surface-500 leading-normal">
-                              <TrendingUp className="w-3.5 h-3.5 text-surface-400 shrink-0 mt-0.5" />
-                              <div>
-                                <span className="font-semibold text-surface-600">Measurement Method:</span>{" "}
-                                <span className="text-surface-700">{kpi.measurement_method}</span>
+                          <div className="bg-surface-50 rounded-lg p-2 border border-surface-100 mb-2">
+                            <p className="text-[10px] font-semibold text-surface-400 uppercase tracking-wide mb-0.5">Target</p>
+                            <p className="text-xs font-bold text-primary-600">{kpi.target}</p>
+                          </div>
+                          <div className="flex items-start gap-1.5 text-[10px] text-surface-500">
+                            <TrendingUp className="w-3 h-3 text-surface-400 shrink-0 mt-0.5" />
+                            <span><span className="font-semibold text-surface-600">Via: </span>{kpi.measurement_method}</span>
+                          </div>
+                          {kpi.threshold && (
+                            <div className="mt-2 pt-2 border-t border-surface-100 grid grid-cols-3 gap-1 text-[9px]">
+                              <div className="text-center">
+                                <div className="font-bold text-emerald-600 mb-0.5">Excellent</div>
+                                <div className="text-surface-600 leading-tight">{kpi.threshold.excellent}</div>
+                              </div>
+                              <div className="text-center border-x border-surface-100">
+                                <div className="font-bold text-blue-600 mb-0.5">Meets</div>
+                                <div className="text-surface-600 leading-tight">{kpi.threshold.meets_expectation}</div>
+                              </div>
+                              <div className="text-center">
+                                <div className="font-bold text-rose-500 mb-0.5">Below</div>
+                                <div className="text-surface-600 leading-tight">{kpi.threshold.below_expectation}</div>
                               </div>
                             </div>
-                            {kpi.manager_kpi_alignment && 
-                             kpi.manager_kpi_alignment !== "N/A" && 
-                             kpi.manager_kpi_alignment !== "Not aligned" && (
-                              <div className="bg-emerald-50/75 border border-emerald-100/40 rounded-lg p-2.5 text-[10px] text-emerald-800 leading-normal flex items-start gap-1.5">
-                                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0 mt-0.5" />
-                                <div>
-                                  <span className="font-bold text-emerald-900">Aligned Manager Goal:</span>{" "}
-                                  <span className="text-emerald-700">{kpi.manager_kpi_alignment}</span>
-                                </div>
-                              </div>
-                            )}
-                          </div>
+                          )}
                         </div>
                       ))}
                     </div>
@@ -808,9 +1353,9 @@ function ConfirmedView({ record, onRegenerate }: { record: KRAKPIRecord; onRegen
 
       <button
         onClick={onRegenerate}
-        className="flex items-center gap-1.5 text-xs text-surface-400 hover:text-surface-600 transition-colors mx-auto mt-4 bg-surface-50 hover:bg-surface-100 border border-surface-200/60 rounded-lg px-3.5 py-1.5"
+        className="flex items-center gap-1.5 text-xs text-surface-400 hover:text-surface-600 transition-colors mx-auto bg-surface-50 hover:bg-surface-100 border border-surface-200 rounded-lg px-3.5 py-2"
       >
-        <RefreshCw className="w-3.5 h-3.5" /> Regenerate performance goals from scratch
+        <RefreshCw className="w-3.5 h-3.5" /> Regenerate from scratch
       </button>
     </div>
   );
@@ -909,6 +1454,11 @@ export function KRAKPIPanel({ jdSessionId, employeeId, isManager = false }: KRAK
     } else {
       handleGenerate(false);
     }
+  };
+
+  const handleSendForApproval = async () => {
+    await sendKRAKPIForApproval(jdSessionId);
+    await reload();
   };
 
   if (loading) {
@@ -1035,7 +1585,15 @@ export function KRAKPIPanel({ jdSessionId, employeeId, isManager = false }: KRAK
           )}
 
           {step === "confirmed" && (
-            <ConfirmedView record={record} onRegenerate={handleRegenerate} />
+            <ConfirmedView
+              record={record}
+              onRegenerate={handleRegenerate}
+              onSendForApproval={handleSendForApproval}
+            />
+          )}
+
+          {step === "uploaded" && (
+            <UploadedView record={record} />
           )}
         </>
       )}

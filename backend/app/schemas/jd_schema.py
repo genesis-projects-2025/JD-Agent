@@ -55,6 +55,10 @@ class Progress(BaseModel):
         "jd_generated",
         "approval_pending",
         "approved",
+        "sent_to_manager",
+        "manager_rejected",
+        "sent_to_hr",
+        "hr_rejected",
     ] = "collecting"
     current_phase: int = 1
     current_agent: str = "BasicInfoAgent"

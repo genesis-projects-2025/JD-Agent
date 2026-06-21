@@ -100,12 +100,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     useEffect(() => {
         if (typeof window !== "undefined") {
             try {
-                // One-time migration: clear legacy storage only if not already done
                 const migrationKey = "jd_cookie_migrated";
-                if (!document.cookie.includes(migrationKey)) {
+                if (!document.cookie.includes(migrationKey) && !localStorage.getItem(migrationKey)) {
+                    // Preserve active fallback keys
+                    const currentEmpId = localStorage.getItem(cookieKeys.EMPLOYEE_ID);
+                    const currentUser = localStorage.getItem(cookieKeys.AUTH_USER);
+                    
                     localStorage.clear();
                     sessionStorage.clear();
-                    document.cookie = `${migrationKey}=1; Path=/; Max-Age=31536000;`;
+                    
+                    if (currentEmpId) localStorage.setItem(cookieKeys.EMPLOYEE_ID, currentEmpId);
+                    if (currentUser) localStorage.setItem(cookieKeys.AUTH_USER, currentUser);
+                    
+                    document.cookie = `${migrationKey}=1; Path=/; Max-Age=31536000; SameSite=Strict;`;
+                    localStorage.setItem(migrationKey, "1");
                 }
             } catch (e) {
                 // Silently ignore cleanup failures

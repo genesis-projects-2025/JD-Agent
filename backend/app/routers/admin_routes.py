@@ -234,22 +234,59 @@ async def upload_kra_kpi_document(
 ):
     """
     Upload and parse existing KRA/KPI document for an employee.
+    Supports DOCX, PDF, and Excel (.xlsx, .xls) files.
     Auto-creates JDSession if missing, and creates a confirmed KRAKPISession.
     """
+
+    # Check if target employee has an approved JD session
+    jd_res = await db.execute(
+        select(JDSession).where(
+            JDSession.employee_id == employee_id,
+            JDSession.status == "approved"
+        )
+    )
+    jd_session = jd_res.scalars().first()
+    if not jd_session:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "code": "MISSING_JD",
+                "message": f"Employee {employee_name} ({employee_id}) does not have an approved Job Description yet. Please prepare/approve the JD first."
+            }
+        )
 
     allowed_types = {
         "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "docx",
         "application/msword": "docx",  # Coerce .doc to .docx parser if needed, or fallback
         "application/pdf": "pdf",
+        # Excel formats
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": "xlsx",
+        "application/vnd.ms-excel": "xls",
+        "application/octet-stream": None,  # Some browsers send xlsx as this
     }
 
-    if file.content_type not in allowed_types:
+    content_type = file.content_type or ""
+    
+    # Detect Excel by filename extension if content_type is ambiguous
+    fname = (file.filename or "").lower()
+    if content_type == "application/octet-stream":
+        if fname.endswith(".xlsx"):
+            content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        elif fname.endswith(".xls"):
+            content_type = "application/vnd.ms-excel"
+        else:
+            raise HTTPException(
+                status_code=400,
+                detail="Could not determine file type. Please upload DOCX, PDF, or Excel (.xlsx/.xls).",
+            )
+
+    if content_type not in allowed_types or allowed_types[content_type] is None:
         raise HTTPException(
             status_code=400,
-            detail=f"Invalid file type. Accepted: DOCX, PDF. Got: {file.content_type}",
+            detail=f"Invalid file type. Accepted: DOCX, PDF, Excel (.xlsx/.xls). Got: {content_type}",
         )
 
-    file_type = allowed_types[file.content_type]
+    file_type = allowed_types[content_type]
     file_content = await file.read()
 
     # Validate size (10MB max)
@@ -281,6 +318,7 @@ async def upload_kra_kpi_document(
         )
 
 
+
 class AnalyzePasteRequest(BaseModel):
     employee_id: str
     employee_name: str
@@ -297,11 +335,29 @@ class ConfirmPasteRequest(BaseModel):
 @router.post("/admin/kra-kpi/analyze-paste")
 async def analyze_kra_kpi_paste_endpoint(
     request: AnalyzePasteRequest,
+    db: AsyncSession = Depends(get_db),
     admin_role: str = Depends(get_current_admin),
 ):
     """
     Directly analyze pasted KRA/KPI raw text and return structured preview before confirmation.
     """
+    # Check if target employee has an approved JD session
+    jd_res = await db.execute(
+        select(JDSession).where(
+            JDSession.employee_id == request.employee_id,
+            JDSession.status == "approved"
+        )
+    )
+    jd_session = jd_res.scalars().first()
+    if not jd_session:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "code": "MISSING_JD",
+                "message": f"Employee {request.employee_name} ({request.employee_id}) does not have an approved Job Description yet. Please prepare/approve the JD first."
+            }
+        )
+
     from app.services.kra_kpi_service import analyze_kra_kpi_text
     try:
         result = await analyze_kra_kpi_text(
@@ -330,6 +386,23 @@ async def confirm_kra_kpi_paste_endpoint(
     """
     Save the confirmed parsed KRA/KPI and inferred JD to the employee's active session.
     """
+    # Check if target employee has an approved JD session
+    jd_res = await db.execute(
+        select(JDSession).where(
+            JDSession.employee_id == request.employee_id,
+            JDSession.status == "approved"
+        )
+    )
+    jd_session = jd_res.scalars().first()
+    if not jd_session:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "code": "MISSING_JD",
+                "message": f"Employee {request.employee_name} ({request.employee_id}) does not have an approved Job Description yet. Please prepare/approve the JD first."
+            }
+        )
+
     from app.services.kra_kpi_service import save_kra_kpi_from_paste
     try:
         result = await save_kra_kpi_from_paste(

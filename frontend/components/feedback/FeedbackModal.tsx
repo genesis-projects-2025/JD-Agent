@@ -100,7 +100,9 @@ export default function FeedbackModal({
  </div>
  <h3 className="text-xl font-medium text-slate-800">Thank you!</h3>
  <p className="text-slate-500 text-sm">
- Your feedback helps us improve the JD creation experience.
+ {category === "KRA/KPI Process"
+   ? "Your feedback helps us improve the KRA/KPI review experience."
+   : "Your feedback helps us improve the JD creation experience."}
  </p>
  </div>
  ) : (
@@ -137,6 +139,7 @@ export default function FeedbackModal({
  <option value="Bug Report">Report a Bug</option>
  <option value="Feature Request">Feature Request</option>
  <option value="JD Process">JD Generation Process</option>
+ <option value="KRA/KPI Process">KRA/KPI Process</option>
  </select>
  </div>
 

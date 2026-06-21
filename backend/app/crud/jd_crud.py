@@ -326,7 +326,11 @@ async def save_questionnaire_jd(
                 role=turn.get("role", "unknown"),
                 content=turn.get("content", ""),
             )
-            db.add(new_turn)
+    # Delete stale KRA/KPI session on JD save/update
+    from app.models.kra_kpi_model import KRAKPISession
+    await db.execute(
+        delete(KRAKPISession).where(KRAKPISession.jd_session_id == str(record.id))
+    )
 
     await db.commit()
     await db.refresh(record, ["conversation_turns", "employee"])
@@ -540,6 +544,12 @@ async def update_questionnaire_jd(
     if department:
         record.department = department
 
+    # Delete stale KRA/KPI session on JD save/update
+    from app.models.kra_kpi_model import KRAKPISession
+    await db.execute(
+        delete(KRAKPISession).where(KRAKPISession.jd_session_id == str(record.id))
+    )
+
     await db.commit()
     await db.refresh(record)
 
@@ -578,6 +588,14 @@ async def update_questionnaire_status(
             and editor.role in ["manager", "head"]
             and creator.reporting_manager_code == editor.id
         )
+
+        # Check indirect recursive reports if role is manager/head
+        if not is_manager and editor and creator and editor.role in ["manager", "head"]:
+            from app.services.dashboard_service import DashboardService
+            recursive_reports = await DashboardService.get_recursive_reports(db, editor.id)
+            if creator.id in recursive_reports:
+                is_manager = True
+
         is_hr = editor and editor.role in ["hr", "admin"]
         is_owner_submitting = record.employee_id == employee_id
 
@@ -595,6 +613,15 @@ async def update_questionnaire_status(
             record.conversation_state = state
         except Exception as e:
             logger.warning(f"Failed to update status inside conversation_state: {e}")
+
+    # Also sync status to KRAKPISession if it exists
+    from app.models.kra_kpi_model import KRAKPISession
+    kra_res = await db.execute(
+        select(KRAKPISession).where(KRAKPISession.jd_session_id == str(record.id))
+    )
+    kra_session = kra_res.scalars().first()
+    if kra_session:
+        kra_session.status = new_status
 
     # Update timestamps for workflow progression
     if new_status == "sent_to_manager":
@@ -702,6 +729,18 @@ async def list_questionnaires_by_employee(
     )
     records = list(result.scalars().all())
 
+    # Get KRA/KPI statuses
+    if records:
+        from app.models.kra_kpi_model import KRAKPISession
+        jd_ids = [str(r.id) for r in records]
+        kra_res = await db.execute(
+            select(KRAKPISession.jd_session_id, KRAKPISession.status)
+            .where(KRAKPISession.jd_session_id.in_(jd_ids))
+        )
+        kra_statuses = {row[0]: row[1] for row in kra_res.all()}
+        for r in records:
+            r.kra_kpi_status = kra_statuses.get(str(r.id))
+
     # Serialise for cache (only lightweight list fields)
     serialised = [
         {
@@ -709,6 +748,7 @@ async def list_questionnaires_by_employee(
             "employee_id": r.employee_id,
             "title": r.title,
             "status": r.status,
+            "kra_kpi_status": getattr(r, "kra_kpi_status", None),
             "version": r.version,
             "created_at": r.created_at.isoformat() if r.created_at else None,
             "updated_at": r.updated_at.isoformat() if r.updated_at else None,
@@ -723,12 +763,36 @@ async def list_manager_pending_jds(
     db: AsyncSession, manager_id: str
 ) -> list[JDSession]:
     from app.models.user_model import Employee
+    from app.services.dashboard_service import DashboardService
 
-    result = await db.execute(
-        select(JDSession)
-        .join(Employee, JDSession.employee_id == Employee.id)
-        .options(selectinload(JDSession.employee))
-        .where(
+    # Fetch manager/head role
+    mgr_res = await db.execute(select(Employee).where(Employee.id == manager_id))
+    mgr = mgr_res.scalar_one_or_none()
+
+    if mgr and mgr.role == "head":
+        # Get recursive reports
+        recursive_reports = await DashboardService.get_recursive_reports(db, manager_id)
+        direct_reports = await DashboardService.get_direct_reports(db, manager_id)
+        indirect_reports = recursive_reports - direct_reports
+
+        cond_list = []
+        if direct_reports:
+            cond_list.append(
+                Employee.id.in_(list(direct_reports)) & JDSession.status.in_(["sent_to_manager", "manager_rejected", "sent_to_hr", "hr_rejected", "approved"])
+            )
+        if indirect_reports:
+            cond_list.append(
+                Employee.id.in_(list(indirect_reports)) & JDSession.status.in_(["sent_to_hr"])
+            )
+
+        if cond_list:
+            from sqlalchemy import or_
+            conditions = or_(*cond_list)
+        else:
+            conditions = Employee.reporting_manager_code == manager_id
+    else:
+        # Only direct reports
+        conditions = (
             (Employee.reporting_manager_code == manager_id)
             & (
                 JDSession.status.in_(
@@ -742,6 +806,12 @@ async def list_manager_pending_jds(
                 )
             )
         )
+
+    result = await db.execute(
+        select(JDSession)
+        .join(Employee, JDSession.employee_id == Employee.id)
+        .options(selectinload(JDSession.employee))
+        .where(conditions)
         .order_by(JDSession.updated_at.desc())
     )
     return list(result.scalars().all())
@@ -826,6 +896,18 @@ async def create_review_comment(
         elif action == "approved":
             record.status = "approved"
             _trigger_rag_indexing(record)
+
+        # Sync status and comments to KRAKPISession if it exists
+        from app.models.kra_kpi_model import KRAKPISession
+        kra_res = await db.execute(
+            select(KRAKPISession).where(KRAKPISession.jd_session_id == str(record.id))
+        )
+        kra_session = kra_res.scalars().first()
+        if kra_session:
+            kra_session.status = record.status
+            kra_session.reviewer_comment = comment
+            kra_session.reviewed_by = reviewer_id
+            kra_session.reviewed_at = datetime.datetime.now(datetime.timezone.utc)
 
     await db.commit()
     await db.refresh(review)

@@ -604,6 +604,25 @@ def health_check():
     return {"status": "ok"}
 
 
+async def _attach_kra_kpi_status(db: AsyncSession, records: list) -> None:
+    if not records:
+        return
+    # Filter out dicts
+    session_ids = [str(r.id) for r in records if not isinstance(r, dict)]
+    if not session_ids:
+        return
+    from app.models.kra_kpi_model import KRAKPISession
+    from sqlalchemy import select
+    result = await db.execute(
+        select(KRAKPISession.jd_session_id, KRAKPISession.status)
+        .where(KRAKPISession.jd_session_id.in_(session_ids))
+    )
+    kra_statuses = {row[0]: row[1] for row in result.all()}
+    for r in records:
+        if not isinstance(r, dict):
+            r.kra_kpi_status = kra_statuses.get(str(r.id))
+
+
 # ── List all (admin) ──────────────────────────────────────────────────────────
 @router.get("/list")
 @cached_response("jd_list", ttl=300)
@@ -614,6 +633,7 @@ async def list_jds(submitted_only: bool = False, db: AsyncSession = Depends(get_
         else None
     )
     records = await list_questionnaires(db, status_in=status_filter)
+    await _attach_kra_kpi_status(db, records)
     return [_serialize_list_item(r) for r in records]
 
 
@@ -711,6 +731,7 @@ async def get_employee_jds(employee_id: str, db: AsyncSession = Depends(get_db))
 @cached_response("manager_pending", ttl=300)
 async def get_manager_pending_jds(manager_id: str, db: AsyncSession = Depends(get_db)):
     records = await list_manager_pending_jds(db, manager_id)
+    await _attach_kra_kpi_status(db, records)
     return [_serialize_list_item(r) for r in records]
 
 
@@ -719,6 +740,7 @@ async def get_manager_pending_jds(manager_id: str, db: AsyncSession = Depends(ge
 @cached_response("hr_pending", ttl=300)
 async def get_hr_pending_jds(db: AsyncSession = Depends(get_db)):
     records = await list_hr_pending_jds(db)
+    await _attach_kra_kpi_status(db, records)
     return [_serialize_list_item(r) for r in records]
 
 
@@ -863,12 +885,21 @@ async def get_jd(jd_id: str, db: AsyncSession = Depends(get_db)):
         {"role": t.role, "content": t.content}
         for t in (record.conversation_turns or [])
     ]
+
+    from app.models.kra_kpi_model import KRAKPISession
+    kra_res = await db.execute(
+        select(KRAKPISession.status).where(KRAKPISession.jd_session_id == str(record.id))
+    )
+    kra_kpi_status = kra_res.scalars().first()
+
     return {
         "id": str(record.id),
         "employee_id": record.employee_id,
         "employee_name": employee_name,
+        "reporting_manager_code": emp_record.reporting_manager_code if emp_record else None,
         "title": record.title,
         "status": record.status,
+        "kra_kpi_status": kra_kpi_status,
         "version": record.version,
         "generated_jd": record.jd_text,
         "jd_structured": jd_structured,
@@ -1079,6 +1110,7 @@ def _serialize_list_item(r) -> dict:
         "department": r.department or (employee.department if employee else None),
         "title": r.title,
         "status": r.status,
+        "kra_kpi_status": getattr(r, "kra_kpi_status", None),
         "version": r.version,
         "created_at": r.created_at,
         "updated_at": r.updated_at,

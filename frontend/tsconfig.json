@@ -35,8 +35,9 @@
     "**/*.tsx",
     ".next/dev/types/**/*.ts",
     ".next/types/**/*.ts",
+    "build.nosync/types/**/*.ts",
     "next-env.d.ts",
-    "build.nosync/types/**/*.ts"
+    "build-dev.nosync/types/**/*.ts"
   ],
   "exclude": [
     "node_modules",

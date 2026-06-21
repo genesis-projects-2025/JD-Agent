@@ -15,3 +15,5 @@ PyMuPDF
 greenlet
 python-docx
 langgraph
+openpyxl
+xlrd

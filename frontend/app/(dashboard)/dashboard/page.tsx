@@ -664,9 +664,35 @@ export default function DashboardPage() {
                   </thead>
                   <tbody className="divide-y divide-surface-100">
                     {deptEmployees.map((emp) => {
-                      const config =
+                      let config =
                         STATUS_CONFIG[emp.jd_status] ||
                         STATUS_CONFIG["Not Submitted"];
+
+                      if (emp.jd_status === "approved" && emp.kra_kpi_status === "sent_to_manager") {
+                        config = {
+                          label: "KRA/KPI Review",
+                          color: "text-blue-700",
+                          bg: "bg-blue-50 border-blue-200",
+                        };
+                      } else if (emp.jd_status === "approved" && emp.kra_kpi_status === "sent_to_hr") {
+                        config = {
+                          label: "KRA/KPI HR Review",
+                          color: "text-purple-700",
+                          bg: "bg-purple-50 border-purple-200",
+                        };
+                      } else if (emp.jd_status === "approved" && emp.kra_kpi_status === "manager_rejected") {
+                        config = {
+                          label: "KRA/KPI Rejected",
+                          color: "text-red-700",
+                          bg: "bg-red-50 border-red-200",
+                        };
+                      } else if (emp.jd_status === "approved" && emp.kra_kpi_status === "hr_rejected") {
+                        config = {
+                          label: "KRA/KPI HR Rejected",
+                          color: "text-red-700",
+                          bg: "bg-red-50 border-red-200",
+                        };
+                      }
 
                       return (
                         <tr
@@ -755,8 +781,32 @@ export default function DashboardPage() {
             ) : (
               <div className="divide-y divide-surface-100">
                 {displayJDs.map((jdItem) => {
-                  const config =
-                    STATUS_CONFIG[jdItem.status] || STATUS_CONFIG.draft;
+                  let config = STATUS_CONFIG[jdItem.status] || STATUS_CONFIG.draft;
+                  if (jdItem.status === "approved" && jdItem.kra_kpi_status === "sent_to_manager") {
+                    config = {
+                      label: "KRA/KPI Review",
+                      color: "text-blue-700",
+                      bg: "bg-blue-50 border-blue-200",
+                    };
+                  } else if (jdItem.status === "approved" && jdItem.kra_kpi_status === "sent_to_hr") {
+                    config = {
+                      label: "KRA/KPI HR Review",
+                      color: "text-purple-700",
+                      bg: "bg-purple-50 border-purple-200",
+                    };
+                  } else if (jdItem.status === "approved" && jdItem.kra_kpi_status === "manager_rejected") {
+                    config = {
+                      label: "KRA/KPI Rejected",
+                      color: "text-red-700",
+                      bg: "bg-red-50 border-red-200",
+                    };
+                  } else if (jdItem.status === "approved" && jdItem.kra_kpi_status === "hr_rejected") {
+                    config = {
+                      label: "KRA/KPI HR Rejected",
+                      color: "text-red-700",
+                      bg: "bg-red-50 border-red-200",
+                    };
+                  }
 
                   const isDraft =
                     jdItem.status === "draft" ||

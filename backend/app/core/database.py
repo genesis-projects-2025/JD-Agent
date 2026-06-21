@@ -73,6 +73,11 @@ async def init_db():
             # If using SQLite (e.g. for local testing/development), return early
             # since SQLite does not support PostgreSQL-specific DDL and PL/pgSQL syntax.
             if conn.dialect.name == "sqlite":
+                for col, col_type in [("reviewer_comment", "TEXT"), ("reviewed_by", "VARCHAR(255)"), ("reviewed_at", "TIMESTAMP")]:
+                    try:
+                        await conn.execute(text(f"ALTER TABLE kra_kpi_sessions ADD COLUMN {col} {col_type}"))
+                    except Exception:
+                        pass
                 logger.info("ℹ️ SQLite database detected. Skipping PostgreSQL-specific database migrations.")
                 return
 
@@ -80,6 +85,9 @@ async def init_db():
             # Ensure timestamp columns for RBAC workflow exist
             await conn.execute(text("ALTER TABLE jd_sessions ADD COLUMN IF NOT EXISTS sent_to_manager_at TIMESTAMP WITH TIME ZONE"))
             await conn.execute(text("ALTER TABLE jd_sessions ADD COLUMN IF NOT EXISTS sent_to_hr_at TIMESTAMP WITH TIME ZONE"))
+            await conn.execute(text("ALTER TABLE kra_kpi_sessions ADD COLUMN IF NOT EXISTS reviewer_comment TEXT"))
+            await conn.execute(text("ALTER TABLE kra_kpi_sessions ADD COLUMN IF NOT EXISTS reviewed_by VARCHAR(255)"))
+            await conn.execute(text("ALTER TABLE kra_kpi_sessions ADD COLUMN IF NOT EXISTS reviewed_at TIMESTAMP WITH TIME ZONE"))
             await conn.execute(
                 text("""
                 DO $$
@@ -118,6 +126,12 @@ async def init_db():
                 text("""
                 ALTER TABLE jd_sessions
                 ADD COLUMN IF NOT EXISTS source_reference_jd_id VARCHAR(36);
+            """)
+            )
+            await conn.execute(
+                text("""
+                ALTER TABLE kra_kpi_sessions
+                ADD COLUMN IF NOT EXISTS conversation_state JSONB;
             """)
             )
             await conn.execute(

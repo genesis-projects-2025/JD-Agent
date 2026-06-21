@@ -2,12 +2,13 @@
 """
 KRA/KPI Routes — 3-step guided flow:
 
-  GET  /kra-kpi/{jd_session_id}/status         → Check prerequisites + current step
-  POST /kra-kpi/generate/{jd_session_id}        → Step 1: Generate 6–7 KRA suggestions
-  GET  /kra-kpi/{jd_session_id}                 → Fetch current record (any step)
-  POST /kra-kpi/{jd_session_id}/select-kras     → Step 2: Select 3–5 KRAs → triggers KPI generation
-  POST /kra-kpi/{jd_session_id}/select-kpis     → Step 3a: Select 3–5 KPIs per KRA
-  PUT  /kra-kpi/{jd_session_id}/weights         → Step 3b: Save weight adjustments (+ optional confirm)
+  GET  /kra-kpi/{jd_session_id}/status               → Check prerequisites + current step
+  POST /kra-kpi/generate/{jd_session_id}             → Step 1: Generate 6–7 KRA suggestions
+  GET  /kra-kpi/{jd_session_id}                      → Fetch current record (any step)
+  POST /kra-kpi/{jd_session_id}/select-kras          → Step 2: Select 3–5 KRAs → triggers KPI generation
+  POST /kra-kpi/{jd_session_id}/select-kpis          → Step 3a: Select 3–5 KPIs per KRA
+  PUT  /kra-kpi/{jd_session_id}/weights              → Step 3b: Employee sets weights + confirms
+  POST /kra-kpi/{jd_session_id}/send-for-approval    → Step 4: Send confirmed KRA/KPI for manager approval
 """
 
 from __future__ import annotations
@@ -100,15 +101,31 @@ async def get_status(
     db: AsyncSession = Depends(get_db),
 ):
     """Check prerequisites and return current step."""
+    from sqlalchemy import select
+    from app.models.kra_kpi_model import UploadedKRAKPI
+
+    # Check if there is an admin-uploaded KRA/KPI first
+    uploaded_res = await db.execute(
+        select(UploadedKRAKPI).where(UploadedKRAKPI.employee_id == employee_id)
+    )
+    uploaded = uploaded_res.scalars().first()
+    if uploaded:
+        return PrerequisiteStatusResponse(
+            ready=True,
+            missing=[],
+            message="KRA/KPI framework is confirmed (Admin Uploaded).",
+            current_step="uploaded",
+        )
+
     record = await get_kra_kpi_by_jd_session(db, jd_session_id)
     current_step = record.generation_step if record else None
     status_val = record.status if record else None
 
-    if current_step == "confirmed" or status_val == "confirmed":
+    if current_step == "confirmed" or status_val in ("confirmed", "sent_to_manager", "sent_to_hr", "approved", "manager_rejected", "hr_rejected"):
         return PrerequisiteStatusResponse(
             ready=True,
             missing=[],
-            message="KRA/KPI framework is confirmed.",
+            message="KRA/KPI framework is confirmed or active in workflow.",
             current_step=current_step,
         )
 
@@ -160,6 +177,50 @@ async def generate_kra_suggestions_endpoint(
 @router.get("/{jd_session_id}")
 async def get_kra_kpi(jd_session_id: str, db: AsyncSession = Depends(get_db)):
     """Fetch the current KRA/KPI record at any step."""
+    from sqlalchemy import select
+    from app.models.kra_kpi_model import UploadedKRAKPI
+    from app.models.jd_session_model import JDSession
+    import uuid
+
+    # Try to find employee_id from jd_session_id
+    employee_id = None
+    try:
+        jd_uuid = uuid.UUID(jd_session_id)
+        jd_res = await db.execute(select(JDSession).where(JDSession.id == jd_uuid))
+        jd_session = jd_res.scalars().first()
+        if jd_session:
+            employee_id = jd_session.employee_id
+    except Exception:
+        pass
+
+    if employee_id:
+        # Check if there is an admin-uploaded KRA/KPI for this employee
+        uploaded_res = await db.execute(
+            select(UploadedKRAKPI).where(UploadedKRAKPI.employee_id == employee_id)
+        )
+        uploaded = uploaded_res.scalars().first()
+        if uploaded:
+            return {
+                "id": str(uploaded.id),
+                "jd_session_id": jd_session_id,
+                "employee_id": uploaded.employee_id,
+                "manager_employee_id": None,
+                "generation_step": "uploaded",
+                "kra_suggestions": None,
+                "selected_kra_ids": None,
+                "kpi_suggestions": None,
+                "selected_kpi_ids": None,
+                "kras": uploaded.kras, # e.g. {"kras": [...]}
+                "status": "approved",
+                "generation_model": "uploaded",
+                "generation_error": None,
+                "conversation_state": None,
+                "generated_at": uploaded.created_at.isoformat() if uploaded.created_at else None,
+                "confirmed_at": uploaded.updated_at.isoformat() if uploaded.updated_at else None,
+                "created_at": uploaded.created_at.isoformat() if uploaded.created_at else None,
+                "updated_at": uploaded.updated_at.isoformat() if uploaded.updated_at else None,
+            }
+
     record = await get_kra_kpi_by_jd_session(db, jd_session_id)
     if not record:
         raise HTTPException(status_code=404, detail={"error": "not_found", "message": "No KRA/KPI generated yet."})
@@ -251,3 +312,162 @@ async def save_weights_endpoint(
     except Exception as e:
         logger.error(f"[KRAKPIRoutes] Save weights error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/{jd_session_id}/send-for-approval")
+async def send_for_approval_endpoint(
+    jd_session_id: str,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Step 4: Send confirmed KRA/KPI framework for manager approval.
+    Transitions status from 'confirmed' → 'sent_to_manager'.
+    Only allowed when generation_step == 'confirmed' and weights sum to 100.
+    """
+    from datetime import datetime, timezone
+    record = await get_kra_kpi_by_jd_session(db, jd_session_id)
+    if not record:
+        raise HTTPException(status_code=404, detail="No KRA/KPI session found.")
+    if record.generation_step != "confirmed":
+        raise HTTPException(
+            status_code=400,
+            detail="KRA/KPI must be confirmed (weights set) before sending for approval.",
+        )
+    if record.status in ("sent_to_manager", "sent_to_hr", "approved"):
+        raise HTTPException(
+            status_code=400,
+            detail=f"KRA/KPI is already in status: {record.status}",
+        )
+
+    # Validate weights sum to 100
+    kras = (record.kras or {}).get("kras", [])
+    total = sum((k.get("weight") or 0) for k in kras)
+    if abs(total - 100) > 1:
+        raise HTTPException(
+            status_code=400,
+            detail=f"KRA weights must sum to 100 before sending for approval. Current total: {total}",
+        )
+
+    now = datetime.now(timezone.utc)
+    record.status = "sent_to_manager"
+    record.updated_at = now
+    await db.commit()
+    await db.refresh(record)
+
+    from app.core.cache import invalidate_pattern
+    await invalidate_pattern("cache:jd_list:*")
+    await invalidate_pattern("cache:manager_pending:*")
+    await invalidate_pattern("cache:hr_pending:*")
+    await invalidate_pattern("cache:dept_stats:*")
+    await invalidate_pattern(f"cache:jd_detail:*{jd_session_id}*")
+    await invalidate_pattern(f"jds:employee:{record.employee_id}")
+
+    return {
+        "status": "success",
+        "message": "KRA/KPI framework sent to manager for approval.",
+        "kra_kpi_status": record.status,
+    }
+
+
+from fastapi.responses import StreamingResponse
+import json
+from app.schemas.jd_schema import ChatRequest
+from app.agents.kra_kpi_interview_agent import kra_kpi_interview_engine
+from app.services.kra_kpi_service import sync_kra_kpi_session_to_db
+
+
+@router.post("/chat/stream")
+async def chat_stream(request: ChatRequest, db: AsyncSession = Depends(get_db)):
+    session_id = request.id
+    if not session_id:
+        raise HTTPException(status_code=400, detail="Missing session id")
+
+    async def event_generator():
+        try:
+            conversation_history = list(request.history)
+            conversation_history.append({"role": "user", "content": request.message})
+
+            parsed_done_data = None
+            async for chunk in kra_kpi_interview_engine.run_turn_stream(
+                session_id=session_id,
+                user_message=request.message,
+                db=db,
+            ):
+                if chunk.get("type") == "done":
+                    parsed_done_data = chunk.get("parsed")
+                    yield f"data: {json.dumps(chunk)}\n\n"
+                else:
+                    yield f"data: {json.dumps(chunk)}\n\n"
+
+            if parsed_done_data:
+                # Add assistant response to history
+                conversation_history.append({
+                    "role": "assistant",
+                    "content": json.dumps(parsed_done_data),
+                })
+                # Sync turns and state
+                await sync_kra_kpi_session_to_db(
+                    db=db,
+                    session_id=session_id,
+                    conversation_state=parsed_done_data.get("progress", {}),
+                    conversation_history=conversation_history,
+                )
+        except Exception as e:
+            logger.error(f"[KRAKPIRoutes] Stream error: {e}")
+            yield f"data: {json.dumps({'type': 'error', 'content': str(e)})}\n\n"
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+            "Connection": "keep-alive",
+        },
+    )
+
+
+@router.post("/chat")
+async def chat(request: ChatRequest, db: AsyncSession = Depends(get_db)):
+    session_id = request.id
+    if not session_id:
+        raise HTTPException(status_code=400, detail="Missing session id")
+
+    conversation_history = list(request.history)
+    conversation_history.append({"role": "user", "content": request.message})
+
+    # Retrieve all chunks and extract the final "done" parsed payload
+    reply_content = ""
+    parsed_done_data = None
+
+    async for chunk in kra_kpi_interview_engine.run_turn_stream(
+        session_id=session_id,
+        user_message=request.message,
+        db=db,
+    ):
+        if chunk.get("type") == "chunk":
+            reply_content += chunk.get("content", "")
+        elif chunk.get("type") == "done":
+            parsed_done_data = chunk.get("parsed")
+
+    if not parsed_done_data:
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to generate conversational KRA/KPI response.",
+        )
+
+    # Add assistant response to history
+    conversation_history.append({
+        "role": "assistant",
+        "content": json.dumps(parsed_done_data),
+    })
+
+    # Sync state and turns to db
+    await sync_kra_kpi_session_to_db(
+        db=db,
+        session_id=session_id,
+        conversation_state=parsed_done_data.get("progress", {}),
+        conversation_history=conversation_history,
+    )
+
+    return {"reply": json.dumps(parsed_done_data), "history": conversation_history}

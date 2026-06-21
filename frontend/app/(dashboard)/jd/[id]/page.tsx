@@ -373,21 +373,26 @@ function JDPageContent() {
  setShowRejectModal(true);
  };
 
- const handleManagerSendToHR = async () => {
- setSendingToManager(true);
- setIsApproving(true);
- try {
- await sendToHR(jd.id, jd.employee_id);
- const updated = await fetchJD(jd.id);
- setJd(updated);
- setShowFeedbackPrompt(true);
- } catch (e: any) {
- alert(e.message || "Failed to send to HR.");
- } finally {
- setSendingToManager(false);
- setIsApproving(false);
- }
- };
+  const handleManagerSendToHR = async () => {
+  setSendingToManager(true);
+  setIsApproving(true);
+  try {
+  const isHeadReviewingSentToHR = role === "head" && (jd?.status === "sent_to_hr" || jd?.kra_kpi_status === "sent_to_hr");
+  if (isHeadReviewingSentToHR) {
+  await approveJD(jd.id, jd.employee_id);
+  } else {
+  await sendToHR(jd.id, jd.employee_id);
+  }
+  const updated = await fetchJD(jd.id);
+  setJd(updated);
+  setShowFeedbackPrompt(true);
+  } catch (e: any) {
+  alert(e.message || "Failed to process approval.");
+  } finally {
+  setSendingToManager(false);
+  setIsApproving(false);
+  }
+  };
 
  const handleHRReject = () => {
  setRejectingAs("hr");
@@ -524,19 +529,30 @@ function JDPageContent() {
  return;
  }
 
- let url = `/dashboard/${btoa(u.employee_id)}`;
+  let targetEmployeeId = u.employee_id;
+  const isInspector = u.employee_id !== jd?.employee_id;
+  let url = `/dashboard/${btoa(targetEmployeeId)}`;
  if (jd) {
  const isManagerRole = u.role === "manager" || u.role === "head";
- if (isManagerRole && (jd.status === "sent_to_manager" || jd.status === "sent_to_hr")) {
- url += "?view=pending";
- } else if (isManagerRole && jd.status === "approved") {
- url += "?view=approved";
- } else if ((u.role === "hr" || u.role === "admin") && jd.status === "sent_to_hr") {
- url += "?view=approvals";
- } else if (jd.status.includes("rejected")) {
- url += "?view=feedback";
- }
- }
+ if (isManagerRole && (
+    jd.status === "sent_to_manager" ||
+    jd.status === "sent_to_hr" ||
+    jd.kra_kpi_status === "sent_to_manager" ||
+    jd.kra_kpi_status === "sent_to_hr"
+  )) {
+  url += "?view=pending";
+  } else if (isManagerRole && jd.status === "approved" && jd.kra_kpi_status !== "sent_to_manager") {
+  if (!isInspector) {
+  url += "?view=approved";
+  }
+  } else if ((u.role === "hr" || u.role === "admin") && (jd.status === "sent_to_hr" || jd.kra_kpi_status === "sent_to_hr")) {
+  url += "?view=approvals";
+  } else if (jd.status.includes("rejected") || (jd.kra_kpi_status && jd.kra_kpi_status.includes("rejected"))) {
+  if (!isInspector) {
+  url += "?view=feedback";
+  }
+  }
+  }
  router.push(url);
 
  }}
@@ -652,44 +668,57 @@ function JDPageContent() {
 
  {(role === "manager" || role === "head" || role === "hr" || role === "admin") && (
  <div className="flex flex-col gap-3 min-w-[240px] w-full lg:w-auto mt-2 lg:mt-0 order-last lg:order-none">
- {(role === "manager" || role === "head") && jd.status === "sent_to_manager" && (
+  {(() => {
+     const isDirectManager = currentUser?.employee_id === jd?.reporting_manager_code;
+     const isHeadReviewingSentToHR = role === "head" && (jd?.status === "sent_to_hr" || jd?.kra_kpi_status === "sent_to_hr");
+     const showManagerActionButtons = (role === "manager" || role === "head") && (
+       (isDirectManager && (jd?.status === "sent_to_manager" || jd?.kra_kpi_status === "sent_to_manager")) ||
+       isHeadReviewingSentToHR
+     );
+     if (!showManagerActionButtons) return null;
 
- <div className="flex flex-col sm:flex-row flex-wrap gap-3 w-full">
- <button
- onClick={handleManagerSendToHR}
- disabled={sendingToManager || isEditing || isApproving}
- className="flex-1 px-5 py-3.5 bg-emerald-600 text-white rounded-md font-medium flex flex-center items-center justify-center gap-2 shadow-sm hover:shadow-md hover:-translate-y-0.5 hover:bg-emerald-700 text-[14px] transition-all disabled:opacity-50 whitespace-nowrap"
- >
- {isApproving ? (
- <Loader2 className="w-4 h-4 animate-spin" />
- ) : (
- <CheckCircle2 className="w-4 h-4" />
- )}
- {isApproving ? "Forwarding..." : "Approve"}
- </button>
- <button
- onClick={handleEditToggle}
- disabled={isSavingEdit || sendingToManager}
- className="flex-1 px-5 py-3.5 bg-white text-primary-700 border border-primary-200 rounded-md font-medium hover:bg-primary-50 transition-all shadow-sm active:scale-[0.98] flex items-center justify-center gap-2 text-[14px] disabled:opacity-50 whitespace-nowrap"
- >
- {isSavingEdit ? (
- <Loader2 className="w-4 h-4 animate-spin" />
- ) : isEditing ? (
- <Save className="w-4 h-4" />
- ) : (
- <Edit className="w-4 h-4" />
- )}
- {isEditing ? "Save" : "Edit"}
- </button>
- <button
- onClick={handleManagerReject}
- disabled={sendingToManager || isEditing}
- className="flex-1 px-5 py-3.5 bg-red-50 text-red-600 border border-red-100 rounded-md font-medium flex flex-center items-center justify-center gap-2 shadow-sm hover:bg-red-100 text-[14px] transition-all disabled:opacity-50 whitespace-nowrap"
- >
- <XCircle className="w-4 h-4" /> Reject
- </button>
- </div>
- )}
+     const approveBtnLabel = isApproving
+       ? (isHeadReviewingSentToHR ? "Signing Off..." : "Forwarding...")
+       : (isHeadReviewingSentToHR ? "Approve & Sign Off" : "Approve");
+
+     return (
+      <div className="flex flex-col sm:flex-row flex-wrap gap-3 w-full">
+      <button
+      onClick={handleManagerSendToHR}
+      disabled={sendingToManager || isEditing || isApproving}
+      className="flex-1 px-5 py-3.5 bg-emerald-600 text-white rounded-md font-medium flex flex-center items-center justify-center gap-2 shadow-sm hover:shadow-md hover:-translate-y-0.5 hover:bg-emerald-700 text-[14px] transition-all disabled:opacity-50 whitespace-nowrap"
+      >
+      {isApproving ? (
+      <Loader2 className="w-4 h-4 animate-spin" />
+      ) : (
+      <CheckCircle2 className="w-4 h-4" />
+      )}
+      {approveBtnLabel}
+      </button>
+      <button
+      onClick={handleEditToggle}
+      disabled={isSavingEdit || sendingToManager}
+      className="flex-1 px-5 py-3.5 bg-white text-primary-700 border border-primary-200 rounded-md font-medium hover:bg-primary-50 transition-all shadow-sm active:scale-[0.98] flex items-center justify-center gap-2 text-[14px] disabled:opacity-50 whitespace-nowrap"
+      >
+      {isSavingEdit ? (
+      <Loader2 className="w-4 h-4 animate-spin" />
+      ) : isEditing ? (
+      <Save className="w-4 h-4" />
+      ) : (
+      <Edit className="w-4 h-4" />
+      )}
+      {isEditing ? "Save" : "Edit"}
+      </button>
+      <button
+      onClick={handleManagerReject}
+      disabled={sendingToManager || isEditing}
+      className="flex-1 px-5 py-3.5 bg-red-50 text-red-600 border border-red-100 rounded-md font-medium flex flex-center items-center justify-center gap-2 shadow-sm hover:bg-red-100 text-[14px] transition-all disabled:opacity-50 whitespace-nowrap"
+      >
+      <XCircle className="w-4 h-4" /> Reject
+      </button>
+      </div>
+     );
+   })()}
 
  {/* Manager/Head Owner Actions (for their own drafts) */}
  {(role === "manager" || role === "head") &&
@@ -735,7 +764,7 @@ function JDPageContent() {
  {(role === "manager" || role === "head") &&
  ["sent_to_hr", "hr_rejected", "approved"].includes(
  jd.status,
- ) && (
+ ) && jd.kra_kpi_status !== "sent_to_manager" && (
  <button
  disabled
  className="w-full px-6 py-4 bg-emerald-50 text-emerald-600 border border-emerald-200 rounded-md font-medium flex items-center justify-center gap-2 text-[15px] cursor-not-allowed shadow-sm"
@@ -744,7 +773,7 @@ function JDPageContent() {
  </button>
  )}
 
- {(role === "hr" || role === "admin") && jd.status === "sent_to_hr" && (
+ {(role === "hr" || role === "admin") && (jd.status === "sent_to_hr" || jd.kra_kpi_status === "sent_to_hr") && (
  <div className="flex flex-col sm:flex-row flex-wrap gap-3 w-full">
  <button
  onClick={handleHRApprove}
@@ -815,7 +844,7 @@ function JDPageContent() {
  </button>
  </div>
  )}
- {(role === "hr" || role === "admin") && jd.status === "approved" && (
+ {(role === "hr" || role === "admin") && jd.status === "approved" && jd.kra_kpi_status !== "sent_to_hr" && (
  <button
  disabled
  className="w-full px-6 py-4 bg-purple-50 text-purple-600 border border-purple-200 rounded-md font-medium flex items-center justify-center gap-2 text-[15px] cursor-not-allowed shadow-sm"
@@ -865,9 +894,14 @@ function JDPageContent() {
  ) : (
  <Send className="w-4 h-4" />
  )}
- Submit for Approval
+ {jd.status === "hr_rejected"
+   ? "Resubmit to HR"
+   : jd.status === "manager_rejected"
+   ? "Resubmit to Manager"
+   : "Submit for Approval"}
  </button>
  </>
+
  )}
  {["sent_to_manager", "sent_to_hr", "approved"].includes(
  jd.status,
@@ -892,6 +926,28 @@ function JDPageContent() {
       .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
       .find((c: any) => c.action === "rejected" && rolesMatch(c.target_role, role));
     if (!latestRejection || !jd.status.includes("rejected")) return null;
+
+    // Determine who rejected based on JD status for clear messaging
+    const rejectedByManager = jd.status === "manager_rejected";
+    const rejectedByHR = jd.status === "hr_rejected";
+    const reviewerLabel = rejectedByHR
+      ? "HR"
+      : rejectedByManager
+      ? "your Manager"
+      : latestRejection.reviewer_role === "hr" || latestRejection.reviewer_role === "admin"
+      ? "HR"
+      : "your Manager";
+
+    const rejectionTag = rejectedByHR
+      ? "Rejected by HR"
+      : rejectedByManager
+      ? "Rejected by Manager"
+      : "Rejected";
+
+    const resubmitNote = rejectedByHR
+      ? "Please revise and resubmit. It will be sent back to HR for review."
+      : "Please revise and resubmit to your Manager for approval.";
+
     return (
       <div className="bg-red-50 border-2 border-red-200 rounded-[32px] p-6 mb-8 animate-in slide-in-from-top-4 duration-500 shadow-md shadow-red-900/5">
         <div className="flex items-start gap-4">
@@ -899,20 +955,28 @@ function JDPageContent() {
             <AlertTriangle className="w-6 h-6 text-red-600" />
           </div>
           <div className="flex-1">
-            <h3 className="text-lg font-medium text-red-900 mb-1">
-              Revision Requested
-            </h3>
+            <div className="flex items-center gap-3 mb-1">
+              <h3 className="text-lg font-medium text-red-900">
+                Revision Requested
+              </h3>
+              <span className="text-[10px] font-semibold text-red-600 bg-red-100 border border-red-200 px-2.5 py-1 rounded-full">
+                {rejectionTag}
+              </span>
+            </div>
             <p className="text-red-700 text-sm leading-relaxed mb-4">
-              {latestRejection.reviewer_name || "Reviewer"} requested changes to this document:
+              <strong>{latestRejection.reviewer_name || reviewerLabel}</strong> ({reviewerLabel}) requested changes to this document:
             </p>
             <div className="bg-white/60 backdrop-blur-sm rounded-md p-4 border border-red-200/50">
               <p className="text-red-800 text-[15px] font-medium leading-relaxed italic">
                 "{latestRejection.comment}"
               </p>
             </div>
-            <div className="mt-4 flex items-center gap-2">
-              <span className="text-[10px] font-medium text-red-400 bg-red-100/50 px-2 py-1 rounded-md">
+            <div className="mt-4 flex items-center gap-2 flex-wrap">
+              <span className="text-[10px] font-medium text-red-500 bg-red-100/70 px-2.5 py-1 rounded-md border border-red-200">
                 Action Required: Update and resubmit
+              </span>
+              <span className="text-[10px] font-medium text-surface-500 bg-surface-100 px-2.5 py-1 rounded-md">
+                {resubmitNote}
               </span>
             </div>
           </div>
@@ -920,6 +984,7 @@ function JDPageContent() {
       </div>
     );
   })()}
+
 
   {/* Review Audit Trail — all review history shown compactly */}
   {reviewComments.length > 0 && (
@@ -1158,7 +1223,7 @@ function JDPageContent() {
  isOpen={showFeedbackPrompt}
  onClose={() => setShowFeedbackPrompt(false)}
  jdSessionId={jdId}
- defaultCategory="JD Process"
+ defaultCategory={jd?.status === "approved" ? "KRA/KPI Process" : "JD Process"}
  />
 
  <ReviewRejectModal

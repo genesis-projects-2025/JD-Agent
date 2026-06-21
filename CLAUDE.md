@@ -65,6 +65,33 @@ Stores the full employee hierarchy imported from Darwinbox.
 | `job_level` | varchar | **Added June 2026** — mirrors `organogram.joblevel` |
 | `role` | varchar | `employee` / `manager` / `hr` |
 
+### `kra_kpi_sessions` table
+Stores generated KRAs/KPIs linked to a JD session, tracking generation steps, suggestions, selection IDs, final payload, status, and conversational states.
+
+### `kra_kpi_conversation_turns` table
+Stores the chat turn history for KRA/KPI conversational sessions.
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `id` | BigInteger PK | Auto-incrementing turn ID |
+| `session_id` | UUID FK | References `kra_kpi_sessions.id` |
+| `turn_index` | Integer | Turn index for sorting |
+| `role` | Text | `user` or `assistant` |
+| `content` | Text | Raw user message or JSON string from assistant |
+| `created_at` | DateTime | Timestamp |
+
+### `uploaded_kra_kpis` table
+Stores admin-uploaded KRAs/KPIs parsed directly from Excel without LLM modifications.
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `id` | UUID PK | Unique identifier |
+| `employee_id` | varchar | Employee code (indexed, unique) |
+| `employee_name` | varchar | Employee name |
+| `kras` | JSONB | Core KRAs & KPIs list (`{"kras": [{"title", "description", "kpis": [{"title", "description"}]}]}`) |
+| `created_at` | DateTime | Timestamp |
+| `updated_at` | DateTime | Timestamp |
+
 ### Job Level Mapping (Darwinbox standard)
 | Level | Designations |
 |-------|--------------|
@@ -112,13 +139,16 @@ Based on HR instructions, the JD template was updated across the codebase:
 | `backend/app/services/docx_generator.py` | **Skills & Tools Separation (June 2026):** Separated Skills and Tools/Platforms into distinct rows in the generated Word (.docx) document. |
 | `backend/app/models/kra_kpi_model.py` | **KRA/KPI Feature (June 2026):** New `kra_kpi_sessions` DB table. Stores generated KRAs/KPIs linked to a JD session. Requires employee JD + manager JD + manager KRAs before generation is allowed. |
 | `backend/app/agents/kra_kpi_agent.py` | **KRA/KPI Feature (June 2026):** LLM-based KRA/KPI generator with domain-aware prompting (engineering/sales/HR/finance/data), cascade alignment to manager KRAs, weight normalization, and threshold generation. |
-| `backend/app/services/kra_kpi_service.py` | **KRA/KPI Feature (June 2026):** Service layer with `check_prerequisites()` (validates all 3 sources), `generate_kra_kpi_for_employee()` (full pipeline), and `MissingPrerequisiteError` for structured missing-info responses. |
-| `backend/app/routers/kra_kpi_routes.py` | **KRA/KPI Feature (June 2026):** REST routes: GET status, POST generate, GET fetch, PUT update/confirm. Missing prerequisites return HTTP 422 with structured body. |
+| `backend/app/services/kra_kpi_service.py` | **KRA/KPI Feature (June 2026):** Service layer with `check_prerequisites()` (validates all 3 sources), `generate_kra_kpi_for_employee()` (full pipeline), `sync_kra_kpi_session_to_db` (conversational history synchronization) and `MissingPrerequisiteError` for structured missing-info responses. |
+| `backend/app/routers/kra_kpi_routes.py` | **KRA/KPI Feature (June 2026):** REST routes: GET status, POST generate, GET fetch, PUT update/confirm. **Bug Fix:** Updated status check endpoint to return `ready=True` for any session active in the workflow (confirmed, sent to manager, sent to HR, approved, rejected) to prevent blocking employee view. |
 | `backend/app/main.py` | **KRA/KPI Feature (June 2026):** Registered `kra_kpi_router`. |
 | `backend/app/models/__init__.py` | **KRA/KPI Feature (June 2026):** Registered `KRAKPISession` model. |
+| `backend/app/agents/kra_kpi_interview_agent.py` | **KRA/KPI Feature (June 2026):** Conversational AI Interview Engine (`KRAKPIInterviewEngine`) for step-by-step metric formulation and cascade alignment (6-step KPI design & SMARTER framework). |
 | `frontend/components/jd/kra-kpi-panel.tsx` | **KRA/KPI Feature (June 2026):** React panel with prerequisite banner, weight distribution bar, expandable KRA cards, KPI tables, thresholds, and generate/confirm buttons. |
-| `frontend/lib/api.ts` | **KRA/KPI Feature (June 2026):** Added TypeScript interfaces (KRA, KPI, KRAKPIRecord, PrerequisiteStatus) and 4 API functions (fetchKRAKPIStatus, generateKRAKPI, fetchKRAKPI, updateKRAKPI). |
-| `frontend/app/(dashboard)/jd/[id]/page.tsx` | **KRA/KPI Feature (June 2026):** Added KRA/KPI tab alongside JD tab. Fixed JSX tab nesting syntax error, correctly matching tab conditionals for both edit and preview. |
+| `frontend/lib/api.ts` | **KRA/KPI Feature (June 2026):** Added TypeScript interfaces and client API functions (status checks, suggestions, confirmation, `sendKraKpiMessageStream` for conversational SSE chat). |
+| `frontend/hooks/useKraKpiChat.ts` | **KRA/KPI Feature (June 2026):** React hook to manage chat thread, progress metrics, status changes, and trigger interactive checklists or weight balancing sliders. |
+| `frontend/app/(dashboard)/kra-kpi-interview/[id]/page.tsx` | **KRA/KPI Feature (June 2026):** New dashboard page workspace for conversational AI-guided KRA/KPI alignment, featuring chat message feeds and selection overlays. |
+| `frontend/app/(dashboard)/jd/[id]/page.tsx` | **KRA/KPI Feature (June 2026):** Added KRA/KPI tab alongside JD tab. Fixed JSX tab nesting syntax error, correctly matching tab conditionals for both edit and preview. **Bug Fix:** Prevented "Back to Dashboard" button from incorrectly redirecting managers to subordinate employee dashboards instead of their own. |
 | `backend/app/core/database.py` | **KRA/KPI Feature (June 2026):** Added automatic table generation (`Base.metadata.create_all`) inside `init_db` to auto-provision the `kra_kpi_sessions` table on startup. |
 | `backend/app/services/docx_generator.py` | **KRA/KPI Feature (June 2026):** Appended KRA/KPI framework export support. Formats KRAs, weights, KPI metrics, description, and three-tiered thresholds matching company styles. |
 | `backend/app/routers/jd_routes.py` | **KRA/KPI Feature (June 2026):** Fetches active confirmed KRA/KPI sessions in `download_jd_docx` and sends to docx generator. |
@@ -132,8 +162,11 @@ Based on HR instructions, the JD template was updated across the codebase:
 | `frontend/.env.local` / `frontend/.env.example` | **Freeze Fix (June 2026):** Recreated `.env` files to clear iCloud dataless placeholder freezes (`SF_DATALESS` flag). |
 | `backend/venv`, `frontend/node_modules`, `frontend/.next` | **Freeze Fix (June 2026):** Symlinked heavy directories to `.nosync` folders to bypass iCloud Drive file locks and high CPU usage. |
 | `backend/app/routers/admin_routes.py` | **KRA/KPI Paste Feature (June 2026):** Added `/admin/kra-kpi/analyze-paste` and `/admin/kra-kpi/confirm-paste` endpoints. Defined module-level logger. |
-| `backend/app/services/kra_kpi_service.py` | **KRA/KPI Paste Feature (June 2026):** Added `analyze_kra_kpi_text` (Gemini-backed raw content parser) and `save_kra_kpi_from_paste` (confirmed session persistence layer). |
-| `frontend/app/admin/(dashboard)/jd-library/page.tsx` | **KRA/KPI Paste Feature (June 2026):** Integrated Paste Text Canvas option with a full interactive live preview layout of AI-extracted KRAs/KPIs and inferred JD details before dashboard deployment. |
+| `backend/app/services/kra_kpi_service.py` | **KRA/KPI Paste & Direct Excel Feature (June 2026):** Added `analyze_kra_kpi_text`, `save_kra_kpi_from_paste`, `parse_kra_kpi_excel` (deterministic Excel parser) and `infer_jd_from_kras`. Intercepted Excel uploads in `process_kra_kpi_document` to bypass LLM extraction. |
+| `frontend/app/admin/(dashboard)/jd-library/page.tsx` | **Direct Excel Feature (June 2026):** Integrated Excel upload directly to parse and render preview of KRAs/KPIs deterministically without LLM, hiding weight visualization. |
+| `backend/app/models/kra_kpi_model.py` | **Direct Excel Feature (June 2026):** Added `UploadedKRAKPI` database model to store direct admin Excel uploads. |
+| `backend/app/routers/kra_kpi_routes.py` | **Direct Excel Feature (June 2026):** Served active admin Excel uploads from `UploadedKRAKPI` table first in status check and session retrieval, returning custom `"uploaded"` step. |
+| `frontend/components/jd/kra-kpi-panel.tsx` | **Direct Excel Feature (June 2026):** Added `UploadedView` to render official active admin-uploaded KRA/KPI framework directly on the employee's dashboard. |
 | `backend/app/services/dashboard_service.py` | **Multi-Dept Head Fix (June 2026):** Added `get_headed_departments` to locate all departments managed by a head (self + reports). Updated `get_department_employees` to fetch employee codes across all managed departments. |
 | `backend/app/routers/hr_routes.py` | **Multi-Dept Head Fix (June 2026):** Updated `get_department_employees` helper to accept single/multiple departments via SQL `ANY`. Updated `get_my_team_employees` to retrieve employees from all departments headed by the user. |
 | `backend/app/crud/jd_crud.py` | **Manager Action Required Fix (June 2026):** Loaded `employee` relation in `list_manager_pending_jds` and `list_hr_pending_jds` using `selectinload` to avoid N+1 and lazy-loading errors. |
@@ -143,6 +176,14 @@ Based on HR instructions, the JD template was updated across the codebase:
 | `backend/app/routers/hr_routes.py` | **Reload & Startup Fix (June 2026):** Changed `department_name` parameter type in `get_department_employees` to `str` to pass FastAPI startup path validation and prevent infinite reboot crash loops. |
 | `backend/watchfiles.toml` | **Reload & Startup Fix (June 2026):** Ignored `.nosync` folders and the `storage/` directory to prevent file change monitoring loops. |
 | `frontend/tsconfig.json` | **Typecheck Memory Fix (June 2026):** Added `.nosync` and `.next` directories to `exclude` to prevent Node process OOM during typescript compile checks. |
+| `frontend/components/jd/kra-kpi-panel.tsx` | **PALETTE Export Fix (June 2026):** Exported `PALETTE` constant so that it is properly resolved by files importing it, resolving build warnings and potential runtime client crashes. |
+| `frontend/build.nosync` | **Webpack Cache Fix (June 2026):** Terminated stale duplicate `next dev` and `next-server` processes and deleted the `build.nosync` cache directory to resolve webpack chunk conflict (`Cannot find module './531.js'`). |
+| `frontend/components/jd/kra-kpi-panel.tsx` | **Weight Entry & KPI Lock Feature (June 2026):** Replaced default number input with `WeightInput` to resolve the `021` leading-zero/backspace bug. Added lock button for KPIs to lock custom weights during rebalancing. Added relative weight and computed overall weight (`% overall`) indicators next to KPI rows. Appended KPI weights validation warnings and save/confirm validations. |
+| `backend/app/services/kra_kpi_service.py` | **KPI Weights Validation (June 2026):** Modified `save_weights_and_confirm` to validate KPI weights sum to exactly 100% within each KRA, and auto-normalize any ±1 minor rounding offsets. |
+| `frontend/components/layout/sidebar.tsx` | **Sidebar Session Binding & Route Highlighting (June 2026):** Decoupled the sidebar queries and navigation links from subordinate path parameter targets (atob decoding), binding navigation to the logged-in user's active session. Refactored isActive highlight function to match tabs by route-section prefixes, resolving highlight bugs and navigation loops. |
+| `frontend/app/(dashboard)/dashboard/[id]/page.tsx` | **In-Place KRA/KPI Review Column & Viewer (June 2026):** Added KRA/KPI column to reportees directory table on manager dashboard. Created in-place overlay view of KRAKPIPanel with header/back button when viewing reportee performance targets, eliminating need to navigate away from the dashboard. |
+| `frontend/lib/cookies.ts` | **Incognito Storage Fallback (June 2026):** Added `localStorage` and `sessionStorage` fallback support for cookies to prevent auth state loss in privacy/incognito browsing mode. |
+| `frontend/components/providers/auth-provider.tsx` | **AuthProvider Incognito Fix (June 2026):** Restored active fallback session keys during one-time cleanup to prevent state clearing loops in incognito mode. |
 
 
 ---

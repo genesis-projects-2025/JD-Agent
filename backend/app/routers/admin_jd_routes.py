@@ -180,35 +180,48 @@ def transform_reference_to_jd_session_schema(ref_data: dict) -> dict:
     qual = safe_get_dict(ref_data, "qualifications")
 
     # Combine tools and technologies safely
-    tools_list = safe_get_list(ref_data, "tools")
+    tools_list = safe_get_list(ref_data, "tools") or safe_get_list(ref_data, "tools_used") or safe_get_list(ref_data, "tools_and_technologies")
     tech_list = safe_get_list(ref_data, "technologies")
     combined_tools = tools_list + tech_list
 
     emp_info = safe_get_dict(ref_data, "employee_information")
     loc_val = ref_data.get("location") or emp_info.get("location") or ""
     lvl_val = ref_data.get("job_level") or ref_data.get("level") or emp_info.get("job_level") or emp_info.get("joblevel") or ""
+    title_val = ref_data.get("role_title") or ref_data.get("title") or ref_data.get("job_title") or emp_info.get("title") or emp_info.get("job_title") or "Unknown"
+    dept_val = ref_data.get("department") or ref_data.get("function") or emp_info.get("department") or "Unknown"
+
+    reporting_to_val = wr.get("reports_to") or wr.get("reporting_to") or ref_data.get("reports_to") or ref_data.get("reporting_to") or ""
 
     return {
         "employee_information": {
-            "job_title": ref_data.get("role_title") or ref_data.get("title") or "Unknown",
-            "department": ref_data.get("department") or "Unknown",
-            "reports_to": wr.get("reports_to") or "",
+            "title": title_val,
+            "job_title": title_val,
+            "department": dept_val,
+            "reports_to": reporting_to_val,
             "team_size": wr.get("team_size") or "",
             "location": loc_val,
             "job_level": lvl_val,
         },
         "location": loc_val,
         "job_level": lvl_val,
-        "purpose": ref_data.get("purpose") or "",
-        "responsibilities": safe_get_list(ref_data, "tasks") or safe_get_list(ref_data, "responsibilities"),
-        "skills": safe_get_list(ref_data, "skills"),
+        "purpose": ref_data.get("purpose") or ref_data.get("role_summary") or "",
+        "role_summary": ref_data.get("purpose") or ref_data.get("role_summary") or "",
+        "responsibilities": safe_get_list(ref_data, "tasks") or safe_get_list(ref_data, "responsibilities") or safe_get_list(ref_data, "key_responsibilities"),
+        "skills": safe_get_list(ref_data, "skills") or safe_get_list(ref_data, "technical_skills") or safe_get_list(ref_data, "required_skills"),
         "tools": combined_tools,
-        "education": qual.get("education") or "",
-        "experience": qual.get("experience_years") or qual.get("experience") or "",
+        "education": qual.get("education") or ref_data.get("education") or "",
+        "experience": qual.get("experience_years") or qual.get("experience") or ref_data.get("experience") or "",
+        "qualifications": {
+            "education": qual.get("education") or ref_data.get("education") or "",
+            "experience": qual.get("experience_years") or qual.get("experience") or ref_data.get("experience") or "",
+            "experience_years": qual.get("experience_years") or qual.get("experience") or ref_data.get("experience") or "",
+            "certifications": safe_get_list(qual, "certifications"),
+        },
         "working_relationships": {
-            "reports_to": wr.get("reports_to") or "",
+            "reports_to": reporting_to_val,
+            "reporting_to": reporting_to_val,
             "team_size": wr.get("team_size") or "",
-            "stakeholders": safe_get_list(wr, "stakeholders"),
+            "stakeholders": safe_get_list(wr, "stakeholders") or safe_get_list(ref_data, "stakeholders"),
         },
     }
 

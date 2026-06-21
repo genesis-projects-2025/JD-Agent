@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Loader2, ShieldAlert } from "lucide-react";
 import { loginWithOrganogram } from "@/lib/api";
 import { getCookie, setCookie, deleteCookie, cookieKeys } from "@/lib/cookies";
+import { safeAtob } from "@/lib/base64";
 
 interface AuthContextType {
     employeeId: string | null;
@@ -42,7 +43,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 let depth = 0;
                 while (depth < 5) {
                     try {
-                        const decoded = atob(decodeURIComponent(current));
+                        const decoded = safeAtob(decodeURIComponent(current));
                         if (decoded && decoded !== current && /^[a-zA-Z0-9_=\-\+\/%]+$/.test(decoded)) {
                             current = decoded;
                             depth++;

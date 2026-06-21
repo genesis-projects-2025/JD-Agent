@@ -13,6 +13,7 @@ import { createPortal } from "react-dom";
 import { getCurrentUser } from "@/lib/api";
 import { useAuth } from "@/components/providers/auth-provider";
 import { useEmployeeJDs, useUnreadFeedback } from "@/hooks/useJDQueries";
+import { safeBtoa } from "@/lib/base64";
 import type { SessionListItem } from "@/types/session";
 
 interface JDSession extends SessionListItem {
@@ -108,7 +109,7 @@ export default function Sidebar() {
     const links: NavItem[] = [
         {
             name: "Dashboard",
-            href: employeeId ? `/dashboard/${btoa(employeeId)}` : "/",
+            href: employeeId ? `/dashboard/${safeBtoa(employeeId)}` : "/",
             icon: LayoutDashboard,
             description: "My job descriptions",
         },
@@ -129,21 +130,21 @@ export default function Sidebar() {
     if (role === "employee") {
         links.push({
             name: "Feedback",
-            href: employeeId ? `/feedback/${btoa(employeeId)}` : "/",
+            href: employeeId ? `/feedback/${safeBtoa(employeeId)}` : "/",
             icon: MessageSquare,
             description: "Review comments",
         });
     } else if (role === "manager" || role === "head") {
         links.push({
             name: "Approvals",
-            href: employeeId ? `/feedback/${btoa(employeeId)}` : "/",
+            href: employeeId ? `/feedback/${safeBtoa(employeeId)}` : "/",
             icon: AlertTriangle,
             description: "Pending reviews",
         });
     } else if (role === "hr" || role === "admin") {
         links.push({
             name: "Reviews",
-            href: employeeId ? `/feedback/${btoa(employeeId)}` : "/",
+            href: employeeId ? `/feedback/${safeBtoa(employeeId)}` : "/",
             icon: ShieldCheck,
             description: "Final approvals",
         });
@@ -248,7 +249,7 @@ export default function Sidebar() {
             >
                 <div className="p-6 flex items-center justify-between shrink-0">
                     <Link
-                        href={employeeId ? `/home/${btoa(employeeId)}` : "/"}
+                        href={employeeId ? `/home/${safeBtoa(employeeId)}` : "/"}
                         className="flex items-center gap-3 group transition-opacity hover:opacity-80"
                     >
                         <div className="h-10 w-auto flex items-center justify-center group-hover:scale-105 transition-transform">

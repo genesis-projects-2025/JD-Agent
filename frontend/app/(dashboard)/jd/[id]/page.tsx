@@ -41,6 +41,7 @@ import { ReviewRejectModal } from "@/components/ui/review-reject-modal";
 import { PdfDocumentView } from "@/components/jd/pdf-document-view";
 import { KRAKPIPanel } from "@/components/jd/kra-kpi-panel";
 import { KRAKPIPrereqModal } from "@/components/ui/kra-kpi-prereq-modal";
+import { safeBtoa } from "@/lib/base64";
 
 function JDPageContent() {
  const params = useParams();
@@ -323,7 +324,7 @@ function JDPageContent() {
  onClick={() => {
  const u = getCurrentUser();
  if (u?.employee_id) {
- const encodedId = btoa(u.employee_id);
+ const encodedId = safeBtoa(u.employee_id);
  router.push(`/dashboard/${encodedId}`);
  } else {
  router.push("/");
@@ -358,7 +359,7 @@ function JDPageContent() {
  setJd(updated);
  setReviewComments(comments);
  
- const encodedId = btoa(user.employee_id);
+ const encodedId = safeBtoa(user.employee_id);
  router.push(`/dashboard/${encodedId}`);
  router.refresh();
  } catch (e: any) {
@@ -531,7 +532,7 @@ function JDPageContent() {
 
   let targetEmployeeId = u.employee_id;
   const isInspector = u.employee_id !== jd?.employee_id;
-  let url = `/dashboard/${btoa(targetEmployeeId)}`;
+  let url = `/dashboard/${safeBtoa(targetEmployeeId)}`;
  if (jd) {
  const isManagerRole = u.role === "manager" || u.role === "head";
  if (isManagerRole && (

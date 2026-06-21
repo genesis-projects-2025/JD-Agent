@@ -6,6 +6,7 @@ import Link from "next/link";
 import { getCurrentUser, AuthUser, API_URL } from "@/lib/api";
 import { getCookie, setCookie, cookieKeys } from "@/lib/cookies";
 import { PlayCircle, ArrowRight, FilePlus, Loader2 } from "lucide-react";
+import { safeAtob, safeBtoa } from "@/lib/base64";
 
 export default function HomePage({ params }: { params: Promise<{ id: string }> }) {
   const [user, setUser] = useState<AuthUser | null>(null);
@@ -18,7 +19,7 @@ export default function HomePage({ params }: { params: Promise<{ id: string }> }
     let depth = 0;
     while (depth < 5) {
       try {
-        const decoded = atob(decodeURIComponent(current));
+        const decoded = safeAtob(decodeURIComponent(current));
         if (decoded && decoded !== current && /^[a-zA-Z0-9_=\-\+\/%]+$/.test(decoded)) {
           current = decoded;
           depth++;
@@ -165,7 +166,7 @@ export default function HomePage({ params }: { params: Promise<{ id: string }> }
         {/* Action Buttons (Below Video) */}
         <div className="flex flex-col sm:flex-row items-center justify-center gap-4 mb-20">
           <Link
-            href={`/dashboard/${btoa(employeeId)}`}
+            href={`/dashboard/${safeBtoa(employeeId)}`}
             className="w-full sm:w-auto px-8 py-4 bg-white text-slate-900 border border-slate-200 rounded-md shadow-sm hover:shadow-md hover:border-slate-300 transition-all font-medium flex items-center justify-center gap-2"
           >
             Go to Dashboard

@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Loader2 } from "lucide-react";
 import { API_URL } from "@/lib/api";
 import { setCookie, cookieKeys } from "@/lib/cookies";
+import { safeAtob, safeBtoa } from "@/lib/base64";
 
 function SSOSync() {
   const searchParams = useSearchParams();
@@ -21,7 +22,7 @@ function SSOSync() {
         let depth = 0;
         while (depth < 5) {
           try {
-            const decoded = atob(decodeURIComponent(current));
+            const decoded = safeAtob(decodeURIComponent(current));
             if (decoded && decoded !== current && /^[a-zA-Z0-9_=\-\+\/%]+$/.test(decoded)) {
               current = decoded;
               depth++;
@@ -65,7 +66,7 @@ function SSOSync() {
         setCookie(cookieKeys.EMPLOYEE_ID, data.employee.employee_id);
 
         // Redirect to their home page with base64 encoding for the ID
-        const encodedId = btoa(data.employee.employee_id);
+        const encodedId = safeBtoa(data.employee.employee_id);
         router.push(`/home/${encodedId}`);
       } catch (err: unknown) {
         const errorMessage =

@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import { createPortal } from "react-dom";
 import { AlertTriangle, X, FileText, LayoutDashboard, ClipboardList } from "lucide-react";
 import { useRouter } from "next/navigation";
+import { safeBtoa } from "@/lib/base64";
 
 interface KRAKPIPrereqModalProps {
   isOpen: boolean;
@@ -36,7 +37,7 @@ export function KRAKPIPrereqModal({
   const goToDashboard = () => {
     onClose();
     if (employeeId) {
-      router.push(`/dashboard/${window.btoa(employeeId)}`);
+      router.push(`/dashboard/${safeBtoa(employeeId)}`);
     } else {
       router.push("/");
     }

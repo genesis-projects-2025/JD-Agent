@@ -13,12 +13,13 @@ const nextConfig: NextConfig = {
   eslint: {
     ignoreDuringBuilds: true,
   },
+
   outputFileTracingExcludes: {
     "*": [
-      "node_modules/**/*",
-      "node_modules.nosync/**/*",
+      "**/*.nosync/**/*",
     ],
   },
+
   webpack: (config, { dev }) => {
     config.resolve.alias = {
       ...config.resolve.alias,

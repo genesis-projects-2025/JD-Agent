@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { fetchAllFeedback, AuthUser, getCurrentUser } from "@/lib/api";
+import { safeBtoa } from "@/lib/base64";
 import {
  AlertTriangle,
  ArrowLeft,
@@ -88,7 +89,7 @@ export default function FeedbackPage() {
  <div>
  <button
  onClick={() => {
- const encodedId = btoa(employeeId);
+ const encodedId = safeBtoa(employeeId);
  router.push(`/dashboard/${encodedId}`);
  }}
  className="flex items-center gap-2 text-surface-400 hover:text-primary-600 transition-colors text-[11px] font-medium mb-6 group"

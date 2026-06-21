@@ -14,6 +14,7 @@ import { useChat } from "@/hooks/useChat";
 import { useVoiceConversation } from "@/hooks/useVoiceConversation";
 import { deleteJD, getCurrentUser } from "@/lib/api";
 import { DeleteModal } from "@/components/ui/delete-modal";
+import { safeBtoa } from "@/lib/base64";
 import {
   Loader2,
   ArrowLeft,
@@ -184,7 +185,7 @@ export default function QuestionnairePage() {
       const employeeId = getCookie(cookieKeys.EMPLOYEE_ID);
       if (!employeeId) throw new Error("Missing employee identification.");
       await deleteJD(sessionId, employeeId);
-      const encodedId = btoa(employeeId);
+      const encodedId = safeBtoa(employeeId);
       router.push(`/dashboard/${encodedId}`);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "Failed to delete JD";
@@ -202,7 +203,7 @@ export default function QuestionnairePage() {
           onClick={() => {
             const u = getCurrentUser();
             if (u?.employee_id) {
-              const encodedId = btoa(u.employee_id);
+              const encodedId = safeBtoa(u.employee_id);
               router.push(`/dashboard/${encodedId}`);
             } else {
               router.push("/");

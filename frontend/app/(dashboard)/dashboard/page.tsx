@@ -29,6 +29,7 @@ import {
   isHead as apiIsHead,
   isHR as apiIsHR,
 } from "@/lib/api";
+import { safeBtoa } from "@/lib/base64";
 
 import { getOrCreateEmployeeId } from "@/lib/auth";
 import { DeleteModal } from "@/components/ui/delete-modal";
@@ -160,7 +161,7 @@ export default function DashboardPage() {
   // Auto-redirect to dynamic dashboard if we have a user
   useEffect(() => {
     if (isMounted && user?.employee_id) {
-      const encodedId = btoa(user.employee_id);
+      const encodedId = safeBtoa(user.employee_id);
       router.replace(`/dashboard/${encodedId}`);
     }
   }, [isMounted, user, router]);

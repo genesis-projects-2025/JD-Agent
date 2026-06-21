@@ -25,6 +25,7 @@ import {
 
 import { DeleteModal } from "@/components/ui/delete-modal";
 import { KRAKPIPanel } from "@/components/jd/kra-kpi-panel";
+import { safeAtob, safeBtoa } from "@/lib/base64";
 
 import {
   AuthUser,
@@ -1145,7 +1146,7 @@ function ManagerView({ user }: { user: AuthUser }) {
                                       </Link>
                                     ) : (
                                       <Link
-                                        href={`/dashboard/${btoa(emp.employee_id)}`}
+                                        href={`/dashboard/${safeBtoa(emp.employee_id)}`}
                                         className="inline-flex items-center gap-2 text-[10px] font-medium text-primary-600 hover:text-primary-700 transition-colors"
                                       >
                                         NO JD
@@ -1689,7 +1690,7 @@ function DashboardContent() {
     let depth = 0;
     while (depth < 5) {
       try {
-        const decoded = atob(decodeURIComponent(current));
+        const decoded = safeAtob(decodeURIComponent(current));
         if (decoded && decoded !== current && /^[a-zA-Z0-9_=\-\+\/%]+$/.test(decoded)) {
           current = decoded;
           depth++;

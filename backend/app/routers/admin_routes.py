@@ -318,6 +318,259 @@ async def upload_kra_kpi_document(
         )
 
 
+@router.get("/admin/kra-kpi/template")
+async def download_kra_kpi_template(admin_role: str = Depends(get_current_admin)):
+    """
+    Download the KRA/KPI bulk upload Excel template.
+    """
+    import io
+    import os
+    from fastapi.responses import StreamingResponse
+
+    # Build a fresh template using openpyxl
+    try:
+        import openpyxl
+        from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+        from openpyxl.utils import get_column_letter
+    except ImportError:
+        raise HTTPException(status_code=500, detail="openpyxl not installed on server.")
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "KRA_KPI"
+
+    headers = ["Employee_ID", "Employee_Name", "KRA_Title", "KRA_Weight_%", "KPI_Title", "KPI_Target_Date", "KPI_Description"]
+    header_fill = PatternFill(start_color="1E3A5F", end_color="1E3A5F", fill_type="solid")
+    header_font = Font(bold=True, color="FFFFFF", size=11)
+    thin = Side(style="thin")
+    border = Border(left=thin, right=thin, top=thin, bottom=thin)
+
+    for col_idx, header in enumerate(headers, start=1):
+        cell = ws.cell(row=1, column=col_idx, value=header)
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+        cell.border = border
+
+    # Example rows
+    example_rows = [
+        ("EMP001", "Employee Name", "KRA Title 1", 40, "KPI Title 1", "2026-03-31", "Detailed description of this KPI"),
+        ("EMP001", "Employee Name", "KRA Title 1", 40, "KPI Title 2", "2026-06-30", "Description of second KPI"),
+        ("EMP001", "Employee Name", "KRA Title 2", 35, "KPI Title 3", "", "Description of third KPI"),
+        ("EMP001", "Employee Name", "KRA Title 3", 25, "KPI Title 4", "2026-12-31", "Description of fourth KPI"),
+    ]
+    alt_fills = [
+        PatternFill(start_color="F0F4FF", end_color="F0F4FF", fill_type="solid"),
+        PatternFill(start_color="FFFFFF", end_color="FFFFFF", fill_type="solid"),
+    ]
+    for row_idx, row_data in enumerate(example_rows, start=2):
+        fill = alt_fills[row_idx % 2]
+        for col_idx, value in enumerate(row_data, start=1):
+            cell = ws.cell(row=row_idx, column=col_idx, value=value)
+            cell.fill = fill
+            cell.alignment = Alignment(wrap_text=True, vertical="center")
+            cell.border = border
+
+    col_widths = [15, 22, 45, 15, 50, 18, 60]
+    for col_idx, width in enumerate(col_widths, start=1):
+        ws.column_dimensions[get_column_letter(col_idx)].width = width
+
+    # Instructions sheet
+    ws2 = wb.create_sheet("Instructions")
+    ws2["A1"] = "KRA/KPI Bulk Upload Template – Instructions"
+    ws2["A1"].font = Font(bold=True, size=14, color="1E3A5F")
+    ws2["A3"] = "COLUMN GUIDE:"
+    ws2["A3"].font = Font(bold=True)
+    guide = [
+        ("Employee_ID", "REQUIRED. Must match the exact Employee ID in the system (e.g., TD001, EMP001)."),
+        ("Employee_Name", "REQUIRED. Full name of the employee."),
+        ("KRA_Title", "REQUIRED. Key Result Area title. Repeat the same value on each row for all KPIs under this KRA."),
+        ("KRA_Weight_%", "REQUIRED. Weight of this KRA as a whole number percentage (e.g., 25 for 25%). All KRA weights per employee must sum to 100."),
+        ("KPI_Title", "REQUIRED. Title / metric description of the Key Performance Indicator under this KRA."),
+        ("KPI_Target_Date", "OPTIONAL. Target completion date in YYYY-MM-DD format."),
+        ("KPI_Description", "OPTIONAL. Detailed description, measurement criteria, or target for this KPI."),
+    ]
+    for i, (col, desc) in enumerate(guide, start=4):
+        ws2.cell(row=i, column=1, value=col).font = Font(bold=True)
+        ws2.cell(row=i, column=2, value=desc)
+    ws2["A12"] = "IMPORTANT RULES:"
+    ws2["A12"].font = Font(bold=True, color="CC0000")
+    rules = [
+        "1. Each row = ONE KPI. Multiple KPIs under the same KRA require the KRA columns repeated on each KPI row.",
+        "2. You can include MULTIPLE employees in one file (use different Employee_ID values).",
+        "3. KRA weights must add up to exactly 100 per employee.",
+        "4. Each employee must have an approved Job Description in the system before uploading.",
+        "5. Do NOT rename or reorder the column headers in row 1.",
+    ]
+    for i, rule in enumerate(rules, start=13):
+        ws2.cell(row=i, column=1, value=rule)
+    ws2.column_dimensions["A"].width = 25
+    ws2.column_dimensions["B"].width = 85
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+
+    return StreamingResponse(
+        buf,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": "attachment; filename=KRA_KPI_Bulk_Upload_Template.xlsx"},
+    )
+
+
+@router.post("/admin/kra-kpi/bulk-upload")
+async def bulk_upload_kra_kpi(
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+    admin_role: str = Depends(get_current_admin),
+):
+    """
+    Bulk upload KRA/KPI for multiple employees from a single structured Excel template.
+    The template must have columns: Employee_ID, Employee_Name, KRA_Title, KRA_Weight_%,
+    KPI_Title, KPI_Target_Date (optional), KPI_Description (optional).
+
+    Returns a per-employee result summary.
+    """
+    from app.models.kra_kpi_model import UploadedKRAKPI
+    from app.core.cache import invalidate_pattern
+    from app.services.kra_kpi_service import parse_kra_kpi_excel_bulk
+    import uuid as uuid_mod
+
+    fname = (file.filename or "").lower()
+    content_type = file.content_type or ""
+    if content_type == "application/octet-stream":
+        if fname.endswith(".xlsx"):
+            content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        elif fname.endswith(".xls"):
+            content_type = "application/vnd.ms-excel"
+
+    allowed = {
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": "xlsx",
+        "application/vnd.ms-excel": "xls",
+    }
+    if content_type not in allowed:
+        raise HTTPException(
+            status_code=400,
+            detail="Bulk upload only accepts Excel files (.xlsx or .xls). Use the template provided.",
+        )
+    file_type = allowed[content_type]
+    file_bytes = await file.read()
+    if len(file_bytes) > 10 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="File too large. Maximum 10MB.")
+
+    # Parse the bulk template
+    try:
+        parsed = parse_kra_kpi_excel_bulk(file_bytes, file_type)
+    except ValueError as e:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid template format: {str(e)}. Please download and use the official template.",
+        )
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Failed to parse Excel file: {str(e)}")
+
+    results = []
+    for emp_id, emp_data in parsed.items():
+        emp_name = emp_data.get("employee_name", "")
+        kras = emp_data.get("kras", [])
+
+        # Check if employee exists
+        emp_res = await db.execute(select(Employee).where(Employee.id == emp_id))
+        employee = emp_res.scalars().first()
+        if not employee:
+            results.append({
+                "employee_id": emp_id,
+                "employee_name": emp_name,
+                "status": "error",
+                "message": f"Employee ID '{emp_id}' not found in the system.",
+            })
+            continue
+
+        # Check approved JD
+        jd_res = await db.execute(
+            select(JDSession).where(
+                JDSession.employee_id == emp_id,
+                JDSession.status == "approved",
+            )
+        )
+        jd_session = jd_res.scalars().first()
+        if not jd_session:
+            results.append({
+                "employee_id": emp_id,
+                "employee_name": emp_name,
+                "status": "error",
+                "message": f"No approved Job Description found for {emp_name} ({emp_id}). Approve their JD first.",
+            })
+            continue
+
+        # Validate weight sum
+        defined_weights = [k.get("weight") for k in kras if k.get("weight") is not None]
+        if defined_weights:
+            total_weight = sum(defined_weights)
+            if abs(total_weight - 100) > 1:
+                results.append({
+                    "employee_id": emp_id,
+                    "employee_name": emp_name,
+                    "status": "error",
+                    "message": f"KRA weights sum to {total_weight}% instead of 100% for {emp_name} ({emp_id}). Please fix the weights.",
+                })
+                continue
+
+        try:
+            # Upsert into UploadedKRAKPI
+            existing_res = await db.execute(
+                select(UploadedKRAKPI).where(UploadedKRAKPI.employee_id == emp_id)
+            )
+            existing = existing_res.scalars().first()
+            kras_payload = {"kras": kras}
+            if existing:
+                existing.kras = kras_payload
+                existing.employee_name = emp_name or employee.name
+            else:
+                record = UploadedKRAKPI(
+                    id=uuid_mod.uuid4(),
+                    employee_id=emp_id,
+                    employee_name=emp_name or employee.name,
+                    kras=kras_payload,
+                )
+                db.add(record)
+            await db.flush()
+
+            results.append({
+                "employee_id": emp_id,
+                "employee_name": emp_name or employee.name,
+                "status": "success",
+                "kras_count": len(kras),
+                "kpis_count": sum(len(k.get("kpis", [])) for k in kras),
+                "message": f"KRA/KPI saved successfully for {emp_name} ({emp_id}).",
+            })
+        except Exception as e:
+            logger.error(f"[BULK KRA] Save failed for {emp_id}: {e}")
+            results.append({
+                "employee_id": emp_id,
+                "employee_name": emp_name,
+                "status": "error",
+                "message": f"Failed to save KRA/KPI for {emp_id}: {str(e)}",
+            })
+
+    await db.commit()
+
+    # Invalidate caches
+    await invalidate_pattern("cache:jd_list:*")
+    await invalidate_pattern("cache:dept_stats:*")
+
+    success_count = sum(1 for r in results if r["status"] == "success")
+    error_count = len(results) - success_count
+    return {
+        "status": "done",
+        "summary": {
+            "total": len(results),
+            "success": success_count,
+            "errors": error_count,
+        },
+        "results": results,
+    }
+
 
 class AnalyzePasteRequest(BaseModel):
     employee_id: str

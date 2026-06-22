@@ -542,19 +542,178 @@ async def save_weights_and_confirm(
 
 
 
-def parse_kra_kpi_excel(file_bytes: bytes, file_type_lower: str) -> list[dict]:
+def _is_structured_template(rows: list) -> tuple[bool, dict]:
     """
-    Directly extracts KRA and KPI data from Excel rows without LLM alteration,
-    resilient to headers and grouping patterns.
+    Detect if the Excel file matches our structured KRA/KPI bulk upload template.
+    Template format has columns: Employee_ID, Employee_Name, KRA_Title, KRA_Weight_%, KPI_Title, ...
+    Returns (is_template, column_index_map).
+    """
+    if not rows:
+        return False, {}
+    header_row = None
+    header_idx = -1
+    for i, row in enumerate(rows[:5]):
+        cells = [str(c).lower().strip() if c is not None else "" for c in row]
+        # Must have employee_id and kra_title (or kra) columns
+        has_emp_id = any("employee_id" in c or "emp_id" in c or "employee id" in c for c in cells)
+        has_kra = any("kra_title" in c or "kra title" in c for c in cells)
+        if has_emp_id and has_kra:
+            header_row = cells
+            header_idx = i
+            break
+    if header_row is None:
+        return False, {}
+    col_map = {}
+    for idx, cell in enumerate(header_row):
+        if "employee_id" in cell or "emp_id" in cell or "employee id" in cell:
+            col_map["employee_id"] = idx
+        elif "employee_name" in cell or "emp_name" in cell or "employee name" in cell:
+            col_map["employee_name"] = idx
+        elif "kra_title" in cell or "kra title" in cell:
+            col_map["kra_title"] = idx
+        elif "kra_weight" in cell or "kra weight" in cell or "weight" in cell:
+            col_map["kra_weight"] = idx
+        elif "kpi_title" in cell or "kpi title" in cell:
+            col_map["kpi_title"] = idx
+        elif "kpi_target" in cell or "kpi target" in cell or "target_date" in cell or "target date" in cell:
+            col_map["kpi_target"] = idx
+        elif "kpi_description" in cell or "kpi description" in cell or "description" in cell:
+            col_map["kpi_description"] = idx
+    col_map["_header_row_idx"] = header_idx
+    return True, col_map
+
+
+def parse_kra_kpi_excel_bulk(file_bytes: bytes, file_type_lower: str) -> dict[str, list[dict]]:
+    """
+    Parse structured template Excel files into a dict keyed by employee_id.
+    Each value is a list of KRA dicts: [{"title": ..., "description": ..., "weight": ..., "kpis": [...]}]
+    Handles multi-employee files.
     """
     import io
     rows = []
-    
+
     if file_type_lower == "xlsx":
         try:
             import openpyxl
-            wb = openpyxl.load_workbook(io.BytesIO(file_bytes), data_only=True, read_only=True)
-            ws = wb.active
+            wb = openpyxl.load_workbook(io.BytesIO(file_bytes), data_only=True)
+            # Try to find the right sheet (KRA_KPI first, else active)
+            sheet_name = "KRA_KPI" if "KRA_KPI" in wb.sheetnames else wb.sheetnames[0]
+            ws = wb[sheet_name]
+            for row in ws.iter_rows(values_only=True):
+                rows.append(list(row))
+            wb.close()
+        except ImportError:
+            raise Exception("openpyxl is required to parse .xlsx files.")
+    elif file_type_lower == "xls":
+        try:
+            import xlrd
+            wb = xlrd.open_workbook(file_contents=file_bytes)
+            ws = wb.sheet_by_index(0)
+            for r_idx in range(ws.nrows):
+                rows.append(ws.row_values(r_idx))
+        except ImportError:
+            raise Exception("xlrd is required to parse .xls files.")
+    else:
+        raise Exception("Unsupported file type for bulk Excel parsing")
+
+    is_template, col_map = _is_structured_template(rows)
+    if not is_template:
+        raise ValueError("File does not match the structured KRA/KPI bulk upload template format.")
+
+    header_idx = col_map.get("_header_row_idx", 0)
+    emp_id_col = col_map.get("employee_id", 0)
+    emp_name_col = col_map.get("employee_name", 1)
+    kra_title_col = col_map.get("kra_title", 2)
+    kra_weight_col = col_map.get("kra_weight", 3)
+    kpi_title_col = col_map.get("kpi_title", 4)
+    kpi_target_col = col_map.get("kpi_target", 5)
+    kpi_desc_col = col_map.get("kpi_description", 6)
+
+    # employee_id -> {"name": str, "kras": {kra_title_lower: kra_dict}}
+    employees: dict[str, dict] = {}
+
+    def get_val(row, col_idx):
+        if col_idx is not None and 0 <= col_idx < len(row):
+            v = row[col_idx]
+            if v is None:
+                return ""
+            return str(v).strip()
+        return ""
+
+    for row in rows[header_idx + 1:]:
+        if not any(c is not None and str(c).strip() for c in row):
+            continue
+
+        emp_id = get_val(row, emp_id_col)
+        emp_name = get_val(row, emp_name_col)
+        kra_title = get_val(row, kra_title_col)
+        kpi_title = get_val(row, kpi_title_col)
+
+        if not emp_id or not kra_title or not kpi_title:
+            continue
+
+        # Parse weight — could be "25", "25%", or 0.25 float
+        raw_weight = get_val(row, kra_weight_col)
+        kra_weight = None
+        if raw_weight:
+            try:
+                w = float(raw_weight.replace("%", "").strip())
+                # If weight is stored as decimal (e.g. 0.25), convert to %
+                kra_weight = round(w * 100) if w <= 1.0 else round(w)
+            except ValueError:
+                kra_weight = None
+
+        kpi_target = get_val(row, kpi_target_col)
+        kpi_desc = get_val(row, kpi_desc_col)
+
+        if emp_id not in employees:
+            employees[emp_id] = {"name": emp_name, "kras": {}}
+
+        kra_key = kra_title.lower().strip()
+        if kra_key not in employees[emp_id]["kras"]:
+            employees[emp_id]["kras"][kra_key] = {
+                "title": kra_title,
+                "description": "",
+                "weight": kra_weight,
+                "kpis": [],
+            }
+        elif kra_weight is not None and employees[emp_id]["kras"][kra_key]["weight"] is None:
+            employees[emp_id]["kras"][kra_key]["weight"] = kra_weight
+
+        kpi_entry = {"title": kpi_title, "description": kpi_desc}
+        if kpi_target:
+            kpi_entry["target_date"] = kpi_target
+
+        employees[emp_id]["kras"][kra_key]["kpis"].append(kpi_entry)
+
+    # Convert to final format: {employee_id: [kra_dict, ...]}
+    result = {}
+    for emp_id, emp_data in employees.items():
+        result[emp_id] = {
+            "employee_name": emp_data["name"],
+            "kras": list(emp_data["kras"].values()),
+        }
+
+    if not result:
+        raise Exception("No valid KRA/KPI rows found in the template. Check that Employee_ID, KRA_Title, and KPI_Title columns are filled.")
+
+    return result
+
+
+def parse_kra_kpi_excel(file_bytes: bytes, file_type_lower: str) -> list[dict]:
+    """
+    Single-employee Excel parser. First tries structured template format,
+    then falls back to heuristic column detection for legacy files.
+    """
+    import io
+    rows = []
+
+    if file_type_lower == "xlsx":
+        try:
+            import openpyxl
+            wb = openpyxl.load_workbook(io.BytesIO(file_bytes), data_only=True)
+            sheet_name = "KRA_KPI" if "KRA_KPI" in wb.sheetnames else wb.sheetnames[0]
+            ws = wb[sheet_name]
             for row in ws.iter_rows(values_only=True):
                 rows.append(list(row))
             wb.close()
@@ -575,6 +734,64 @@ def parse_kra_kpi_excel(file_bytes: bytes, file_type_lower: str) -> list[dict]:
     if not rows:
         raise Exception("Excel sheet is empty")
 
+    # ── Try structured template format first ────────────────────────────────────
+    is_template, col_map = _is_structured_template(rows)
+    if is_template:
+        logger.info("[parse_kra_kpi_excel] Detected structured template format. Parsing structured rows.")
+        header_idx = col_map.get("_header_row_idx", 0)
+        kra_title_col = col_map.get("kra_title", 2)
+        kra_weight_col = col_map.get("kra_weight", 3)
+        kpi_title_col = col_map.get("kpi_title", 4)
+        kpi_target_col = col_map.get("kpi_target", 5)
+        kpi_desc_col = col_map.get("kpi_description", 6)
+
+        kras: list[dict] = []
+        kra_index: dict[str, dict] = {}  # kra_title_lower -> kra_dict
+
+        def get_val(row, col_idx):
+            if col_idx is not None and 0 <= col_idx < len(row):
+                v = row[col_idx]
+                return str(v).strip() if v is not None else ""
+            return ""
+
+        for row in rows[header_idx + 1:]:
+            if not any(c is not None and str(c).strip() for c in row):
+                continue
+            kra_title = get_val(row, kra_title_col)
+            kpi_title = get_val(row, kpi_title_col)
+            if not kra_title or not kpi_title:
+                continue
+
+            raw_weight = get_val(row, kra_weight_col)
+            kra_weight = None
+            if raw_weight:
+                try:
+                    w = float(raw_weight.replace("%", "").strip())
+                    kra_weight = round(w * 100) if w <= 1.0 else round(w)
+                except ValueError:
+                    pass
+
+            kpi_desc = get_val(row, kpi_desc_col)
+            kpi_target = get_val(row, kpi_target_col)
+            kpi_entry = {"title": kpi_title, "description": kpi_desc}
+            if kpi_target:
+                kpi_entry["target_date"] = kpi_target
+
+            key = kra_title.lower().strip()
+            if key not in kra_index:
+                kra_dict = {"title": kra_title, "description": "", "weight": kra_weight, "kpis": []}
+                kras.append(kra_dict)
+                kra_index[key] = kra_dict
+            elif kra_weight is not None and kra_index[key]["weight"] is None:
+                kra_index[key]["weight"] = kra_weight
+
+            kra_index[key]["kpis"].append(kpi_entry)
+
+        if kras:
+            return kras
+        # Fall through to legacy parsing if no rows extracted
+
+    # ── Legacy heuristic column detection ──────────────────────────────────────
     kra_title_col = -1
     kra_desc_col = -1
     kpi_title_col = -1
@@ -598,7 +815,7 @@ def parse_kra_kpi_excel(file_bytes: bytes, file_type_lower: str) -> list[dict]:
                 else:
                     if kpi_title_col == -1:
                         kpi_title_col = col_idx
-        
+
         if kra_title_col != -1 and kpi_title_col != -1:
             header_row_idx = idx
             break
@@ -625,21 +842,29 @@ def parse_kra_kpi_excel(file_bytes: bytes, file_type_lower: str) -> list[dict]:
     for r in rows[start_row:]:
         if not any(c is not None and str(c).strip() != "" for c in r):
             continue
-            
+
         def get_cell_str(col_idx):
             if 0 <= col_idx < len(r):
                 val = r[col_idx]
                 return str(val).strip() if val is not None else ""
             return ""
-            
+
         k_title = get_cell_str(kra_title_col)
         k_desc = get_cell_str(kra_desc_col)
         kp_title = get_cell_str(kpi_title_col)
         kp_desc = get_cell_str(kpi_desc_col)
-        
+
+        # Skip rows where the KRA column contains only a number (e.g. weight like "0.25")
+        if k_title and not k_desc and not kp_title:
+            try:
+                float(k_title.replace("%", ""))
+                continue  # This is a weight row, not a KRA title row
+            except ValueError:
+                pass
+
         if not k_title and not k_desc and not kp_title and not kp_desc:
             continue
-            
+
         if k_title or k_desc:
             match = None
             if k_title:
@@ -653,23 +878,23 @@ def parse_kra_kpi_excel(file_bytes: bytes, file_type_lower: str) -> list[dict]:
                 current_kra = {
                     "title": k_title if k_title else (k_desc[:50] if k_desc else "KRA"),
                     "description": k_desc,
-                    "kpis": []
+                    "kpis": [],
                 }
                 kras.append(current_kra)
         elif not current_kra:
             current_kra = {
                 "title": "General",
                 "description": "General Key Result Area",
-                "kpis": []
+                "kpis": [],
             }
             kras.append(current_kra)
-            
+
         if kp_title or kp_desc:
             current_kra["kpis"].append({
                 "title": kp_title if kp_title else (kp_desc[:50] if kp_desc else "KPI"),
-                "description": kp_desc
+                "description": kp_desc,
             })
-            
+
     return kras
 
 

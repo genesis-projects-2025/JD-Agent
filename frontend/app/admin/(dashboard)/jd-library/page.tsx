@@ -49,7 +49,7 @@ export default function JDLibraryPage() {
   const { employeeId: authEmployeeId } = useAuth()
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [isCheckingAuth, setIsCheckingAuth] = useState(true)
-  const [activeTab, setActiveTab] = useState<'upload' | 'upload_kra' | 'bulk_kra' | 'library'>('upload')
+  const [activeTab, setActiveTab] = useState<'upload' | 'upload_kra' | 'library'>('upload')
 
   // Publish states
   const [publishingId, setPublishingId] = useState<string | null>(null)
@@ -93,20 +93,7 @@ export default function JDLibraryPage() {
   const [showMissingJdModal, setShowMissingJdModal] = useState(false)
   const [missingJdEmpDetails, setMissingJdEmpDetails] = useState<{ id: string; name: string } | null>(null)
 
-  // Bulk KRA upload states
-  const [bulkKraFile, setBulkKraFile] = useState<File | null>(null)
-  const [bulkKraUploading, setBulkKraUploading] = useState(false)
-  const [downloadingTemplate, setDownloadingTemplate] = useState(false)
-  const [bulkKraResults, setBulkKraResults] = useState<Array<{
-    employee_id: string
-    employee_name: string
-    status: 'success' | 'error'
-    message: string
-    kras_count?: number
-    kpis_count?: number
-  }> | null>(null)
-  const [bulkKraSummary, setBulkKraSummary] = useState<{ total: number; success: number; errors: number } | null>(null)
-  const bulkKraFileInputRef = useRef<HTMLInputElement>(null)
+
 
   const handleAnalyzePaste = async () => {
     if (!kraEmployeeId || !kraEmployeeName || !kraPasteContent.trim()) {
@@ -280,78 +267,7 @@ export default function JDLibraryPage() {
     fetchJDs()
   }
 
-  const handleBulkKraFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0]) {
-      const file = e.target.files[0]
-      const isExcel = file.type === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-        || file.type === 'application/vnd.ms-excel'
-        || file.name.toLowerCase().endsWith('.xlsx')
-        || file.name.toLowerCase().endsWith('.xls')
-      if (isExcel) {
-        setBulkKraFile(file)
-        setBulkKraResults(null)
-        setBulkKraSummary(null)
-      } else {
-        alert('Please select an Excel file (.xlsx or .xls).')
-      }
-    }
-  }
 
-  const downloadTemplate = async () => {
-    setDownloadingTemplate(true)
-    try {
-      const response = await fetch(`${API_URL}/admin/kra-kpi/template`, {
-        headers: { 'Authorization': `Bearer ${getCookie(cookieKeys.ADMIN_TOKEN)}` },
-      })
-      if (!response.ok) throw new Error('Failed to download template')
-      const blob = await response.blob()
-      const url = window.URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = 'KRA_KPI_Bulk_Upload_Template.xlsx'
-      document.body.appendChild(a)
-      a.click()
-      a.remove()
-      window.URL.revokeObjectURL(url)
-    } catch {
-      alert('Failed to download template. Please try again.')
-    } finally {
-      setDownloadingTemplate(false)
-    }
-  }
-
-  const processBulkKraUpload = async () => {
-    if (!bulkKraFile) {
-      alert('Please select an Excel file first.')
-      return
-    }
-    setBulkKraUploading(true)
-    setBulkKraResults(null)
-    setBulkKraSummary(null)
-    try {
-      const formData = new FormData()
-      formData.append('file', bulkKraFile)
-      const response = await fetch(`${API_URL}/admin/kra-kpi/bulk-upload`, {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${getCookie(cookieKeys.ADMIN_TOKEN)}` },
-        body: formData,
-      })
-      const data = await response.json()
-      if (!response.ok) {
-        const msg = typeof data.detail === 'string' ? data.detail : JSON.stringify(data.detail)
-        throw new Error(msg)
-      }
-      setBulkKraResults(data.results || [])
-      setBulkKraSummary(data.summary || null)
-      setBulkKraFile(null)
-      if (bulkKraFileInputRef.current) bulkKraFileInputRef.current.value = ''
-    } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : 'Bulk upload failed'
-      alert(message)
-    } finally {
-      setBulkKraUploading(false)
-    }
-  }
 
   const handleKraFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files) {
@@ -488,10 +404,6 @@ export default function JDLibraryPage() {
           onClick={() => setActiveTab('upload_kra')}
           className={`px-5 py-2.5 text-sm font-medium rounded-lg transition-all ${activeTab === 'upload_kra' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
         >Upload KRA/KPI</button>
-        <button
-          onClick={() => setActiveTab('bulk_kra')}
-          className={`px-5 py-2.5 text-sm font-medium rounded-lg transition-all ${activeTab === 'bulk_kra' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
-        >Bulk KRA Upload</button>
         <button
           onClick={() => setActiveTab('library')}
           className={`px-5 py-2.5 text-sm font-medium rounded-lg transition-all ${activeTab === 'library' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
@@ -922,125 +834,7 @@ export default function JDLibraryPage() {
           )}
         </div>
       )}
-      {activeTab === 'bulk_kra' && (
-        <div className="max-w-3xl">
-          <div className="bg-white rounded-2xl border border-slate-200 p-8 shadow-sm">
-            <div className="flex items-center gap-4 mb-6">
-              <div className="p-3 bg-emerald-50 rounded-xl border border-emerald-100">
-                <FileTextIcon className="w-6 h-6 text-emerald-600" />
-              </div>
-              <div>
-                <h2 className="text-2xl font-semibold text-slate-900">Bulk KRA/KPI Upload</h2>
-                <p className="text-slate-600 mt-1">Upload KRA & KPI for multiple employees at once using the structured Excel template</p>
-              </div>
-            </div>
 
-            {/* Step 1 - Download Template */}
-            <div className="mb-6 p-5 bg-blue-50/60 rounded-xl border border-blue-200">
-              <div className="flex items-start justify-between gap-4">
-                <div>
-                  <h3 className="text-sm font-semibold text-blue-900 mb-1">Step 1 — Download the Template</h3>
-                  <p className="text-xs text-blue-700">Fill in your employee KRA/KPI data using our structured template. Columns: <span className="font-mono bg-blue-100 px-1 rounded">Employee_ID</span>, <span className="font-mono bg-blue-100 px-1 rounded">Employee_Name</span>, <span className="font-mono bg-blue-100 px-1 rounded">KRA_Title</span>, <span className="font-mono bg-blue-100 px-1 rounded">KRA_Weight_%</span>, <span className="font-mono bg-blue-100 px-1 rounded">KPI_Title</span>, <span className="font-mono bg-blue-100 px-1 rounded">KPI_Target_Date</span>, <span className="font-mono bg-blue-100 px-1 rounded">KPI_Description</span></p>
-                </div>
-                <button
-                  onClick={downloadTemplate}
-                  disabled={downloadingTemplate}
-                  className="flex items-center gap-2 px-4 py-2.5 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-all shadow-sm disabled:opacity-60 whitespace-nowrap"
-                >
-                  {downloadingTemplate ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
-                  {downloadingTemplate ? 'Downloading...' : 'Download Template'}
-                </button>
-              </div>
-              <div className="mt-3 grid grid-cols-2 gap-2 text-xs text-blue-700">
-                <div className="flex items-center gap-1.5"><CheckCircle className="w-3.5 h-3.5 text-emerald-500 shrink-0" />Multiple employees in one file</div>
-                <div className="flex items-center gap-1.5"><CheckCircle className="w-3.5 h-3.5 text-emerald-500 shrink-0" />KRA weights preserved exactly</div>
-                <div className="flex items-center gap-1.5"><CheckCircle className="w-3.5 h-3.5 text-emerald-500 shrink-0" />KPI target dates supported</div>
-                <div className="flex items-center gap-1.5"><CheckCircle className="w-3.5 h-3.5 text-emerald-500 shrink-0" />Validates employee IDs & JD status</div>
-              </div>
-            </div>
-
-            {/* Step 2 - Upload */}
-            <div className="space-y-5">
-              <div>
-                <h3 className="text-sm font-semibold text-slate-800 mb-3">Step 2 — Upload Filled Template (.xlsx / .xls)</h3>
-                <div
-                  className={`border-2 border-dashed rounded-xl p-10 text-center cursor-pointer transition-all ${bulkKraFile ? 'border-emerald-400 bg-emerald-50/30' : 'border-slate-300 hover:border-emerald-400 hover:bg-slate-50'}`}
-                  onClick={() => !bulkKraUploading && bulkKraFileInputRef.current?.click()}
-                >
-                  <input
-                    ref={bulkKraFileInputRef}
-                    type="file"
-                    accept=".xlsx,.xls"
-                    onChange={handleBulkKraFileSelect}
-                    className="hidden"
-                    disabled={bulkKraUploading}
-                  />
-                  <FileText className="w-10 h-10 mx-auto text-slate-400 mb-3" />
-                  {bulkKraFile ? (
-                    <div>
-                      <p className="text-slate-700 font-medium text-sm">{bulkKraFile.name}</p>
-                      <p className="text-slate-400 text-xs mt-1">{(bulkKraFile.size / 1024).toFixed(1)} KB selected</p>
-                    </div>
-                  ) : (
-                    <div>
-                      <p className="text-slate-600 text-sm">Click to browse or drag and drop your filled template</p>
-                      <p className="text-slate-400 text-xs mt-1">Accepted: .xlsx, .xls | Max 10MB</p>
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              <button
-                onClick={processBulkKraUpload}
-                disabled={bulkKraUploading || !bulkKraFile}
-                className={`w-full py-4 px-6 rounded-xl font-medium text-sm transition-all ${bulkKraUploading || !bulkKraFile ? 'bg-slate-200 text-slate-400 cursor-not-allowed' : 'bg-emerald-600 text-white hover:bg-emerald-700 shadow-lg shadow-emerald-200'}`}
-              >
-                {bulkKraUploading
-                  ? <span className="flex items-center justify-center gap-3"><Loader2 className="w-5 h-5 animate-spin" />Processing employees...</span>
-                  : 'Upload & Save All Employees'}
-              </button>
-            </div>
-
-            {/* Results */}
-            {bulkKraSummary && bulkKraResults && (
-              <div className="mt-8">
-                <div className="flex items-center gap-6 mb-4 p-4 bg-slate-50 rounded-xl border border-slate-200">
-                  <div className="text-sm text-slate-600">Total: <span className="font-semibold text-slate-900">{bulkKraSummary.total}</span></div>
-                  <div className="flex items-center gap-2">
-                    <CheckCircle className="w-4 h-4 text-emerald-500" />
-                    <span className="text-sm font-medium text-emerald-600">{bulkKraSummary.success} Saved</span>
-                  </div>
-                  {bulkKraSummary.errors > 0 && (
-                    <div className="flex items-center gap-2">
-                      <X className="w-4 h-4 text-red-500" />
-                      <span className="text-sm font-medium text-red-600">{bulkKraSummary.errors} Failed</span>
-                    </div>
-                  )}
-                </div>
-                <div className="space-y-3">
-                  {bulkKraResults.map((r, i) => (
-                    <div key={i} className={`p-4 rounded-xl border text-sm ${r.status === 'success' ? 'border-emerald-200 bg-emerald-50/30' : 'border-red-200 bg-red-50/30'}`}>
-                      <div className="flex items-start gap-3">
-                        {r.status === 'success'
-                          ? <CheckCircle className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" />
-                          : <X className="w-4 h-4 text-red-500 shrink-0 mt-0.5" />}
-                        <div>
-                          <p className="font-medium text-slate-800">{r.employee_name} <span className="text-slate-400 font-normal">({r.employee_id})</span></p>
-                          <p className="text-slate-500 mt-0.5">{r.message}</p>
-                          {r.status === 'success' && r.kras_count != null && (
-                            <p className="text-xs text-emerald-600 mt-1">{r.kras_count} KRAs · {r.kpis_count} KPIs saved</p>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-                <button onClick={() => { setBulkKraResults(null); setBulkKraSummary(null) }} className="mt-4 text-sm text-slate-400 hover:text-slate-600">Clear Results</button>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
 
       {activeTab === 'library' && (
         <div className="max-w-7xl">

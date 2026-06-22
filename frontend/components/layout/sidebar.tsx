@@ -212,7 +212,13 @@ export default function Sidebar() {
         return () => clearTimeout(closeTimer);
     }, [pathname, searchParams]);
 
-    if (!isMounted || !isAuthenticated) return null;
+    if (!isMounted) {
+        return (
+            <aside className="hidden md:block w-72 h-screen bg-neutral-900 border-r border-neutral-800 shrink-0" />
+        );
+    }
+
+    if (!isAuthenticated) return null;
 
     return (
         <>

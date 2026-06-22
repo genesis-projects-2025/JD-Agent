@@ -1070,12 +1070,12 @@ function JDPageContent() {
   )}
 
   {/* KRA/KPI tab content */}
-  {activeTab === "kra-kpi" && currentUser && (
+  {activeTab === "kra-kpi" && currentUser && jd && (
    <div className="p-5 sm:p-8">
     <KRAKPIPanel
      jdSessionId={jdId}
-     employeeId={currentUser.employee_id || jd?.employee_id || ""}
-     isManager={role === "manager" || role === "head" || role === "hr" || role === "admin"}
+     employeeId={jd.employee_id}
+     isManager={currentUser.employee_id !== jd.employee_id && (role === "manager" || role === "head" || role === "hr" || role === "admin")}
     />
    </div>
   )}

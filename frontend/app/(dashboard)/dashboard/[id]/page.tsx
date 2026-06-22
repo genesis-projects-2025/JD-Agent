@@ -1729,6 +1729,15 @@ function DashboardContent() {
     }
 
     const currentEmpId = urlId || sessionUser.employee_id;
+
+    // Security check: standard employees can ONLY view their own dashboard
+    const isOwner = currentEmpId === sessionUser.employee_id;
+    const canViewOthers = ["manager", "head", "hr", "admin"].includes(sessionUser.role);
+    if (!isOwner && !canViewOthers) {
+      router.replace(`/dashboard/${safeBtoa(sessionUser.employee_id)}`);
+      return;
+    }
+
     // Defer state updates to avoid cascading renders
     const timer = setTimeout(() => {
       setEmpId(currentEmpId);

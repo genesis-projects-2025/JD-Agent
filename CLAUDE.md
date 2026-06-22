@@ -184,6 +184,11 @@ Based on HR instructions, the JD template was updated across the codebase:
 | `frontend/app/(dashboard)/dashboard/[id]/page.tsx` | **In-Place KRA/KPI Review Column & Viewer (June 2026):** Added KRA/KPI column to reportees directory table on manager dashboard. Created in-place overlay view of KRAKPIPanel with header/back button when viewing reportee performance targets, eliminating need to navigate away from the dashboard. |
 | `frontend/lib/cookies.ts` | **Incognito Storage Fallback (June 2026):** Added `localStorage` and `sessionStorage` fallback support for cookies to prevent auth state loss in privacy/incognito browsing mode. |
 | `frontend/components/providers/auth-provider.tsx` | **AuthProvider Incognito Fix (June 2026):** Restored active fallback session keys during one-time cleanup to prevent state clearing loops in incognito mode. |
+| `backend/app/routers/admin_routes.py` | **Bulk KRA/KPI Removal (June 2026):** Removed bulk upload endpoints and bulk template download route in favor of structured individual employee uploads. |
+| `backend/app/services/kra_kpi_service.py` | **Deterministic Excel KPI Splitter (June 2026):** Introduced `split_kpi_text` helper to split multi-line and bulleted lists in a single Excel cell, perfecting direct parsing of consolidated KPI sheets. |
+| `frontend/app/admin/(dashboard)/jd-library/page.tsx` | **Bulk KRA/KPI Tab Removal (June 2026):** Deleted obsolete bulk upload tab/switcher button, functions, states, and JSX rendering blocks to clean up dead UI. |
+| `frontend/components/jd/kra-kpi-panel.tsx` | **Uploaded Performance View & Syntax Fix (June 2026):** Rewrote the static `UploadedView` to render accent borders, weights, target dates, and stats header cleanly. Resolved local markup compile error. |
+| `frontend/components/layout/sidebar.tsx` | **Hydration Placeholder Sidebar (June 2026):** Rendered an empty width-matched placeholder container when `!isMounted` to prevent flashing layouts and content layout shifts. |
 
 
 ---

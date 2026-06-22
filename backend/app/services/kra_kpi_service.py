@@ -700,10 +700,102 @@ def parse_kra_kpi_excel_bulk(file_bytes: bytes, file_type_lower: str) -> dict[st
     return result
 
 
+def split_kpi_text(text: str) -> list[str]:
+    """
+    Splits a single KPI string that contains multiple KPIs (e.g., separated by newlines,
+    bullet points, or numeric lists) into individual KPI titles/descriptions.
+    """
+    if not text:
+        return []
+    import re
+    # Split by:
+    # 1. Newlines
+    # 2. Inline numbering like ' 2. ' or ' 2) ' (space after dot/parenthesis optional)
+    # 3. Inline bullets like ' • ', ' - ', ' * ' (space after bullet optional)
+    parts = re.split(r'[\r\n]+|\s+(?=\d+[\.\)]\s*)|\s+[\u2022•\-\*]\s*', text)
+    
+    kpis = []
+    # Clean up any remaining leading bullet/numbering prefixes on each part
+    prefix_pattern = re.compile(r'^([•\-\*\u2022\d]+\s*[\.\)]\s*|[•\-\*\u2022]\s*)')
+    for part in parts:
+        part_str = part.strip()
+        if not part_str:
+            continue
+        cleaned = prefix_pattern.sub('', part_str).strip()
+        if cleaned:
+            kpis.append(cleaned)
+            
+    if not kpis:
+        trimmed = text.strip()
+        if trimmed:
+            kpis = [trimmed]
+            
+    return kpis
+
+
+def split_all_kpis_in_kras(kras: list[dict]) -> list[dict]:
+    """
+    Post-processes a list of KRAs to ensure that if any KPI contains a list/multiple KPIs,
+    it is expanded into separate KPI dictionaries.
+    """
+    if not kras:
+        return []
+    
+    updated_kras = []
+    for kra in kras:
+        kpis_new = []
+        for kpi in kra.get("kpis", []):
+            title = kpi.get("title", "")
+            desc = kpi.get("description", "")
+            target_date = kpi.get("target_date")
+            
+            titles_split = split_kpi_text(title)
+            descs_split = split_kpi_text(desc) if desc else []
+            
+            # If we split either the title or the description into multiple items,
+            # expand them into separate KPI dicts
+            if len(titles_split) > 1 or len(descs_split) > 1:
+                num_kpis = max(len(titles_split), len(descs_split))
+                for idx in range(num_kpis):
+                    t = titles_split[idx] if idx < len(titles_split) else (titles_split[-1] if titles_split else "KPI")
+                    d = descs_split[idx] if idx < len(descs_split) else ""
+                    kpi_entry = {"title": t, "description": d}
+                    if target_date:
+                        kpi_entry["target_date"] = target_date
+                    kpis_new.append(kpi_entry)
+            else:
+                kpis_new.append(kpi)
+                
+        kra_copy = dict(kra)
+        kra_copy["kpis"] = kpis_new
+        updated_kras.append(kra_copy)
+        
+    return updated_kras
+
+
+
 def parse_kra_kpi_excel(file_bytes: bytes, file_type_lower: str) -> list[dict]:
     """
-    Single-employee Excel parser. First tries structured template format,
-    then falls back to heuristic column detection for legacy files.
+    Single-employee Excel parser supporting two formats:
+
+    FORMAT A — Structured template (Employee_ID, KRA_Title, KPI_Title, ... columns):
+      Detected automatically via _is_structured_template().
+
+    FORMAT B — Srinivas-style (the real format from actual files):
+      Col A: KRA title on first row of each group; blank or weight (e.g. "0.25") on subsequent rows
+      Col B: KPI title — one KPI per row (first KPI is on same row as KRA title)
+      Col C: (optional) target date
+
+      Example:
+        Row 1:  KRA                        | KPI           | Date
+        Row 2:  KRA Title Here             | KPI 1 text    | 2026-01-20  ← KRA title + first KPI
+        Row 3:  0.25  (weight decimal)     | KPI 2 text    | 2026-03-01  ← weight row + second KPI
+        Row 4:  (empty)                    | KPI 3 text    |             ← more KPIs
+        Row 6:  Next KRA Title             | KPI 1 text    | 2026-03-20
+        ...
+
+    Returns list of:
+      {"title": str, "description": str, "weight": int|None, "kpis": [{"title": str, "description": str, "target_date": str?}]}
     """
     import io
     rows = []
@@ -712,7 +804,9 @@ def parse_kra_kpi_excel(file_bytes: bytes, file_type_lower: str) -> list[dict]:
         try:
             import openpyxl
             wb = openpyxl.load_workbook(io.BytesIO(file_bytes), data_only=True)
-            sheet_name = "KRA_KPI" if "KRA_KPI" in wb.sheetnames else wb.sheetnames[0]
+            # Prefer sheet named "KRA_KPI" or "KRA", else use active
+            preferred = ["KRA_KPI", "KRA"]
+            sheet_name = next((s for s in preferred if s in wb.sheetnames), wb.sheetnames[0])
             ws = wb[sheet_name]
             for row in ws.iter_rows(values_only=True):
                 rows.append(list(row))
@@ -734,10 +828,10 @@ def parse_kra_kpi_excel(file_bytes: bytes, file_type_lower: str) -> list[dict]:
     if not rows:
         raise Exception("Excel sheet is empty")
 
-    # ── Try structured template format first ────────────────────────────────────
+    # ── FORMAT A: Structured template (Employee_ID + KRA_Title columns) ───────
     is_template, col_map = _is_structured_template(rows)
     if is_template:
-        logger.info("[parse_kra_kpi_excel] Detected structured template format. Parsing structured rows.")
+        logger.info("[parse_kra_kpi_excel] Detected structured template format.")
         header_idx = col_map.get("_header_row_idx", 0)
         kra_title_col = col_map.get("kra_title", 2)
         kra_weight_col = col_map.get("kra_weight", 3)
@@ -746,7 +840,7 @@ def parse_kra_kpi_excel(file_bytes: bytes, file_type_lower: str) -> list[dict]:
         kpi_desc_col = col_map.get("kpi_description", 6)
 
         kras: list[dict] = []
-        kra_index: dict[str, dict] = {}  # kra_title_lower -> kra_dict
+        kra_index: dict[str, dict] = {}
 
         def get_val(row, col_idx):
             if col_idx is not None and 0 <= col_idx < len(row):
@@ -773,129 +867,173 @@ def parse_kra_kpi_excel(file_bytes: bytes, file_type_lower: str) -> list[dict]:
 
             kpi_desc = get_val(row, kpi_desc_col)
             kpi_target = get_val(row, kpi_target_col)
-            kpi_entry = {"title": kpi_title, "description": kpi_desc}
-            if kpi_target:
-                kpi_entry["target_date"] = kpi_target
 
             key = kra_title.lower().strip()
             if key not in kra_index:
-                kra_dict = {"title": kra_title, "description": "", "weight": kra_weight, "kpis": []}
+                kra_dict: dict = {"title": kra_title, "description": "", "weight": kra_weight, "kpis": []}
                 kras.append(kra_dict)
                 kra_index[key] = kra_dict
             elif kra_weight is not None and kra_index[key]["weight"] is None:
                 kra_index[key]["weight"] = kra_weight
 
-            kra_index[key]["kpis"].append(kpi_entry)
+            # Split kpi_title and kpi_desc and loop max times to capture all split KPIs
+            kpi_titles = split_kpi_text(kpi_title)
+            kpi_descs = split_kpi_text(kpi_desc) if kpi_desc else []
+            
+            num_kpis = max(len(kpi_titles), len(kpi_descs))
+            for idx_kpi in range(num_kpis):
+                if idx_kpi < len(kpi_titles):
+                    kt = kpi_titles[idx_kpi]
+                elif kpi_titles:
+                    kt = kpi_titles[-1]
+                else:
+                    kt = "KPI"
+                    
+                if idx_kpi < len(kpi_descs):
+                    kd = kpi_descs[idx_kpi]
+                else:
+                    kd = ""
+                    
+                kpi_entry: dict = {"title": kt, "description": kd}
+                if kpi_target:
+                    kpi_entry["target_date"] = kpi_target
+                kra_index[key]["kpis"].append(kpi_entry)
 
         if kras:
             return kras
-        # Fall through to legacy parsing if no rows extracted
+        # Fall through to Format B
 
-    # ── Legacy heuristic column detection ──────────────────────────────────────
-    kra_title_col = -1
-    kra_desc_col = -1
-    kpi_title_col = -1
-    kpi_desc_col = -1
-    header_row_idx = -1
+    # ── FORMAT B: Srinivas-style (Col A = KRA or weight; Col B = KPI; Col C = date) ──
+    logger.info("[parse_kra_kpi_excel] Using Srinivas-style format parser.")
 
-    for idx, r in enumerate(rows[:10]):
-        cells = [str(c).lower().strip() if c is not None else "" for c in r]
-        for col_idx, cell in enumerate(cells):
-            if "kra" in cell or "key result" in cell:
-                if any(x in cell for x in ["desc", "detail", "definition"]):
-                    if kra_desc_col == -1:
-                        kra_desc_col = col_idx
-                else:
-                    if kra_title_col == -1:
-                        kra_title_col = col_idx
-            elif "kpi" in cell or "key performance" in cell or "metric" in cell or "indicator" in cell:
-                if any(x in cell for x in ["desc", "detail", "definition", "target"]):
-                    if kpi_desc_col == -1:
-                        kpi_desc_col = col_idx
-                else:
-                    if kpi_title_col == -1:
-                        kpi_title_col = col_idx
+    def _get(row, idx):
+        """Safe cell getter — strips and returns string or empty."""
+        if idx is None or idx < 0 or idx >= len(row):
+            return ""
+        v = row[idx]
+        if v is None:
+            return ""
+        return str(v).strip()
 
-        if kra_title_col != -1 and kpi_title_col != -1:
-            header_row_idx = idx
+    def _is_number_only(s: str) -> bool:
+        """True if the string is purely numeric (a weight, not a KRA title)."""
+        try:
+            float(s.replace("%", "").replace(",", ""))
+            return True
+        except ValueError:
+            return False
+
+    def _parse_weight(s: str):
+        """Convert weight string to integer percentage."""
+        try:
+            w = float(s.replace("%", "").replace(",", "").strip())
+            return round(w * 100) if 0 < w <= 1.0 else round(w)
+        except ValueError:
+            return None
+
+    def _is_header_row(row) -> bool:
+        """True if this row looks like a column header (contains 'KRA', 'KPI', etc.)."""
+        cells = [str(c).lower().strip() if c is not None else "" for c in row[:5]]
+        return (
+            any("kra" in c or "key result" in c for c in cells)
+            and any("kpi" in c or "key performance" in c or "indicator" in c for c in cells)
+        )
+
+    # Detect header row and skip it
+    start_idx = 0
+    for i, r in enumerate(rows[:5]):
+        if _is_header_row(r):
+            start_idx = i + 1
             break
 
-    if kra_title_col == -1:
-        num_cols = len(rows[0])
-        if num_cols == 1:
-            kra_title_col, kra_desc_col, kpi_title_col, kpi_desc_col = 0, 0, 0, 0
-        elif num_cols == 2:
-            kra_title_col, kra_desc_col, kpi_title_col, kpi_desc_col = 0, 0, 1, 1
-        elif num_cols == 3:
-            kra_title_col, kra_desc_col, kpi_title_col, kpi_desc_col = 0, 1, 2, 2
-        else:
-            kra_title_col, kra_desc_col, kpi_title_col, kpi_desc_col = 0, 1, 2, 3
+    # Determine which columns hold KRA (col_a), KPI (col_b), date (col_c), and weight (col_weight).
+    # Heuristically detect columns by searching for keywords in the first 5 rows
+    col_a = 0  # Default KRA title/weight
+    col_b = 1  # Default KPI title
+    col_c = None  # Default date
+    col_weight = None  # Default weight
+    
+    header_found = False
+    for i, row in enumerate(rows[:5]):
+        cells = [str(c).lower().strip() if c is not None else "" for c in row]
+        has_kra = any("kra" in c or "key result" in c or "result area" in c for c in cells)
+        has_kpi = any("kpi" in c or "key performance" in c or "indicator" in c or "metric" in c for c in cells)
+        if has_kra or has_kpi:
+            header_found = True
+            for idx, cell in enumerate(cells):
+                if "kra" in cell or "key result" in cell or "result area" in cell:
+                    col_a = idx
+                elif "kpi" in cell or "key performance" in cell or "indicator" in cell or "metric" in cell:
+                    col_b = idx
+                elif "date" in cell or "target" in cell or "timeline" in cell:
+                    col_c = idx
+                elif "weight" in cell or "%" in cell:
+                    col_weight = idx
+            break
 
-        first_row_cells = [str(c).lower().strip() if c is not None else "" for c in rows[0]]
-        if any(any(w in c for w in ["kra", "kpi", "title", "name", "desc"]) for c in first_row_cells):
-            header_row_idx = 0
+    if not header_found:
+        num_cols = max((len(r) for r in rows if r), default=1)
+        col_a = 0
+        col_b = 1 if num_cols >= 2 else 0
+        col_c = 2 if num_cols >= 3 else None
 
-    start_row = header_row_idx + 1 if header_row_idx != -1 else 0
     kras = []
-    current_kra = None
+    current_kra: dict | None = None
 
-    for r in rows[start_row:]:
-        if not any(c is not None and str(c).strip() != "" for c in r):
+    for r in rows[start_idx:]:
+        # Skip fully empty rows
+        if not any(c is not None and str(c).strip() for c in r):
             continue
 
-        def get_cell_str(col_idx):
-            if 0 <= col_idx < len(r):
-                val = r[col_idx]
-                return str(val).strip() if val is not None else ""
-            return ""
+        cell_a = _get(r, col_a)
+        cell_b = _get(r, col_b)
+        cell_c = _get(r, col_c)
+        cell_w = _get(r, col_weight) if col_weight is not None else ""
 
-        k_title = get_cell_str(kra_title_col)
-        k_desc = get_cell_str(kra_desc_col)
-        kp_title = get_cell_str(kpi_title_col)
-        kp_desc = get_cell_str(kpi_desc_col)
+        # Clean up date strings (openpyxl returns datetime objects as strings like "2026-01-20 00:00:00")
+        if cell_c and "00:00:00" in cell_c:
+            cell_c = cell_c.split(" ")[0]
 
-        # Skip rows where the KRA column contains only a number (e.g. weight like "0.25")
-        if k_title and not k_desc and not kp_title:
-            try:
-                float(k_title.replace("%", ""))
-                continue  # This is a weight row, not a KRA title row
-            except ValueError:
-                pass
+        # Parse weight from either the weight column or column A (if it is purely numeric weight format)
+        raw_w = cell_w if col_weight is not None and cell_w else (cell_a if _is_number_only(cell_a) else "")
+        weight = _parse_weight(raw_w) if raw_w else None
 
-        if not k_title and not k_desc and not kp_title and not kp_desc:
-            continue
-
-        if k_title or k_desc:
-            match = None
-            if k_title:
-                for k in kras:
-                    if k["title"].lower() == k_title.lower():
-                        match = k
-                        break
-            if match:
-                current_kra = match
-            else:
-                current_kra = {
-                    "title": k_title if k_title else (k_desc[:50] if k_desc else "KRA"),
-                    "description": k_desc,
-                    "kpis": [],
-                }
-                kras.append(current_kra)
-        elif not current_kra:
-            current_kra = {
-                "title": "General",
-                "description": "General Key Result Area",
-                "kpis": [],
-            }
+        # ── Determine row type ───────────────────────────────────────────────
+        # Case 1: Col A is non-empty and NOT a number only -> new KRA title
+        if cell_a and not _is_number_only(cell_a):
+            current_kra = {"title": cell_a, "description": "", "weight": weight, "kpis": []}
             kras.append(current_kra)
+            # The KPI on the same row as the KRA title is the first KPI
+            if cell_b:
+                kpis = split_kpi_text(cell_b)
+                for kpi_title in kpis:
+                    kpi = {"title": kpi_title, "description": ""}
+                    if cell_c:
+                        kpi["target_date"] = cell_c
+                    current_kra["kpis"].append(kpi)
+            continue
 
-        if kp_title or kp_desc:
-            current_kra["kpis"].append({
-                "title": kp_title if kp_title else (kp_desc[:50] if kp_desc else "KPI"),
-                "description": kp_desc,
-            })
+        # Case 2: Col A has a number or is empty -> KPI row under the current KRA
+        if not cell_a or _is_number_only(cell_a):
+            if current_kra is not None and current_kra.get("weight") is None and weight is not None:
+                current_kra["weight"] = weight
+            
+            if cell_b:
+                if current_kra is None:
+                    current_kra = {"title": "General", "description": "", "weight": weight, "kpis": []}
+                    kras.append(current_kra)
+                kpis = split_kpi_text(cell_b)
+                for kpi_title in kpis:
+                    kpi = {"title": kpi_title, "description": ""}
+                    if cell_c:
+                        kpi["target_date"] = cell_c
+                    current_kra["kpis"].append(kpi)
+            continue
 
+    # Remove any KRAs that ended up with no KPIs (stray rows)
+    kras = [k for k in kras if k["kpis"]]
     return kras
+
 
 
 async def infer_jd_from_kras(employee_id: str, employee_name: str, kras: list) -> dict:
@@ -1109,7 +1247,7 @@ async def process_kra_kpi_document(
                 return {
                     "jd": jd_data,
                     "kra_kpi": {
-                        "kras": kras
+                        "kras": split_all_kpis_in_kras(kras)
                     }
                 }
         except Exception as excel_err:
@@ -1239,6 +1377,9 @@ async def process_kra_kpi_document(
     if not kras_list:
         raise Exception("No KRAs or KPIs could be extracted from the document")
 
+    extracted_kra_kpi["kras"] = split_all_kpis_in_kras(kras_list)
+    parsed_data["kra_kpi"] = extracted_kra_kpi
+
     return parsed_data
 
 
@@ -1348,6 +1489,9 @@ async def analyze_kra_kpi_text(
         logger.error(f"Failed to parse LLM response: {raw_content}")
         raise Exception(f"AI parsing did not return valid JSON: {str(e)}")
 
+    if "kra_kpi" in parsed_data and "kras" in parsed_data["kra_kpi"]:
+        parsed_data["kra_kpi"]["kras"] = split_all_kpis_in_kras(parsed_data["kra_kpi"]["kras"])
+
     return parsed_data
 
 
@@ -1418,7 +1562,9 @@ async def save_kra_kpi_from_paste(
 
     # Clean the kras list to only keep title, description, and kpis (with title and description)
     kras_clean = []
-    for kra in kra_kpi_data.get("kras", []):
+    # Make sure we split any remaining concatenated KPIs before clean-up!
+    kras_to_save = split_all_kpis_in_kras(kra_kpi_data.get("kras", []))
+    for kra in kras_to_save:
         kpis_clean = []
         for kpi in kra.get("kpis", []):
             kpis_clean.append({

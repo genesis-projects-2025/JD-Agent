@@ -968,90 +968,115 @@ function UploadedView({ record }: { record: KRAKPIRecord }) {
   const [openId, setOpenId] = useState<string | null>(kras[0]?.title ?? null);
 
   const totalKpis = kras.reduce((acc, kra) => acc + (kra.kpis?.length ?? 0), 0);
+  const totalWeight = kras.reduce((acc, kra) => acc + (typeof kra.weight === "number" ? kra.weight : 0), 0);
+
+  const ACCENT_COLORS = [
+    { border: "border-l-indigo-500", badge: "bg-indigo-50 text-indigo-700 border-indigo-200", ring: "ring-indigo-100", bar: "bg-indigo-500" },
+    { border: "border-l-violet-500", badge: "bg-violet-50 text-violet-700 border-violet-200", ring: "ring-violet-100", bar: "bg-violet-500" },
+    { border: "border-l-emerald-500",badge: "bg-emerald-50 text-emerald-700 border-emerald-200",ring: "ring-emerald-100",bar: "bg-emerald-500" },
+    { border: "border-l-amber-500",  badge: "bg-amber-50 text-amber-700 border-amber-200", ring: "ring-amber-100", bar: "bg-amber-500" },
+    { border: "border-l-rose-500",   badge: "bg-rose-50 text-rose-700 border-rose-200",   ring: "ring-rose-100",  bar: "bg-rose-500" },
+  ];
 
   return (
-    <div className="space-y-6">
-      {/* Hero Status Banner */}
-      <div className="bg-gradient-to-br from-emerald-600 via-teal-600 to-emerald-800 rounded-3xl p-6 text-white shadow-xl relative overflow-hidden">
-        <div className="absolute inset-0 opacity-10">
-          <div className="absolute top-0 right-0 w-48 h-48 bg-white rounded-full blur-3xl -translate-y-1/2 translate-x-1/4" />
-          <div className="absolute bottom-0 left-0 w-40 h-40 bg-white rounded-full blur-3xl translate-y-1/2 -translate-x-1/4" />
-        </div>
-        <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div>
-            <div className="flex items-center gap-2.5 mb-2">
-              <div className="w-10 h-10 rounded-2xl bg-white/20 backdrop-blur flex items-center justify-center">
-                <CheckCircle2 className="w-6 h-6 text-white" />
-              </div>
-              <div>
-                <p className="text-[10px] font-bold tracking-[0.2em] text-emerald-100 uppercase">Performance Plan</p>
-                <h3 className="text-lg font-extrabold text-white leading-tight">Official KRA & KPI Framework</h3>
-              </div>
-            </div>
-            <p className="text-emerald-50/80 text-xs max-w-md">
-              Your official Key Result Areas and Key Performance Indicators uploaded directly by Admin.
-            </p>
+    <div className="space-y-5">
+      {/* Stats Row */}
+      <div className="grid grid-cols-3 gap-3">
+        {[
+          { label: "KRAs", value: kras.length, icon: "🎯" },
+          { label: "KPIs", value: totalKpis, icon: "📊" },
+          { label: "Weight", value: `${totalWeight}%`, icon: "⚖️" },
+        ].map((stat) => (
+          <div key={stat.label} className="bg-white rounded-2xl border border-surface-150 p-4 text-center shadow-sm">
+            <div className="text-xl mb-1">{stat.icon}</div>
+            <div className="text-2xl font-black text-surface-900 leading-none">{stat.value}</div>
+            <div className="text-[10px] text-surface-400 font-semibold uppercase tracking-wider mt-0.5">{stat.label}</div>
           </div>
-          <div className="flex items-center gap-6 self-start md:self-auto pt-4 md:pt-0 border-t md:border-t-0 border-white/10 w-full md:w-auto">
-            <div className="text-center flex-1 md:flex-initial">
-              <span className="text-2xl font-black leading-none">{kras.length}</span>
-              <p className="text-[10px] text-emerald-100/70 mt-0.5 font-medium uppercase tracking-wider">KRAs</p>
-            </div>
-            <div className="text-center flex-1 md:flex-initial border-l border-white/15 pl-6">
-              <span className="text-2xl font-black leading-none">{totalKpis}</span>
-              <p className="text-[10px] text-emerald-100/70 mt-0.5 font-medium uppercase tracking-wider">KPIs</p>
-            </div>
-          </div>
-        </div>
+        ))}
       </div>
 
-      {/* KRAs Accordion */}
-      <div className="space-y-3">
+      {/* Admin Upload Notice */}
+      <div className="flex items-center gap-2.5 px-4 py-2.5 bg-emerald-50 border border-emerald-200 rounded-xl text-xs text-emerald-700">
+        <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
+        <span>Your performance framework was set by HR/Admin. Contact your manager to discuss these goals.</span>
+      </div>
+
+      {/* KRA Accordion */}
+      <div className="space-y-2.5">
         {kras.map((kra, i) => {
-          const c = PALETTE[i % PALETTE.length];
+          const accent = ACCENT_COLORS[i % ACCENT_COLORS.length];
           const isOpen = openId === kra.title;
+          const kpis = kra.kpis ?? [];
+          const weight = typeof kra.weight === "number" ? kra.weight : null;
+
           return (
             <div
               key={i}
-              className={`rounded-2xl border ${isOpen ? c.border : "border-surface-150"} overflow-hidden transition-all bg-white shadow-sm hover:shadow-md`}
+              className={`bg-white rounded-xl border border-surface-100 border-l-4 ${accent.border} overflow-hidden shadow-sm transition-shadow ${isOpen ? "shadow-md" : "hover:shadow-md"}`}
             >
+              {/* Header */}
               <button
                 onClick={() => setOpenId(isOpen ? null : kra.title)}
-                className={`w-full flex items-center justify-between p-5 text-left transition-colors ${isOpen ? c.bg : "hover:bg-surface-50/50"}`}
+                className="w-full flex items-center gap-3 p-4 text-left"
               >
-                <div className="flex items-start gap-4">
-                  <div className={`w-8 h-8 rounded-xl ${c.badge} flex items-center justify-center shrink-0`}>
-                    <Target className="w-4 h-4" />
-                  </div>
-                  <div>
-                    <span className={`text-[10px] font-bold uppercase tracking-wider ${isOpen ? "text-primary-700" : "text-surface-400"}`}>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-[10px] font-bold uppercase tracking-widest text-surface-400">
                       KRA {i + 1}
                     </span>
-                    <h4 className="text-sm font-bold text-surface-950 mt-0.5 leading-tight">{kra.title}</h4>
+                    {weight !== null && (
+                      <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold border ${accent.badge}`}>
+                        {weight}%
+                      </span>
+                    )}
                   </div>
+                  <h4 className="text-sm font-bold text-surface-900 mt-0.5 leading-snug pr-4">{kra.title}</h4>
                 </div>
-                {isOpen ? <ChevronUp className="w-5 h-5 text-surface-400" /> : <ChevronDown className="w-5 h-5 text-surface-400" />}
+                <div className="flex items-center gap-2 shrink-0">
+                  <span className="text-[10px] text-surface-400 font-medium">{kpis.length} KPI{kpis.length !== 1 ? "s" : ""}</span>
+                  {isOpen ? <ChevronUp className="w-4 h-4 text-surface-400" /> : <ChevronDown className="w-4 h-4 text-surface-400" />}
+                </div>
               </button>
 
+              {/* Weight progress bar */}
+              {weight !== null && isOpen && (
+                <div className="px-4 pb-1">
+                  <div className="h-1 bg-surface-100 rounded-full overflow-hidden">
+                    <div className={`h-full ${accent.bar} rounded-full transition-all duration-500`} style={{ width: `${Math.min(weight, 100)}%` }} />
+                  </div>
+                </div>
+              )}
+
+              {/* KPI List */}
               {isOpen && (
-                <div className="p-5 border-t border-surface-100 space-y-4 bg-white animate-in slide-in-from-top-1 duration-150">
-                  <p className="text-xs text-surface-600 leading-relaxed">{kra.description}</p>
-                  
-                  {kra.kpis && kra.kpis.length > 0 && (
-                    <div className="space-y-2.5">
-                      <span className="text-[10px] text-surface-400 font-bold uppercase tracking-wider block">
-                        Key Performance Indicators (KPIs)
-                      </span>
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                        {kra.kpis.map((kpi: any, kIdx: number) => (
-                          <div key={kIdx} className="bg-surface-50 border border-surface-100 p-3.5 rounded-xl text-xs space-y-1 hover:border-surface-200 transition-colors">
-                            <div className="font-bold text-surface-900 leading-snug">{kpi.title}</div>
-                            <div className="text-surface-500 leading-relaxed">{kpi.description}</div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
+                <div className="px-4 pb-4 pt-2 border-t border-surface-50 animate-in slide-in-from-top-1 duration-150">
+                  {kra.description && (
+                    <p className="text-xs text-surface-500 leading-relaxed mb-3 italic">{kra.description}</p>
                   )}
+                  <div className="space-y-2">
+                    {kpis.map((kpi: any, kIdx: number) => (
+                      <div
+                        key={kIdx}
+                        className={`flex gap-3 p-3 rounded-xl bg-surface-50/80 border border-surface-100 hover:border-surface-200 transition-colors`}
+                      >
+                        <span className={`flex-shrink-0 w-6 h-6 rounded-lg ${accent.badge} flex items-center justify-center text-[10px] font-black border`}>
+                          {kIdx + 1}
+                        </span>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs font-semibold text-surface-800 leading-snug">{kpi.title}</p>
+                          {kpi.description && (
+                            <p className="text-[11px] text-surface-500 mt-0.5 leading-relaxed">{kpi.description}</p>
+                          )}
+                          {kpi.target_date && (
+                            <div className="flex items-center gap-1 mt-1.5">
+                              <span className="text-[10px] text-surface-400 font-medium">🗓 Target:</span>
+                              <span className="text-[10px] font-bold text-surface-600 bg-surface-100 px-1.5 py-0.5 rounded-md">{kpi.target_date}</span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               )}
             </div>

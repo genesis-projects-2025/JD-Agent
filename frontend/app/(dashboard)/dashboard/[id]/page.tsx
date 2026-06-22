@@ -142,7 +142,7 @@ function JDGrid({
 }: {
   jds: JDListItem[];
   showEmployee: boolean;
-  onViewKraKpi?: (jdId: string, employeeId: string, employeeName: string) => void;
+  onViewKraKpi?: (jdId: string, employeeId: string, employeeName: string, kraKpiStatus?: string | null) => void;
 }) {
   // Hooks must be called at the top level, before any conditional returns
   const router = useRouter();
@@ -298,7 +298,7 @@ function JDGrid({
                         e.preventDefault();
                         e.stopPropagation();
                         if (onViewKraKpi && jd.employee_id) {
-                          onViewKraKpi(jd.id, jd.employee_id, jd.employee_name || "Unknown");
+                          onViewKraKpi(jd.id, jd.employee_id, jd.employee_name || "Unknown", jd.kra_kpi_status);
                         } else {
                           router.push(`/jd/${jd.id}?tab=kra-kpi`);
                         }
@@ -699,6 +699,7 @@ function ManagerView({ user }: { user: AuthUser }) {
     employeeId: string;
     employeeName: string;
   } | null>(null);
+  const [blockedEmployeeName, setBlockedEmployeeName] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
   // My Team State
@@ -1132,11 +1133,17 @@ function ManagerView({ user }: { user: AuthUser }) {
                                   <td className="px-6 py-5">
                                     {emp.jd_id ? (
                                       <button
-                                        onClick={() => setViewingKraKpi({
-                                          jdId: emp.jd_id!,
-                                          employeeId: emp.employee_id,
-                                          employeeName: emp.name
-                                        })}
+                                        onClick={() => {
+                                          if (emp.kra_kpi_status === "draft" || emp.kra_kpi_status === "confirmed") {
+                                            setBlockedEmployeeName(emp.name);
+                                          } else {
+                                            setViewingKraKpi({
+                                              jdId: emp.jd_id!,
+                                              employeeId: emp.employee_id,
+                                              employeeName: emp.name
+                                            });
+                                          }
+                                        }}
                                         className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100 transition-all text-[10px] font-semibold tracking-wider group/btn shadow-sm"
                                       >
                                         <Target className="w-3.5 h-3.5 text-blue-600 group-hover/btn:scale-110 transition-transform" />
@@ -1180,11 +1187,39 @@ function ManagerView({ user }: { user: AuthUser }) {
             <JDGrid 
               jds={jds} 
               showEmployee={filter !== "my_jds"} 
-              onViewKraKpi={(jdId, employeeId, employeeName) => setViewingKraKpi({ jdId, employeeId, employeeName })}
+              onViewKraKpi={(jdId, employeeId, employeeName, kraKpiStatus) => {
+                if (kraKpiStatus === "draft" || kraKpiStatus === "confirmed") {
+                  setBlockedEmployeeName(employeeName);
+                } else {
+                  setViewingKraKpi({ jdId, employeeId, employeeName });
+                }
+              }}
             />
           )}
         </div>
 
+        {blockedEmployeeName && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200">
+            <div className="bg-white rounded-[2rem] p-8 max-w-md w-full mx-4 shadow-xl border border-surface-200 animate-in zoom-in-95 duration-200 text-center relative overflow-hidden">
+              <div className="absolute top-0 left-1/2 -translate-x-1/2 w-48 h-48 bg-amber-500/10 rounded-full blur-3xl pointer-events-none" />
+              <div className="w-14 h-14 bg-amber-50 rounded-2xl flex items-center justify-center mx-auto mb-6 border border-amber-100/60 shadow-inner relative z-10">
+                <Clock className="w-7 h-7 text-amber-600 animate-pulse" />
+              </div>
+              <h3 className="text-xl font-semibold text-slate-900 mb-3 relative z-10">
+                Goals Under Process
+              </h3>
+              <p className="text-sm text-slate-500 mb-8 leading-relaxed relative z-10">
+                <strong className="text-slate-800 font-semibold">{blockedEmployeeName}</strong> is currently setting up and drafting their KRA & KPI performance goals. You will be notified and able to review them once they are officially submitted for your approval.
+              </p>
+              <button
+                onClick={() => setBlockedEmployeeName(null)}
+                className="w-full py-3.5 bg-slate-900 text-white font-semibold text-xs rounded-xl hover:bg-slate-800 active:bg-slate-950 transition-colors shadow-lg shadow-slate-950/10 relative z-10"
+              >
+                Understood, Close
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

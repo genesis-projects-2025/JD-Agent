@@ -144,7 +144,7 @@ def _build_kra_suggestion_prompt(
     mgr_resp_block = "; ".join(manager_responsibilities[:5]) if manager_responsibilities else "N/A"
 
     return f"""You are a Senior HR Performance Management Expert.
-Your task: Suggest 6 to 7 Key Result Areas (KRAs) for the employee described below.
+Your task: Suggest exactly 10 Key Result Areas (KRAs) for the employee described below.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 EMPLOYEE PROFILE (PRIMARY SOURCE — base KRAs on this)
@@ -177,14 +177,15 @@ DOMAIN CONTEXT
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 RULES (STRICT — violations break the system)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-1. Generate EXACTLY 6 to 7 KRAs. No more, no less.
-2. Each KRA must be distinct — no overlapping domains.
-3. KRAs must come from the employee's actual responsibilities and tasks.
+1. Generate EXACTLY 10 KRAs. No more, no less.
+2. Each KRA must be distinct.
+3. KRAs must align with the employee's actual responsibilities and tasks.
 4. Do NOT include weights — the employee will assign weights manually after selection.
-5. source_tasks: List 1–3 actual task names from the employee's Priority Tasks above.
-6. description: 1 sentence describing the accountability domain.
-7. DO NOT generate KPIs in this step — only KRA titles, descriptions, and source tasks.
-8. KRA titles should be 3–5 words, professional, and role-specific. No generic titles like "General Tasks".
+5. KRA titles MUST be phrased as achievable outcomes or results rather than simple category headings (e.g. use "Improved system performance" instead of "Quality Assurance", and "Enhanced customer satisfaction" instead of "Customer Service"). They should directly describe what is achieved.
+6. The description field MUST be returned as an empty string ("").
+7. The source_tasks field MUST be returned as an empty array ([]).
+8. The manager_impact field MUST be returned as an empty string ("").
+9. DO NOT generate KPIs in this step — only KRA suggestions.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 OUTPUT — RETURN ONLY THIS JSON (no markdown, no extra text)
@@ -193,10 +194,10 @@ OUTPUT — RETURN ONLY THIS JSON (no markdown, no extra text)
   "kra_suggestions": [
     {{
       "kra_id": "kra_001",
-      "title": "KRA Title",
-      "description": "Single sentence describing this accountability domain.",
-      "source_tasks": ["Task Name 1", "Task Name 2"],
-      "manager_impact": "Brief note on how this KRA supports the manager's goals."
+      "title": "Achievable Outcome Title",
+      "description": "",
+      "source_tasks": [],
+      "manager_impact": ""
     }}
   ]
 }}"""
@@ -358,11 +359,15 @@ async def generate_kra_suggestions(
     if not suggestions:
         raise ValueError("LLM returned no KRA suggestions")
 
-    # Ensure IDs and cap at 7, strip any weight the LLM may have hallucinated
-    suggestions = suggestions[:7]
+    # Ensure IDs and cap at 10, strip any weight the LLM may have hallucinated
+    suggestions = suggestions[:10]
     for i, kra in enumerate(suggestions):
         if not kra.get("kra_id"):
             kra["kra_id"] = f"kra_{i+1:03d}"
+        # Ensure description, source_tasks and manager_impact are empty/null to remove reference KRAs
+        kra["description"] = ""
+        kra["source_tasks"] = []
+        kra["manager_impact"] = ""
         # Remove any weight fields — weights are set by the employee, not the agent
         kra.pop("suggested_weight", None)
         kra.pop("weight", None)

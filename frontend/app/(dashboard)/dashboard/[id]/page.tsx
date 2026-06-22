@@ -220,6 +220,13 @@ function JDGrid({
               bg: "bg-red-50 border-red-100",
               icon: STATUS_CONFIG.hr_rejected.icon,
             };
+          } else if (jd.status === "approved" && (jd.kra_kpi_status === "draft" || jd.kra_kpi_status === "confirmed")) {
+            config = {
+              label: "KRA/KPI Under Process",
+              color: "text-amber-700",
+              bg: "bg-amber-50 border-amber-100",
+              icon: Clock,
+            };
           }
           const isOwnJD = !showEmployee;
           const href = (isOwnJD && [
@@ -1108,6 +1115,10 @@ function ManagerView({ user }: { user: AuthUser }) {
                                         label = "KRA/KPI HR Rejected";
                                         bg = "bg-red-50 border-red-200 text-red-700";
                                         color = "text-red-700";
+                                      } else if (status === "approved" && (emp.kra_kpi_status === "draft" || emp.kra_kpi_status === "confirmed")) {
+                                        label = "KRA/KPI Under Process";
+                                        bg = "bg-amber-50 border-amber-200 text-amber-700";
+                                        color = "text-amber-700";
                                       }
                                       
                                       return (

@@ -693,6 +693,12 @@ export default function DashboardPage() {
                           color: "text-red-700",
                           bg: "bg-red-50 border-red-200",
                         };
+                      } else if (emp.jd_status === "approved" && (emp.kra_kpi_status === "draft" || emp.kra_kpi_status === "confirmed")) {
+                        config = {
+                          label: "KRA/KPI Under Process",
+                          color: "text-amber-700",
+                          bg: "bg-amber-50 border-amber-200",
+                        };
                       }
 
                       return (
@@ -806,6 +812,12 @@ export default function DashboardPage() {
                       label: "KRA/KPI HR Rejected",
                       color: "text-red-700",
                       bg: "bg-red-50 border-red-200",
+                    };
+                  } else if (jdItem.status === "approved" && (jdItem.kra_kpi_status === "draft" || jdItem.kra_kpi_status === "confirmed")) {
+                    config = {
+                      label: "KRA/KPI Under Process",
+                      color: "text-amber-700",
+                      bg: "bg-amber-50 border-amber-200",
                     };
                   }
 

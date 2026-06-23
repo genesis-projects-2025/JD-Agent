@@ -1134,7 +1134,7 @@ function ManagerView({ user }: { user: AuthUser }) {
                                     {emp.jd_id ? (
                                       <button
                                         onClick={() => {
-                                          if (emp.kra_kpi_status === "draft" || emp.kra_kpi_status === "confirmed") {
+                                          if (!emp.kra_kpi_status || emp.kra_kpi_status === "draft" || emp.kra_kpi_status === "confirmed") {
                                             setBlockedEmployeeName(emp.name);
                                           } else {
                                             setViewingKraKpi({
@@ -1188,7 +1188,7 @@ function ManagerView({ user }: { user: AuthUser }) {
               jds={jds} 
               showEmployee={filter !== "my_jds"} 
               onViewKraKpi={(jdId, employeeId, employeeName, kraKpiStatus) => {
-                if (kraKpiStatus === "draft" || kraKpiStatus === "confirmed") {
+                if (!kraKpiStatus || kraKpiStatus === "draft" || kraKpiStatus === "confirmed") {
                   setBlockedEmployeeName(employeeName);
                 } else {
                   setViewingKraKpi({ jdId, employeeId, employeeName });
@@ -1206,10 +1206,10 @@ function ManagerView({ user }: { user: AuthUser }) {
                 <Clock className="w-7 h-7 text-amber-600 animate-pulse" />
               </div>
               <h3 className="text-xl font-semibold text-slate-900 mb-3 relative z-10">
-                Goals Under Process
+                KRA & KPI Under Review
               </h3>
               <p className="text-sm text-slate-500 mb-8 leading-relaxed relative z-10">
-                <strong className="text-slate-800 font-semibold">{blockedEmployeeName}</strong> is currently setting up and drafting their KRA & KPI performance goals. You will be notified and able to review them once they are officially submitted for your approval.
+                The KRA & KPI performance goals for <strong className="text-slate-800 font-semibold">{blockedEmployeeName}</strong> are currently under review or have not been finalized yet. You cannot view or modify their goals at this stage.
               </p>
               <button
                 onClick={() => setBlockedEmployeeName(null)}

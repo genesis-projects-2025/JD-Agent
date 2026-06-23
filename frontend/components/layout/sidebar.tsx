@@ -104,7 +104,7 @@ export default function Sidebar() {
     };
 
     const approvedJd = jds.find((j: any) => j.status === "approved");
-    const targetJdId = approvedJd?.id;
+    const targetJdId = approvedJd?.id || jds[0]?.id;
 
     const links: NavItem[] = [
         {

@@ -613,7 +613,7 @@ function DraggableKRARow({
             <div className="mt-3 pl-6 border-l border-slate-200 space-y-2">
               <ul className="space-y-1.5">
                 {kra.kpis.map((kpi, kpiIdx) => {
-                  const isKpiLocked = lockedKpiIds.has(kpi.kpi_id);
+                  const isKpiLocked = lockedKpiIds.has(`${kra.kra_id}_${kpi.kpi_id}`);
                   return (
                     <li
                       key={kpi.kpi_id}
@@ -641,7 +641,7 @@ function DraggableKRARow({
                       {/* KPI lock button & weight input */}
                       <div className="flex items-center gap-1.5 ml-auto flex-shrink-0">
                         <button
-                          onClick={() => onKpiLockToggle(kpi.kpi_id)}
+                          onClick={() => onKpiLockToggle(`${kra.kra_id}_${kpi.kpi_id}`)}
                           type="button"
                           className={`p-1 rounded border transition-all ${
                             isKpiLocked
@@ -770,7 +770,7 @@ function Step3WeightAdjustment({
   };
 
   const handleKpiWeightChange = (kraId: string, kpiId: string, newW: number) => {
-    if (lockedKpiIds.has(kpiId)) return;
+    if (lockedKpiIds.has(`${kraId}_${kpiId}`)) return;
     const val = Math.max(0, Math.min(100, isNaN(newW) ? 0 : newW));
 
     setKras((prev) =>
@@ -782,12 +782,12 @@ function Step3WeightAdjustment({
         );
         
         const othersUnlocked = updatedKpis.filter(
-          (kp) => kp.kpi_id !== kpiId && !lockedKpiIds.has(kp.kpi_id)
+          (kp) => kp.kpi_id !== kpiId && !lockedKpiIds.has(`${kraId}_${kp.kpi_id}`)
         );
         
         if (othersUnlocked.length > 0) {
           const lockedTotal = updatedKpis
-            .filter((kp) => kp.kpi_id !== kpiId && lockedKpiIds.has(kp.kpi_id))
+            .filter((kp) => kp.kpi_id !== kpiId && lockedKpiIds.has(`${kraId}_${kp.kpi_id}`))
             .reduce((s, kp) => s + (kp.weight ?? 0), 0);
             
           const targetUnlockedTotal = Math.max(0, 100 - (lockedTotal + val));
@@ -795,7 +795,7 @@ function Step3WeightAdjustment({
           
           let currentSum = val + lockedTotal;
           const nextKpis = updatedKpis.map((kp) => {
-            if (kp.kpi_id === kpiId || lockedKpiIds.has(kp.kpi_id)) {
+            if (kp.kpi_id === kpiId || lockedKpiIds.has(`${kraId}_${kp.kpi_id}`)) {
               return kp;
             }
             const newWeight = othersUnlockedTotal > 0
@@ -808,7 +808,7 @@ function Step3WeightAdjustment({
           const roundingDiff = 100 - currentSum;
           if (roundingDiff !== 0) {
             const target = nextKpis.find(
-              (kp) => kp.kpi_id !== kpiId && !lockedKpiIds.has(kp.kpi_id)
+              (kp) => kp.kpi_id !== kpiId && !lockedKpiIds.has(`${kraId}_${kp.kpi_id}`)
             );
             if (target) {
               target.weight = Math.max(0, (target.weight ?? 0) + roundingDiff);

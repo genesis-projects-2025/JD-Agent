@@ -1075,17 +1075,17 @@ function JDPageContent() {
    <div className="p-5 sm:p-8">
     {currentUser.employee_id !== jd.employee_id && 
      (role === "manager" || role === "head" || role === "hr" || role === "admin") && 
-     (jd.kra_kpi_status === "draft" || jd.kra_kpi_status === "confirmed") ? (
+     (!jd.kra_kpi_status || ["draft", "confirmed"].includes(jd.kra_kpi_status)) ? (
       <div className="bg-surface-50 rounded-[2.5rem] border border-surface-200 p-12 text-center max-w-2xl mx-auto my-8 relative overflow-hidden shadow-sm">
         <div className="absolute top-0 left-1/2 -translate-x-1/2 w-48 h-48 bg-amber-500/5 rounded-full blur-3xl pointer-events-none" />
         <div className="w-16 h-16 bg-white rounded-2xl flex items-center justify-center mx-auto mb-6 shadow-sm border border-surface-100 relative z-10">
           <Clock className="w-8 h-8 text-amber-500 animate-pulse" />
         </div>
         <h3 className="text-xl font-bold text-slate-900 mb-3 relative z-10">
-          Goals Under Process
+          KRA & KPI Under Review
         </h3>
         <p className="text-sm text-slate-500 max-w-md mx-auto leading-relaxed relative z-10">
-          <strong className="text-slate-800 font-semibold">{jd.employee_name || "The employee"}</strong> is currently in the process of formulating and drafting their performance goals. You will be able to review their KRA & KPI framework here once it is officially submitted.
+          The KRA & KPI performance goals for <strong className="text-slate-800 font-semibold">{jd.employee_name || "this employee"}</strong> are currently under review or have not been finalized yet. You cannot view or modify their goals at this stage.
         </p>
       </div>
      ) : (

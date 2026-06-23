@@ -418,8 +418,7 @@ async def generate_kpi_suggestions_for_kra(
     suggestions = suggestions[:7]
     kra_prefix = kra.get("kra_id", "kra_001")
     for i, kpi in enumerate(suggestions):
-        if not kpi.get("kpi_id"):
-            kpi["kpi_id"] = f"{kra_prefix}_kpi_{i+1:02d}"
+        kpi["kpi_id"] = f"{kra_prefix}_kpi_{i+1:02d}"
         if not kpi.get("threshold"):
             kpi["threshold"] = {
                 "excellent": "Exceeds target",

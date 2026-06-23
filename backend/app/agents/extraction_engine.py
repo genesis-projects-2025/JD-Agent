@@ -423,13 +423,19 @@ async def extract_with_llm(
         )
 
         structured_llm = extraction_llm.with_structured_output(ExtractionSchema)
+        from app.core.langfuse_client import get_langfuse_callback_handler
+
+        handler = get_langfuse_callback_handler(trace_name="extraction-engine")
+        callbacks = [handler] if handler else []
+
         response = await structured_llm.ainvoke(
             [
                 SystemMessage(
                     content="Extract structured data from the user's message using the strict schema."
                 ),
                 HumanMessage(content=prompt),
-            ]
+            ],
+            callbacks=callbacks
         )
 
         if not response:

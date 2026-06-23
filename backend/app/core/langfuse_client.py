@@ -49,3 +49,22 @@ def get_compiled_prompt(name: str, fallback_template: str, **kwargs) -> str:
     
     # Fallback compilation
     return compile_local_template(fallback_template, **kwargs)
+
+
+def get_langfuse_callback_handler(trace_name: str = None, session_id: str = None, user_id: str = None, tags: list[str] = None):
+    """Retrieve a Langfuse callback handler for LangChain if credentials are set."""
+    if settings.LANGFUSE_PUBLIC_KEY and settings.LANGFUSE_SECRET_KEY:
+        from langfuse.langchain import CallbackHandler
+        try:
+            return CallbackHandler(
+                public_key=settings.LANGFUSE_PUBLIC_KEY,
+                secret_key=settings.LANGFUSE_SECRET_KEY,
+                host=settings.LANGFUSE_BASE_URL,
+                trace_name=trace_name,
+                session_id=session_id,
+                user_id=user_id,
+                tags=tags
+            )
+        except Exception as e:
+            logger.warning(f"Failed to initialize Langfuse CallbackHandler: {e}")
+    return None

@@ -50,6 +50,10 @@ async def run_critic_pass(insights: dict) -> dict:
         )
 
         from langchain_core.messages import SystemMessage, HumanMessage
+        from app.core.langfuse_client import get_langfuse_callback_handler
+
+        handler = get_langfuse_callback_handler(trace_name="critic-engine")
+        callbacks = [handler] if handler else []
 
         response = await critic_llm.ainvoke(
             [
@@ -57,7 +61,8 @@ async def run_critic_pass(insights: dict) -> dict:
                     content="You are a Senior HR Solutions Architect. Clean and synthesize the raw session data. Return ONLY valid JSON."
                 ),
                 HumanMessage(content=prompt),
-            ]
+            ],
+            callbacks=callbacks
         )
         text = (
             response.content

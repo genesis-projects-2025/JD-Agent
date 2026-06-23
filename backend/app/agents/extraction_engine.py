@@ -20,6 +20,8 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.messages import SystemMessage, HumanMessage
 
 from app.core.config import settings
+from app.core.langfuse_client import get_compiled_prompt
+from app.agents.prompts import EXTRACTION_PROMPT
 
 # ── LLM for Extraction ──────────────────────────────────────────────────────
 
@@ -82,71 +84,7 @@ class ExtractionSchema(BaseModel):
     )
 
 
-# ── Extraction Prompt ───────────────────────────────────────────────────────
-
-EXTRACTION_PROMPT = """You are a data extraction specialist. Extract structured information from the user's message.
-
-Given the user's message and the current state, extract ANY information that can be mapped to these fields:
-
-FIELDS TO EXTRACT:
-1. role: Job title or designation (if mentioned)
-2. department: Department or function (if mentioned)
-3. reports_to: Who the role reports to or reporting manager name/title (if mentioned)
-4. purpose: The role's primary value/mission (if described)
-5. tasks: List of task descriptions (if mentioned)
-   - Each task should have: description (required), frequency (optional: daily/weekly/monthly/quarterly/ad-hoc)
-5. priority_tasks: Tasks identified as most critical (if mentioned)
-6. workflows: A DICTIONARY where the key is the task name, and the value is an object containing:
-   - trigger: What starts the task
-   - steps: Step-by-step process
-   - tools: Tools/software used
-   - output: Final deliverable
-   - problem_solving: How challenges are handled
-   Make sure it is ALWAYS a dictionary {{ "Task Name": {{ "trigger": ... }} }}, NOT an array.
-7. tools: Software, hardware, platforms mentioned
-8. technologies: Frameworks, languages, cloud services mentioned
-9. skills: Technical/domain skills mentioned (NOT soft skills)
-10. qualifications:
-    - education: Degrees/diplomas mentioned
-    - experience_years: Years of experience mentioned
-    - certifications: Professional certifications mentioned
-11. conflicts: List of detected contradictions (if any)
-12. user_wants_to_proceed: BOOLEAN. Set to true if the user explicitly says they are done sharing tasks, or that we should move to the next phase, or says "proceed/continue/that's it/no more" when asked about tasks.
-13. cadence_probed: BOOLEAN. Set to true ONLY if EITHER of these is true:
-    a) The user's message contains information about daily, weekly, OR monthly work patterns (keywords: "daily", "weekly", "monthly", "every day", "every week", "every month", "routine", "regularly", "ad-hoc").
-    b) The conversation history shows the agent explicitly asked about "daily", "weekly", or "monthly" tasks in a previous message.
-    Leave as null/false if task cadence has NOT been discussed.
-
-RULES:
-1. Extract ONLY what is explicitly stated or strongly implied
-2. Do NOT hallucinate information
-3. FLAT DELTA ONLY: Output ONLY the newest changes in a flat format.
-4. ENTITY LINKING: If a tool is mentioned (e.g., "VS Code"), automatically infer and link it to a skill field (e.g., "Software Development").
-5. CONFLICT DETECTION: If the user provides data that contradicts their role level (e.g., Senior tasks for a Junior title), output an object `conflicts: [{{ "description": "The user is entry-level but described handling architecture design." }}]`. Do not ask the user; silently record it.
-6. PROFESSIONALIZATION: Translate all user inputs into formal, enterprise-grade business terminology. Fix typos and grammar. (e.g., "doing payroll" -> "Payroll Processing & Management")
-7. STRICT SKILL FILTERING: For `skills`, absolutely prohibit extracting soft skills. DO NOT extract "communication", "leadership", "hardworking", "mentorship", etc. ONLY extract formal, hard, technical/domain specific skills.
-8. SEMANTIC FOLDING & DEDUPLICATION: Group highly similar skills/tools into a single, professional "Expertise Pillar" if they share >70% semantic intent. Example: ["Data Validation", "Data Verification", "Data Reconciliation"] -> "Data Integrity & Reconciliation".
-9. ANTI-LEAK RULE: Absolutely DO NOT extract agent questions, system instructions, or conversational filler from the message history as if they were user data. (e.g. If the history shows an agent asking 'What are your tasks?', do NOT extract 'What are your tasks?' as a new task).
-10. ANTI-HALLUCINATION RULE: ONLY extract data (especially 'workflows' and 'tasks') if explicitly described in the USER MESSAGE. DO NOT generate, draft, or hallucinate workflows or steps based purely on task names found in the recent history or current state.
-11. If CURRENT AGENT MISSION is listed below, heavily prioritize extracting data for that mission!
-12. SMARTER PRE-RANKING: When extracting or updating `tasks`, always sort them by strategic importance (Strategic/Architecture > Operational/Implementation > Administrative/Support). List the most critical tasks first.
-13. CADENCE DETECTION: Set `cadence_probed` to true if the user's current message contains information about daily, weekly, or monthly task patterns. Also set it true if the conversation history already contains an agent question explicitly mentioning "daily", "weekly", or "monthly".
-14. tools_mentioned_recently: BOOLEAN. Set to true if the user mentions any tools, software, or platforms in their message, even if not in a formal list. Helps the ToolsAgent avoid unnecessary loops.
-
-CURRENT AGENT MISSION:
-{current_agent}
-
-CURRENT MEMORY (Do NOT extract these again, unless modifying them):
-{current_state}
-
-RECENT AGENT QUESTIONS:
-{recent_history}
-
-USER MESSAGE:
-{user_message}
-
-Return ONLY valid JSON with the extracted data. Use empty objects/arrays for fields with no new data.
-"""
+# EXTRACTION_PROMPT has been moved to app/agents/prompts.py
 
 # ── Extraction Functions ────────────────────────────────────────────────────
 
@@ -475,7 +413,9 @@ async def extract_with_llm(
             agent_msgs = [m.get("content", "") for m in recent_messages[-6:] if m.get("role") == "assistant"]
             recent_history = "\n".join(agent_msgs[-history_limit:])
 
-        prompt = EXTRACTION_PROMPT.format(
+        prompt = get_compiled_prompt(
+            "extraction-engine-prompt",
+            EXTRACTION_PROMPT,
             current_agent=current_agent,
             current_state=state_summary,
             recent_history=recent_history,

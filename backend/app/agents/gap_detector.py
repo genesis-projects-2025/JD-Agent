@@ -15,6 +15,8 @@ import re
 
 from langchain_google_genai import ChatGoogleGenerativeAI
 from app.core.config import settings
+from app.core.langfuse_client import get_compiled_prompt
+from app.agents.prompts import GAP_DETECTOR_PROMPT
 
 from app.agents.state import AgentState
 from app.agents.validators import (
@@ -92,31 +94,17 @@ async def synthesize_tools_and_skills_with_llm(
 
     workflows_summary_str = "\n".join(workflows_summary)
 
-    prompt = f"""
-You are an expert HR Job Analyst. Your goal is to generate and curate a highly precise, role-appropriate list of "Suggested Tools" and "Suggested Skills" for an employee's role.
-
-### Employee Context:
-- **Job Title**: {role_title}
-- **Department**: {department}
-- **Role Purpose**: {purpose}
-- **Responsibilities & Tasks**: {', '.join(tasks)}
-- **Workflows**:
-{workflows_summary_str}
-
-### Raw RAG Candidates (Note: Some of these might be noisy or from other departments due to vector database bounds):
-- **Raw RAG Suggested Tools**: {', '.join(raw_rag_tools)}
-- **Raw RAG Suggested Skills**: {', '.join(raw_rag_skills)}
-
-### Instructions:
-1. Generate a clean list of exactly 6-12 **Suggested Tools** (actual professional software, platforms, IDEs, databases, frameworks, or physical tools that are highly relevant to this specific role and department).
-2. Generate a clean list of exactly 6-12 **Suggested Skills** (technical competencies, domain expertise, methodologies, or professional capabilities).
-3. **CRITICAL**: Filter out completely irrelevant tools and skills from other departments (e.g. if the role is a Software Developer, do NOT include HR software like Workday, sales tools like Salesforce, or content creation tools unless they are explicitly part of their developer workflow).
-4. Combine the candidate's actual workflow-mentioned tools/skills with the best RAG-driven matches, keeping them strictly focused.
-5. Do NOT include soft skills (e.g., communication, teamwork, leadership, problem solving).
-6. Return your response as a valid, single JSON object with exactly two keys: "suggested_tools" (list of strings) and "suggested_skills" (list of strings). Do NOT include any markdown code blocks or additional text.
-
-Response:
-"""
+    prompt = get_compiled_prompt(
+        "gap-detector-prompt",
+        GAP_DETECTOR_PROMPT,
+        role_title=role_title,
+        department=department,
+        purpose=purpose,
+        tasks=', '.join(tasks),
+        workflows_summary_str=workflows_summary_str,
+        raw_rag_tools=', '.join(raw_rag_tools),
+        raw_rag_skills=', '.join(raw_rag_skills)
+    )
     try:
         response = await llm.ainvoke(prompt)
         text = str(response.content).strip()

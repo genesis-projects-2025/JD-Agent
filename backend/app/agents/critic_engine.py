@@ -12,6 +12,8 @@ import logging
 from typing import Dict
 from langchain_google_genai import ChatGoogleGenerativeAI
 from app.core.config import settings
+from app.core.langfuse_client import get_compiled_prompt
+from app.agents.prompts import CRITIC_PROMPT
 
 logger = logging.getLogger(__name__)
 
@@ -23,42 +25,7 @@ critic_llm = ChatGoogleGenerativeAI(
     response_mime_type="application/json",
 )
 
-CRITIC_PROMPT = """You are a Senior HR Solutions Architect and Data Strategist.
-Your job is to "clean" and "synthesize" the raw session memory of a Job Description interview.
-
-### GOALS:
-1. **Semantic Folding (Deduplication)**: 
-   - Group highly similar skills/tools into a single, professional "Expertise Pillar".
-   - Example: ["Data Validation", "Data Verification", "Data Reconciliation"] -> "Data Integrity & Reconciliation".
-   - Rule: Only fold if they share >70% semantic intent.
-
-2. **Clean Noise**:
-   - Remove conversational filler from task descriptions (e.g., "In the company I manage...", "Basically doing...").
-   - Strip redundant phrases.
-
-3. **Strategic Prioritization**:
-   - Look at the `tasks` list. Rank them by inferred strategic value to the business.
-
-### INPUT:
-Current Session Insights:
-{insights}
-
-### OUTPUT:
-Return a JSON object containing ONLY the keys that need updating in the state. 
-If a list of skills is folded, provide the NEW consolidated list.
-
-EXAMPLE OUTPUT:
-{{
-  "skills": ["Data Integrity & Reconciliation", "System Architecture", ...],
-  "tasks": [
-     {{ "description": "Cleaned description 1", "priority": "high" }},
-     ...
-  ],
-  "expertise_pillars": ["Cloud Infrastructure", "Security Compliance"]
-}}
-
-Return ONLY valid JSON.
-"""
+# CRITIC_PROMPT has been moved to app/agents/prompts.py
 
 
 async def run_critic_pass(insights: dict) -> dict:
@@ -76,7 +43,11 @@ async def run_critic_pass(insights: dict) -> dict:
         if not any(input_data.values()):
             return {}
 
-        prompt = CRITIC_PROMPT.format(insights=json.dumps(input_data))
+        prompt = get_compiled_prompt(
+            "critic-engine-prompt",
+            CRITIC_PROMPT,
+            insights=json.dumps(input_data)
+        )
 
         from langchain_core.messages import SystemMessage, HumanMessage
 

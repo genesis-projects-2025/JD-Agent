@@ -37,6 +37,7 @@ from app.agents.dynamic_prompts import (
     _get_structured_phase_message,
 )
 from app.agents.prompts import JD_GENERATION_PROMPT
+from app.core.langfuse_client import get_compiled_prompt
 
 logger = logging.getLogger(__name__)
 
@@ -1061,7 +1062,7 @@ Keep it professional and brief."""
         response = await _invoke_with_retry(
             _interview_llm,
             [
-                SystemMessage(content=JD_GENERATION_PROMPT),
+                SystemMessage(content=get_compiled_prompt("jd-generation-prompt", JD_GENERATION_PROMPT)),
                 HumanMessage(
                     content=f"Generate the Job Description from this data:\n{serialize_insights(insights)}"
                 ),

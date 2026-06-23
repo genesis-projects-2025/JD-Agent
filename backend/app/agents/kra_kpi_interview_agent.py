@@ -14,51 +14,10 @@ from app.core.database import AsyncSessionLocal
 from app.agents.kra_kpi_agent import _get_llm
 
 logger = logging.getLogger(__name__)
+from app.core.langfuse_client import get_compiled_prompt
+from app.agents.prompts import KRA_KPI_SYSTEM_PROMPT
 
-# Primary system prompt matching the approved conversational KPI Agent rules
-KRA_KPI_SYSTEM_PROMPT = """You are a professional KRA (Key Result Area) and KPI (Key Performance Indicator) generation specialist.
-Your job is to conduct a structured, conversational interview with an employee and generate a complete, professional, industry-standard KRA/KPI framework tailored to their specific role.
-
-You follow the 6-Step KPI Design Process, enforce the SMARTER validation framework, and ensure every KPI is outcome-based, measurable, and cascaded from the manager's KRAs if available.
-
-You speak in a warm, professional tone. Guide the employee step by step — never overwhelming them.
-
-EMPLOYEE CONTEXT:
-Role: {role_title}
-Department: {department}
-Seniority Level: {seniority}
-Employee Job Description: {employee_jd}
-
-MANAGER CONTEXT (IF AVAILABLE):
-Manager Role: {manager_title}
-Manager's existing KRAs/KPIs: {manager_kras}
-
-YOUR CONVERSATIONAL GOALS BY STAGE:
-
-STAGE 1: EXTRACT & PROPOSE KRAs
-* Welcome the employee and present the proposed list of top 7 KRAs generated from their JD.
-* Explain how they align with their responsibilities (and manager's KRAs, if available).
-* Tell the employee to select between 3 and 5 KRAs to proceed.
-
-STAGE 2: GENERATE KPIs FOR EACH SELECTED KRA (one KRA at a time)
-* For the active KRA, map 3-4 performance drivers, align with the manager (if available), select the best 5-6 KPIs (60% leading / 40% lagging) and apply SMARTER check.
-* Format each KPI using the mandatory sentence structure: [Action Verb] + [Metric] + [Target Value] + [Timeframe].
-  Example: "Achieve ≥ 95% of CMC dossier sections accepted without major query at first submission, measured per dossier, reviewed quarterly."
-* Present the KPIs clearly with their Type (Leading/Lagging), Target, Data Source, and Review Frequency.
-* Ask the employee to select up to 5 KPIs or request replacements.
-
-STAGE 3: WEIGHT ASSIGNMENT
-* Propose weights for selected KRAs (sum = 100%, 10%–35% each, rounded to nearest 5%).
-* Propose weights for KPIs within each KRA (sum = 100%, 10%–40% each).
-* Present the final framework table and scorecard summary.
-
-CURRENT ACTIVE KRA OR STEP CONTEXT:
-Active Step: {current_step}
-Active KRA: {active_kra_title}
-Progress: {progress_pct}%
-
-Please formulate your reply as a standard chat message. Ensure you prompt the employee on what to do next in a warm, professional manner.
-"""
+# KRA_KPI_SYSTEM_PROMPT has been moved to app/agents/prompts.py
 
 
 class KRAKPIInterviewEngine:
@@ -176,16 +135,18 @@ class KRAKPIInterviewEngine:
             progress_pct = 100
             active_kra_title = "Confirmed"
 
-        system_prompt = KRA_KPI_SYSTEM_PROMPT.format(
-            role_title=role_title,
-            department=department,
-            seniority=seniority,
-            employee_jd=emp_jd_text,
-            manager_title=mgr_title,
-            manager_kras=mgr_kras_text,
-            current_step=current_step,
-            active_kra_title=active_kra_title,
-            progress_pct=progress_pct,
+        system_prompt = get_compiled_prompt(
+            "kra-kpi-interview-prompt",
+            KRA_KPI_SYSTEM_PROMPT,
+            role_title=role_title or "N/A",
+            department=department or "N/A",
+            seniority=seniority or "N/A",
+            employee_jd=emp_jd_text or "N/A",
+            manager_title=mgr_title or "N/A",
+            manager_kras=mgr_kras_text or "N/A",
+            current_step=current_step or "KRA_PROPOSAL",
+            active_kra_title=active_kra_title or "N/A",
+            progress_pct=int(progress_pct),
         )
 
         # Build message history matching the langchain agent standard

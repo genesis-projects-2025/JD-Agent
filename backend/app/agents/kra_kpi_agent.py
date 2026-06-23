@@ -143,64 +143,24 @@ def _build_kra_suggestion_prompt(
     mgr_kras_block = "\n".join(mgr_kra_lines) if mgr_kra_lines else "  (Not available)"
     mgr_resp_block = "; ".join(manager_responsibilities[:5]) if manager_responsibilities else "N/A"
 
-    return f"""You are a Senior HR Performance Management Expert.
-Your task: Suggest exactly 10 Key Result Areas (KRAs) for the employee described below.
+    from app.agents.prompts import KRA_SUGGESTION_PROMPT
+    from app.core.langfuse_client import get_compiled_prompt
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-EMPLOYEE PROFILE (PRIMARY SOURCE — base KRAs on this)
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Title: {employee_title}
-Department: {employee_department}
-Role Purpose: {employee_purpose}
-Key Responsibilities: {resp_block}
-
-Priority Tasks (with deliverables):
-{tasks_block}
-
-Skills: {skills_str}
-Tools: {tools_str}
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-MANAGER CONTEXT (REFERENCE ONLY — for alignment)
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Manager Title: {manager_title}
-Manager Responsibilities: {mgr_resp_block}
-
-Manager's KRAs (use to identify which employee tasks most directly support the manager's goals):
-{mgr_kras_block}
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-DOMAIN CONTEXT
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-{domain_rules}
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-RULES (STRICT — violations break the system)
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-1. Generate EXACTLY 10 KRAs. No more, no less.
-2. Each KRA must be distinct.
-3. KRAs must align with the employee's actual responsibilities and tasks.
-4. Do NOT include weights — the employee will assign weights manually after selection.
-5. KRA titles MUST be phrased as achievable outcomes or results rather than simple category headings (e.g. use "Improved system performance" instead of "Quality Assurance", and "Enhanced customer satisfaction" instead of "Customer Service"). They should directly describe what is achieved.
-6. The description field MUST be returned as an empty string ("").
-7. The source_tasks field MUST be returned as an empty array ([]).
-8. The manager_impact field MUST be returned as an empty string ("").
-9. DO NOT generate KPIs in this step — only KRA suggestions.
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-OUTPUT — RETURN ONLY THIS JSON (no markdown, no extra text)
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-{{
-  "kra_suggestions": [
-    {{
-      "kra_id": "kra_001",
-      "title": "Achievable Outcome Title",
-      "description": "",
-      "source_tasks": [],
-      "manager_impact": ""
-    }}
-  ]
-}}"""
+    return get_compiled_prompt(
+        "kra-suggestion-prompt",
+        KRA_SUGGESTION_PROMPT,
+        employee_title=employee_title,
+        employee_department=employee_department,
+        employee_purpose=employee_purpose,
+        resp_block=resp_block,
+        tasks_block=tasks_block,
+        skills_str=skills_str,
+        tools_str=tools_str,
+        manager_title=manager_title,
+        mgr_resp_block=mgr_resp_block,
+        mgr_kras_block=mgr_kras_block,
+        domain_rules=domain_rules,
+    )
 
 
 # ── Phase 2: KPI Suggestion Prompt (per KRA) ─────────────────────────────────
@@ -234,58 +194,23 @@ def _build_kpi_suggestion_prompt(
         task_detail_lines.append(line)
     tasks_block = "\n".join(task_detail_lines) if task_detail_lines else "  (See source tasks)"
 
-    return f"""You are a Senior HR Performance Management Expert.
-Generate 6 to 7 KPI suggestions for a specific KRA.
+    from app.agents.prompts import KPI_SUGGESTION_PROMPT
+    from app.core.langfuse_client import get_compiled_prompt
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-KRA TO MEASURE
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-KRA Title: {kra_title}
-KRA Description: {kra_description}
-Source Tasks:
-{tasks_block}
+    kra_title_lower_slug = kra_title.lower().replace(' ', '_')
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-EMPLOYEE CONTEXT
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Role: {employee_title} | Department: {employee_department}
-Tools Available: {tools_str}
-
-Domain: {domain_rules}
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-RULES
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-1. Generate EXACTLY 6 to 7 KPIs. Each must measure a different dimension of the KRA.
-2. Every target must be a SPECIFIC number, percentage, or time-bound value. NO vague targets.
-3. measurement_method must reference an ACTUAL tool from the tools list above where possible.
-4. frequency: "Monthly" for operational, "Quarterly" for strategic.
-5. Include 3-tier thresholds (excellent / meets_expectation / below_expectation) — specific values only.
-6. Each KPI must measure something DIFFERENT — no redundancy.
-7. NO soft skill KPIs (no "communication", "collaboration", etc.)
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-OUTPUT — RETURN ONLY THIS JSON (no markdown, no extra text)
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-{{
-  "kra_id": "{kra_title.lower().replace(' ', '_')}",
-  "kra_title": "{kra_title}",
-  "kpi_suggestions": [
-    {{
-      "kpi_id": "kpi_001",
-      "metric": "Short metric name (3–6 words)",
-      "description": "What exactly is being measured.",
-      "target": "Specific measurable target (e.g., ≥ 95% on-time, ≤ 3 days TAT)",
-      "measurement_method": "Tool or report used to measure",
-      "frequency": "Monthly",
-      "threshold": {{
-        "excellent": "Specific value",
-        "meets_expectation": "Specific value or range",
-        "below_expectation": "Specific value"
-      }}
-    }}
-  ]
-}}"""
+    return get_compiled_prompt(
+        "kpi-suggestion-prompt",
+        KPI_SUGGESTION_PROMPT,
+        kra_title=kra_title,
+        kra_description=kra_description,
+        tasks_block=tasks_block,
+        employee_title=employee_title,
+        employee_department=employee_department,
+        tools_str=tools_str,
+        domain_rules=domain_rules,
+        kra_title_lower_slug=kra_title_lower_slug,
+    )
 
 
 # ── JSON Parser Helper ────────────────────────────────────────────────────────

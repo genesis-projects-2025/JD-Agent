@@ -32,6 +32,11 @@ class Settings(BaseSettings):
     CORS_ORIGINS: str = "https://jd.pulsepharma.net,http://localhost:3000"
     STORAGE_DIR_NAME: str = "storage"
 
+    # Langfuse configuration
+    LANGFUSE_PUBLIC_KEY: str = ""
+    LANGFUSE_SECRET_KEY: str = ""
+    LANGFUSE_BASE_URL: str = "https://cloud.langfuse.com"
+
     @property
     def cors_origins_list(self) -> list[str]:
         """Parse comma-separated CORS_ORIGINS into a list."""

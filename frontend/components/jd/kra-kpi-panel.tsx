@@ -1269,19 +1269,38 @@ function ConfirmedView({
   record,
   onRegenerate,
   onSendForApproval,
+  isManager = false,
+  onSave,
 }: {
   record: KRAKPIRecord;
   onRegenerate: () => void;
   onSendForApproval: () => Promise<void>;
+  isManager?: boolean;
+  onSave?: (kras: FinalKRA[], confirm: boolean) => Promise<void>;
 }) {
   const kras = record.kras?.kras ?? [];
   const [openId, setOpenId] = useState<string | null>(kras[0]?.kra_id ?? null);
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
 
+  // Manager editing states
+  const [isEditing, setIsEditing] = useState(false);
+  const [editableKras, setEditableKras] = useState<FinalKRA[]>(kras);
+  const [lockedIds, setLockedIds] = useState<Set<string>>(new Set());
+  const [lockedKpiIds, setLockedKpiIds] = useState<Set<string>>(new Set());
+
+  // Deep copy when editing starts
+  useEffect(() => {
+    if (!isEditing) {
+      setEditableKras(kras);
+    }
+  }, [kras, isEditing]);
+
+  const currentKras = isEditing ? editableKras : kras;
+
   // Compute stats
-  const totalKpis = kras.reduce((acc, kra) => acc + (kra.kpis?.length ?? 0), 0);
-  const totalWeight = kras.reduce((acc, kra) => acc + (kra.weight ?? 0), 0);
+  const totalKpis = currentKras.reduce((acc, kra) => acc + (kra.kpis?.length ?? 0), 0);
+  const totalWeight = currentKras.reduce((acc, kra) => acc + (kra.weight ?? 0), 0);
 
   const status = record.status || "confirmed";
 
@@ -1347,6 +1366,204 @@ function ConfirmedView({
     }
   };
 
+  // Lock toggles
+  const handleLockToggle = (id: string) => {
+    setLockedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const handleKpiLockToggle = (id: string) => {
+    setLockedKpiIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  // Weight rebalancing algorithms
+  const handleWeightChange = (id: string, newW: number) => {
+    if (lockedIds.has(id)) return;
+    const val = Math.max(0, Math.min(100, isNaN(newW) ? 0 : newW));
+
+    setEditableKras((prev) => {
+      const targetIdx = prev.findIndex((k) => k.kra_id === id);
+      if (targetIdx === -1) return prev;
+
+      const currentTargetW = prev[targetIdx].weight ?? 0;
+      const diff = val - currentTargetW;
+      if (diff === 0) return prev;
+
+      const otherKras = prev.map((k, i) => ({ k, i })).filter((x) => x.i !== targetIdx);
+      const eligible = otherKras.filter((x) => !lockedIds.has(x.k.kra_id));
+
+      if (eligible.length === 0) {
+        return prev.map((k) => (k.kra_id === id ? { ...k, weight: val } : k));
+      }
+
+      const sumEligible = eligible.reduce((sum, x) => sum + (x.k.weight ?? 0), 0);
+      let next = [...prev];
+      next[targetIdx] = { ...next[targetIdx], weight: val };
+
+      if (sumEligible === 0) {
+        const share = diff / eligible.length;
+        eligible.forEach((x) => {
+          const w = Math.max(0, (x.k.weight ?? 0) - share);
+          next[x.i] = { ...next[x.i], weight: Math.round(w) };
+        });
+      } else {
+        eligible.forEach((x) => {
+          const ratio = (x.k.weight ?? 0) / sumEligible;
+          const w = Math.max(0, (x.k.weight ?? 0) - diff * ratio);
+          next[x.i] = { ...next[x.i], weight: Math.round(w) };
+        });
+      }
+
+      const newSum = next.reduce((s, k) => s + (k.weight ?? 0), 0);
+      if (newSum !== 100) {
+        const errorDiff = 100 - newSum;
+        const firstEligible = eligible[0];
+        if (firstEligible) {
+          next[firstEligible.i].weight = Math.max(0, (next[firstEligible.i].weight ?? 0) + errorDiff);
+        }
+      }
+
+      return next;
+    });
+  };
+
+  const handleKpiWeightChange = (kraId: string, kpiId: string, newW: number) => {
+    if (lockedKpiIds.has(`${kraId}_${kpiId}`)) return;
+    const val = Math.max(0, Math.min(100, isNaN(newW) ? 0 : newW));
+
+    setEditableKras((prev) =>
+      prev.map((k) => {
+        if (k.kra_id !== kraId) return k;
+
+        const kpis = k.kpis || [];
+        const targetIdx = kpis.findIndex((kp) => kp.kpi_id === kpiId);
+        if (targetIdx === -1) return k;
+
+        const currentTargetW = kpis[targetIdx].weight ?? 0;
+        const diff = val - currentTargetW;
+        if (diff === 0) return k;
+
+        const otherKpis = kpis.map((kp, i) => ({ kp, i })).filter((x) => x.i !== targetIdx);
+        const eligible = otherKpis.filter((x) => !lockedKpiIds.has(`${kraId}_${x.kp.kpi_id}`));
+
+        if (eligible.length === 0) {
+          return {
+            ...k,
+            kpis: kpis.map((kp) => (kp.kpi_id === kpiId ? { ...kp, weight: val } : kp)),
+          };
+        }
+
+        const sumEligible = eligible.reduce((sum, x) => sum + (x.kp.weight ?? 0), 0);
+        let nextKpis = [...kpis];
+        nextKpis[targetIdx] = { ...nextKpis[targetIdx], weight: val };
+
+        if (sumEligible === 0) {
+          const share = diff / eligible.length;
+          eligible.forEach((x) => {
+            const w = Math.max(0, (x.kp.weight ?? 0) - share);
+            nextKpis[x.i] = { ...nextKpis[x.i], weight: Math.round(w) };
+          });
+        } else {
+          eligible.forEach((x) => {
+            const ratio = (x.kp.weight ?? 0) / sumEligible;
+            const w = Math.max(0, (x.kp.weight ?? 0) - diff * ratio);
+            nextKpis[x.i] = { ...nextKpis[x.i], weight: Math.round(w) };
+          });
+        }
+
+        const newSum = nextKpis.reduce((s, kp) => s + (kp.weight ?? 0), 0);
+        if (newSum !== 100) {
+          const errorDiff = 100 - newSum;
+          const firstEligible = eligible[0];
+          if (firstEligible) {
+            nextKpis[firstEligible.i].weight = Math.max(
+              0,
+              (nextKpis[firstEligible.i].weight ?? 0) + errorDiff
+            );
+          }
+        }
+
+        return { ...k, kpis: nextKpis };
+      })
+    );
+  };
+
+  const handleKraFieldChange = (kraId: string, field: string, val: any) => {
+    setEditableKras((prev) =>
+      prev.map((k) => (k.kra_id === kraId ? { ...k, [field]: val } : k))
+    );
+  };
+
+  const handleKpiFieldChange = (kraId: string, kpiId: string, field: string, val: any) => {
+    setEditableKras((prev) =>
+      prev.map((k) => {
+        if (k.kra_id !== kraId) return k;
+        return {
+          ...k,
+          kpis: k.kpis.map((kp) => (kp.kpi_id === kpiId ? { ...kp, ...{ [field]: val } } : kp)),
+        };
+      })
+    );
+  };
+
+  const handleKpiThresholdChange = (kraId: string, kpiId: string, tier: string, val: any) => {
+    setEditableKras((prev) =>
+      prev.map((k) => {
+        if (k.kra_id !== kraId) return k;
+        return {
+          ...k,
+          kpis: k.kpis.map((kp) => {
+            if (kp.kpi_id !== kpiId) return kp;
+            const prevThreshold = kp.threshold || { excellent: "", meets_expectation: "", below_expectation: "" };
+            return {
+              ...kp,
+              threshold: {
+                ...prevThreshold,
+                [tier]: val,
+              },
+            };
+          }),
+        };
+      })
+    );
+  };
+
+  const handleSaveEditedFramework = async () => {
+    if (!onSave) return;
+    // Validate weights sum to 100
+    const totalW = editableKras.reduce((s, k) => s + (k.weight ?? 0), 0);
+    if (Math.abs(totalW - 100) > 1) {
+      alert(`KRA weights must sum to exactly 100%. Current total: ${totalW}%`);
+      return;
+    }
+    for (const kra of editableKras) {
+      const kpiSum = kra.kpis?.reduce((s, kp) => s + (kp.weight ?? 0), 0) ?? 0;
+      if (kra.kpis && kra.kpis.length > 0 && Math.abs(kpiSum - 100) > 1) {
+        alert(`KPI weights for KRA "${kra.title}" must sum to exactly 100%. Current total: ${kpiSum}%`);
+        return;
+      }
+    }
+    setSending(true);
+    setSendError(null);
+    try {
+      await onSave(editableKras, false);
+      setIsEditing(false);
+    } catch (e: any) {
+      setSendError(e.message || "Failed to save framework changes.");
+    } finally {
+      setSending(false);
+    }
+  };
+
   return (
     <div className="space-y-5">
       {/* Hero Status Banner */}
@@ -1379,7 +1596,7 @@ function ConfirmedView({
 
           <div className="grid grid-cols-3 gap-3 pt-3 border-t border-white/10">
             <div className="text-center">
-              <span className="text-xl font-black leading-none">{kras.length}</span>
+              <span className="text-xl font-black leading-none">{currentKras.length}</span>
               <p className="text-[10px] text-white/70 mt-0.5 font-medium">KRAs</p>
             </div>
             <div className="text-center border-x border-white/10">
@@ -1387,7 +1604,7 @@ function ConfirmedView({
               <p className="text-[10px] text-white/70 mt-0.5 font-medium">KPIs</p>
             </div>
             <div className="text-center">
-              <span className="text-xl font-black leading-none">{totalWeight}%</span>
+              <span className={`text-xl font-black leading-none ${Math.abs(totalWeight - 100) > 1 ? "text-rose-350" : ""}`}>{totalWeight}%</span>
               <p className="text-[10px] text-white/70 mt-0.5 font-medium">Weight</p>
             </div>
           </div>
@@ -1404,6 +1621,47 @@ function ConfirmedView({
             </p>
             <p className="text-xs text-rose-700 leading-relaxed">{record.reviewer_comment}</p>
           </div>
+        </div>
+      )}
+
+      {/* Manager Modify Controls Banner */}
+      {isManager && (status === "sent_to_manager" || status === "sent_to_hr") && (
+        <div className="bg-white border border-surface-200 rounded-xl p-3 shadow-sm">
+          {!isEditing ? (
+            <button
+              onClick={() => {
+                setEditableKras(JSON.parse(JSON.stringify(kras)));
+                setIsEditing(true);
+              }}
+              className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-primary-600 hover:bg-primary-700 text-white text-xs font-bold rounded-xl transition-all shadow-md active:scale-[0.98]"
+            >
+              <Info className="w-3.5 h-3.5" /> Tweak Targets, Expectations & Weights
+            </button>
+          ) : (
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-3 p-1">
+              <div>
+                <p className="text-xs font-bold text-slate-800">Review & Override Mode</p>
+                <p className="text-[11px] text-slate-500 mt-0.5">Edit thresholds, targets, and weights directly. Unsaved changes are lost upon canceling.</p>
+              </div>
+              <div className="flex gap-2 w-full sm:w-auto">
+                <button
+                  onClick={() => setIsEditing(false)}
+                  disabled={sending}
+                  className="flex-1 sm:flex-none px-3.5 py-1.5 text-xs font-semibold text-slate-650 border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleSaveEditedFramework}
+                  disabled={sending}
+                  className="flex-1 sm:flex-none px-4 py-1.5 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg shadow-sm transition-colors flex items-center justify-center gap-1"
+                >
+                  {sending ? <Loader2 className="w-3 h-3 animate-spin" /> : null}
+                  Save Framework
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -1438,7 +1696,7 @@ function ConfirmedView({
       )}
 
       {/* Under Review Status */}
-      {isUnderReview && (
+      {isUnderReview && !isEditing && (
         <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 flex items-center gap-3">
           <Loader2 className="w-4 h-4 text-blue-500 animate-spin shrink-0" />
           <div>
@@ -1453,12 +1711,12 @@ function ConfirmedView({
         <h4 className="text-xs font-bold text-surface-700 uppercase tracking-wider flex items-center gap-1.5">
           <BarChart3 className="w-3.5 h-3.5 text-primary-500" /> Weight Distribution
         </h4>
-        <WeightBar kras={kras} />
+        <WeightBar kras={currentKras} />
       </div>
 
       {/* KRAs Accordion */}
       <div className="space-y-2.5">
-        {kras.map((kra, i) => {
+        {currentKras.map((kra, i) => {
           const c = PALETTE[i % PALETTE.length];
           const isOpen = openId === kra.kra_id;
           return (
@@ -1470,74 +1728,254 @@ function ConfirmedView({
                   : "border-surface-100 bg-white hover:border-surface-200 hover:shadow-sm"
               }`}
             >
-              <button
+              <div
                 onClick={() => setOpenId(isOpen ? null : kra.kra_id)}
-                className="w-full flex items-center gap-3 px-4 py-3.5 text-left"
+                className="w-full flex flex-col sm:flex-row sm:items-center justify-between gap-3 px-4 py-3.5 text-left cursor-pointer"
               >
-                <div className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${c.bar}`} />
-                <div className="flex-1 min-w-0">
-                  <span className="font-bold text-surface-900 text-sm leading-tight block truncate">{kra.title}</span>
+                <div className="flex-1 min-w-0 flex items-center gap-2.5">
+                  <div className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${c.bar}`} />
+                  {isEditing ? (
+                    <input
+                      type="text"
+                      value={kra.title}
+                      onClick={(e) => e.stopPropagation()}
+                      onChange={(e) => handleKraFieldChange(kra.kra_id, "title", e.target.value)}
+                      className="w-full bg-white border border-slate-200 rounded px-2 py-0.5 text-sm font-semibold text-slate-800 focus:outline-none focus:border-primary-500"
+                    />
+                  ) : (
+                    <span className="font-bold text-surface-900 text-sm leading-tight block truncate">{kra.title}</span>
+                  )}
                 </div>
-                <div className="flex items-center gap-2 shrink-0">
-                  <span className={`text-[11px] font-bold px-2.5 py-1 rounded-full border ${c.badge} ${c.border}`}>
-                    {kra.weight ?? "—"}% weight
-                  </span>
+
+                <div className="flex items-center gap-2 shrink-0 self-end sm:self-auto" onClick={(e) => e.stopPropagation()}>
+                  {isEditing ? (
+                    <div className="flex items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={() => handleLockToggle(kra.kra_id)}
+                        className={`p-1 rounded border transition-all ${
+                          lockedIds.has(kra.kra_id)
+                            ? "bg-slate-800 text-white border-slate-850"
+                            : "bg-white text-slate-400 border-slate-200 hover:text-slate-600 hover:bg-slate-50"
+                        }`}
+                        title={lockedIds.has(kra.kra_id) ? "Unlock KRA weight" : "Lock KRA weight"}
+                      >
+                        {lockedIds.has(kra.kra_id) ? <Lock className="w-3 h-3" /> : <Unlock className="w-3 h-3" />}
+                      </button>
+                      <div className="flex items-center bg-white border border-slate-200 rounded-lg px-1.5 py-0.5 w-16">
+                        <input
+                          type="number"
+                          value={kra.weight ?? 0}
+                          disabled={lockedIds.has(kra.kra_id)}
+                          onChange={(e) => handleWeightChange(kra.kra_id, parseInt(e.target.value) || 0)}
+                          className="w-full bg-transparent text-xs font-semibold text-slate-700 text-center outline-none border-none disabled:opacity-50"
+                        />
+                        <span className="text-xs font-semibold text-slate-400 select-none">%</span>
+                      </div>
+                    </div>
+                  ) : (
+                    <span className={`text-[11px] font-bold px-2.5 py-1 rounded-full border ${c.badge} ${c.border}`}>
+                      {kra.weight ?? "—"}% weight
+                    </span>
+                  )}
+
                   <span className="text-xs font-semibold bg-surface-100 text-surface-600 px-2 py-1 rounded-full">
                     {kra.kpis?.length ?? 0} KPIs
                   </span>
-                  <div className={`p-1 rounded transition-transform ${isOpen ? "rotate-180" : ""}`}>
-                    <ChevronDown className="w-4 h-4 text-surface-400" />
+                  
+                  <div className={`p-1 rounded transition-transform ${isOpen ? "rotate-180" : ""}`} onClick={() => setOpenId(isOpen ? null : kra.kra_id)}>
+                    <ChevronDown className="w-4 h-4 text-surface-400 cursor-pointer" />
                   </div>
                 </div>
-              </button>
+              </div>
 
               {isOpen && (
                 <div className="px-4 pb-4 pt-0 border-t border-surface-200/20 space-y-3">
                   <div className={`border-l-4 ${c.bar.replace("bg-", "border-")} pl-3 py-1 mt-3`}>
-                    <p className="text-xs text-surface-600 leading-relaxed">{kra.description}</p>
+                    {isEditing ? (
+                      <textarea
+                        value={kra.description}
+                        onChange={(e) => handleKraFieldChange(kra.kra_id, "description", e.target.value)}
+                        className="w-full bg-white border border-slate-200 rounded-lg p-2 text-xs text-slate-650 focus:outline-none focus:border-primary-500 h-16 resize-none"
+                        placeholder="KRA Description"
+                      />
+                    ) : (
+                      <p className="text-xs text-surface-600 leading-relaxed">{kra.description}</p>
+                    )}
                   </div>
 
                   <div className="space-y-2">
                     <p className="text-[10px] font-bold text-surface-400 uppercase tracking-wider">Key Performance Indicators</p>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                       {kra.kpis.map((kpi) => (
                         <div
                           key={kpi.kpi_id}
-                          className="bg-white border border-surface-150 rounded-xl p-3.5 shadow-sm hover:shadow-md transition-shadow"
+                          className="bg-white border border-surface-150 rounded-xl p-3.5 shadow-sm hover:shadow-md transition-shadow space-y-2"
                         >
-                          <div className="flex items-start justify-between gap-2 mb-2">
-                            <h6 className="font-bold text-surface-800 text-xs leading-snug">{kpi.metric}</h6>
-                            <div className="flex flex-col items-end gap-1 shrink-0">
-                              <span className="text-[9px] font-bold bg-primary-50 text-primary-700 px-2 py-0.5 rounded-full border border-primary-100 uppercase tracking-wide">
-                                {kpi.frequency}
-                              </span>
-                              <span className="text-[9px] font-bold bg-slate-100 text-slate-700 px-2 py-0.5 rounded-full border border-slate-250">
-                                {kpi.weight ?? 0}% weight ({(((kpi.weight ?? 0) * (kra.weight ?? 0)) / 100).toFixed(1)}% overall)
-                              </span>
+                          <div className="flex flex-col gap-2">
+                            <div className="flex items-start justify-between gap-2">
+                              {isEditing ? (
+                                <div className="w-full">
+                                  <label className="text-[9px] font-bold text-slate-400 uppercase block mb-0.5">KPI Metric</label>
+                                  <input
+                                    type="text"
+                                    value={kpi.metric}
+                                    onChange={(e) => handleKpiFieldChange(kra.kra_id, kpi.kpi_id, "metric", e.target.value)}
+                                    className="w-full bg-white border border-slate-200 rounded px-2 py-1 text-xs font-semibold text-slate-705 focus:outline-none focus:border-primary-500"
+                                  />
+                                </div>
+                              ) : (
+                                <h6 className="font-bold text-surface-800 text-xs leading-snug">{kpi.metric}</h6>
+                              )}
+                              
+                              {!isEditing && (
+                                <div className="flex flex-col items-end gap-1 shrink-0">
+                                  <span className="text-[9px] font-bold bg-primary-50 text-primary-700 px-2 py-0.5 rounded-full border border-primary-100 uppercase tracking-wide">
+                                    {kpi.frequency}
+                                  </span>
+                                  <span className="text-[9px] font-bold bg-slate-100 text-slate-700 px-2 py-0.5 rounded-full border border-slate-250">
+                                    {kpi.weight ?? 0}% weight ({(((kpi.weight ?? 0) * (kra.weight ?? 0)) / 100).toFixed(1)}% overall)
+                                  </span>
+                                </div>
+                              )}
                             </div>
-                          </div>
-                          <div className="bg-surface-50 rounded-lg p-2 border border-surface-100 mb-2">
-                            <p className="text-[10px] font-semibold text-surface-400 uppercase tracking-wide mb-0.5">Target</p>
-                            <p className="text-xs font-bold text-primary-600">{kpi.target}</p>
-                          </div>
-                          <div className="flex items-start gap-1.5 text-[10px] text-surface-500">
-                            <TrendingUp className="w-3 h-3 text-surface-400 shrink-0 mt-0.5" />
-                            <span><span className="font-semibold text-surface-600">Via: </span>{kpi.measurement_method}</span>
-                          </div>
-                          {kpi.threshold && (
-                            <div className="mt-2 pt-2 border-t border-surface-100 grid grid-cols-3 gap-1 text-[9px]">
-                              <div className="text-center">
-                                <div className="font-bold text-emerald-600 mb-0.5">Excellent</div>
-                                <div className="text-surface-600 leading-tight">{kpi.threshold.excellent}</div>
+
+                            {isEditing && (
+                              <div className="grid grid-cols-2 gap-2 mt-1">
+                                <div>
+                                  <label className="text-[9px] font-bold text-slate-400 uppercase block mb-0.5">Frequency</label>
+                                  <select
+                                    value={kpi.frequency || "Monthly"}
+                                    onChange={(e) => handleKpiFieldChange(kra.kra_id, kpi.kpi_id, "frequency", e.target.value)}
+                                    className="w-full bg-white border border-slate-200 rounded px-1.5 py-1 text-xs text-slate-600 focus:outline-none focus:border-primary-500"
+                                  >
+                                    <option value="Daily">Daily</option>
+                                    <option value="Weekly">Weekly</option>
+                                    <option value="Monthly">Monthly</option>
+                                    <option value="Quarterly">Quarterly</option>
+                                    <option value="Annually">Annually</option>
+                                  </select>
+                                </div>
+                                <div>
+                                  <label className="text-[9px] font-bold text-slate-400 uppercase block mb-0.5">Weight (%)</label>
+                                  <div className="flex gap-1 items-center">
+                                    <button
+                                      type="button"
+                                      onClick={() => handleKpiLockToggle(`${kra.kra_id}_${kpi.kpi_id}`)}
+                                      className={`p-1 rounded border transition-all ${
+                                        lockedKpiIds.has(`${kra.kra_id}_${kpi.kpi_id}`)
+                                          ? "bg-slate-800 text-white border-slate-850"
+                                          : "bg-white text-slate-400 border-slate-200 hover:bg-slate-50 hover:text-slate-600"
+                                      }`}
+                                    >
+                                      {lockedKpiIds.has(`${kra.kra_id}_${kpi.kpi_id}`) ? <Lock className="w-2.5 h-2.5" /> : <Unlock className="w-2.5 h-2.5" />}
+                                    </button>
+                                    <div className="flex-1 flex items-center bg-white border border-slate-200 rounded px-1.5 py-0.5">
+                                      <input
+                                        type="number"
+                                        value={kpi.weight ?? 0}
+                                        disabled={lockedKpiIds.has(`${kra.kra_id}_${kpi.kpi_id}`)}
+                                        onChange={(e) => handleKpiWeightChange(kra.kra_id, kpi.kpi_id, parseInt(e.target.value) || 0)}
+                                        className="w-full bg-transparent text-xs font-semibold text-slate-700 text-center outline-none border-none disabled:opacity-50"
+                                      />
+                                      <span className="text-xs font-semibold text-slate-400 select-none">%</span>
+                                    </div>
+                                  </div>
+                                </div>
                               </div>
-                              <div className="text-center border-x border-surface-100">
-                                <div className="font-bold text-blue-600 mb-0.5">Meets</div>
-                                <div className="text-surface-600 leading-tight">{kpi.threshold.meets_expectation}</div>
+                            )}
+                          </div>
+
+                          <div className="bg-surface-50 rounded-lg p-2 border border-surface-100">
+                            {isEditing ? (
+                              <div>
+                                <label className="text-[9px] font-bold text-slate-400 uppercase block mb-0.5">KPI Target</label>
+                                <input
+                                  type="text"
+                                  value={kpi.target}
+                                  onChange={(e) => handleKpiFieldChange(kra.kra_id, kpi.kpi_id, "target", e.target.value)}
+                                  className="w-full bg-white border border-slate-200 rounded px-2 py-1 text-xs font-bold text-primary-600 focus:outline-none focus:border-primary-500"
+                                />
                               </div>
-                              <div className="text-center">
-                                <div className="font-bold text-rose-500 mb-0.5">Below</div>
-                                <div className="text-surface-600 leading-tight">{kpi.threshold.below_expectation}</div>
+                            ) : (
+                              <>
+                                <p className="text-[10px] font-semibold text-surface-400 uppercase tracking-wide mb-0.5">Target</p>
+                                <p className="text-xs font-bold text-primary-600">{kpi.target}</p>
+                              </>
+                            )}
+                          </div>
+
+                          <div className="flex flex-col gap-1 text-[10px] text-surface-500">
+                            {isEditing ? (
+                              <div className="mt-1">
+                                <label className="text-[9px] font-bold text-slate-400 uppercase block mb-0.5">Measured Via</label>
+                                <input
+                                  type="text"
+                                  value={kpi.measurement_method || ""}
+                                  onChange={(e) => handleKpiFieldChange(kra.kra_id, kpi.kpi_id, "measurement_method", e.target.value)}
+                                  className="w-full bg-white border border-slate-200 rounded px-2 py-1 text-xs text-slate-650 focus:outline-none focus:border-primary-500"
+                                />
                               </div>
+                            ) : (
+                              <div className="flex items-start gap-1.5">
+                                <TrendingUp className="w-3 h-3 text-surface-400 shrink-0 mt-0.5" />
+                                <span><span className="font-semibold text-surface-600">Via: </span>{kpi.measurement_method}</span>
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Expectation Thresholds */}
+                          {(kpi.threshold || isEditing) && (
+                            <div className="mt-2.5 pt-2.5 border-t border-surface-100">
+                              {isEditing ? (
+                                <div className="space-y-2">
+                                  <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Expectation Thresholds</p>
+                                  <div className="grid grid-cols-3 gap-2 text-[10px]">
+                                    <div>
+                                      <label className="text-[9px] font-bold text-emerald-600 uppercase block mb-0.5">Excellent</label>
+                                      <input
+                                        type="text"
+                                        value={kpi.threshold?.excellent || ""}
+                                        onChange={(e) => handleKpiThresholdChange(kra.kra_id, kpi.kpi_id, "excellent", e.target.value)}
+                                        className="w-full bg-white border border-slate-200 rounded px-1.5 py-1 text-xs focus:outline-none focus:border-primary-500"
+                                      />
+                                    </div>
+                                    <div>
+                                      <label className="text-[9px] font-bold text-blue-600 uppercase block mb-0.5">Meets</label>
+                                      <input
+                                        type="text"
+                                        value={kpi.threshold?.meets_expectation || ""}
+                                        onChange={(e) => handleKpiThresholdChange(kra.kra_id, kpi.kpi_id, "meets_expectation", e.target.value)}
+                                        className="w-full bg-white border border-slate-200 rounded px-1.5 py-1 text-xs focus:outline-none focus:border-primary-500"
+                                      />
+                                    </div>
+                                    <div>
+                                      <label className="text-[9px] font-bold text-rose-600 uppercase block mb-0.5">Below</label>
+                                      <input
+                                        type="text"
+                                        value={kpi.threshold?.below_expectation || ""}
+                                        onChange={(e) => handleKpiThresholdChange(kra.kra_id, kpi.kpi_id, "below_expectation", e.target.value)}
+                                        className="w-full bg-white border border-slate-200 rounded px-1.5 py-1 text-xs focus:outline-none focus:border-primary-500"
+                                      />
+                                    </div>
+                                  </div>
+                                </div>
+                              ) : (
+                                <div className="grid grid-cols-3 gap-2 text-[10px]">
+                                  <div className="bg-emerald-50/40 rounded-lg p-2 border border-emerald-100/50 text-center flex flex-col justify-between">
+                                    <div className="font-bold text-emerald-700 mb-1">Excellent</div>
+                                    <div className="text-slate-600 font-medium leading-tight">{kpi.threshold?.excellent}</div>
+                                  </div>
+                                  <div className="bg-blue-50/40 rounded-lg p-2 border border-blue-100/50 text-center flex flex-col justify-between">
+                                    <div className="font-bold text-blue-700 mb-1">Meets</div>
+                                    <div className="text-slate-650 font-medium leading-tight">{kpi.threshold?.meets_expectation}</div>
+                                  </div>
+                                  <div className="bg-rose-50/40 rounded-lg p-2 border border-rose-100/50 text-center flex flex-col justify-between">
+                                    <div className="font-bold text-rose-700 mb-1">Below</div>
+                                    <div className="text-slate-650 font-medium leading-tight">{kpi.threshold?.below_expectation}</div>
+                                  </div>
+                                </div>
+                              )}
                             </div>
                           )}
                         </div>

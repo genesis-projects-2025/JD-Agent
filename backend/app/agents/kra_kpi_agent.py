@@ -280,7 +280,7 @@ async def generate_kra_suggestions(
     from app.core.langfuse_client import get_langfuse_callback_handler
     handler = get_langfuse_callback_handler(trace_name="kra-suggestion")
     callbacks = [handler] if handler else []
-    response = await llm.ainvoke(prompt, callbacks=callbacks)
+    response = await llm.ainvoke(prompt, config={"callbacks": callbacks})
     payload = _parse_llm_json(str(response.content))
 
     suggestions = payload.get("kra_suggestions", [])
@@ -338,7 +338,7 @@ async def generate_kpi_suggestions_for_kra(
     from app.core.langfuse_client import get_langfuse_callback_handler
     handler = get_langfuse_callback_handler(trace_name="kpi-suggestion")
     callbacks = [handler] if handler else []
-    response = await llm.ainvoke(prompt, callbacks=callbacks)
+    response = await llm.ainvoke(prompt, config={"callbacks": callbacks})
     payload = _parse_llm_json(str(response.content))
 
     suggestions = payload.get("kpi_suggestions", [])

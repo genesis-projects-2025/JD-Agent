@@ -109,7 +109,7 @@ async def synthesize_tools_and_skills_with_llm(
         from app.core.langfuse_client import get_langfuse_callback_handler
         handler = get_langfuse_callback_handler(trace_name="gap-detector")
         callbacks = [handler] if handler else []
-        response = await llm.ainvoke(prompt, callbacks=callbacks)
+        response = await llm.ainvoke(prompt, config={"callbacks": callbacks})
         text = str(response.content).strip()
         if "```" in text:
             # Try to extract content between ```json ... ``` or ``` ... ```

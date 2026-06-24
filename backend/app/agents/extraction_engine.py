@@ -435,7 +435,7 @@ async def extract_with_llm(
                 ),
                 HumanMessage(content=prompt),
             ],
-            callbacks=callbacks
+            config={"callbacks": callbacks}
         )
 
         if not response:

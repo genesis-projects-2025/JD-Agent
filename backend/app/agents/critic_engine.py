@@ -62,7 +62,7 @@ async def run_critic_pass(insights: dict) -> dict:
                 ),
                 HumanMessage(content=prompt),
             ],
-            callbacks=callbacks
+            config={"callbacks": callbacks}
         )
         text = (
             response.content

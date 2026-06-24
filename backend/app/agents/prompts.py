@@ -271,7 +271,7 @@ OUTPUT — RETURN ONLY THIS JSON (no markdown, no extra text)
 }"""
 
 KPI_SUGGESTION_PROMPT = """You are a Senior HR Performance Management Expert.
-Generate 6 to 7 KPI suggestions for a specific KRA.
+Generate exactly 10 KPI suggestions for a specific KRA.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 KRA TO MEASURE
@@ -292,7 +292,7 @@ Domain: {{domain_rules}}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 RULES
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-1. Generate EXACTLY 6 to 7 KPIs. Each must measure a different dimension of the KRA.
+1. Generate EXACTLY 10 KPIs. Each must measure a different dimension of the KRA.
 2. Every target must be a SPECIFIC number, percentage, or time-bound value. NO vague targets.
 3. measurement_method must reference an ACTUAL tool from the tools list above where possible.
 4. frequency: "Monthly" for operational, "Quarterly" for strategic.

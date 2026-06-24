@@ -345,8 +345,8 @@ async def generate_kpi_suggestions_for_kra(
     if not suggestions:
         raise ValueError(f"LLM returned no KPI suggestions for KRA: {kra.get('title')}")
 
-    # Ensure IDs and cap at 7
-    suggestions = suggestions[:7]
+    # Ensure IDs and cap at 10
+    suggestions = suggestions[:10]
     kra_prefix = kra.get("kra_id", "kra_001")
     for i, kpi in enumerate(suggestions):
         kpi["kpi_id"] = f"{kra_prefix}_kpi_{i+1:02d}"

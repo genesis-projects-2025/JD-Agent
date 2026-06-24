@@ -358,16 +358,14 @@ async def select_kras_and_generate_kpis(
     selected_kra_ids: list[str],
 ) -> KRAKPISession:
     """
-    Step 2: Employee selects 3–5 KRAs.
+    Step 2: Employee selects KRAs.
     For each selected KRA, generate 6–7 KPI suggestions in parallel.
     Sets generation_step = 'kpi_selection'.
-
-    Validation: 3 ≤ len(selected_kra_ids) ≤ 5
     """
-    if not (3 <= len(selected_kra_ids) <= 5):
-        raise StepError(
-            f"Please select between 3 and 5 KRAs. You selected {len(selected_kra_ids)}."
-        )
+
+    # Validation: at least 1 KRA must be selected
+    if len(selected_kra_ids) < 1:
+        raise StepError("Please select at least 1 KRA.")
 
     record = await get_kra_kpi_by_jd_session(db, jd_session_id)
     if not record:
@@ -440,12 +438,12 @@ async def select_kpis_and_build_final(
     if record.generation_step not in ("kpi_selection", "weight_adjustment"):
         raise StepError(f"Cannot select KPIs in step: {record.generation_step}")
 
-    # Validate KPI counts per KRA
+    # Validate KPI counts per KRA — at least 1 KPI must be selected per KRA
     for kra_id, kpi_ids in selected_kpi_ids.items():
-        if not (3 <= len(kpi_ids) <= 5):
+        if len(kpi_ids) < 1:
             raise StepError(
-                f"Select between 3 and 5 KPIs for each KRA. "
-                f"KRA '{kra_id}' has {len(kpi_ids)} selected."
+                f"Select at least 1 KPI for each KRA. "
+                f"KRA '{kra_id}' has no KPIs selected."
             )
 
     # Resolve full KRA objects

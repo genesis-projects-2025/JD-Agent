@@ -282,7 +282,7 @@ function InlineKRASelection({
       const next = new Set(prev);
       if (next.has(id)) {
         next.delete(id);
-      } else if (next.size < 5) {
+      } else {
         next.add(id);
       }
       return next;
@@ -290,7 +290,7 @@ function InlineKRASelection({
   };
 
   const count = selectedIds.size;
-  const isValid = count >= 3 && count <= 5;
+  const isValid = count >= 1;
 
   const handleSubmit = () => {
     if (!isValid || !isInteractable) return;
@@ -304,9 +304,9 @@ function InlineKRASelection({
   return (
     <div className="mt-4 space-y-3 border-t border-surface-100 pt-4">
       <div className="flex justify-between items-center text-xs font-semibold text-surface-500">
-        <span>Select 3–5 core accountability KRAs:</span>
+        <span>Select core accountability KRAs:</span>
         <span className={isValid ? "text-emerald-600 font-bold" : "text-surface-400"}>
-          {count} / 5 Selected
+          {count} Selected
         </span>
       </div>
 
@@ -384,7 +384,7 @@ function InlineKPISelection({
       const next = new Set(prev);
       if (next.has(id)) {
         next.delete(id);
-      } else if (next.size < 5) {
+      } else {
         next.add(id);
       }
       return next;
@@ -392,7 +392,7 @@ function InlineKPISelection({
   };
 
   const count = selectedIds.size;
-  const isValid = count >= 3 && count <= 5;
+  const isValid = count >= 1;
 
   const handleSubmit = () => {
     if (!isValid || !isInteractable || !record) return;
@@ -423,9 +423,9 @@ function InlineKPISelection({
   return (
     <div className="mt-4 space-y-3 border-t border-surface-100 pt-4">
       <div className="flex justify-between items-center text-xs font-semibold text-surface-500">
-        <span>Select 3–5 KPIs for <strong>{activeKraTitle}</strong>:</span>
+        <span>Select KPIs for <strong>{activeKraTitle}</strong>:</span>
         <span className={isValid ? "text-emerald-600 font-bold" : "text-surface-400"}>
-          {count} / 5 Selected
+          {count} Selected
         </span>
       </div>
 

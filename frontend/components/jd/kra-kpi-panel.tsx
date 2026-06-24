@@ -191,7 +191,7 @@ function Step1KRASelection({
       const next = new Set(prev);
       if (next.has(id)) {
         next.delete(id);
-      } else if (next.size < 5) {
+      } else {
         next.add(id);
       }
       return next;
@@ -205,14 +205,14 @@ function Step1KRASelection({
   };
 
   const count = selected.size;
-  const canContinue = count >= 3 && count <= 5;
+  const canContinue = count >= 1;
 
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div>
           <p className="text-sm text-surface-600">
-            Select <strong>3 to 5 KRAs</strong> that best represent your role's accountability areas.
+            Select the KRAs that best represent your role's accountability areas.
           </p>
           <p className="text-xs text-surface-400 mt-0.5">
             After selecting KPIs, you will assign weights to each KRA yourself in Step 3.
@@ -221,7 +221,7 @@ function Step1KRASelection({
         <span className={`text-sm font-semibold px-3 py-1 rounded-full ${
           canContinue ? "bg-emerald-100 text-emerald-700" : "bg-surface-100 text-surface-500"
         }`}>
-          {count} / 5
+          {count} Selected
         </span>
       </div>
 
@@ -236,10 +236,6 @@ function Step1KRASelection({
           />
         ))}
       </div>
-
-      {count > 5 && (
-        <p className="text-xs text-red-600 text-center">Maximum 5 KRAs allowed.</p>
-      )}
 
       <button
         onClick={handleContinue}
@@ -327,7 +323,7 @@ function Step2KPISelection({
       const kraSet = new Set(prev[kraId] || []);
       if (kraSet.has(kpiId)) {
         kraSet.delete(kpiId);
-      } else if (kraSet.size < 5) {
+      } else {
         kraSet.add(kpiId);
       }
       return { ...prev, [kraId]: kraSet };
@@ -337,7 +333,7 @@ function Step2KPISelection({
   const kraCount = (id: string) => selectedKpis[id]?.size ?? 0;
   const allValid = selectedKras.every((id) => {
     const c = kraCount(id);
-    return c >= 3 && c <= 5;
+    return c >= 1;
   });
 
   const handleContinue = async () => {
@@ -359,7 +355,7 @@ function Step2KPISelection({
     <div className="space-y-4">
       <div>
         <p className="text-sm text-surface-600">
-          For each selected KRA, choose <strong>3 to 5 KPIs</strong> that best measure performance.
+          For each selected KRA, choose the KPIs that best measure performance.
         </p>
         <p className="text-xs text-surface-400 mt-0.5">Expand any KPI to see measurement thresholds.</p>
       </div>
@@ -368,7 +364,7 @@ function Step2KPISelection({
       <div className="flex flex-wrap gap-2">
         {selectedKras.map((id, i) => {
           const count = kraCount(id);
-          const valid = count >= 3;
+          const valid = count >= 1;
           return (
             <button
               key={id}
@@ -381,8 +377,8 @@ function Step2KPISelection({
             >
               {valid ? <CheckCircle2 className="w-3 h-3 text-emerald-500" /> : null}
               {kraTitle(id)}
-              <span className={`font-bold ${count >= 3 ? "text-emerald-600" : "text-surface-400"}`}>
-                {count}/5
+              <span className={`font-bold ${count >= 1 ? "text-emerald-600" : "text-surface-400"}`}>
+                {count} Selected
               </span>
             </button>
           );
@@ -520,6 +516,7 @@ function DraggableKRARow({
   kra, index, onWeightChange, onDragStart, onDragOver, onDragEnd, isDragging,
   isLocked, onLockToggle, onKpisReorder, onKpiWeightChange,
   lockedKpiIds, onKpiLockToggle,
+  onKraEdit, onKpiEdit,
 }: {
   kra: FinalKRA;
   index: number;
@@ -534,9 +531,23 @@ function DraggableKRARow({
   onKpiWeightChange: (kraId: string, kpiId: string, newW: number) => void;
   lockedKpiIds: Set<string>;
   onKpiLockToggle: (id: string) => void;
+  onKraEdit: (kraId: string, title: string, desc: string) => void;
+  onKpiEdit: (kraId: string, kpiId: string, updatedFields: any) => void;
 }) {
   const [kpiOpen, setKpiOpen] = useState(false);
   const [kpiDragFrom, setKpiDragFrom] = useState<number | null>(null);
+
+  // Edit states for KRA
+  const [isEditingKra, setIsEditingKra] = useState(false);
+  const [editTitle, setEditTitle] = useState(kra.title);
+  const [editDesc, setEditDesc] = useState(kra.description);
+
+  // Edit states for KPI
+  const [editingKpiId, setEditingKpiId] = useState<string | null>(null);
+  const [editKpiMetric, setEditKpiMetric] = useState("");
+  const [editKpiTarget, setEditKpiTarget] = useState("");
+  const [editKpiMethod, setEditKpiMethod] = useState("");
+  const [editKpiFreq, setEditKpiFreq] = useState("");
 
   const handleKpiDragOver = (idx: number) => {
     if (kpiDragFrom === null || kpiDragFrom === idx) return;
@@ -549,7 +560,7 @@ function DraggableKRARow({
 
   return (
     <div
-      draggable
+      draggable={!isEditingKra && !editingKpiId}
       onDragStart={() => onDragStart(index)}
       onDragOver={(e) => { e.preventDefault(); onDragOver(index); }}
       onDragEnd={onDragEnd}
@@ -567,10 +578,61 @@ function DraggableKRARow({
 
         <div className="flex-1 min-w-0">
           <div className="flex items-center justify-between gap-4 mb-2">
-            <div>
-              <span className="font-semibold text-slate-800 text-sm block sm:inline">{kra.title}</span>
-              <span className="text-[11px] text-slate-400 font-medium sm:ml-2">KRA #{index + 1}</span>
-            </div>
+            {!isEditingKra ? (
+              <div className="flex items-center flex-wrap gap-1">
+                <span className="font-semibold text-slate-800 text-sm block sm:inline">{kra.title}</span>
+                <span className="text-[11px] text-slate-400 font-medium sm:ml-2">KRA #{index + 1}</span>
+                <button
+                  onClick={() => {
+                    setEditTitle(kra.title);
+                    setEditDesc(kra.description);
+                    setIsEditingKra(true);
+                  }}
+                  type="button"
+                  className="ml-2 text-[10px] text-primary-600 hover:text-primary-800 hover:underline border border-primary-200 hover:bg-primary-50 px-1.5 py-0.5 rounded transition-colors"
+                >
+                  Edit
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-2 w-full pr-2">
+                <div>
+                  <label className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">KRA Title</label>
+                  <input
+                    type="text"
+                    value={editTitle}
+                    onChange={(e) => setEditTitle(e.target.value)}
+                    className="w-full text-xs font-semibold text-slate-800 border border-slate-200 rounded-lg p-2 focus:outline-none focus:border-primary-500"
+                  />
+                </div>
+                <div>
+                  <label className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">KRA Description</label>
+                  <textarea
+                    value={editDesc}
+                    onChange={(e) => setEditDesc(e.target.value)}
+                    className="w-full text-xs text-slate-600 border border-slate-200 rounded-lg p-2 focus:outline-none focus:border-primary-500"
+                    rows={2}
+                  />
+                </div>
+                <div className="flex gap-2 justify-end">
+                  <button
+                    onClick={() => setIsEditingKra(false)}
+                    className="px-2 py-0.5 text-[10px] font-medium border border-slate-200 text-slate-500 rounded hover:bg-slate-50"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={() => {
+                      onKraEdit(kra.kra_id, editTitle, editDesc);
+                      setIsEditingKra(false);
+                    }}
+                    className="px-2.5 py-0.5 text-[10px] font-medium bg-primary-600 hover:bg-primary-700 text-white rounded"
+                  >
+                    Save
+                  </button>
+                </div>
+              </div>
+            )}
             
             {/* Weight adjustments & Lock */}
             <div className="flex items-center gap-2 flex-shrink-0">
@@ -598,7 +660,10 @@ function DraggableKRARow({
               </div>
             </div>
           </div>
-          <p className="text-xs text-slate-500 leading-relaxed mb-3 pr-2">{kra.description}</p>
+          
+          {!isEditingKra && (
+            <p className="text-xs text-slate-500 leading-relaxed mb-3 pr-2">{kra.description}</p>
+          )}
 
           {/* KPI toggle */}
           <button
@@ -617,52 +682,140 @@ function DraggableKRARow({
                   return (
                     <li
                       key={kpi.kpi_id}
-                      draggable
+                      draggable={editingKpiId !== kpi.kpi_id}
                       onDragStart={() => setKpiDragFrom(kpiIdx)}
                       onDragOver={(e) => { e.preventDefault(); handleKpiDragOver(kpiIdx); }}
                       onDragEnd={() => setKpiDragFrom(null)}
-                      className={`text-xs flex items-center gap-2 p-2 border rounded-lg transition-all ${
+                      className={`text-xs flex flex-col gap-2 p-2 border rounded-lg transition-all ${
                         kpiDragFrom === kpiIdx 
                           ? "border-primary-500 bg-indigo-50/50 shadow-sm animate-pulse" 
                           : "bg-slate-50 border-slate-100 hover:border-slate-300"
                       }`}
                     >
-                      <div className="cursor-grab active:cursor-grabbing text-slate-300 hover:text-slate-500 flex-shrink-0">
-                        <GripVertical className="w-3.5 h-3.5" />
-                      </div>
-                      <div className="flex-1 min-w-0 flex items-baseline gap-1 mr-2 flex-wrap">
-                        <span className="text-slate-700 font-medium">{kpi.metric}</span>
-                        <span className="text-slate-400 font-normal text-[11px]">— {kpi.target}</span>
-                        <span className="text-[10px] text-slate-400 font-semibold whitespace-nowrap ml-1 bg-slate-100 px-1.5 py-0.5 rounded">
-                          ({(((kpi.weight ?? 0) * (kra.weight ?? 0)) / 100).toFixed(1)}% overall)
-                        </span>
-                      </div>
-                      
-                      {/* KPI lock button & weight input */}
-                      <div className="flex items-center gap-1.5 ml-auto flex-shrink-0">
-                        <button
-                          onClick={() => onKpiLockToggle(`${kra.kra_id}_${kpi.kpi_id}`)}
-                          type="button"
-                          className={`p-1 rounded border transition-all ${
-                            isKpiLocked
-                              ? "bg-slate-800 text-white border-slate-800 shadow-sm"
-                              : "bg-white text-slate-400 border-slate-200 hover:text-slate-600 hover:bg-slate-50"
-                          }`}
-                          title={isKpiLocked ? "Unlock KPI weight" : "Lock KPI weight"}
-                        >
-                          {isKpiLocked ? <Lock className="w-3 h-3" /> : <Unlock className="w-3 h-3" />}
-                        </button>
-                        
-                        <div className="flex items-center bg-slate-50 border border-slate-200 rounded-lg px-1.5 py-0.5 w-16 focus-within:border-slate-400 focus-within:bg-white transition-colors">
-                          <WeightInput
-                            value={kpi.weight ?? 0}
-                            disabled={isKpiLocked}
-                            onChange={(val) => onKpiWeightChange(kra.kra_id, kpi.kpi_id, val)}
-                            className="w-full bg-transparent text-xs font-semibold text-slate-700 text-center outline-none border-none disabled:opacity-60"
-                          />
-                          <span className="text-xs font-semibold text-slate-400 select-none">%</span>
+                      {editingKpiId !== kpi.kpi_id ? (
+                        <div className="flex items-center w-full gap-2">
+                          <div className="cursor-grab active:cursor-grabbing text-slate-300 hover:text-slate-500 flex-shrink-0">
+                            <GripVertical className="w-3.5 h-3.5" />
+                          </div>
+                          <div className="flex-1 min-w-0 flex items-baseline gap-1 mr-2 flex-wrap">
+                            <span className="text-slate-700 font-medium">{kpi.metric}</span>
+                            <span className="text-slate-400 font-normal text-[11px]">— {kpi.target}</span>
+                            <span className="text-[10px] text-slate-400 font-semibold whitespace-nowrap ml-1 bg-slate-100 px-1.5 py-0.5 rounded">
+                              ({(((kpi.weight ?? 0) * (kra.weight ?? 0)) / 100).toFixed(1)}% overall)
+                            </span>
+                          </div>
+                          
+                          {/* KPI edit, lock & weight */}
+                          <div className="flex items-center gap-1.5 ml-auto flex-shrink-0">
+                            <button
+                              onClick={() => {
+                                setEditKpiMetric(kpi.metric);
+                                setEditKpiTarget(kpi.target);
+                                setEditKpiMethod(kpi.measurement_method || "");
+                                setEditKpiFreq(kpi.frequency || "Monthly");
+                                setEditingKpiId(kpi.kpi_id);
+                              }}
+                              type="button"
+                              className="text-[10px] text-primary-600 hover:text-primary-800 border border-primary-200 hover:bg-primary-50 px-1.5 py-0.5 rounded transition-colors"
+                            >
+                              Edit
+                            </button>
+
+                            <button
+                              onClick={() => onKpiLockToggle(`${kra.kra_id}_${kpi.kpi_id}`)}
+                              type="button"
+                              className={`p-1 rounded border transition-all ${
+                                isKpiLocked
+                                  ? "bg-slate-800 text-white border-slate-800 shadow-sm"
+                                  : "bg-white text-slate-400 border-slate-200 hover:text-slate-600 hover:bg-slate-50"
+                              }`}
+                              title={isKpiLocked ? "Unlock KPI weight" : "Lock KPI weight"}
+                            >
+                              {isKpiLocked ? <Lock className="w-3 h-3" /> : <Unlock className="w-3 h-3" />}
+                            </button>
+                            
+                            <div className="flex items-center bg-slate-50 border border-slate-200 rounded-lg px-1.5 py-0.5 w-16 focus-within:border-slate-400 focus-within:bg-white transition-colors">
+                              <WeightInput
+                                value={kpi.weight ?? 0}
+                                disabled={isKpiLocked}
+                                onChange={(val) => onKpiWeightChange(kra.kra_id, kpi.kpi_id, val)}
+                                className="w-full bg-transparent text-xs font-semibold text-slate-700 text-center outline-none border-none disabled:opacity-60"
+                              />
+                              <span className="text-xs font-semibold text-slate-400 select-none">%</span>
+                            </div>
+                          </div>
                         </div>
-                      </div>
+                      ) : (
+                        <div className="w-full space-y-2 p-2 bg-white rounded-lg border border-primary-100">
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                            <div>
+                              <label className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Metric</label>
+                              <input
+                                type="text"
+                                value={editKpiMetric}
+                                onChange={(e) => setEditKpiMetric(e.target.value)}
+                                className="w-full text-xs font-medium text-slate-700 border border-slate-200 rounded p-1 focus:outline-none focus:border-primary-500"
+                              />
+                            </div>
+                            <div>
+                              <label className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Target</label>
+                              <input
+                                type="text"
+                                value={editKpiTarget}
+                                onChange={(e) => setEditKpiTarget(e.target.value)}
+                                className="w-full text-xs text-slate-600 border border-slate-200 rounded p-1 focus:outline-none focus:border-primary-500"
+                              />
+                            </div>
+                          </div>
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                            <div>
+                              <label className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Measurement Method</label>
+                              <input
+                                type="text"
+                                value={editKpiMethod}
+                                onChange={(e) => setEditKpiMethod(e.target.value)}
+                                className="w-full text-xs text-slate-600 border border-slate-200 rounded p-1 focus:outline-none focus:border-primary-500"
+                              />
+                            </div>
+                            <div>
+                              <label className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Frequency</label>
+                              <select
+                                value={editKpiFreq}
+                                onChange={(e) => setEditKpiFreq(e.target.value)}
+                                className="w-full text-xs text-slate-600 border border-slate-200 rounded p-1.5 focus:outline-none focus:border-primary-500 bg-white"
+                              >
+                                <option value="Daily">Daily</option>
+                                <option value="Weekly">Weekly</option>
+                                <option value="Monthly">Monthly</option>
+                                <option value="Quarterly">Quarterly</option>
+                                <option value="Annually">Annually</option>
+                              </select>
+                            </div>
+                          </div>
+                          <div className="flex gap-2 justify-end">
+                            <button
+                              onClick={() => setEditingKpiId(null)}
+                              className="px-2 py-0.5 text-[10px] font-medium border border-slate-200 text-slate-500 rounded hover:bg-slate-50"
+                            >
+                              Cancel
+                            </button>
+                            <button
+                              onClick={() => {
+                                onKpiEdit(kra.kra_id, kpi.kpi_id, {
+                                  metric: editKpiMetric,
+                                  target: editKpiTarget,
+                                  measurement_method: editKpiMethod,
+                                  frequency: editKpiFreq,
+                                });
+                                setEditingKpiId(null);
+                              }}
+                              className="px-2.5 py-0.5 text-[10px] font-medium bg-primary-600 hover:bg-primary-700 text-white rounded"
+                            >
+                              Save
+                            </button>
+                          </div>
+                        </div>
+                      )}
                     </li>
                   );
                 })}
@@ -766,6 +919,26 @@ function Step3WeightAdjustment({
   const handleKpisReorder = (kraId: string, reorderedKpis: any[]) => {
     setKras((prev) =>
       prev.map((k) => (k.kra_id === kraId ? { ...k, kpis: reorderedKpis } : k))
+    );
+  };
+
+  const handleKraEdit = (kraId: string, updatedTitle: string, updatedDescription: string) => {
+    setKras((prev) =>
+      prev.map((k) =>
+        k.kra_id === kraId ? { ...k, title: updatedTitle, description: updatedDescription } : k
+      )
+    );
+  };
+
+  const handleKpiEdit = (kraId: string, kpiId: string, updatedFields: any) => {
+    setKras((prev) =>
+      prev.map((k) => {
+        if (k.kra_id !== kraId) return k;
+        return {
+          ...k,
+          kpis: k.kpis.map((kp) => (kp.kpi_id === kpiId ? { ...kp, ...updatedFields } : kp)),
+        };
+      })
     );
   };
 
@@ -927,6 +1100,8 @@ function Step3WeightAdjustment({
             onKpiWeightChange={handleKpiWeightChange}
             lockedKpiIds={lockedKpiIds}
             onKpiLockToggle={handleKpiLockToggle}
+            onKraEdit={handleKraEdit}
+            onKpiEdit={handleKpiEdit}
           />
         ))}
       </div>

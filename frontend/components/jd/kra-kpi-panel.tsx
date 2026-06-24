@@ -1620,31 +1620,37 @@ export function KRAKPIPanel({ jdSessionId, employeeId, isManager = false }: KRAK
 
   const handleSelectKRAs = async (ids: string[]) => {
     setError(null);
+    setLoading(true);
     try {
       await selectKRAs(jdSessionId, ids);
       await reload();
     } catch (e: any) {
       setError(e.message || "KRA selection failed");
+      setLoading(false);
     }
   };
 
   const handleSelectKPIs = async (selected: Record<string, string[]>) => {
     setError(null);
+    setLoading(true);
     try {
       await selectKPIs(jdSessionId, selected);
       await reload();
     } catch (e: any) {
       setError(e.message || "KPI selection failed");
+      setLoading(false);
     }
   };
 
   const handleSaveWeights = async (kras: FinalKRA[], confirm: boolean) => {
     setError(null);
+    setLoading(true);
     try {
       await saveKRAWeights(jdSessionId, kras, confirm);
       await reload();
     } catch (e: any) {
       setError(e.message || "Failed to save weights");
+      setLoading(false);
     }
   };
 
@@ -1657,15 +1663,32 @@ export function KRAKPIPanel({ jdSessionId, employeeId, isManager = false }: KRAK
   };
 
   const handleSendForApproval = async () => {
-    await sendKRAKPIForApproval(jdSessionId);
-    await reload();
+    setError(null);
+    setLoading(true);
+    try {
+      await sendKRAKPIForApproval(jdSessionId);
+      await reload();
+    } catch (e: any) {
+      setError(e.message || "Failed to send for approval");
+      setLoading(false);
+    }
   };
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center py-20">
-        <Loader2 className="w-5 h-5 animate-spin text-primary-500 mr-2" />
-        <span className="text-sm text-surface-500">Loading…</span>
+      <div className="flex flex-col items-center justify-center py-20 px-6 text-center animate-pulse">
+        <div className="relative mb-6">
+          <div className="absolute inset-0 bg-primary-400/20 blur-xl rounded-full scale-150 animate-pulse duration-1000" />
+          <div className="relative flex items-center justify-center w-16 h-16 bg-white border-2 border-primary-500/20 rounded-2xl shadow-lg shadow-primary-500/5">
+            <Loader2 className="w-8 h-8 animate-spin text-primary-600" />
+          </div>
+        </div>
+        <h3 className="text-base font-semibold text-surface-900 mb-1">
+          Setting up your workspace
+        </h3>
+        <p className="text-xs text-surface-500 max-w-xs leading-relaxed">
+          We are preparing your framework and configuring alignment settings. Please wait a moment.
+        </p>
       </div>
     );
   }

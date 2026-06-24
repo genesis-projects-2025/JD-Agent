@@ -43,8 +43,8 @@ class SelectKRAsRequest(BaseModel):
     @field_validator("selected_kra_ids")
     @classmethod
     def validate_count(cls, v: list[str]) -> list[str]:
-        if not (3 <= len(v) <= 5):
-            raise ValueError(f"Select between 3 and 5 KRAs. Got {len(v)}.")
+        if len(v) < 1:
+            raise ValueError("Select at least 1 KRA.")
         return v
 
 
@@ -56,9 +56,9 @@ class SelectKPIsRequest(BaseModel):
     @classmethod
     def validate_counts(cls, v: dict[str, list[str]]) -> dict[str, list[str]]:
         for kra_id, kpi_ids in v.items():
-            if not (3 <= len(kpi_ids) <= 5):
+            if len(kpi_ids) < 1:
                 raise ValueError(
-                    f"Select 3–5 KPIs for each KRA. KRA '{kra_id}' has {len(kpi_ids)}."
+                    f"Select at least 1 KPI for KRA '{kra_id}'."
                 )
         return v
 

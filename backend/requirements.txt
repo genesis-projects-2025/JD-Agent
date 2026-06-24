@@ -155,6 +155,7 @@ jsonschema-specifications==2025.9.1
 keyring==25.7.0
     # via py-key-value-aio
 litellm==1.84.0
+langfuse==2.45.0
     # via -r requirements.in
 markdown-it-py==4.2.0
     # via rich

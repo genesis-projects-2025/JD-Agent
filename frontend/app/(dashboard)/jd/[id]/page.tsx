@@ -2,7 +2,7 @@
 "use client";
 
 import { useParams, useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useState, Suspense } from "react";
+import { useEffect, useState, Suspense, useRef } from "react";
 import { downloadJDPdfClient } from "@/lib/download-jd-pdf";
 import {
  FileText,
@@ -70,11 +70,12 @@ function JDPageContent() {
  const [editedData, setEditedData] = useState<any>({});
  const [isSavingEdit, setIsSavingEdit] = useState(false);
  const [isApproving, setIsApproving] = useState(false);
-  const searchParams = useSearchParams();
-  const tabParam = searchParams.get("tab");
-  const [activeTab, setActiveTab] = useState<"structured" | "kra-kpi">(
-      tabParam === "kra-kpi" ? "kra-kpi" : "structured"
-  );
+ const kraKpiRef = useRef<any>(null);
+ const searchParams = useSearchParams();
+ const tabParam = searchParams.get("tab");
+ const [activeTab, setActiveTab] = useState<"structured" | "kra-kpi">(
+     tabParam === "kra-kpi" ? "kra-kpi" : "structured"
+ );
  const [currentUser, setCurrentUser] = useState<any>(null);
  const [isMounted, setIsMounted] = useState(false);
  const [prereqStatus, setPrereqStatus] = useState<any>(null);
@@ -164,8 +165,11 @@ function JDPageContent() {
   fetchJD(jdId),
   fetchReviewComments(jdId).catch(() => []),
   ]);
-  setJd(data);
-  setReviewComments(comments);
+   setJd(data);
+   setReviewComments(comments);
+   if (tabParam !== "structured" && data.status === "approved" && ["sent_to_manager", "sent_to_hr"].includes(data.kra_kpi_status)) {
+     setActiveTab("kra-kpi");
+   }
 
   if (data.generated_jd && u) {
     fetchKRAKPIStatus(jdId, data.employee_id)
@@ -417,36 +421,96 @@ function JDPageContent() {
  }
  };
 
- const handleSaveEdits = async () => {
- if (!jd) return;
- setIsSavingEdit(true);
- try {
- // Attach the role context to show who edited this last
- const enrichedData = {
- ...editedData,
- _last_edited_by: role,
- };
+  const handleSaveEdits = async () => {
+    if (!jd) return;
+    setIsSavingEdit(true);
+    try {
+      if (activeTab === "kra-kpi") {
+        if (kraKpiRef.current) {
+          const success = await kraKpiRef.current.save();
+          if (success) {
+            // Fetch fresh instance
+            const updated = await fetchJD(jd.id);
+            setJd(updated);
+            setIsEditing(false);
+          }
+        }
+      } else {
+        // Attach the role context to show who edited this last
+        const enrichedData = {
+          ...editedData,
+          _last_edited_by: role,
+        };
 
- // We no longer manually build MD in the frontend.
- // The backend now has a standardized logic to regenerate jd_text
- // from jd_structured, ensuring the view and edit modes are always in sync.
- await saveJD({
- id: jd.id,
- jd_text: "", // Let backend regenerate
- jd_structured: enrichedData,
- employee_id: jd.employee_id,
- });
+        // We no longer manually build MD in the frontend.
+        // The backend now has a standardized logic to regenerate jd_text
+        // from jd_structured, ensuring the view and edit modes are always in sync.
+        await saveJD({
+          id: jd.id,
+          jd_text: "", // Let backend regenerate
+          jd_structured: enrichedData,
+          employee_id: jd.employee_id,
+        });
 
- // Fetch fresh instance
- const updated = await fetchJD(jd.id);
- setJd(updated);
- setIsEditing(false);
- } catch (e: any) {
- alert("Failed to save your edits: " + e.message);
- } finally {
- setIsSavingEdit(false);
- }
- };
+        // Fetch fresh instance
+        const updated = await fetchJD(jd.id);
+        setJd(updated);
+        setIsEditing(false);
+      }
+    } catch (e: any) {
+      alert("Failed to save your edits: " + e.message);
+    } finally {
+      setIsSavingEdit(false);
+    }
+  };
+
+  const handleCancelEdits = () => {
+    if (activeTab === "kra-kpi") {
+      kraKpiRef.current?.cancel();
+    } else {
+      // Revert JD edits
+      let pStruct = safeParseObject(jd.jd_structured);
+      if (!pStruct || Object.keys(pStruct).length === 0 || (!pStruct.key_responsibilities && !pStruct.responsibilities)) {
+        const p = safeParseObject(jd.generated_jd);
+        if (p.jd_structured_data) pStruct = p.jd_structured_data;
+        else if (p.role_summary || p.key_responsibilities || p.responsibilities) pStruct = p;
+      }
+      if (pStruct && typeof pStruct === "object") {
+        if (pStruct.key_responsibilities && !pStruct.responsibilities) pStruct.responsibilities = pStruct.key_responsibilities;
+        if (pStruct.technical_skills && !pStruct.skills) pStruct.skills = pStruct.technical_skills;
+        if (pStruct.required_skills && !pStruct.skills) pStruct.skills = pStruct.required_skills;
+        if (pStruct.tools_used && !pStruct.tools) pStruct.tools = pStruct.tools_used;
+        if (pStruct.tools_and_technologies && !pStruct.tools) pStruct.tools = pStruct.tools_and_technologies;
+        if (pStruct.role_summary && !pStruct.purpose) pStruct.purpose = pStruct.role_summary;
+        if (pStruct.performance_metrics && !pStruct.metrics) pStruct.metrics = pStruct.performance_metrics;
+        if (pStruct.stakeholder_interactions && !pStruct.stakeholders) pStruct.stakeholders = pStruct.stakeholder_interactions;
+        if (pStruct.additional_details && !pStruct.additional) pStruct.additional = pStruct.additional_details;
+        if (pStruct.talent_bar && typeof pStruct.talent_bar === "object") {
+          pStruct.education = pStruct.education || pStruct.talent_bar.education || "";
+          pStruct.experience = pStruct.experience || pStruct.talent_bar.experience || "";
+        }
+        if (pStruct.qualifications && typeof pStruct.qualifications === "object") {
+          pStruct.education = pStruct.education || pStruct.qualifications.education || "";
+          pStruct.experience = pStruct.experience || pStruct.qualifications.experience || "";
+        }
+      }
+      if (!pStruct || typeof pStruct !== "object") pStruct = {};
+      pStruct.responsibilities = pStruct.responsibilities || [];
+      pStruct.skills = pStruct.skills || [];
+      pStruct.tools = pStruct.tools || [];
+      pStruct.purpose = pStruct.purpose || "";
+      pStruct.education = pStruct.education || "";
+      pStruct.experience = pStruct.experience || "";
+      pStruct.metrics = pStruct.metrics || [];
+      pStruct.stakeholders = pStruct.stakeholders || {};
+      pStruct.additional = pStruct.additional || {};
+      pStruct.team_structure = pStruct.team_structure || {};
+      pStruct.work_environment = pStruct.work_environment || {};
+
+      setEditedData(pStruct);
+    }
+    setIsEditing(false);
+  };
 
  const handleSendToManager = async () => {
  setSendingToManager(true);
@@ -473,42 +537,45 @@ function JDPageContent() {
  }
  };
 
- const handleEditToggle = () => {
- if (isEditing) handleSaveEdits();
- else {
- const pTextRaw = jd.generated_jd || "";
- let pText = pTextRaw;
- try {
- const p = JSON.parse(pTextRaw);
- if (p.jd_text_format) pText = p.jd_text_format;
- } catch (e) { }
+  const handleEditToggle = () => {
+    if (isEditing) handleSaveEdits();
+    else {
+      if (activeTab === "kra-kpi") {
+        setIsEditing(true);
+        return;
+      }
+      const pTextRaw = jd.generated_jd || "";
+      let pText = pTextRaw;
+      try {
+        const p = JSON.parse(pTextRaw);
+        if (p.jd_text_format) pText = p.jd_text_format;
+      } catch (e) { }
 
- let pStruct = safeParseObject(jd.jd_structured);
- if (
- !pStruct ||
- Object.keys(pStruct).length === 0 ||
- (!pStruct.key_responsibilities && !pStruct.responsibilities)
- ) {
- const p = safeParseObject(jd.generated_jd);
- if (p.jd_structured_data) {
- pStruct = p.jd_structured_data;
- } else if (p.role_summary || p.key_responsibilities || p.responsibilities) {
- pStruct = p;
- }
- }
+      let pStruct = safeParseObject(jd.jd_structured);
+      if (
+        !pStruct ||
+        Object.keys(pStruct).length === 0 ||
+        (!pStruct.key_responsibilities && !pStruct.responsibilities)
+      ) {
+        const p = safeParseObject(jd.generated_jd);
+        if (p.jd_structured_data) {
+          pStruct = p.jd_structured_data;
+        } else if (p.role_summary || p.key_responsibilities || p.responsibilities) {
+          pStruct = p;
+        }
+      }
 
- // Final Failsafe for missing keys
- if (!pStruct || typeof pStruct !== "object") pStruct = {};
- pStruct.key_responsibilities = pStruct.key_responsibilities || [];
- pStruct.required_skills = pStruct.required_skills || [];
- pStruct.tools_and_technologies = pStruct.tools_and_technologies || [];
- pStruct.performance_metrics = pStruct.performance_metrics || [];
+      // Final Failsafe for missing keys
+      if (!pStruct || typeof pStruct !== "object") pStruct = {};
+      pStruct.key_responsibilities = pStruct.key_responsibilities || [];
+      pStruct.required_skills = pStruct.required_skills || [];
+      pStruct.tools_and_technologies = pStruct.tools_and_technologies || [];
+      pStruct.performance_metrics = pStruct.performance_metrics || [];
 
- setEditedJdText(pText);
- setEditedData(pStruct);
- setIsEditing(true);
-
- }
+      setEditedJdText(pText);
+      setEditedData(pStruct);
+      setIsEditing(true);
+    }
  };
 
  let displayJDContent =
@@ -531,7 +598,7 @@ function JDPageContent() {
  return;
  }
 
-  let targetEmployeeId = u.employee_id;
+  const targetEmployeeId = u.employee_id;
   const isInspector = u.employee_id !== jd?.employee_id;
   let url = `/dashboard/${safeBtoa(targetEmployeeId)}`;
  if (jd) {
@@ -576,20 +643,52 @@ function JDPageContent() {
  <FileText className="w-4 h-4" />
  Version {jd.version || 1}.0
  </span>
- <span className="px-4 py-1.5 bg-primary-50 text-primary-700 rounded-md text-[11px] font-medium border border-primary-100 shadow-sm capitalize">
- {
- ({
- draft: "Interviewer Active",
- jd_generated: "Created",
- sent_to_manager: "Manager Review",
- manager_rejected: "Manager Rejected",
- sent_to_hr: "HR Review",
- hr_rejected: "HR Rejected",
- approved: "Accepted",
- rejected: "Needs Revision",
- } as Record<string, string>)[jd.status] || jd.status.replace(/_/g, " ")
- }
- </span>
+   <div className="flex flex-wrap items-center gap-2 border border-surface-200/50 bg-surface-50/50 p-1 rounded-md text-[11px] font-medium shadow-sm">
+    <span className="px-2 text-surface-400 font-bold tracking-wider text-[9px] uppercase">JD Status:</span>
+    <span className={`px-2.5 py-1 rounded-md text-[11px] font-semibold border ${
+      jd.status === "approved" ? "bg-emerald-50 text-emerald-700 border-emerald-100" :
+      ["sent_to_manager", "sent_to_hr"].includes(jd.status) ? "bg-amber-50 text-amber-700 border-amber-100 animate-pulse" :
+      jd.status.includes("rejected") ? "bg-rose-50 text-rose-700 border-rose-100" :
+      "bg-primary-50 text-primary-700 border-primary-100"
+    }`}>
+      {
+        ({
+          draft: "Interviewer Active",
+          jd_generated: "Created",
+          sent_to_manager: "Awaiting Manager Review",
+          manager_rejected: "Manager Rejected",
+          sent_to_hr: "Awaiting HR Review",
+          hr_rejected: "HR Rejected",
+          approved: "Approved",
+          rejected: "Needs Revision",
+        } as Record<string, string>)[jd.status] || jd.status.replace(/_/g, " ")
+      }
+    </span>
+  </div>
+
+  {jd.kra_kpi_status && (
+    <div className="flex flex-wrap items-center gap-2 border border-surface-200/50 bg-surface-50/50 p-1 rounded-md text-[11px] font-medium shadow-sm">
+      <span className="px-2 text-surface-400 font-bold tracking-wider text-[9px] uppercase">KRA/KPI Status:</span>
+      <span className={`px-2.5 py-1 rounded-md text-[11px] font-semibold border ${
+        jd.kra_kpi_status === "approved" ? "bg-emerald-50 text-emerald-700 border-emerald-100" :
+        ["sent_to_manager", "sent_to_hr"].includes(jd.kra_kpi_status) ? "bg-amber-50 text-amber-700 border-amber-100 animate-pulse" :
+        jd.kra_kpi_status.includes("rejected") ? "bg-rose-50 text-rose-700 border-rose-100" :
+        "bg-primary-50 text-primary-700 border-primary-100"
+      }`}>
+        {
+          ({
+            draft: "Drafting",
+            confirmed: "Confirmed",
+            sent_to_manager: "Awaiting Manager Review",
+            manager_rejected: "Manager Rejected",
+            sent_to_hr: "Awaiting HR Review",
+            hr_rejected: "HR Rejected",
+            approved: "Approved & Active",
+          } as Record<string, string>)[jd.kra_kpi_status] || jd.kra_kpi_status.replace(/_/g, " ")
+        }
+      </span>
+    </div>
+  )}
 
  {jd.jd_structured?._last_edited_by && (
  <span className="px-4 py-1.5 bg-amber-50 text-amber-700 rounded-md text-[11px] font-medium border border-amber-200 shadow-sm flex items-center gap-1">
@@ -668,9 +767,33 @@ function JDPageContent() {
  )}
  </div>
 
- {(role === "manager" || role === "head" || role === "hr" || role === "admin") && (
- <div className="flex flex-col gap-3 min-w-[240px] w-full lg:w-auto mt-2 lg:mt-0 order-last lg:order-none">
-  {(() => {
+   {(role === "manager" || role === "head" || role === "hr" || role === "admin") && (
+  <div className="flex flex-col gap-3 min-w-[240px] w-full lg:w-auto mt-2 lg:mt-0 order-last lg:order-none">
+    {isEditing ? (
+      <div className="flex flex-col sm:flex-row gap-3 w-full">
+        <button
+          onClick={handleCancelEdits}
+          disabled={isSavingEdit}
+          className="flex-1 px-5 py-3 bg-white text-surface-650 border border-surface-200 rounded-md font-medium hover:bg-surface-50 transition-all shadow-sm active:scale-[0.98] flex items-center justify-center gap-2 text-[13px] disabled:opacity-50 whitespace-nowrap"
+        >
+          Cancel
+        </button>
+        <button
+          onClick={handleSaveEdits}
+          disabled={isSavingEdit}
+          className="flex-1 px-5 py-3 bg-primary-600 text-white rounded-md font-medium hover:bg-primary-700 transition-all shadow-md active:scale-[0.98] flex items-center justify-center gap-2 text-[13px] disabled:opacity-50 whitespace-nowrap"
+        >
+          {isSavingEdit ? (
+            <Loader2 className="w-4 h-4 animate-spin" />
+          ) : (
+            <Save className="w-4 h-4" />
+          )}
+          Save Edits
+        </button>
+      </div>
+    ) : (
+      <>
+        {(() => {
      const isDirectManager = currentUser?.employee_id === jd?.reporting_manager_code;
      const isHeadReviewingSentToHR = role === "head" && (jd?.status === "sent_to_hr" || jd?.kra_kpi_status === "sent_to_hr");
      const showManagerActionButtons = (role === "manager" || role === "head") && (
@@ -846,25 +969,51 @@ function JDPageContent() {
  </button>
  </div>
  )}
- {(role === "hr" || role === "admin") && jd.status === "approved" && jd.kra_kpi_status !== "sent_to_hr" && (
- <button
- disabled
- className="w-full px-6 py-4 bg-purple-50 text-purple-600 border border-purple-200 rounded-md font-medium flex items-center justify-center gap-2 text-[15px] cursor-not-allowed shadow-sm"
- >
- <ShieldCheck className="w-5 h-5" /> Finalized by HR
- </button>
- )}
- </div>
- )}
+   {(role === "hr" || role === "admin") && jd.status === "approved" && jd.kra_kpi_status !== "sent_to_hr" && (
+  <button
+  disabled
+  className="w-full px-6 py-4 bg-purple-50 text-purple-600 border border-purple-200 rounded-md font-medium flex items-center justify-center gap-2 text-[15px] cursor-not-allowed shadow-sm"
+  >
+  <ShieldCheck className="w-5 h-5" /> Finalized by HR
+  </button>
+  )}
+      </>
+    )}
+  </div>
+  )}
 
- {role === "employee" && (
- <div className="flex flex-col sm:flex-row gap-3 mt-4 md:mt-0 order-last md:order-none">
- {[
- "draft",
- "jd_generated",
- "manager_rejected",
- "hr_rejected",
- ].includes(jd.status) && (
+   {role === "employee" && (
+  <div className="flex flex-col sm:flex-row gap-3 mt-4 md:mt-0 order-last md:order-none">
+    {isEditing ? (
+      <div className="flex flex-col sm:flex-row gap-3 w-full">
+        <button
+          onClick={handleCancelEdits}
+          disabled={isSavingEdit}
+          className="px-6 py-3.5 bg-white text-surface-650 border border-surface-200 rounded-md font-medium hover:bg-surface-50 transition-all shadow-sm active:scale-[0.98] flex items-center justify-center gap-2 text-[14px] disabled:opacity-50 whitespace-nowrap"
+        >
+          Cancel
+        </button>
+        <button
+          onClick={handleSaveEdits}
+          disabled={isSavingEdit}
+          className="px-6 py-3.5 bg-primary-600 text-white rounded-md font-medium hover:bg-primary-700 transition-all shadow-md active:scale-[0.98] flex items-center justify-center gap-2 text-[14px] disabled:opacity-50 whitespace-nowrap"
+        >
+          {isSavingEdit ? (
+            <Loader2 className="w-4 h-4 animate-spin" />
+          ) : (
+            <Save className="w-4 h-4" />
+          )}
+          Save Edits
+        </button>
+      </div>
+    ) : (
+      <>
+        {[
+        "draft",
+        "jd_generated",
+        "manager_rejected",
+        "hr_rejected",
+        ].includes(jd.status) && (
  <>
  <button
  onClick={() => router.push(`/questionnaire/${jdId}`)}
@@ -905,21 +1054,109 @@ function JDPageContent() {
  </>
 
  )}
- {["sent_to_manager", "sent_to_hr", "approved"].includes(
- jd.status,
- ) && (
- <button
- disabled
- className="px-6 py-3.5 bg-surface-50 text-surface-400 border border-surface-200 rounded-md font-medium flex items-center justify-center gap-2 text-[14px] cursor-not-allowed"
- >
- <CheckCircle2 className="w-5 h-5" />
- {jd.status === "approved" ? "Finalized" : "Asset Submitted"}
- </button>
- )}
- </div>
- )}
- </div>
- </div>
+   {["sent_to_manager", "sent_to_hr", "approved"].includes(
+  jd.status,
+  ) && (
+  <button
+  disabled
+  className="px-6 py-3.5 bg-surface-50 text-surface-400 border border-surface-200 rounded-md font-medium flex items-center justify-center gap-2 text-[14px] cursor-not-allowed"
+  >
+  <CheckCircle2 className="w-5 h-5" />
+  {jd.status === "approved" ? "Finalized" : "Asset Submitted"}
+  </button>
+  )}
+      </>
+    )}
+  </div>
+  )}
+   </div>
+  </div>
+
+  {/* Workflow Action Guidance Banners */}
+  {(() => {
+    const isDirectManager = currentUser?.employee_id === jd?.reporting_manager_code;
+    const isHead = role === "head";
+    const isHR = role === "hr" || role === "admin";
+    const isManagerRole = role === "manager" || isHead;
+
+    // 1. JD Manager Review Banner
+    if (isManagerRole && isDirectManager && jd.status === "sent_to_manager") {
+      return (
+        <div className="bg-amber-50 border-2 border-amber-200 rounded-md md:rounded-[32px] p-6 mb-6 shadow-sm">
+          <div className="flex items-start gap-4">
+            <div className="w-12 h-12 bg-amber-100 rounded-md flex items-center justify-center flex-shrink-0 animate-pulse">
+              <Clock className="w-6 h-6 text-amber-600" />
+            </div>
+            <div>
+              <h3 className="text-lg font-bold text-amber-900 mb-1">Job Description Pending Approval</h3>
+              <p className="text-sm text-amber-700 leading-relaxed">
+                Employee <strong className="text-amber-900 font-semibold">{jd.employee_name}</strong> has submitted their Job Description for your review. Please examine the role purpose, responsibilities, and qualifications, then Approve, Reject, or click Edit above to modify details directly.
+              </p>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // 2. JD HR Review Banner
+    if (isHR && jd.status === "sent_to_hr") {
+      return (
+        <div className="bg-purple-50 border-2 border-purple-200 rounded-md md:rounded-[32px] p-6 mb-6 shadow-sm">
+          <div className="flex items-start gap-4">
+            <div className="w-12 h-12 bg-purple-100 rounded-md flex items-center justify-center flex-shrink-0 animate-pulse">
+              <ShieldCheck className="w-6 h-6 text-purple-600" />
+            </div>
+            <div>
+              <h3 className="text-lg font-bold text-purple-900 mb-1">Job Description Pending HR Sign-Off</h3>
+              <p className="text-sm text-purple-700 leading-relaxed">
+                The Job Description for <strong className="text-purple-900 font-semibold">{jd.employee_name}</strong> is awaiting your final sign-off. Please review the details. You can make adjustments by clicking Edit above, or Approve/Reject this Job Description.
+              </p>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // 3. KRA/KPI Manager Review Banner
+    if (isManagerRole && isDirectManager && jd.status === "approved" && jd.kra_kpi_status === "sent_to_manager") {
+      return (
+        <div className="bg-amber-50 border-2 border-amber-200 rounded-md md:rounded-[32px] p-6 mb-6 shadow-sm animate-in fade-in duration-300">
+          <div className="flex items-start gap-4">
+            <div className="w-12 h-12 bg-amber-100 rounded-md flex items-center justify-center flex-shrink-0 animate-pulse">
+              <Target className="w-6 h-6 text-amber-600" />
+            </div>
+            <div>
+              <h3 className="text-lg font-bold text-amber-900 mb-1">KRA & KPI Framework Pending Approval</h3>
+              <p className="text-sm text-amber-700 leading-relaxed">
+                The Job Description is finalized. Employee <strong className="text-amber-900 font-semibold">{jd.employee_name}</strong> has now submitted their performance KRA/KPI targets and expectations for your approval. Switch to the <strong>KRA / KPI</strong> tab below to review. You can click <strong>Edit</strong> at the top to tweak targets, weights, and metrics directly.
+              </p>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // 4. KRA/KPI HR Review Banner
+    if (isHR && jd.status === "approved" && jd.kra_kpi_status === "sent_to_hr") {
+      return (
+        <div className="bg-purple-50 border-2 border-purple-200 rounded-md md:rounded-[32px] p-6 mb-6 shadow-sm animate-in fade-in duration-300">
+          <div className="flex items-start gap-4">
+            <div className="w-12 h-12 bg-purple-100 rounded-md flex items-center justify-center flex-shrink-0 animate-pulse">
+              <ShieldCheck className="w-6 h-6 text-purple-600" />
+            </div>
+            <div>
+              <h3 className="text-lg font-bold text-purple-900 mb-1">KRA & KPI Framework Pending HR Review</h3>
+              <p className="text-sm text-purple-700 leading-relaxed">
+                The performance framework (KRAs & KPIs) for <strong className="text-purple-900 font-semibold">{jd.employee_name}</strong> is awaiting your final review and sign-off. Switch to the <strong>KRA / KPI</strong> tab below to inspect targets and weights. You can edit directly or sign off on the framework.
+              </p>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    return null;
+  })()}
 
   {/* Feedback Banner: find the most recent rejection targeting the current user's role */}
   {(() => {
@@ -1089,17 +1326,20 @@ function JDPageContent() {
         </p>
       </div>
      ) : (
-      <KRAKPIPanel
+             <KRAKPIPanel
+       ref={kraKpiRef}
+       externalEditActive={isEditing}
        jdSessionId={jdId}
        employeeId={jd.employee_id}
        isManager={currentUser.employee_id !== jd.employee_id && (role === "manager" || role === "head" || role === "hr" || role === "admin")}
+       jdData={jd}
       />
      )}
    </div>
   )}
 
   {/* JD content (shown when structured tab active) */}
-  {(activeTab === "structured" || isEditing) && (
+  {activeTab === "structured" && (
    isEditing ? (
  <div className="overflow-y-auto custom-scrollbar max-h-[70vh]">
  <div className="w-full bg-surface-50 border border-surface-200 rounded-md p-5 sm:p-8 space-y-8 sm:space-y-12 shadow-inner min-h-full">

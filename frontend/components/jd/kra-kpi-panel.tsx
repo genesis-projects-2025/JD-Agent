@@ -1,4 +1,5 @@
 "use client";
+import { downloadKRAPdfClient, downloadKRACSVClient } from "@/lib/download-kra-export";
 // frontend/components/jd/kra-kpi-panel.tsx
 // 3-Step KRA/KPI Selection Flow with drag-and-drop weight adjustment.
 //
@@ -24,6 +25,8 @@ import {
   TrendingUp,
   BarChart3,
   Info,
+  Download,
+  FileText,
 } from "lucide-react";
 import {
   fetchKRAKPI,
@@ -33,6 +36,7 @@ import {
   selectKPIs,
   saveKRAWeights,
   sendKRAKPIForApproval,
+  fetchJD,
   type KRASuggestion,
   type KPISuggestion,
   type FinalKRA,
@@ -1138,7 +1142,8 @@ function Step3WeightAdjustment({
 
 // ── Uploaded View (Admin Uploaded) ──────────────────────────────────────────
 
-function UploadedView({ record }: { record: KRAKPIRecord }) {
+function UploadedView({ record, jdData = null }: { record: KRAKPIRecord; jdData?: any }) {
+  const [showDownloadDropdown, setShowDownloadDropdown] = useState(false);
   const kras = record.kras?.kras ?? [];
   const [openId, setOpenId] = useState<string | null>(kras[0]?.title ?? null);
 
@@ -1155,6 +1160,96 @@ function UploadedView({ record }: { record: KRAKPIRecord }) {
 
   return (
     <div className="space-y-5">
+      {/* Download controls for Uploaded View */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white border border-surface-200/70 rounded-2xl p-5 shadow-sm">
+        <div>
+          <h3 className="text-sm font-bold text-surface-900 flex items-center gap-2">
+            <Target className="w-4 h-4 text-primary-500" />
+            Uploaded Performance Framework
+          </h3>
+          <p className="text-xs text-surface-500 mt-0.5">Export this HR/Admin uploaded framework as a goal sheet PDF or CSV table.</p>
+        </div>
+
+        <div className="relative inline-block text-left">
+          <button
+            onClick={() => setShowDownloadDropdown(!showDownloadDropdown)}
+            className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-5 py-2.5 bg-gradient-to-r from-primary-600 to-primary-700 text-white rounded-xl text-xs font-bold shadow-md hover:shadow-lg hover:-translate-y-0.5 transition-all group"
+          >
+            <Download className="w-3.5 h-3.5 group-hover:scale-110 transition-transform" />
+            Download Framework
+            <ChevronDown className={`w-3.5 h-3.5 transition-transform duration-200 ${showDownloadDropdown ? 'rotate-180' : ''}`} />
+          </button>
+
+          {showDownloadDropdown && (
+            <>
+              <div 
+                className="fixed inset-0 z-40" 
+                onClick={() => setShowDownloadDropdown(false)}
+              />
+              <div className="absolute right-0 mt-2 w-64 bg-white border border-surface-200 rounded-2xl shadow-xl z-50 overflow-hidden animate-in fade-in slide-in-from-top-2 duration-200">
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setShowDownloadDropdown(false);
+                    const formattedKras = kras.map((k: any) => ({
+                      kra_id: k.kra_id || k.title,
+                      title: k.title,
+                      weight: k.weight || 0,
+                      kpis: (k.kpis || []).map((kp: any) => ({
+                        kpi_id: kp.kpi_id || kp.title,
+                        title: kp.title,
+                        description: kp.description,
+                        weight: kp.weight || 0,
+                        target: kp.target || kp.target_date || "",
+                        threshold: kp.threshold
+                      }))
+                    }));
+                    downloadKRAPdfClient(formattedKras, jdData, jdData?.title, jdData?.department);
+                  }}
+                  className="w-full flex items-center gap-3.5 px-4 py-3.5 text-xs font-semibold text-surface-700 hover:bg-primary-50 hover:text-primary-700 transition-colors text-left"
+                >
+                  <div className="w-8 h-8 rounded-lg bg-red-50 flex items-center justify-center shrink-0">
+                    <FileText className="w-4 h-4 text-red-600" />
+                  </div>
+                  <div>
+                    <span className="block font-bold">Printable Goal Sheet PDF</span>
+                    <span className="text-[10px] text-surface-400 font-normal">Branded Pulse Pharma template</span>
+                  </div>
+                </button>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setShowDownloadDropdown(false);
+                    const formattedKras = kras.map((k: any) => ({
+                      kra_id: k.kra_id || k.title,
+                      title: k.title,
+                      weight: k.weight || 0,
+                      kpis: (k.kpis || []).map((kp: any) => ({
+                        kpi_id: kp.kpi_id || kp.title,
+                        title: kp.title,
+                        description: kp.description,
+                        weight: kp.weight || 0,
+                        target: kp.target || kp.target_date || "",
+                        threshold: kp.threshold
+                      }))
+                    }));
+                    downloadKRACSVClient(formattedKras, jdData);
+                  }}
+                  className="w-full flex items-center gap-3.5 px-4 py-3.5 text-xs font-semibold text-surface-700 hover:bg-primary-50 hover:text-primary-700 transition-colors text-left border-t border-surface-100"
+                >
+                  <div className="w-8 h-8 rounded-lg bg-emerald-50 flex items-center justify-center shrink-0">
+                    <FileText className="w-4 h-4 text-emerald-600" />
+                  </div>
+                  <div>
+                    <span className="block font-bold">Spreadsheet (Excel/CSV)</span>
+                    <span className="text-[10px] text-surface-400 font-normal font-sans">HRMS-ready table format</span>
+                  </div>
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+      </div>
       {/* Stats Row */}
       <div className="grid grid-cols-3 gap-3">
         {[
@@ -1271,12 +1366,14 @@ function ConfirmedView({
   onSendForApproval,
   isManager = false,
   onSave,
+  jdData = null,
 }: {
   record: KRAKPIRecord;
   onRegenerate: () => void;
   onSendForApproval: () => Promise<void>;
   isManager?: boolean;
   onSave?: (kras: FinalKRA[], confirm: boolean) => Promise<void>;
+  jdData?: any;
 }) {
   const kras = record.kras?.kras ?? [];
   const [openId, setOpenId] = useState<string | null>(kras[0]?.kra_id ?? null);
@@ -1285,6 +1382,7 @@ function ConfirmedView({
 
   // Manager editing states
   const [isEditing, setIsEditing] = useState(false);
+  const [showDownloadDropdown, setShowDownloadDropdown] = useState(false);
   const [editableKras, setEditableKras] = useState<FinalKRA[]>(kras);
   const [lockedIds, setLockedIds] = useState<Set<string>>(new Set());
   const [lockedKpiIds, setLockedKpiIds] = useState<Set<string>>(new Set());
@@ -1406,7 +1504,7 @@ function ConfirmedView({
       }
 
       const sumEligible = eligible.reduce((sum, x) => sum + (x.k.weight ?? 0), 0);
-      let next = [...prev];
+      const next = [...prev];
       next[targetIdx] = { ...next[targetIdx], weight: val };
 
       if (sumEligible === 0) {
@@ -1463,7 +1561,7 @@ function ConfirmedView({
         }
 
         const sumEligible = eligible.reduce((sum, x) => sum + (x.kp.weight ?? 0), 0);
-        let nextKpis = [...kpis];
+        const nextKpis = [...kpis];
         nextKpis[targetIdx] = { ...nextKpis[targetIdx], weight: val };
 
         if (sumEligible === 0) {
@@ -1702,6 +1800,73 @@ function ConfirmedView({
           <div>
             <p className="text-xs font-bold text-blue-800">Awaiting {status === "sent_to_hr" ? "HR" : "Manager"} Review</p>
             <p className="text-xs text-blue-600 mt-0.5">Your framework has been submitted and is under review.</p>
+          </div>
+        </div>
+      )}
+
+      {/* Download Goal Sheet Controls */}
+      {!isEditing && (
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white border border-surface-200/70 rounded-2xl p-5 shadow-sm">
+          <div>
+            <h3 className="text-sm font-bold text-surface-900 flex items-center gap-2">
+              <Target className="w-4 h-4 text-primary-500" />
+              Goal Sheet &amp; Framework Alignment
+            </h3>
+            <p className="text-xs text-surface-500 mt-0.5">Export this finalized performance framework as a branded goal sheet PDF or Excel spreadsheet.</p>
+          </div>
+
+          <div className="relative inline-block text-left">
+            <button
+              onClick={() => setShowDownloadDropdown(!showDownloadDropdown)}
+              className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-5 py-2.5 bg-gradient-to-r from-primary-600 to-primary-700 text-white rounded-xl text-xs font-bold shadow-md hover:shadow-lg hover:-translate-y-0.5 transition-all group"
+            >
+              <Download className="w-3.5 h-3.5 group-hover:scale-110 transition-transform" />
+              Download Framework
+              <ChevronDown className={`w-3.5 h-3.5 transition-transform duration-200 ${showDownloadDropdown ? 'rotate-180' : ''}`} />
+            </button>
+
+            {showDownloadDropdown && (
+              <>
+                <div 
+                  className="fixed inset-0 z-40" 
+                  onClick={() => setShowDownloadDropdown(false)}
+                />
+                <div className="absolute right-0 mt-2 w-64 bg-white border border-surface-200 rounded-2xl shadow-xl z-50 overflow-hidden animate-in fade-in slide-in-from-top-2 duration-200">
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setShowDownloadDropdown(false);
+                      downloadKRAPdfClient(currentKras, jdData, jdData?.title, jdData?.department);
+                    }}
+                    className="w-full flex items-center gap-3.5 px-4 py-3.5 text-xs font-semibold text-surface-700 hover:bg-primary-50 hover:text-primary-700 transition-colors text-left"
+                  >
+                    <div className="w-8 h-8 rounded-lg bg-red-50 flex items-center justify-center shrink-0">
+                      <FileText className="w-4 h-4 text-red-600" />
+                    </div>
+                    <div>
+                      <span className="block font-bold">Printable Goal Sheet PDF</span>
+                      <span className="text-[10px] text-surface-400 font-normal">Branded Pulse Pharma template</span>
+                    </div>
+                  </button>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setShowDownloadDropdown(false);
+                      downloadKRACSVClient(currentKras, jdData);
+                    }}
+                    className="w-full flex items-center gap-3.5 px-4 py-3.5 text-xs font-semibold text-surface-700 hover:bg-primary-50 hover:text-primary-700 transition-colors text-left border-t border-surface-100"
+                  >
+                    <div className="w-8 h-8 rounded-lg bg-emerald-50 flex items-center justify-center shrink-0">
+                      <FileText className="w-4 h-4 text-emerald-600" />
+                    </div>
+                    <div>
+                      <span className="block font-bold">Spreadsheet (Excel/CSV)</span>
+                      <span className="text-[10px] text-surface-400 font-normal font-sans">HRMS-ready table format</span>
+                    </div>
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}
@@ -2015,16 +2180,22 @@ export function KRAKPIPanel({ jdSessionId, employeeId, isManager = false }: KRAK
   const [error, setError] = useState<string | null>(null);
   const [showBypassModal, setShowBypassModal] = useState(false);
 
+  const [localJd, setLocalJd] = useState<any>(null);
+
   const reload = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const [existing, status] = await Promise.all([
+      const [existing, status, jdDetail] = await Promise.all([
         fetchKRAKPI(jdSessionId).catch(() => null),
         fetchKRAKPIStatus(jdSessionId, employeeId).catch(() => null),
+        fetchJD(jdSessionId).catch(() => null),
       ]);
       setRecord(existing);
       setPrereqStatus(status);
+      if (jdDetail) {
+        setLocalJd(jdDetail);
+      }
     } catch (e: any) {
       setError(e.message || "Failed to load");
     } finally {
@@ -2250,11 +2421,12 @@ export function KRAKPIPanel({ jdSessionId, employeeId, isManager = false }: KRAK
               record={record}
               onRegenerate={handleRegenerate}
               onSendForApproval={handleSendForApproval}
+              jdData={localJd}
             />
           )}
 
           {step === "uploaded" && (
-            <UploadedView record={record} />
+            <UploadedView record={record} jdData={localJd} />
           )}
         </>
       )}

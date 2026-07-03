@@ -210,6 +210,17 @@ Based on HR instructions, the JD template was updated across the codebase:
 | `frontend/components/jd/kra-kpi-panel.tsx` | **Custom KRA & KPI Flow (July 2026):** Implemented interactive custom KRA/KPI addition UI in Step 1/Step 2 preserving unchecked selection states. Re-enabled full KRA, KPI, and weight edit fields for managers (removing `!isManager` restrictions). |
 | `backend/app/core/langfuse_client.py` | **Langfuse Import Crash Fix (July 2026):** Wrapped `from langfuse.langchain import CallbackHandler` in a try-except block inside `get_langfuse_callback_handler` to gracefully log warning and prevent server 500 errors when optional dependencies are missing. |
 | `frontend/app/admin/(dashboard)/jd-library/page.tsx` | **Admin Framework Sanitization & Preview Edit (July 2026):** Added inline editing capability for KRAs (titles, weights, descriptions) and KPIs (titles, metrics) during the preview phase of file uploads and paste-canvas submissions. Supported dynamically adding/deleting KRAs and KPIs before deployment. |
+| `backend/app/core/database.py` | **pgvector Setup (July 2026):** Enabled pgvector extension dynamically in PostgreSQL startup. Created custom database-agnostic `SafeVector(3072)` SQLAlchemy type with dynamic SQLite JSON fallback. |
+| `backend/app/models/taxonomy_model.py` | **Tool & Skill Vector Schemas (July 2026):** Added vector embedding column to the `Skill` model. Created `Tool`, `JDSessionTool`, and `EmployeeTool` models with composite indexes. |
+| `backend/app/models/__init__.py` | **Tool Schema Exposure (July 2026):** Exposed Tool models to base package exports. |
+| `backend/app/agents/skill_agent.py` | **Skill Sanitization Agent (July 2026):** Implemented background SkillAgent to query standard registry using pgvector similarity search, registering new entries dynamically. |
+| `backend/app/agents/tool_agent.py` | **Tool Sanitization Agent (July 2026):** Symmetrically created background ToolAgent for tools. |
+| `backend/app/agents/__init__.py` | **Standardization Agents Exposure (July 2026):** Exposed background agents for real-time lookups. |
+| `backend/app/routers/jd_routes.py` | **Real-Time Vector Standardization (July 2026):** Connected standardize_skills and standardize_tools lookups directly inside confirm-skills/confirm-tools routes. |
+| `backend/app/agents/prompts.py` | **Skill Gap KPI Prompt (July 2026):** Added manager skill gaps block to KPI suggestion prompt context. |
+| `backend/app/agents/kra_kpi_agent.py` | **Skill Gap KPI Prompt Generation (July 2026):** Updated suggestion prompt compiler to support skill gaps parameter. |
+| `backend/app/services/kra_kpi_service.py` | **Skill Gaps & Cascade Alignment (July 2026):** Fetches employee's low manager ratings (rating < 6) to inject into KPI suggestions. Implemented semantic focus filtering of manager KRAs (using Gemini task embeddings) to only suggest relevant subsets during employee KRA setup. |
+| `backend/app/services/vector_service.py` | **Vector Similarity Search (July 2026):** Appended similarity search helpers with native PostgreSQL `<=>` operator and Python math fallback for local environments. |
 
 
 ---

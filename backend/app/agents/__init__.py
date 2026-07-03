@@ -20,3 +20,6 @@ Memory: 3-tier (Short-Term, Long-Term, Working Memory)
 Extraction: Tool-based (bind_tools) + pattern-based pre-extraction
 RAG: Pinecone vector search for role-specific context
 """
+
+from app.agents.skill_agent import standardize_skills
+from app.agents.tool_agent import standardize_tools

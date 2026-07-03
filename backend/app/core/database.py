@@ -67,6 +67,9 @@ async def init_db():
     """Create core tables and lightweight compatibility objects on startup."""
     try:
         async with engine.begin() as conn:
+            # Enable pgvector if on PostgreSQL
+            if conn.dialect.name == "postgresql":
+                await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
             # Create all registered SQLAlchemy tables if they do not exist
             await conn.run_sync(Base.metadata.create_all)
 
@@ -163,3 +166,42 @@ async def init_db():
         else:
             logger.error(f"❌ Database initialization error: {e}")
             raise
+
+from sqlalchemy.types import TypeDecorator, UserDefinedType, JSON
+
+class PGVector(UserDefinedType):
+    def __init__(self, dim=3072):
+        self.dim = dim
+    def get_col_spec(self, **kw):
+        return f"VECTOR({self.dim})"
+
+class SafeVector(TypeDecorator):
+    impl = JSON
+    cache_ok = True
+
+    def __init__(self, dim=3072):
+        super().__init__()
+        self.dim = dim
+
+    def load_dialect_impl(self, dialect):
+        if dialect.name == "postgresql":
+            return dialect.type_descriptor(PGVector(self.dim))
+        return dialect.type_descriptor(JSON)
+
+    def process_bind_param(self, value, dialect):
+        if value is None:
+            return None
+        if dialect.name == "postgresql":
+            if isinstance(value, list):
+                return "[" + ",".join(map(str, value)) + "]"
+        return value
+
+    def process_result_value(self, value, dialect):
+        if value is None:
+            return None
+        if dialect.name == "postgresql" and isinstance(value, str):
+            val_str = value.strip("[]")
+            if not val_str:
+                return []
+            return [float(x) for x in val_str.split(",")]
+        return value

@@ -586,3 +586,68 @@ async def find_similar_jds(
     except Exception as e:
         logger.error("Similar JD search failed: %s", e)
         return []
+
+import math
+from sqlalchemy import text
+
+async def get_embeddings_for_text(text_val: str) -> list[float]:
+    embeddings = get_embeddings()
+    vector = await asyncio.to_thread(lambda: embeddings.embed_query(text_val))
+    return vector
+
+async def find_similar_skills_or_tools(db, table_name: str, query_text: str, limit: int = 3, threshold: float = 0.7) -> list[dict]:
+    """Search similar tools or skills in the database using pgvector or a Python fallback for SQLite."""
+    try:
+        vector = await get_embeddings_for_text(query_text)
+        
+        # Check dialect
+        async_conn = await db.connection()
+        dialect_name = async_conn.dialect.name
+        
+        if dialect_name == "postgresql":
+            vector_str = "[" + ",".join(map(str, vector)) + "]"
+            # Native PostgreSQL pgvector cosine distance: <=> operator
+            sql_query = text(f"""
+                SELECT id, name, (1.0 - (embedding <=> :vec::vector)) as similarity 
+                FROM {table_name} 
+                WHERE embedding IS NOT NULL AND (1.0 - (embedding <=> :vec::vector)) >= :threshold
+                ORDER BY embedding <=> :vec::vector 
+                LIMIT :limit
+            """)
+            res = await db.execute(sql_query, {"vec": vector_str, "limit": limit, "threshold": threshold})
+            return [{"id": r.id, "name": r.name, "similarity": float(r.similarity)} for r in res.all()]
+        else:
+            # Fallback for SQLite/others: read all rows and calculate in python
+            sql_query = text(f"SELECT id, name, embedding FROM {table_name} WHERE embedding IS NOT NULL")
+            res = await db.execute(sql_query)
+            rows = res.all()
+            
+            results = []
+            for r in rows:
+                try:
+                    r_vec = r.embedding
+                    if isinstance(r_vec, str):
+                        r_vec = [float(x) for x in r_vec.strip("[]").split(",") if x.strip()]
+                    if not r_vec or len(r_vec) != len(vector):
+                        continue
+                    
+                    # Cosine similarity calculation
+                    dot_product = sum(a * b for a, b in zip(vector, r_vec))
+                    magnitude_a = math.sqrt(sum(a * a for a in vector))
+                    magnitude_b = math.sqrt(sum(b * b for b in r_vec))
+                    if magnitude_a == 0 or magnitude_b == 0:
+                        similarity = 0.0
+                    else:
+                        similarity = dot_product / (magnitude_a * magnitude_b)
+                        
+                    if similarity >= threshold:
+                        results.append({"id": r.id, "name": r.name, "similarity": similarity})
+                except Exception:
+                    continue
+            
+            # Sort by similarity
+            results.sort(key=lambda x: x["similarity"], reverse=True)
+            return results[:limit]
+    except Exception as e:
+        logger.error(f"Error in find_similar_skills_or_tools: {e}")
+        return []

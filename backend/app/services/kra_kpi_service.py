@@ -281,6 +281,64 @@ async def get_kra_kpi_by_jd_session(
     return result.scalars().first()
 
 
+# Cascade goal alignment filtering helper
+import math
+from app.services.vector_service import get_embeddings_for_text
+
+async def filter_manager_kras_semantically(employee_tasks: list[str], manager_kras: list[dict]) -> list[dict]:
+    """Filters the manager's KRAs semantically against the employee's tasks,
+    returning only the KRAs that are relevant to the employee's role.
+    """
+    if not manager_kras or not employee_tasks:
+        return manager_kras
+        
+    try:
+        # Get employee tasks embedding (concatenate first 5 tasks to represent the role)
+        emp_text = " ".join(employee_tasks[:5])
+        if not emp_text.strip():
+            return manager_kras
+            
+        emp_vector = await get_embeddings_for_text(emp_text)
+        
+        # Embed each manager KRA and calculate similarity
+        scored_kras = []
+        for kra in manager_kras:
+            title = kra.get("title", "")
+            desc = kra.get("description", "")
+            kra_text = f"{title} {desc}".strip()
+            if not kra_text:
+                continue
+                
+            kra_vector = await get_embeddings_for_text(kra_text)
+            
+            # Cosine similarity
+            dot_product = sum(a * b for a, b in zip(emp_vector, kra_vector))
+            magnitude_a = math.sqrt(sum(a * a for a in emp_vector))
+            magnitude_b = math.sqrt(sum(b * b for b in kra_vector))
+            if magnitude_a == 0 or magnitude_b == 0:
+                similarity = 0.0
+            else:
+                similarity = dot_product / (magnitude_a * magnitude_b)
+                
+            scored_kras.append((similarity, kra))
+            
+        # Sort by similarity desc
+        scored_kras.sort(key=lambda x: x[0], reverse=True)
+        
+        # Keep top 3 or those with similarity >= 0.35
+        # Ensure we return at least 1 KRA if any exist
+        filtered = []
+        for sim, kra in scored_kras:
+            if sim >= 0.35 or len(filtered) < 2:
+                filtered.append(kra)
+                
+        logger.info(f"[CascadeAlignment] Filtered manager KRAs from {len(manager_kras)} down to {len(filtered)} based on semantic relevance.")
+        return filtered
+    except Exception as e:
+        logger.warning(f"Error in filter_manager_kras_semantically: {e}")
+        return manager_kras
+
+
 # ── Step 1: Generate KRA Suggestions ─────────────────────────────────────────
 
 async def generate_kra_suggestions_for_employee(
@@ -300,6 +358,16 @@ async def generate_kra_suggestions_for_employee(
     employee_data = _extract_employee_data(employee_session)
     manager_jd_data = _extract_manager_jd_data(manager_jd_session) if manager_jd_session else {}
     manager_kras = (manager_kra_session.kras or {}).get("kras", []) if manager_kra_session else []
+
+    # Cascade goal alignment filtering
+    if manager_kras and employee_data.get("responsibilities"):
+        emp_tasks = []
+        for r in employee_data.get("responsibilities", []):
+            if isinstance(r, dict):
+                emp_tasks.append(r.get("description") or r.get("task") or "")
+            else:
+                emp_tasks.append(str(r))
+        manager_kras = await filter_manager_kras_semantically(emp_tasks, manager_kras)
 
     logger.info(f"[KRAKPIService] Step 1: Generating KRA suggestions for employee={employee_id}")
 
@@ -390,13 +458,50 @@ async def select_kras_and_generate_kpis(
         raise StepError("Employee JD session not found.")
     employee_data = _extract_employee_data(emp_session)
 
+    # Fetch most recent skill ratings of this employee to identify skill gaps
+    skill_gaps = []
+    try:
+        from app.models.kra_kpi_model import KRAKPISession as _KRAKPISession
+        ratings_res = await db.execute(
+            select(_KRAKPISession.skill_ratings)
+            .where(
+                _KRAKPISession.employee_id == record.employee_id,
+                _KRAKPISession.skill_ratings.isnot(None),
+            )
+            .order_by(_KRAKPISession.updated_at.desc())
+            .limit(1)
+        )
+        ratings_val = ratings_res.scalar_one_or_none()
+        if ratings_val:
+            if isinstance(ratings_val, list):
+                for item in ratings_val:
+                    if isinstance(item, dict):
+                        name = item.get("name") or item.get("skill")
+                        rating = item.get("rating")
+                        if name and rating is not None:
+                            try:
+                                if float(rating) < 6.0:
+                                    skill_gaps.append(f"{name} (rating: {rating}/10)")
+                            except ValueError:
+                                pass
+            elif isinstance(ratings_val, dict):
+                for name, rating in ratings_val.items():
+                    if rating is not None:
+                        try:
+                            if float(rating) < 6.0:
+                                skill_gaps.append(f"{name} (rating: {rating}/10)")
+                        except ValueError:
+                            pass
+    except Exception as e:
+        logger.warning(f"Failed to fetch employee skill gaps for KPI generation: {e}")
+
     logger.info(
         f"[KRAKPIService] Step 2: Generating KPI suggestions for {len(selected_kras)} KRAs in parallel"
     )
 
     # Generate KPI suggestions for all selected KRAs in parallel
     kpi_tasks = [
-        generate_kpi_suggestions_for_kra(kra=kra, employee_data=employee_data)
+        generate_kpi_suggestions_for_kra(kra=kra, employee_data=employee_data, skill_gaps=skill_gaps)
         for kra in selected_kras
     ]
     results = await asyncio.gather(*kpi_tasks)

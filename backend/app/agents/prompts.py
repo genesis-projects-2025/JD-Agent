@@ -290,10 +290,17 @@ Tools Available: {{tools_str}}
 Domain: {{domain_rules}}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SKILL GAPS & DEFICIENCIES TO ADDRESS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+The manager has identified the following skill/tool gaps for this employee:
+{{skill_gaps_block}}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 RULES
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 1. Generate EXACTLY 10 KPIs. Each must measure a different dimension of the KRA.
-2. Every target must be a SPECIFIC number, percentage, or time-bound value. NO vague targets.
+2. If any skill gaps are listed above, ensure at least 1 or 2 suggested KPIs directly address those gaps (e.g. by setting learning, certification, or tool adoption/proficiency targets).
+3. Every target must be a SPECIFIC number, percentage, or time-bound value. NO vague targets.
 3. measurement_method must reference an ACTUAL tool from the tools list above where possible.
 4. frequency: "Monthly" for operational, "Quarterly" for strategic.
 5. Include 3-tier thresholds (excellent / meets_expectation / below_expectation) — specific values only.

@@ -515,8 +515,11 @@ async def confirm_skills(
     if not session_memory.insights:
         raise HTTPException(status_code=404, detail="Session not found")
 
+    from app.agents.skill_agent import standardize_skills
+    std_skills = await standardize_skills(db, request.skills)
+
     # Update insights with confirmed skills
-    session_memory.insights["skills"] = request.skills
+    session_memory.insights["skills"] = std_skills
     session_memory.insights["skills_confirmed"] = True
 
     # Do NOT hardcode status; let the router/sync logic recalculate it
@@ -542,8 +545,11 @@ async def confirm_tools(
     if not session_memory.insights:
         raise HTTPException(status_code=404, detail="Session not found")
 
+    from app.agents.tool_agent import standardize_tools
+    std_tools = await standardize_tools(db, request.tools)
+
     # Update insights with confirmed tools
-    session_memory.insights["tools"] = request.tools
+    session_memory.insights["tools"] = std_tools
     session_memory.insights["tools_confirmed"] = True
 
     await sync_session_to_db(

@@ -173,6 +173,7 @@ def _build_kpi_suggestion_prompt(
     employee_department: str,
     employee_tools: list[str],
     employee_workflows: dict,
+    skill_gaps: list[str] | None = None,
 ) -> str:
     domain_rules = _get_domain_rules(employee_title, employee_department)
     tools_str = ", ".join(employee_tools[:10]) if employee_tools else "N/A"
@@ -194,6 +195,12 @@ def _build_kpi_suggestion_prompt(
         task_detail_lines.append(line)
     tasks_block = "\n".join(task_detail_lines) if task_detail_lines else "  (See source tasks)"
 
+    # Format skill gaps
+    if skill_gaps:
+        skill_gaps_block = "\n".join(f"  • {gap}" for gap in skill_gaps)
+    else:
+        skill_gaps_block = "  (None identified)"
+
     from app.agents.prompts import KPI_SUGGESTION_PROMPT
     from app.core.langfuse_client import get_compiled_prompt
 
@@ -210,6 +217,7 @@ def _build_kpi_suggestion_prompt(
         tools_str=tools_str,
         domain_rules=domain_rules,
         kra_title_lower_slug=kra_title_lower_slug,
+        skill_gaps_block=skill_gaps_block,
     )
 
 
@@ -311,6 +319,7 @@ async def generate_kra_suggestions(
 async def generate_kpi_suggestions_for_kra(
     kra: dict,
     employee_data: dict[str, Any],
+    skill_gaps: list[str] | None = None,
 ) -> dict:
     """
     Phase 2: Generate 6–7 KPI suggestions for a single selected KRA.
@@ -318,6 +327,7 @@ async def generate_kpi_suggestions_for_kra(
     Args:
         kra: The selected KRA dict (must have kra_id, title, description, source_tasks)
         employee_data: Employee context dict
+        skill_gaps: Optional list of identified skill gaps
 
     Returns:
         {"kra_id": ..., "kra_title": ..., "kpi_suggestions": [...]}
@@ -330,6 +340,7 @@ async def generate_kpi_suggestions_for_kra(
         employee_department=employee_data.get("department", ""),
         employee_tools=employee_data.get("tools", []),
         employee_workflows=employee_data.get("workflows", {}),
+        skill_gaps=skill_gaps,
     )
 
     llm = _get_llm()

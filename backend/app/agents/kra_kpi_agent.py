@@ -363,3 +363,44 @@ async def generate_kpi_suggestions_for_kra(
 
     logger.info(f"[KRAKPIAgent] Phase 2 complete: {len(suggestions)} KPIs for '{kra.get('title')}'")
     return payload
+
+
+async def consolidate_skills_for_review(jd_skills: list[str], kras: list[dict]) -> list[dict]:
+    """
+    Consolidates skills and competencies from the employee's JD and KRAs/KPIs
+    into a clean list of unique skills for manager review.
+    """
+    from app.agents.prompts import SKILLS_CONSOLIDATION_PROMPT
+    from app.core.langfuse_client import get_compiled_prompt, get_langfuse_callback_handler
+
+    # Format kras/kpis text for LLM
+    kra_lines = []
+    for kra in kras:
+        title = kra.get("title", "")
+        desc = kra.get("description", "")
+        kpi_titles = [kpi.get("metric", kpi.get("title", "")) for kpi in kra.get("kpis", [])]
+        kpi_str = ", ".join(kpi_titles)
+        kra_lines.append(f"KRA: {title} - {desc} (KPIs: {kpi_str})")
+    kras_str = "\n".join(kra_lines)
+
+    prompt = get_compiled_prompt(
+        "skills-consolidation",
+        SKILLS_CONSOLIDATION_PROMPT,
+        jd_skills=", ".join(jd_skills) if jd_skills else "None",
+        kras=kras_str if kras_str else "None",
+    )
+
+    llm = _get_llm()
+    handler = get_langfuse_callback_handler(trace_name="skills-consolidation")
+    callbacks = [handler] if handler else []
+    
+    logger.info(f"[KRAKPIAgent] Consolidating skills for manager review from {len(jd_skills)} JD skills and {len(kras)} KRAs.")
+    response = await llm.ainvoke(prompt, config={"callbacks": callbacks})
+    
+    try:
+        payload = _parse_llm_json(str(response.content))
+        return payload.get("skills", [])
+    except Exception as e:
+        logger.error(f"Failed to parse consolidated skills: {e}")
+        # Return fallback parsed/raw list of jd skills
+        return [{"name": s, "description": f"Competency in {s}."} for s in jd_skills]

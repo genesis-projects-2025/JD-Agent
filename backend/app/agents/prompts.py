@@ -322,3 +322,42 @@ OUTPUT — RETURN ONLY THIS JSON (no markdown, no extra text)
     }
   ]
 }"""
+
+SKILLS_CONSOLIDATION_PROMPT = """You are a Senior HR Analyst and Skills Architect.
+Your task is to analyze all the skills, competencies, and tools specified for an employee role and compile them into a clean, consolidated, and deduplicated list of unique skills for a manager to rate.
+
+### Sources of Information:
+1. Employee's Job Description Skills:
+{{jd_skills}}
+
+2. Employee's Key Result Areas (KRAs) & KPIs:
+{{kras}}
+
+### Instructions:
+- Read all the skills and competencies from the Job Description.
+- Read the KRAs and KPIs, and extract the core professional skills, technical expertise, or domain competencies required to perform those KRAs/KPIs.
+- Synthesize and consolidate the full set of skills:
+  - Deduplicate identical or highly overlapping skills.
+  - Group related tools or specialized sub-skills under a broader professional capability (e.g., instead of "pandas", "numpy", "matplotlib", consolidate under "Python Data Analysis").
+  - Do NOT list generic soft skills like "Communication", "Teamwork", or "Punctuality" unless they are specific core professional competencies (e.g. "Stakeholder Management", "Technical Writing"). Focus on technical, domain-specific, and hard skills.
+  - Provide a clean list of 5 to 10 unique, professional skills.
+  - For each unique skill, provide a brief 1-sentence description explaining what it entails in the context of this employee's role.
+
+Return a JSON object containing ONLY a key "skills" which is a list of objects, each having "name" and "description".
+
+### Example Output format:
+{
+  "skills": [
+    {
+      "name": "Data Analysis & Visualization",
+      "description": "Ability to analyze complex datasets and create clean visualizations using tools like Python or Excel."
+    },
+    {
+      "name": "SQL Database Management",
+      "description": "Writing optimized queries, managing database schemas, and ensuring data integrity."
+    }
+  ]
+}
+
+Return ONLY valid JSON.
+"""

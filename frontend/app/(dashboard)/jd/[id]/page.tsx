@@ -167,7 +167,7 @@ function JDPageContent() {
   ]);
    setJd(data);
    setReviewComments(comments);
-   if (tabParam !== "structured" && data.status === "approved" && ["sent_to_manager", "sent_to_hr"].includes(data.kra_kpi_status)) {
+   if (tabParam !== "structured" && data.status === "approved" && ["sent_to_manager", "sent_to_hr"].includes(data.kra_kpi_status || "")) {
      setActiveTab("kra-kpi");
    }
 

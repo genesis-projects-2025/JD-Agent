@@ -7,7 +7,8 @@ import { downloadKRAPdfClient, downloadKRACSVClient } from "@/lib/download-kra-e
 // Step 2 — KPI Selection:   Per each selected KRA, 6–7 KPI cards → employee picks 3–5
 // Step 3 — Weight Adjust:   Drag-and-drop reorder + slider weight to redistribute 100%
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, forwardRef, useImperativeHandle } from "react";
+import { useSearchParams } from "next/navigation";
 import {
   Target,
   ChevronDown,
@@ -37,6 +38,11 @@ import {
   saveKRAWeights,
   sendKRAKPIForApproval,
   fetchJD,
+  fetchKRAKPIReviewSkills,
+  submitKRAKPIReview,
+  getCurrentUser,
+  addCustomKRA,
+  addCustomKPI,
   type KRASuggestion,
   type KPISuggestion,
   type FinalKRA,
@@ -182,13 +188,28 @@ function KRASuggestionCard({
 }
 
 function Step1KRASelection({
-  suggestions, onContinue,
+  suggestions, onContinue, onAddCustomKra, initialSelected = [],
 }: {
   suggestions: KRASuggestion[];
   onContinue: (ids: string[]) => void;
+  onAddCustomKra: (title: string, description: string, selectedIds?: string[]) => Promise<KRASuggestion>;
+  initialSelected?: string[];
 }) {
-  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [selected, setSelected] = useState<Set<string>>(new Set(initialSelected));
   const [loading, setLoading] = useState(false);
+
+  // Form states for adding custom KRA
+  const [showAddForm, setShowAddForm] = useState(false);
+  const [newTitle, setNewTitle] = useState("");
+  const [newDesc, setNewDesc] = useState("");
+  const [adding, setAdding] = useState(false);
+
+  // Sync initialSelected if it changes
+  useEffect(() => {
+    if (initialSelected && initialSelected.length > 0) {
+      setSelected(new Set(initialSelected));
+    }
+  }, [initialSelected]);
 
   const toggle = (id: string) => {
     setSelected((prev) => {
@@ -200,6 +221,29 @@ function Step1KRASelection({
       }
       return next;
     });
+  };
+
+  const handleAddKRA = async () => {
+    if (!newTitle.trim() || !newDesc.trim()) {
+      alert("Please provide both a Title and Description for the custom KRA.");
+      return;
+    }
+    setAdding(true);
+    try {
+      const newKra = await onAddCustomKra(newTitle.trim(), newDesc.trim(), [...selected]);
+      setSelected((prev) => {
+        const next = new Set(prev);
+        next.add(newKra.kra_id);
+        return next;
+      });
+      setNewTitle("");
+      setNewDesc("");
+      setShowAddForm(false);
+    } catch (e: any) {
+      alert(e.message || "Failed to add KRA");
+    } finally {
+      setAdding(false);
+    }
   };
 
   const handleContinue = async () => {
@@ -239,6 +283,62 @@ function Step1KRASelection({
             onToggle={() => toggle(kra.kra_id)}
           />
         ))}
+      </div>
+
+      {/* Add Custom KRA Option */}
+      <div className="mt-4 pt-4 border-t border-slate-100">
+        {!showAddForm ? (
+          <button
+            type="button"
+            onClick={() => setShowAddForm(true)}
+            className="flex items-center gap-2 px-4 py-2.5 bg-slate-50 border border-slate-200 hover:bg-slate-100 text-slate-700 rounded-xl text-xs font-semibold transition-all"
+          >
+            ➕ Add Custom KRA
+          </button>
+        ) : (
+          <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 space-y-3">
+            <h4 className="text-xs font-bold text-slate-800">Add Custom KRA</h4>
+            <div className="space-y-2">
+              <div>
+                <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">KRA Title</label>
+                <input
+                  type="text"
+                  value={newTitle}
+                  onChange={(e) => setNewTitle(e.target.value)}
+                  placeholder="e.g. Stakeholder Communication"
+                  className="w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-xs outline-none focus:border-primary-500 focus:ring-1 focus:ring-primary-500"
+                />
+              </div>
+              <div>
+                <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">KRA Description</label>
+                <textarea
+                  value={newDesc}
+                  onChange={(e) => setNewDesc(e.target.value)}
+                  placeholder="Describe the key result area and what accountability it entails..."
+                  className="w-full min-h-[60px] bg-white border border-slate-200 rounded-lg p-3 text-xs outline-none focus:border-primary-500 focus:ring-1 focus:ring-primary-500"
+                />
+              </div>
+            </div>
+            <div className="flex gap-2 justify-end pt-1">
+              <button
+                type="button"
+                onClick={() => setShowAddForm(false)}
+                className="px-3.5 py-2 border border-slate-200 text-slate-650 rounded-lg text-xs font-semibold hover:bg-slate-100"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleAddKRA}
+                disabled={adding}
+                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 shadow"
+              >
+                {adding && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                Add & Select
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       <button
@@ -310,17 +410,44 @@ function KPISuggestionCard({
 }
 
 function Step2KPISelection({
-  selectedKras, kpiSuggestions, krasSuggestions, onContinue, onBack,
+  selectedKras, kpiSuggestions, krasSuggestions, onContinue, onBack, onAddCustomKpi, initialSelected = {},
 }: {
   selectedKras: string[];
   kpiSuggestions: Record<string, { kra_title: string; kpi_suggestions: KPISuggestion[] }>;
   krasSuggestions: KRASuggestion[];
   onContinue: (selected: Record<string, string[]>) => void;
   onBack: () => void;
+  onAddCustomKpi: (kraId: string, metric: string, target: string, measurementMethod: string, frequency: string, selectedIds?: Record<string, string[]>) => Promise<KPISuggestion>;
+  initialSelected?: Record<string, string[]>;
 }) {
-  const [selectedKpis, setSelectedKpis] = useState<Record<string, Set<string>>>({});
+  const [selectedKpis, setSelectedKpis] = useState<Record<string, Set<string>>>(() => {
+    const init: Record<string, Set<string>> = {};
+    for (const [kraId, kpiIds] of Object.entries(initialSelected)) {
+      init[kraId] = new Set(kpiIds);
+    }
+    return init;
+  });
   const [loading, setLoading] = useState(false);
   const [activeKra, setActiveKra] = useState<string>(selectedKras[0] || "");
+
+  // Form states for adding custom KPI
+  const [showAddForm, setShowAddForm] = useState(false);
+  const [newMetric, setNewMetric] = useState("");
+  const [newTarget, setNewTarget] = useState("");
+  const [newMethod, setNewMethod] = useState("");
+  const [newFrequency, setNewFrequency] = useState("Monthly");
+  const [adding, setAdding] = useState(false);
+
+  // Sync initialSelected if it changes
+  useEffect(() => {
+    if (initialSelected && Object.keys(initialSelected).length > 0) {
+      const updated: Record<string, Set<string>> = {};
+      for (const [kraId, kpiIds] of Object.entries(initialSelected)) {
+        updated[kraId] = new Set(kpiIds);
+      }
+      setSelectedKpis(updated);
+    }
+  }, [initialSelected]);
 
   const toggleKpi = (kraId: string, kpiId: string) => {
     setSelectedKpis((prev) => {
@@ -332,6 +459,43 @@ function Step2KPISelection({
       }
       return { ...prev, [kraId]: kraSet };
     });
+  };
+
+  const handleAddKPI = async () => {
+    if (!newMetric.trim() || !newTarget.trim() || !newMethod.trim()) {
+      alert("Please provide Metric, Target, and Measurement Method for the custom KPI.");
+      return;
+    }
+    setAdding(true);
+    try {
+      const currentSelections: Record<string, string[]> = {};
+      for (const [kId, setVal] of Object.entries(selectedKpis)) {
+        currentSelections[kId] = [...setVal];
+      }
+
+      const newKpi = await onAddCustomKpi(
+        activeKra,
+        newMetric.trim(),
+        newTarget.trim(),
+        newMethod.trim(),
+        newFrequency,
+        currentSelections
+      );
+      setSelectedKpis((prev) => {
+        const kraSet = new Set(prev[activeKra] || []);
+        kraSet.add(newKpi.kpi_id);
+        return { ...prev, [activeKra]: kraSet };
+      });
+      setNewMetric("");
+      setNewTarget("");
+      setNewMethod("");
+      setNewFrequency("Monthly");
+      setShowAddForm(false);
+    } catch (e: any) {
+      alert(e.message || "Failed to add KPI");
+    } finally {
+      setAdding(false);
+    }
   };
 
   const kraCount = (id: string) => selectedKpis[id]?.size ?? 0;
@@ -401,6 +565,90 @@ function Step2KPISelection({
               colorIndex={selectedKras.indexOf(activeKra)}
             />
           ))}
+        </div>
+      )}
+
+      {/* Add Custom KPI Option */}
+      {activeKra && (
+        <div className="mt-4 pt-4 border-t border-slate-100">
+          {!showAddForm ? (
+            <button
+              type="button"
+              onClick={() => setShowAddForm(true)}
+              className="flex items-center gap-2 px-4 py-2.5 bg-slate-50 border border-slate-200 hover:bg-slate-100 text-slate-700 rounded-xl text-xs font-semibold transition-all"
+            >
+              ➕ Add Custom KPI
+            </button>
+          ) : (
+            <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 space-y-3">
+              <h4 className="text-xs font-bold text-slate-800">Add Custom KPI</h4>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">KPI Metric</label>
+                  <input
+                    type="text"
+                    value={newMetric}
+                    onChange={(e) => setNewMetric(e.target.value)}
+                    placeholder="e.g. Stakeholder satisfaction score"
+                    className="w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-xs outline-none focus:border-primary-500 focus:ring-1 focus:ring-primary-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Target</label>
+                  <input
+                    type="text"
+                    value={newTarget}
+                    onChange={(e) => setNewTarget(e.target.value)}
+                    placeholder="e.g. Maintain >= 90% positive feedback"
+                    className="w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-xs outline-none focus:border-primary-500 focus:ring-1 focus:ring-primary-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Measurement Method</label>
+                  <input
+                    type="text"
+                    value={newMethod}
+                    onChange={(e) => setNewMethod(e.target.value)}
+                    placeholder="e.g. Bi-annual stakeholder survey"
+                    className="w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-xs outline-none focus:border-primary-500 focus:ring-1 focus:ring-primary-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Frequency</label>
+                  <select
+                    value={newFrequency}
+                    onChange={(e) => setNewFrequency(e.target.value)}
+                    className="w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-xs outline-none focus:border-primary-500 focus:ring-1 focus:ring-primary-500"
+                  >
+                    <option value="Weekly">Weekly</option>
+                    <option value="Monthly">Monthly</option>
+                    <option value="Quarterly">Quarterly</option>
+                    <option value="Half-Yearly">Half-Yearly</option>
+                    <option value="Annually">Annually</option>
+                    <option value="On-Going">On-Going</option>
+                  </select>
+                </div>
+              </div>
+              <div className="flex gap-2 justify-end pt-1">
+                <button
+                  type="button"
+                  onClick={() => setShowAddForm(false)}
+                  className="px-3.5 py-2 border border-slate-200 text-slate-650 rounded-lg text-xs font-semibold hover:bg-slate-100"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleAddKPI}
+                  disabled={adding}
+                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 shadow"
+                >
+                  {adding && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                  Add & Select
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -682,7 +930,7 @@ function DraggableKRARow({
             <div className="mt-3 pl-6 border-l border-slate-200 space-y-2">
               <ul className="space-y-1.5">
                 {kra.kpis.map((kpi, kpiIdx) => {
-                  const isKpiLocked = lockedKpiIds.has(`${kra.kra_id}_${kpi.kpi_id}`);
+                  const isKpiLocked = isLocked || lockedKpiIds.has(`${kra.kra_id}_${kpi.kpi_id}`);
                   return (
                     <li
                       key={kpi.kpi_id}
@@ -728,10 +976,11 @@ function DraggableKRARow({
                             <button
                               onClick={() => onKpiLockToggle(`${kra.kra_id}_${kpi.kpi_id}`)}
                               type="button"
+                              disabled={isLocked}
                               className={`p-1 rounded border transition-all ${
                                 isKpiLocked
-                                  ? "bg-slate-800 text-white border-slate-800 shadow-sm"
-                                  : "bg-white text-slate-400 border-slate-200 hover:text-slate-600 hover:bg-slate-50"
+                                  ? "bg-slate-800 text-white border-slate-800 shadow-sm opacity-60"
+                                  : "bg-white text-slate-400 border-slate-200 hover:text-slate-600 hover:bg-slate-50 disabled:opacity-50"
                               }`}
                               title={isKpiLocked ? "Unlock KPI weight" : "Lock KPI weight"}
                             >
@@ -885,6 +1134,7 @@ function Step3WeightAdjustment({
   const [confirming, setConfirming] = useState(false);
   const [lockedIds, setLockedIds] = useState<Set<string>>(new Set());
   const [lockedKpiIds, setLockedKpiIds] = useState<Set<string>>(new Set());
+  const [showLockErrorModal, setShowLockErrorModal] = useState(false);
 
   const total = kras.reduce((s, k) => s + (k.weight ?? 0), 0);
   const isKraTotalValid = Math.abs(total - 100) <= 1;
@@ -897,25 +1147,80 @@ function Step3WeightAdjustment({
   const isValidToSave = isKraTotalValid && isKpisTotalValid;
 
   const handleLockToggle = (id: string) => {
+    const kra = kras.find(k => k.kra_id === id);
+    if (!kra) return;
+
     setLockedIds((prev) => {
       const next = new Set(prev);
-      if (next.has(id)) {
-        next.delete(id);
-      } else {
+      const isLocking = !next.has(id);
+      
+      if (isLocking) {
         next.add(id);
+      } else {
+        next.delete(id);
       }
+
+      // Sync child KPIs
+      setLockedKpiIds(prevKpis => {
+        const nextKpis = new Set(prevKpis);
+        const kpisOfKra = kra.kpis || [];
+        for (const kp of kpisOfKra) {
+          const compoundId = `${id}_${kp.kpi_id}`;
+          if (isLocking) {
+            nextKpis.add(compoundId);
+          } else {
+            nextKpis.delete(compoundId);
+          }
+        }
+        return nextKpis;
+      });
+
       return next;
     });
   };
 
   const handleKpiLockToggle = (id: string) => {
+    let foundKra: FinalKRA | undefined = undefined;
+    let foundKpiId = "";
+    for (const kra of kras) {
+      const kpi = kra.kpis.find(kp => `${kra.kra_id}_${kp.kpi_id}` === id);
+      if (kpi) {
+        foundKra = kra;
+        foundKpiId = kpi.kpi_id;
+        break;
+      }
+    }
+
+    if (!foundKra) return;
+    const kraId = foundKra.kra_id;
+
     setLockedKpiIds((prev) => {
       const next = new Set(prev);
-      if (next.has(id)) {
-        next.delete(id);
-      } else {
+      const isLocking = !next.has(id);
+      if (isLocking) {
         next.add(id);
+      } else {
+        next.delete(id);
       }
+
+      // Check if ALL KPIs of this KRA are locked
+      const allKpisOfKra = foundKra!.kpis || [];
+      const allKpisLocked = allKpisOfKra.every(kp => next.has(`${kraId}_${kp.kpi_id}`));
+
+      if (allKpisLocked && allKpisOfKra.length > 0) {
+        setLockedIds(prevIds => {
+          const nextIds = new Set(prevIds);
+          nextIds.add(kraId);
+          return nextIds;
+        });
+      } else {
+        setLockedIds(prevIds => {
+          const nextIds = new Set(prevIds);
+          nextIds.delete(kraId);
+          return nextIds;
+        });
+      }
+
       return next;
     });
   };
@@ -1053,8 +1358,15 @@ function Step3WeightAdjustment({
   };
 
   const handleSave = async (confirm: boolean) => {
-    if (confirm) setConfirming(true);
-    else setSaving(true);
+    if (confirm) {
+      if (lockedIds.size < kras.length) {
+        setShowLockErrorModal(true);
+        return;
+      }
+      setConfirming(true);
+    } else {
+      setSaving(true);
+    }
     await onSave(kras, confirm);
     setConfirming(false);
     setSaving(false);
@@ -1136,6 +1448,28 @@ function Step3WeightAdjustment({
           )}
         </button>
       </div>
+
+      {showLockErrorModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/65 backdrop-blur-[2px] p-4">
+          <div className="bg-white rounded-2xl max-w-sm w-full p-6 shadow-2xl border border-slate-100 flex flex-col items-center text-center space-y-4 animate-in fade-in zoom-in-95 duration-150">
+            <div className="w-12 h-12 bg-amber-50 rounded-full flex items-center justify-center border border-amber-100">
+              <Lock className="w-5 h-5 text-amber-600" />
+            </div>
+            <div className="space-y-1.5">
+              <h3 className="text-sm font-bold text-slate-900">Lock All KRAs to Confirm</h3>
+              <p className="text-[11px] text-slate-500 leading-relaxed">
+                To submit your performance framework, please lock each Key Result Area (KRA) and its KPIs. Locking ensures your weight distribution is finalized.
+              </p>
+            </div>
+            <button
+              onClick={() => setShowLockErrorModal(false)}
+              className="w-full py-2 bg-primary-600 hover:bg-primary-700 text-white text-xs font-bold rounded-xl transition-all shadow-md active:scale-[0.98]"
+            >
+              Understood, Go to Lock Options
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -1360,22 +1694,23 @@ function UploadedView({ record, jdData = null }: { record: KRAKPIRecord; jdData?
 
 // ── Confirmed View ────────────────────────────────────────────────────────────
 
-function ConfirmedView({
-  record,
-  onRegenerate,
-  onSendForApproval,
-  isManager = false,
-  onSave,
-  jdData = null,
-}: {
+const ConfirmedView = forwardRef<any, {
   record: KRAKPIRecord;
   onRegenerate: () => void;
   onSendForApproval: () => Promise<void>;
   isManager?: boolean;
   onSave?: (kras: FinalKRA[], confirm: boolean) => Promise<void>;
   jdData?: any;
-}) {
+}>(function ConfirmedView({
+  record,
+  onRegenerate,
+  onSendForApproval,
+  isManager = false,
+  onSave,
+  jdData = null,
+}, ref) {
   const kras = record.kras?.kras ?? [];
+  const status = record.status || "confirmed";
   const [openId, setOpenId] = useState<string | null>(kras[0]?.kra_id ?? null);
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
@@ -1386,6 +1721,101 @@ function ConfirmedView({
   const [editableKras, setEditableKras] = useState<FinalKRA[]>(kras);
   const [lockedIds, setLockedIds] = useState<Set<string>>(new Set());
   const [lockedKpiIds, setLockedKpiIds] = useState<Set<string>>(new Set());
+  const [showLockErrorModal, setShowLockErrorModal] = useState(false);
+
+  useImperativeHandle(ref, () => ({
+    save: async () => {
+      await handleSaveEditedFramework();
+      return true;
+    },
+    cancel: () => {
+      setIsEditing(false);
+      setEditableKras(kras);
+    }
+  }));
+
+  // Skills & improvement states
+  const [skills, setSkills] = useState<Array<{ name: string; description: string; rating: number | "N/A" | null }>>([]);
+  const [loadingSkills, setLoadingSkills] = useState(false);
+  const [submittingReview, setSubmittingReview] = useState(false);
+  const [reviewError, setReviewError] = useState<string | null>(null);
+
+  // Prefill improvements if they are already present on the record
+  useEffect(() => {
+    if (record.skill_ratings) {
+      setSkills(record.skill_ratings);
+    }
+  }, [record]);
+
+  // Fetch unique skills for manager review
+  useEffect(() => {
+    const loadReviewSkills = async () => {
+      if (isManager && status === "sent_to_manager" && (!record.skill_ratings || record.skill_ratings.length === 0)) {
+        setLoadingSkills(true);
+        try {
+          const data = await fetchKRAKPIReviewSkills(record.jd_session_id);
+          setSkills(data.skills || []);
+        } catch (err: any) {
+          console.error("Failed to load review skills:", err);
+          setReviewError("Failed to generate/fetch unique skills for review.");
+        } finally {
+          setLoadingSkills(false);
+        }
+      }
+    };
+    loadReviewSkills();
+  }, [isManager, status, record.jd_session_id, record.skill_ratings]);
+
+  const handleManagerReviewSubmit = async (action: "approved" | "rejected") => {
+    const reviewer = getCurrentUser();
+    const reviewerId = reviewer?.employee_id || "admin";
+
+    if (action === "approved") {
+      const unrated = skills.some(s => s.rating === null || s.rating === undefined);
+      if (unrated) {
+        alert("Please rate all consolidated unique skills (1-10 or N/A) before sending to the employee.");
+        return;
+      }
+    } else {
+      // Rejection needs a comment/reason
+      const comment = prompt("Please provide a reason or revision instructions for the employee:");
+      if (comment === null) return; // cancel clicked
+      if (!comment.trim()) {
+        alert("A reason is required to request revision.");
+        return;
+      }
+      setSubmittingReview(true);
+      setReviewError(null);
+      try {
+        await submitKRAKPIReview(record.jd_session_id, {
+          action: "rejected",
+          comment: comment,
+          reviewer_id: reviewerId,
+        });
+        window.location.reload();
+      } catch (err: any) {
+        setReviewError(err.message || "Failed to submit revision request.");
+      } finally {
+        setSubmittingReview(false);
+      }
+      return;
+    }
+
+    setSubmittingReview(true);
+    setReviewError(null);
+    try {
+      await submitKRAKPIReview(record.jd_session_id, {
+        action: "approved",
+        skill_ratings: skills,
+        reviewer_id: reviewerId,
+      });
+      window.location.reload();
+    } catch (err: any) {
+      setReviewError(err.message || "Failed to submit review.");
+    } finally {
+      setSubmittingReview(false);
+    }
+  };
 
   // Deep copy when editing starts
   useEffect(() => {
@@ -1399,8 +1829,6 @@ function ConfirmedView({
   // Compute stats
   const totalKpis = currentKras.reduce((acc, kra) => acc + (kra.kpis?.length ?? 0), 0);
   const totalWeight = currentKras.reduce((acc, kra) => acc + (kra.weight ?? 0), 0);
-
-  const status = record.status || "confirmed";
 
   const statusConfig: Record<string, { gradient: string; title: string; badge: string; badgeColor: string }> = {
     confirmed: {
@@ -1466,19 +1894,80 @@ function ConfirmedView({
 
   // Lock toggles
   const handleLockToggle = (id: string) => {
+    const kra = editableKras.find(k => k.kra_id === id);
+    if (!kra) return;
+
     setLockedIds((prev) => {
       const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
+      const isLocking = !next.has(id);
+      
+      if (isLocking) {
+        next.add(id);
+      } else {
+        next.delete(id);
+      }
+
+      // Sync child KPIs
+      setLockedKpiIds(prevKpis => {
+        const nextKpis = new Set(prevKpis);
+        const kpisOfKra = kra.kpis || [];
+        for (const kp of kpisOfKra) {
+          const compoundId = `${id}_${kp.kpi_id}`;
+          if (isLocking) {
+            nextKpis.add(compoundId);
+          } else {
+            nextKpis.delete(compoundId);
+          }
+        }
+        return nextKpis;
+      });
+
       return next;
     });
   };
 
   const handleKpiLockToggle = (id: string) => {
+    let foundKra: FinalKRA | undefined = undefined;
+    let foundKpiId = "";
+    for (const kra of editableKras) {
+      const kpi = kra.kpis.find(kp => `${kra.kra_id}_${kp.kpi_id}` === id);
+      if (kpi) {
+        foundKra = kra;
+        foundKpiId = kpi.kpi_id;
+        break;
+      }
+    }
+
+    if (!foundKra) return;
+    const kraId = foundKra.kra_id;
+
     setLockedKpiIds((prev) => {
       const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
+      const isLocking = !next.has(id);
+      if (isLocking) {
+        next.add(id);
+      } else {
+        next.delete(id);
+      }
+
+      // Check if ALL KPIs of this KRA are locked
+      const allKpisOfKra = foundKra!.kpis || [];
+      const allKpisLocked = allKpisOfKra.every(kp => next.has(`${kraId}_${kp.kpi_id}`));
+
+      if (allKpisLocked && allKpisOfKra.length > 0) {
+        setLockedIds(prevIds => {
+          const nextIds = new Set(prevIds);
+          nextIds.add(kraId);
+          return nextIds;
+        });
+      } else {
+        setLockedIds(prevIds => {
+          const nextIds = new Set(prevIds);
+          nextIds.delete(kraId);
+          return nextIds;
+        });
+      }
+
       return next;
     });
   };
@@ -1637,6 +2126,10 @@ function ConfirmedView({
 
   const handleSaveEditedFramework = async () => {
     if (!onSave) return;
+    if (lockedIds.size < editableKras.length) {
+      setShowLockErrorModal(true);
+      return;
+    }
     // Validate weights sum to 100
     const totalW = editableKras.reduce((s, k) => s + (k.weight ?? 0), 0);
     if (Math.abs(totalW - 100) > 1) {
@@ -1733,13 +2226,13 @@ function ConfirmedView({
               }}
               className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-primary-600 hover:bg-primary-700 text-white text-xs font-bold rounded-xl transition-all shadow-md active:scale-[0.98]"
             >
-              <Info className="w-3.5 h-3.5" /> Tweak Targets, Expectations & Weights
+              <Info className="w-3.5 h-3.5" /> Tweak KRAs, KPIs & Expectation Thresholds
             </button>
           ) : (
             <div className="flex flex-col sm:flex-row items-center justify-between gap-3 p-1">
               <div>
                 <p className="text-xs font-bold text-slate-800">Review & Override Mode</p>
-                <p className="text-[11px] text-slate-500 mt-0.5">Edit thresholds, targets, and weights directly. Unsaved changes are lost upon canceling.</p>
+                <p className="text-[11px] text-slate-500 mt-0.5">Edit KRAs, KPIs, weights, and thresholds directly. Unsaved changes are lost upon canceling.</p>
               </div>
               <div className="flex gap-2 w-full sm:w-auto">
                 <button
@@ -1836,7 +2329,7 @@ function ConfirmedView({
                     onClick={(e) => {
                       e.stopPropagation();
                       setShowDownloadDropdown(false);
-                      downloadKRAPdfClient(currentKras, jdData, jdData?.title, jdData?.department);
+                      downloadKRAPdfClient(currentKras as any, jdData, jdData?.title, jdData?.department);
                     }}
                     className="w-full flex items-center gap-3.5 px-4 py-3.5 text-xs font-semibold text-surface-700 hover:bg-primary-50 hover:text-primary-700 transition-colors text-left"
                   >
@@ -1852,7 +2345,7 @@ function ConfirmedView({
                     onClick={(e) => {
                       e.stopPropagation();
                       setShowDownloadDropdown(false);
-                      downloadKRACSVClient(currentKras, jdData);
+                      downloadKRACSVClient(currentKras as any, jdData);
                     }}
                     className="w-full flex items-center gap-3.5 px-4 py-3.5 text-xs font-semibold text-surface-700 hover:bg-primary-50 hover:text-primary-700 transition-colors text-left border-t border-surface-100"
                   >
@@ -1921,7 +2414,7 @@ function ConfirmedView({
                         className={`p-1 rounded border transition-all ${
                           lockedIds.has(kra.kra_id)
                             ? "bg-slate-800 text-white border-slate-850"
-                            : "bg-white text-slate-400 border-slate-200 hover:text-slate-600 hover:bg-slate-50"
+                            : "bg-white text-slate-400 border-slate-200 hover:text-slate-650 hover:bg-slate-50"
                         }`}
                         title={lockedIds.has(kra.kra_id) ? "Unlock KRA weight" : "Lock KRA weight"}
                       >
@@ -2024,27 +2517,35 @@ function ConfirmedView({
                                 <div>
                                   <label className="text-[9px] font-bold text-slate-400 uppercase block mb-0.5">Weight (%)</label>
                                   <div className="flex gap-1 items-center">
-                                    <button
-                                      type="button"
-                                      onClick={() => handleKpiLockToggle(`${kra.kra_id}_${kpi.kpi_id}`)}
-                                      className={`p-1 rounded border transition-all ${
-                                        lockedKpiIds.has(`${kra.kra_id}_${kpi.kpi_id}`)
-                                          ? "bg-slate-800 text-white border-slate-850"
-                                          : "bg-white text-slate-400 border-slate-200 hover:bg-slate-50 hover:text-slate-600"
-                                      }`}
-                                    >
-                                      {lockedKpiIds.has(`${kra.kra_id}_${kpi.kpi_id}`) ? <Lock className="w-2.5 h-2.5" /> : <Unlock className="w-2.5 h-2.5" />}
-                                    </button>
-                                    <div className="flex-1 flex items-center bg-white border border-slate-200 rounded px-1.5 py-0.5">
-                                      <input
-                                        type="number"
-                                        value={kpi.weight ?? 0}
-                                        disabled={lockedKpiIds.has(`${kra.kra_id}_${kpi.kpi_id}`)}
-                                        onChange={(e) => handleKpiWeightChange(kra.kra_id, kpi.kpi_id, parseInt(e.target.value) || 0)}
-                                        className="w-full bg-transparent text-xs font-semibold text-slate-700 text-center outline-none border-none disabled:opacity-50"
-                                      />
-                                      <span className="text-xs font-semibold text-slate-400 select-none">%</span>
-                                    </div>
+                                    {(() => {
+                                      const isKpiLocked = lockedIds.has(kra.kra_id) || lockedKpiIds.has(`${kra.kra_id}_${kpi.kpi_id}`);
+                                      return (
+                                        <>
+                                          <button
+                                            type="button"
+                                            onClick={() => handleKpiLockToggle(`${kra.kra_id}_${kpi.kpi_id}`)}
+                                            disabled={lockedIds.has(kra.kra_id)}
+                                            className={`p-1 rounded border transition-all ${
+                                              isKpiLocked
+                                                ? "bg-slate-800 text-white border-slate-850 opacity-60"
+                                                : "bg-white text-slate-400 border-slate-200 hover:bg-slate-50 hover:text-slate-600 disabled:opacity-50"
+                                            }`}
+                                          >
+                                            {isKpiLocked ? <Lock className="w-2.5 h-2.5" /> : <Unlock className="w-2.5 h-2.5" />}
+                                          </button>
+                                          <div className="flex-1 flex items-center bg-white border border-slate-200 rounded px-1.5 py-0.5">
+                                            <input
+                                              type="number"
+                                              value={kpi.weight ?? 0}
+                                              disabled={isKpiLocked}
+                                              onChange={(e) => handleKpiWeightChange(kra.kra_id, kpi.kpi_id, parseInt(e.target.value) || 0)}
+                                              className="w-full bg-transparent text-xs font-semibold text-slate-700 text-center outline-none border-none disabled:opacity-50"
+                                            />
+                                            <span className="text-xs font-semibold text-slate-400 select-none">%</span>
+                                          </div>
+                                        </>
+                                      );
+                                    })()}
                                   </div>
                                 </div>
                               </div>
@@ -2060,7 +2561,7 @@ function ConfirmedView({
                                   value={kpi.target}
                                   onChange={(e) => handleKpiFieldChange(kra.kra_id, kpi.kpi_id, "target", e.target.value)}
                                   className="w-full bg-white border border-slate-200 rounded px-2 py-1 text-xs font-bold text-primary-600 focus:outline-none focus:border-primary-500"
-                                />
+                                  />
                               </div>
                             ) : (
                               <>
@@ -2160,9 +2661,189 @@ function ConfirmedView({
       >
         <RefreshCw className="w-3.5 h-3.5" /> Regenerate from scratch
       </button>
+
+      {record.skill_ratings && record.skill_ratings.length > 0 && (
+        <div id="skill-assessment" className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm space-y-6 mt-8 animate-in fade-in duration-300">
+          <div>
+            <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
+              <Sparkles className="w-5 h-5 text-primary-500" />
+              Employee Performance & Skill Assessment
+            </h3>
+            <p className="text-xs text-slate-500 mt-1">
+              Manager's assessment of key capabilities and skill gap profile.
+            </p>
+          </div>
+
+          <div className="space-y-4">
+            {record.skill_ratings.map((skill: any) => {
+              const rating = skill.rating;
+              let ratingColor = "bg-slate-105 text-slate-600 border-slate-200";
+              if (rating !== null && rating !== undefined) {
+                if (rating === "N/A") {
+                  ratingColor = "bg-slate-500 border-slate-500 text-white shadow-sm shadow-slate-500/10";
+                } else if (typeof rating === "number") {
+                  if (rating <= 3) ratingColor = "bg-rose-500 border-rose-500 text-white shadow-sm shadow-rose-500/20";
+                  else if (rating <= 7) ratingColor = "bg-amber-500 border-amber-500 text-white shadow-sm shadow-amber-500/20";
+                  else ratingColor = "bg-emerald-500 border-emerald-500 text-white shadow-sm shadow-emerald-500/20";
+                }
+              }
+
+              return (
+                <div key={skill.name} className="flex items-start justify-between p-4 bg-slate-50 border border-slate-100 rounded-xl gap-4">
+                  <div className="space-y-1">
+                    <h4 className="text-xs font-bold text-slate-800">{skill.name}</h4>
+                    <p className="text-[11px] text-slate-500 leading-normal">{skill.description}</p>
+                  </div>
+                  <div className={`px-2 h-8 min-w-[32px] rounded-lg flex items-center justify-center text-xs font-bold border shrink-0 ${ratingColor}`}>
+                    {rating !== null && rating !== undefined ? rating : "-"}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {record.reviewed_at && (
+            <div className="text-[10px] text-slate-400 font-semibold text-right pt-2">
+              Evaluated on {new Date(record.reviewed_at).toLocaleDateString()}
+              {record.reviewed_by && ` by ${record.reviewed_by}`}
+            </div>
+          )}
+        </div>
+      )}
+
+      {isManager && status === "sent_to_manager" && !isEditing && (
+        <div className="bg-white border-2 border-primary-200 rounded-2xl p-6 shadow-md space-y-6 mt-8 animate-in fade-in duration-300">
+          <div>
+            <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
+              <Sparkles className="w-5 h-5 text-primary-500" />
+              Employee Performance & Skill Assessment
+            </h3>
+            <p className="text-xs text-slate-500 mt-1">
+              Rate the employee's unique capabilities (inferred from their role description and KRA goals). Choose N/A if a skill is not applicable or cannot be evaluated.
+            </p>
+          </div>
+
+          {loadingSkills ? (
+            <div className="flex flex-col items-center justify-center py-10 gap-3">
+              <Loader2 className="w-8 h-8 text-primary-600 animate-spin" />
+              <p className="text-xs text-slate-500 font-medium">Consolidating skills list using AI...</p>
+            </div>
+          ) : (
+            <div className="space-y-5">
+              {skills.map((skill, sIdx) => {
+                const currentRating = skill.rating;
+                return (
+                  <div key={skill.name} className="p-4 bg-slate-50 border border-slate-100 rounded-xl space-y-3">
+                    <div>
+                      <h4 className="text-xs font-bold text-slate-800">{skill.name}</h4>
+                      <p className="text-[11px] text-slate-500 mt-0.5">{skill.description}</p>
+                    </div>
+                    
+                    {/* Rating buttons (1 to 10) + N/A */}
+                    <div className="flex flex-wrap gap-1.5 pt-1">
+                      {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((num) => {
+                        const isSelected = currentRating === num;
+                        let btnStyle = "bg-white border-slate-200 text-slate-600 hover:bg-slate-50";
+                        if (isSelected) {
+                          if (num <= 3) btnStyle = "bg-rose-500 border-rose-500 text-white shadow-sm shadow-rose-500/20";
+                          else if (num <= 7) btnStyle = "bg-amber-500 border-amber-500 text-white shadow-sm shadow-amber-500/20";
+                          else btnStyle = "bg-emerald-500 border-emerald-500 text-white shadow-sm shadow-emerald-500/20";
+                        }
+                        return (
+                          <button
+                            type="button"
+                            key={num}
+                            onClick={() => {
+                              const updated = [...skills];
+                              updated[sIdx].rating = num;
+                              setSkills(updated);
+                            }}
+                            className={`w-8 h-8 rounded-lg text-xs font-bold border transition-all active:scale-95 ${btnStyle}`}
+                          >
+                            {num}
+                          </button>
+                        );
+                      })}
+                      {(() => {
+                        const isSelected = currentRating === "N/A";
+                        let btnStyle = isSelected 
+                          ? "bg-slate-650 border-slate-650 text-white shadow-sm shadow-slate-650/20" 
+                          : "bg-white border-slate-200 text-slate-650 hover:bg-slate-50";
+                        return (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const updated = [...skills];
+                              updated[sIdx].rating = "N/A";
+                              setSkills(updated);
+                            }}
+                            className={`px-3.5 h-8 rounded-lg text-xs font-bold border transition-all active:scale-95 ${btnStyle}`}
+                          >
+                            N/A
+                          </button>
+                        );
+                      })()}
+                    </div>
+                  </div>
+                );
+              })}
+
+              {reviewError && (
+                <div className="text-xs text-rose-700 bg-rose-50 border border-rose-200 rounded-lg px-3 py-2">
+                  {reviewError}
+                </div>
+              )}
+
+              <div className="flex flex-col sm:flex-row gap-3 pt-3 border-t border-slate-100">
+                <button
+                  onClick={() => handleManagerReviewSubmit("rejected")}
+                  disabled={submittingReview}
+                  className="flex-1 px-4 py-3 bg-rose-50 hover:bg-rose-100 text-rose-600 font-bold text-xs rounded-xl flex items-center justify-center gap-2 border border-rose-200 transition-colors disabled:opacity-50"
+                >
+                  <AlertTriangle className="w-4 h-4" /> Request Revision
+                </button>
+                <button
+                  onClick={() => handleManagerReviewSubmit("approved")}
+                  disabled={submittingReview}
+                  className="flex-1 px-5 py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl flex items-center justify-center gap-2 shadow-md shadow-emerald-600/10 transition-colors disabled:opacity-50"
+                >
+                  {submittingReview ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <ArrowRight className="w-4 h-4" />
+                  )}
+                  Approve KRAs & Submit Review
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {showLockErrorModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/65 backdrop-blur-[2px] p-4">
+          <div className="bg-white rounded-2xl max-w-sm w-full p-6 shadow-2xl border border-slate-100 flex flex-col items-center text-center space-y-4 animate-in fade-in zoom-in-95 duration-150">
+            <div className="w-12 h-12 bg-amber-50 rounded-full flex items-center justify-center border border-amber-100">
+              <Lock className="w-5 h-5 text-amber-600" />
+            </div>
+            <div className="space-y-1.5">
+              <h3 className="text-sm font-bold text-slate-900">Lock All KRAs to Confirm</h3>
+              <p className="text-[11px] text-slate-500 leading-relaxed">
+                To submit your performance framework, please lock each Key Result Area (KRA) and its KPIs. Locking ensures your weight distribution is finalized.
+              </p>
+            </div>
+            <button
+              onClick={() => setShowLockErrorModal(false)}
+              className="w-full py-2 bg-primary-600 hover:bg-primary-700 text-white text-xs font-bold rounded-xl transition-all shadow-md active:scale-[0.98]"
+            >
+              Understood, Go to Lock Options
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
-}
+});
 
 // ── Main Panel ────────────────────────────────────────────────────────────────
 
@@ -2170,9 +2851,12 @@ interface KRAKPIPanelProps {
   jdSessionId: string;
   employeeId: string;
   isManager?: boolean;
+  externalEditActive?: boolean;
+  jdData?: any;
 }
 
-export function KRAKPIPanel({ jdSessionId, employeeId, isManager = false }: KRAKPIPanelProps) {
+export const KRAKPIPanel = forwardRef<any, KRAKPIPanelProps>(
+  function KRAKPIPanel({ jdSessionId, employeeId, isManager = false, externalEditActive = false, jdData = null }, ref) {
   const [record, setRecord] = useState<KRAKPIRecord | null>(null);
   const [prereqStatus, setPrereqStatus] = useState<PrerequisiteStatus | null>(null);
   const [loading, setLoading] = useState(true);
@@ -2181,6 +2865,39 @@ export function KRAKPIPanel({ jdSessionId, employeeId, isManager = false }: KRAK
   const [showBypassModal, setShowBypassModal] = useState(false);
 
   const [localJd, setLocalJd] = useState<any>(null);
+  const searchParams = useSearchParams();
+
+  const confirmedViewRef = useRef<any>(null);
+
+  useImperativeHandle(ref, () => ({
+    save: async () => {
+      if (confirmedViewRef.current?.save) {
+        return await confirmedViewRef.current.save();
+      }
+      return false;
+    },
+    cancel: () => {
+      if (confirmedViewRef.current?.cancel) {
+        confirmedViewRef.current.cancel();
+      }
+    }
+  }));
+
+  // Scroll to skill-assessment section if query param is set
+  useEffect(() => {
+    if (!loading && record) {
+      const section = searchParams.get("section");
+      if (section === "skill-assessment") {
+        const timer = setTimeout(() => {
+          const el = document.getElementById("skill-assessment");
+          if (el) {
+            el.scrollIntoView({ behavior: "smooth", block: "start" });
+          }
+        }, 500);
+        return () => clearTimeout(timer);
+      }
+    }
+  }, [loading, record, searchParams]);
 
   const reload = useCallback(async () => {
     setLoading(true);
@@ -2236,6 +2953,59 @@ export function KRAKPIPanel({ jdSessionId, employeeId, isManager = false }: KRAK
     } catch (e: any) {
       setError(e.message || "KRA selection failed");
       setLoading(false);
+    }
+  };
+
+  const handleAddCustomKra = async (title: string, description: string, selectedIds?: string[]) => {
+    setError(null);
+    try {
+      const res = await addCustomKRA(jdSessionId, title, description, selectedIds);
+      setRecord((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          kra_suggestions: res.kra_suggestions,
+          selected_kra_ids: res.selected_kra_ids,
+        };
+      });
+      return res.kra;
+    } catch (e: any) {
+      setError(e.message || "Failed to add custom KRA");
+      throw e;
+    }
+  };
+
+  const handleAddCustomKpi = async (
+    kraId: string,
+    metric: string,
+    target: string,
+    measurementMethod: string,
+    frequency: string,
+    selectedIds?: Record<string, string[]>
+  ) => {
+    setError(null);
+    try {
+      const res = await addCustomKPI(
+        jdSessionId,
+        kraId,
+        metric,
+        target,
+        measurementMethod,
+        frequency,
+        selectedIds
+      );
+      setRecord((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          kpi_suggestions: res.kpi_suggestions,
+          selected_kpi_ids: res.selected_kpi_ids,
+        };
+      });
+      return res.kpi;
+    } catch (e: any) {
+      setError(e.message || "Failed to add custom KPI");
+      throw e;
     }
   };
 
@@ -2391,7 +3161,9 @@ export function KRAKPIPanel({ jdSessionId, employeeId, isManager = false }: KRAK
           {step === "kra_selection" && record.kra_suggestions && (
             <Step1KRASelection
               suggestions={record.kra_suggestions.kra_suggestions}
+              initialSelected={record.selected_kra_ids || []}
               onContinue={handleSelectKRAs}
+              onAddCustomKra={handleAddCustomKra}
             />
           )}
 
@@ -2400,8 +3172,10 @@ export function KRAKPIPanel({ jdSessionId, employeeId, isManager = false }: KRAK
               selectedKras={record.selected_kra_ids}
               kpiSuggestions={record.kpi_suggestions}
               krasSuggestions={record.kra_suggestions?.kra_suggestions ?? []}
+              initialSelected={record.selected_kpi_ids || {}}
               onContinue={handleSelectKPIs}
               onBack={handleGenerate}
+              onAddCustomKpi={handleAddCustomKpi}
             />
           )}
 
@@ -2418,10 +3192,12 @@ export function KRAKPIPanel({ jdSessionId, employeeId, isManager = false }: KRAK
 
           {step === "confirmed" && (
             <ConfirmedView
+              ref={confirmedViewRef}
               record={record}
               onRegenerate={handleRegenerate}
               onSendForApproval={handleSendForApproval}
               jdData={localJd}
+              isManager={isManager}
             />
           )}
 
@@ -2465,4 +3241,4 @@ export function KRAKPIPanel({ jdSessionId, employeeId, isManager = false }: KRAK
       )}
     </div>
   );
-}
+});

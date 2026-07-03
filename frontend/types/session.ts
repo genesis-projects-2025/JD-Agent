@@ -30,4 +30,5 @@ export interface SessionDetail {
   current_agent?: string;
   created_at: string;
   updated_at: string;
+  kra_kpi_status?: string | null;
 }

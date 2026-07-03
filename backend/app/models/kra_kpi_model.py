@@ -81,6 +81,11 @@ class KRAKPISession(Base):
         DateTime(timezone=True), nullable=True
     )
 
+    skill_ratings: Mapped[list | None] = mapped_column(JSONB, nullable=True)
+    improvement_area: Mapped[str | None] = mapped_column(Text, nullable=True)
+    improvement_goal: Mapped[str | None] = mapped_column(Text, nullable=True)
+    improvement_status: Mapped[str | None] = mapped_column(String(50), nullable=True)
+
     generation_model: Mapped[str | None] = mapped_column(Text, nullable=True)
     generation_error: Mapped[str | None] = mapped_column(Text, nullable=True)
 
@@ -127,6 +132,13 @@ class KRAKPISession(Base):
             "selected_kpi_ids": self.selected_kpi_ids,
             "kras": self.kras,
             "status": self.status,
+            "reviewer_comment": self.reviewer_comment,
+            "reviewed_by": self.reviewed_by,
+            "reviewed_at": self.reviewed_at.isoformat() if self.reviewed_at else None,
+            "skill_ratings": self.skill_ratings,
+            "improvement_area": self.improvement_area,
+            "improvement_goal": self.improvement_goal,
+            "improvement_status": self.improvement_status,
             "generation_model": self.generation_model,
             "generation_error": self.generation_error,
             "conversation_state": self.conversation_state,

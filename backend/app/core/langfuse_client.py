@@ -54,8 +54,8 @@ def get_compiled_prompt(name: str, fallback_template: str, **kwargs) -> str:
 def get_langfuse_callback_handler(trace_name: str = None, session_id: str = None, user_id: str = None, tags: list[str] = None):
     """Retrieve a Langfuse callback handler for LangChain if credentials are set."""
     if settings.LANGFUSE_PUBLIC_KEY and settings.LANGFUSE_SECRET_KEY:
-        from langfuse.langchain import CallbackHandler
         try:
+            from langfuse.langchain import CallbackHandler
             return CallbackHandler(
                 public_key=settings.LANGFUSE_PUBLIC_KEY,
                 secret_key=settings.LANGFUSE_SECRET_KEY,

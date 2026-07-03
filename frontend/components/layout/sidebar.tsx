@@ -39,6 +39,7 @@ import {
     Loader2,
     MessageSquare,
     Target,
+    Award,
 } from "lucide-react";
 import FeedbackModal from "@/components/feedback/FeedbackModal";
 
@@ -125,6 +126,16 @@ export default function Sidebar() {
             icon: Target,
             description: "My performance goals",
         },
+        {
+            name: "Skill Assessment",
+            href: (role === "manager" || role === "head" || role === "hr" || role === "admin")
+                ? (employeeId ? `/dashboard/${safeBtoa(employeeId)}?view=skill_assessment` : "#")
+                : (targetJdId ? `/jd/${targetJdId}?tab=kra-kpi&section=skill-assessment` : "#"),
+            icon: Award,
+            description: (role === "manager" || role === "head" || role === "hr" || role === "admin")
+                ? "Manage team skill gap profiles"
+                : "My skill gap & ratings",
+        },
     ];
 
     if (role === "employee") {
@@ -188,6 +199,9 @@ export default function Sidebar() {
                 if (searchParams.get(key) !== value) {
                     return false;
                 }
+            }
+            if (!linkParams.has("section") && searchParams.has("section")) {
+                return false;
             }
             return true;
         } else {
@@ -288,7 +302,7 @@ export default function Sidebar() {
                                 key={link.name}
                                 href={link.href}
                                 onClick={(e) => {
-                                    if (link.name === "KRA / KPI" && !targetJdId) {
+                                    if (["KRA / KPI", "Skill Assessment"].includes(link.name) && !targetJdId) {
                                         e.preventDefault();
                                         setShowPrereqPopup(true);
                                     }

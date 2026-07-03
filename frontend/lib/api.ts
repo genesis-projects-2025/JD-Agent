@@ -717,6 +717,7 @@ export interface KPISuggestion {
   measurement_method: string;
   frequency: string;
   threshold: KRAThreshold;
+  weight?: number | null;
 }
 
 export interface KRASuggestion {
@@ -767,6 +768,14 @@ export interface KRAKPIRecord {
     | "hr_rejected"
     | "approved";
   reviewer_comment?: string | null;
+  reviewed_by?: string | null;
+  reviewed_at?: string | null;
+  skill_ratings?: Array<{ name: string; description: string; rating: number | "N/A" | null }> | null;
+  improvement_area?: string | null;
+  improvement_goal?: string | null;
+  improvement_status?: string | null;
+  conversation_history?: any[] | null;
+  conversation_state?: any | null;
   generated_at: string | null;
   confirmed_at: string | null;
   updated_at: string | null;
@@ -877,6 +886,112 @@ export async function sendKRAKPIForApproval(
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: "Failed to send for approval" }));
     throw new Error(err.detail || "Failed to send KRA/KPI for approval");
+  }
+  return res.json();
+}
+
+export async function fetchKRAKPIReviewSkills(
+  jdSessionId: string,
+): Promise<{ skills: Array<{ name: string; description: string; rating: number | "N/A" | null }> }> {
+  const res = await fetch(`${API_URL}/kra-kpi/${jdSessionId}/review-skills`);
+  if (!res.ok) {
+    throw new Error("Failed to fetch skills for review");
+  }
+  return res.json();
+}
+
+export async function submitKRAKPIReview(
+  jdSessionId: string,
+  payload: {
+    action: string;
+    comment?: string;
+    skill_ratings?: Array<{ name: string; description: string; rating: number | "N/A" | null }>;
+    improvement_area?: string;
+    improvement_goal?: string;
+    reviewer_id: string;
+  },
+): Promise<{ status: string; message: string; kra_kpi_status: string }> {
+  const res = await fetch(`${API_URL}/kra-kpi/${jdSessionId}/review`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: "Failed to submit review" }));
+    throw new Error(err.detail || "Failed to submit KRA/KPI review");
+  }
+  return res.json();
+}
+
+export async function addCustomKRA(
+  jdSessionId: string,
+  title: string,
+  description: string,
+  selectedIds?: string[],
+): Promise<{
+  status: string;
+  kra: KRASuggestion;
+  selected_kra_ids: string[];
+  kra_suggestions: any;
+}> {
+  const res = await fetch(`${API_URL}/kra-kpi/${jdSessionId}/custom-kra`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ title, description, selected_ids: selectedIds }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: "Failed to add custom KRA" }));
+    throw new Error(err.detail || "Failed to add custom KRA");
+  }
+  return res.json();
+}
+
+export async function addCustomKPI(
+  jdSessionId: string,
+  kraId: string,
+  metric: string,
+  target: string,
+  measurementMethod: string,
+  frequency: string,
+  selectedIds?: Record<string, string[]>,
+): Promise<{
+  status: string;
+  kpi: KPISuggestion;
+  selected_kpi_ids: Record<string, string[]>;
+  kpi_suggestions: any;
+}> {
+  const res = await fetch(`${API_URL}/kra-kpi/${jdSessionId}/custom-kpi`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      kra_id: kraId,
+      metric,
+      target,
+      measurement_method: measurementMethod,
+      frequency,
+      selected_ids: selectedIds,
+    }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: "Failed to add custom KPI" }));
+    throw new Error(err.detail || "Failed to add custom KPI");
+  }
+  return res.json();
+}
+
+export async function fetchMyImprovements(
+  employeeId: string,
+): Promise<{
+  has_improvement_plan: boolean;
+  skill_ratings: Array<{ name: string; description: string; rating: number | "N/A" | null }>;
+  improvement_area: string;
+  improvement_goal: string;
+  updated_at: string | null;
+  reviewed_by: string | null;
+}> {
+  const res = await fetch(`${API_URL}/kra-kpi/improvements?employee_id=${encodeURIComponent(employeeId)}`);
+  if (!res.ok) {
+    throw new Error("Failed to fetch improvement plan");
   }
   return res.json();
 }

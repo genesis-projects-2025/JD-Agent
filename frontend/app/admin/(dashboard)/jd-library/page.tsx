@@ -3,7 +3,7 @@
 
 import { useState, useRef, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import { Upload, FileText, CheckCircle, Loader2, Briefcase, Eye, X, FileTextIcon, Shield, Download, Send, ChevronDown, Target, Sparkles, AlertCircle, ArrowLeft } from 'lucide-react'
+import { Upload, FileText, CheckCircle, Loader2, Briefcase, Eye, X, FileTextIcon, Shield, Download, Send, ChevronDown, Target, Sparkles, AlertCircle, ArrowLeft, Plus, Trash2 } from 'lucide-react'
 import { useAuth } from '@/components/providers/auth-provider'
 import { getCookie, cookieKeys } from '@/lib/cookies'
 import Link from 'next/link'
@@ -88,6 +88,103 @@ export default function JDLibraryPage() {
   const [kraAnalysisResult, setKraAnalysisResult] = useState<any | null>(null)
   const [analyzingKra, setAnalyzingKra] = useState(false)
   const [confirmingKra, setConfirmingKra] = useState(false)
+  const [isEditingPreview, setIsEditingPreview] = useState(false)
+
+  const handleUpdateKraField = (kraIdx: number, field: 'title' | 'description' | 'weight', value: any) => {
+    if (!kraAnalysisResult) return
+    const updatedKras = [...(kraAnalysisResult.kra_kpi?.kras || [])]
+    if (field === 'weight') {
+      updatedKras[kraIdx] = { ...updatedKras[kraIdx], [field]: parseInt(value) || 0 }
+    } else {
+      updatedKras[kraIdx] = { ...updatedKras[kraIdx], [field]: value }
+    }
+    setKraAnalysisResult({
+      ...kraAnalysisResult,
+      kra_kpi: {
+        ...kraAnalysisResult.kra_kpi,
+        kras: updatedKras
+      }
+    })
+  }
+
+  const handleUpdateKpiField = (kraIdx: number, kpiIdx: number, field: 'title' | 'description', value: string) => {
+    if (!kraAnalysisResult) return
+    const updatedKras = [...(kraAnalysisResult.kra_kpi?.kras || [])]
+    const updatedKpis = [...(updatedKras[kraIdx].kpis || [])]
+    updatedKpis[kpiIdx] = { ...updatedKpis[kpiIdx], [field]: value }
+    updatedKras[kraIdx] = { ...updatedKras[kraIdx], kpis: updatedKpis }
+    setKraAnalysisResult({
+      ...kraAnalysisResult,
+      kra_kpi: {
+        ...kraAnalysisResult.kra_kpi,
+        kras: updatedKras
+      }
+    })
+  }
+
+  const handleDeleteKra = (kraIdx: number) => {
+    if (!kraAnalysisResult) return
+    const updatedKras = [...(kraAnalysisResult.kra_kpi?.kras || [])]
+    updatedKras.splice(kraIdx, 1)
+    setKraAnalysisResult({
+      ...kraAnalysisResult,
+      kra_kpi: {
+        ...kraAnalysisResult.kra_kpi,
+        kras: updatedKras
+      }
+    })
+  }
+
+  const handleAddKra = () => {
+    if (!kraAnalysisResult) return
+    const updatedKras = [...(kraAnalysisResult.kra_kpi?.kras || [])]
+    updatedKras.push({
+      title: 'New KRA Goal',
+      description: 'Describe this KRA goal',
+      weight: 0,
+      kpis: []
+    })
+    setKraAnalysisResult({
+      ...kraAnalysisResult,
+      kra_kpi: {
+        ...kraAnalysisResult.kra_kpi,
+        kras: updatedKras
+      }
+    })
+  }
+
+  const handleDeleteKpi = (kraIdx: number, kpiIdx: number) => {
+    if (!kraAnalysisResult) return
+    const updatedKras = [...(kraAnalysisResult.kra_kpi?.kras || [])]
+    const updatedKpis = [...(updatedKras[kraIdx].kpis || [])]
+    updatedKpis.splice(kpiIdx, 1)
+    updatedKras[kraIdx] = { ...updatedKras[kraIdx], kpis: updatedKpis }
+    setKraAnalysisResult({
+      ...kraAnalysisResult,
+      kra_kpi: {
+        ...kraAnalysisResult.kra_kpi,
+        kras: updatedKras
+      }
+    })
+  }
+
+  const handleAddKpi = (kraIdx: number) => {
+    if (!kraAnalysisResult) return
+    const updatedKras = [...(kraAnalysisResult.kra_kpi?.kras || [])]
+    const updatedKpis = [...(updatedKras[kraIdx].kpis || [])]
+    updatedKpis.push({
+      title: 'New KPI Metric',
+      description: 'Describe the metric or target for this KPI'
+    })
+    updatedKras[kraIdx] = { ...updatedKras[kraIdx], kpis: updatedKpis }
+    setKraAnalysisResult({
+      ...kraAnalysisResult,
+      kra_kpi: {
+        ...kraAnalysisResult.kra_kpi,
+        kras: updatedKras
+      }
+    })
+  }
 
   // Missing JD Warning Modal States
   const [showMissingJdModal, setShowMissingJdModal] = useState(false)
@@ -735,36 +832,135 @@ export default function JDLibraryPage() {
 
                     <div className="space-y-4">
                       {kraAnalysisResult.kra_kpi?.kras?.map((kra: any, idx: number) => (
-                        <div key={idx} className="border border-slate-150 rounded-xl overflow-hidden shadow-sm hover:border-slate-300 transition-colors">
-                          <div className="bg-slate-50/70 p-4 border-b border-slate-150 flex items-center justify-between">
-                            <div>
-                              <span className="text-xs text-indigo-600 font-bold uppercase tracking-wider">KRA {idx + 1}</span>
-                              <h4 className="text-sm font-semibold text-slate-900 mt-0.5">{kra.title}</h4>
-                            </div>
-                            {kra.weight ? (
-                              <span className="px-2.5 py-1 bg-indigo-50 border border-indigo-100 rounded-lg text-xs font-semibold text-indigo-700">
-                                Weight: {kra.weight}%
+                        <div key={idx} className="border border-slate-150 rounded-xl overflow-hidden shadow-sm bg-white hover:border-slate-200 transition-colors">
+                          <div className="bg-slate-50/70 p-4 border-b border-slate-150 flex items-center justify-between gap-4">
+                            <div className="flex-1">
+                              <span className="text-xs text-indigo-600 font-bold uppercase tracking-wider flex items-center gap-2">
+                                KRA {idx + 1}
+                                {isEditingPreview && (
+                                  <button
+                                    onClick={() => handleDeleteKra(idx)}
+                                    type="button"
+                                    className="text-red-500 hover:text-red-700 transition-colors ml-2"
+                                    title="Delete KRA"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+                                )}
                               </span>
-                            ) : null}
-                          </div>
-                          <div className="p-4 space-y-3 bg-white">
-                            <p className="text-xs text-slate-500 leading-relaxed">{kra.description}</p>
-                            {kra.kpis && kra.kpis.length > 0 && (
-                              <div className="border-t border-slate-100 pt-3">
-                                <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Key Performance Indicators (KPIs)</span>
-                                <div className="space-y-2 mt-2">
-                                  {kra.kpis.map((kpi: any, kIdx: number) => (
-                                    <div key={kIdx} className="bg-slate-50/50 p-2.5 rounded-lg border border-slate-100/50 text-xs">
-                                      <div className="font-semibold text-slate-700">{kpi.title}</div>
-                                      <div className="text-slate-500 mt-0.5">{kpi.description}</div>
-                                    </div>
-                                  ))}
+                              {isEditingPreview ? (
+                                <input
+                                  type="text"
+                                  value={kra.title}
+                                  onChange={(e) => handleUpdateKraField(idx, 'title', e.target.value)}
+                                  className="w-full bg-white border border-slate-200 rounded px-2 py-1 text-sm font-semibold text-slate-900 mt-1 focus:outline-none focus:border-indigo-500"
+                                />
+                              ) : (
+                                <h4 className="text-sm font-semibold text-slate-900 mt-0.5">{kra.title}</h4>
+                              )}
+                            </div>
+                            <div>
+                              {isEditingPreview ? (
+                                <div className="flex items-center gap-1 bg-white border border-slate-200 rounded px-2 py-1 w-20">
+                                  <input
+                                    type="number"
+                                    value={kra.weight ?? 0}
+                                    onChange={(e) => handleUpdateKraField(idx, 'weight', e.target.value)}
+                                    className="w-full bg-transparent text-xs text-center font-semibold text-indigo-700 outline-none"
+                                    placeholder="Weight"
+                                  />
+                                  <span className="text-xs font-semibold text-slate-400 select-none">%</span>
                                 </div>
+                              ) : kra.weight ? (
+                                <span className="px-2.5 py-1 bg-indigo-50 border border-indigo-100 rounded-lg text-xs font-semibold text-indigo-700">
+                                  Weight: {kra.weight}%
+                                </span>
+                              ) : null}
+                            </div>
+                          </div>
+                          <div className="p-4 space-y-4">
+                            <div>
+                              <label className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block mb-1">Description</label>
+                              {isEditingPreview ? (
+                                <textarea
+                                  value={kra.description}
+                                  onChange={(e) => handleUpdateKraField(idx, 'description', e.target.value)}
+                                  className="w-full bg-white border border-slate-200 rounded px-2 py-1.5 text-xs text-slate-700 focus:outline-none focus:border-indigo-500"
+                                  rows={2}
+                                />
+                              ) : (
+                                <p className="text-xs text-slate-500 leading-relaxed">{kra.description}</p>
+                              )}
+                            </div>
+                            
+                            <div className="border-t border-slate-100 pt-3">
+                              <div className="flex items-center justify-between mb-2">
+                                <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Key Performance Indicators (KPIs)</span>
+                                {isEditingPreview && (
+                                  <button
+                                    onClick={() => handleAddKpi(idx)}
+                                    type="button"
+                                    className="text-xs text-indigo-600 hover:text-indigo-800 font-semibold flex items-center gap-1"
+                                  >
+                                    <Plus className="w-3 h-3" />
+                                    Add KPI
+                                  </button>
+                                )}
                               </div>
-                            )}
+                              <div className="space-y-3 mt-2">
+                                {(kra.kpis || []).map((kpi: any, kIdx: number) => (
+                                  <div key={kIdx} className="bg-slate-50/50 p-3 rounded-lg border border-slate-100/50 text-xs relative group/kpi">
+                                    {isEditingPreview && (
+                                      <button
+                                        onClick={() => handleDeleteKpi(idx, kIdx)}
+                                        type="button"
+                                        className="absolute top-2 right-2 text-slate-450 hover:text-red-500 transition-colors"
+                                        title="Delete KPI"
+                                      >
+                                        <Trash2 className="w-3.5 h-3.5" />
+                                      </button>
+                                    )}
+                                    {isEditingPreview ? (
+                                      <div className="space-y-2 pr-6">
+                                        <input
+                                          type="text"
+                                          value={kpi.title}
+                                          onChange={(e) => handleUpdateKpiField(idx, kIdx, 'title', e.target.value)}
+                                          className="w-full bg-white border border-slate-200 rounded px-2 py-1 text-xs font-semibold text-slate-750 focus:outline-none focus:border-indigo-500"
+                                          placeholder="KPI Title"
+                                        />
+                                        <textarea
+                                          value={kpi.description}
+                                          onChange={(e) => handleUpdateKpiField(idx, kIdx, 'description', e.target.value)}
+                                          className="w-full bg-white border border-slate-200 rounded px-2 py-1 text-xs text-slate-650 focus:outline-none focus:border-indigo-500"
+                                          placeholder="KPI Description/Metric"
+                                          rows={2}
+                                        />
+                                      </div>
+                                    ) : (
+                                      <>
+                                        <div className="font-semibold text-slate-700">{kpi.title}</div>
+                                        <div className="text-slate-500 mt-0.5">{kpi.description}</div>
+                                      </>
+                                    )}
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
                           </div>
                         </div>
                       ))}
+
+                      {isEditingPreview && (
+                        <button
+                          onClick={handleAddKra}
+                          type="button"
+                          className="w-full py-4 border-2 border-dashed border-slate-250 hover:border-slate-350 rounded-xl text-xs font-semibold text-slate-500 hover:text-slate-700 bg-slate-50 hover:bg-slate-100 flex items-center justify-center gap-2 transition-all"
+                        >
+                          <Plus className="w-4 h-4" />
+                          Add KRA Goal
+                        </button>
+                      )}
                     </div>
                   </div>
 
@@ -775,6 +971,14 @@ export default function JDLibraryPage() {
                       className="flex-1 py-3 px-4 border border-slate-200 rounded-xl text-sm font-medium bg-white text-slate-600 hover:bg-slate-50 transition-colors shadow-sm"
                     >
                       {kraInputMode === 'file' ? 'Cancel & Re-upload' : 'Cancel & Re-edit Text'}
+                    </button>
+                    <button
+                      onClick={() => setIsEditingPreview(!isEditingPreview)}
+                      type="button"
+                      className="flex-1 py-3 px-4 border border-slate-200 rounded-xl text-sm font-medium bg-white text-slate-600 hover:bg-slate-50 transition-colors shadow-sm flex items-center justify-center gap-2"
+                    >
+                      <Sparkles className="w-4 h-4 text-indigo-600" />
+                      {isEditingPreview ? 'Done Editing' : 'Edit Framework'}
                     </button>
                     <button
                       onClick={handleConfirmPaste}

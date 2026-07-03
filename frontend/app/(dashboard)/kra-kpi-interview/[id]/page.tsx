@@ -599,7 +599,7 @@ function InlineWeightAdjustment({
                     type="range"
                     min={5}
                     max={60}
-                    value={k.weight}
+                    value={k.weight ?? 0}
                     onChange={(e) => handleSlider(k.kra_id, parseInt(e.target.value))}
                     className="flex-1 h-1 bg-surface-200 rounded-lg appearance-none cursor-pointer"
                     style={{ accentColor: "currentColor" }}

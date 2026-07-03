@@ -63,6 +63,21 @@ class SelectKPIsRequest(BaseModel):
         return v
 
 
+class CustomKRARequest(BaseModel):
+    title: str
+    description: str
+    selected_ids: list[str] | None = None
+
+
+class CustomKPIRequest(BaseModel):
+    kra_id: str
+    metric: str
+    target: str
+    measurement_method: str
+    frequency: str
+    selected_ids: dict[str, list[str]] | None = None
+
+
 class SaveWeightsRequest(BaseModel):
     kras: list[dict]  # Full KRA list with updated weight fields
     confirm: bool = False
@@ -284,6 +299,141 @@ async def select_kpis_endpoint(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.post("/{jd_session_id}/custom-kra")
+async def add_custom_kra(
+    jd_session_id: str,
+    request: CustomKRARequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Employee adds a custom KRA.
+    Saves it to kra_suggestions and adds it to selected_kra_ids.
+    """
+    from sqlalchemy.orm.attributes import flag_modified
+    import uuid
+
+    record = await get_kra_kpi_by_jd_session(db, jd_session_id)
+    if not record:
+        raise HTTPException(status_code=404, detail="No KRA/KPI session found.")
+
+    kra_id = f"custom_kra_{uuid.uuid4().hex[:6]}"
+    new_kra = {
+        "kra_id": kra_id,
+        "title": request.title,
+        "description": request.description,
+        "source_tasks": ["Manually Added"],
+        "suggested_weight": 20,
+        "manager_impact": "Direct addition by employee"
+    }
+
+    if not record.kra_suggestions:
+        record.kra_suggestions = {}
+    if "kra_suggestions" not in record.kra_suggestions:
+        record.kra_suggestions["kra_suggestions"] = []
+    
+    record.kra_suggestions["kra_suggestions"].append(new_kra)
+
+    if request.selected_ids is not None:
+        record.selected_kra_ids = request.selected_ids
+
+    if record.selected_kra_ids is None:
+        record.selected_kra_ids = []
+    if kra_id not in record.selected_kra_ids:
+        record.selected_kra_ids.append(kra_id)
+
+    flag_modified(record, "kra_suggestions")
+    flag_modified(record, "selected_kra_ids")
+
+    await db.commit()
+    await db.refresh(record)
+
+    return {
+        "status": "success",
+        "kra": new_kra,
+        "selected_kra_ids": record.selected_kra_ids,
+        "kra_suggestions": record.kra_suggestions,
+    }
+
+
+@router.post("/{jd_session_id}/custom-kpi")
+async def add_custom_kpi(
+    jd_session_id: str,
+    request: CustomKPIRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Employee adds a custom KPI to a specific KRA.
+    Saves it to kpi_suggestions and adds it to selected_kpi_ids.
+    """
+    from sqlalchemy.orm.attributes import flag_modified
+    import uuid
+
+    record = await get_kra_kpi_by_jd_session(db, jd_session_id)
+    if not record:
+        raise HTTPException(status_code=404, detail="No KRA/KPI session found.")
+
+    kpi_id = f"{request.kra_id}_custom_kpi_{uuid.uuid4().hex[:6]}"
+    new_kpi = {
+        "kpi_id": kpi_id,
+        "metric": request.metric,
+        "description": "Manually added KPI",
+        "target": request.target,
+        "measurement_method": request.measurement_method,
+        "frequency": request.frequency,
+        "threshold": {
+            "excellent": "Exceeds target",
+            "meets_expectation": "Meets target",
+            "below_expectation": "Below target"
+        }
+    }
+
+    if record.kpi_suggestions is None:
+        record.kpi_suggestions = {}
+    
+    if request.kra_id not in record.kpi_suggestions:
+        # Fetch the KRA title from suggestions if possible
+        kra_title = ""
+        if record.kra_suggestions:
+            for k in record.kra_suggestions.get("kra_suggestions", []):
+                if k.get("kra_id") == request.kra_id:
+                    kra_title = k.get("title", "")
+                    break
+        record.kpi_suggestions[request.kra_id] = {
+            "kra_title": kra_title,
+            "kpi_suggestions": []
+        }
+
+    if "kpi_suggestions" not in record.kpi_suggestions[request.kra_id]:
+        record.kpi_suggestions[request.kra_id]["kpi_suggestions"] = []
+
+    record.kpi_suggestions[request.kra_id]["kpi_suggestions"].append(new_kpi)
+
+    if request.selected_ids is not None:
+        record.selected_kpi_ids = request.selected_ids
+
+    if record.selected_kpi_ids is None:
+        record.selected_kpi_ids = {}
+    
+    if request.kra_id not in record.selected_kpi_ids:
+        record.selected_kpi_ids[request.kra_id] = []
+    
+    if kpi_id not in record.selected_kpi_ids[request.kra_id]:
+        record.selected_kpi_ids[request.kra_id].append(kpi_id)
+
+    flag_modified(record, "kpi_suggestions")
+    flag_modified(record, "selected_kpi_ids")
+
+    await db.commit()
+    await db.refresh(record)
+
+    return {
+        "status": "success",
+        "kpi": new_kpi,
+        "selected_kpi_ids": record.selected_kpi_ids,
+        "kpi_suggestions": record.kpi_suggestions,
+    }
+
+
 @router.put("/{jd_session_id}/weights")
 async def save_weights_endpoint(
     jd_session_id: str,
@@ -471,3 +621,208 @@ async def chat(request: ChatRequest, db: AsyncSession = Depends(get_db)):
     )
 
     return {"reply": json.dumps(parsed_done_data), "history": conversation_history}
+
+
+# ── Review and Improvement Plan Routes ────────────────────────────────────────
+
+class KRAKPIReviewRequest(BaseModel):
+    action: str  # approved | rejected
+    comment: str | None = None
+    skill_ratings: list[dict] | None = None
+    improvement_area: str | None = None
+    improvement_goal: str | None = None
+    reviewer_id: str
+
+
+@router.get("/improvements")
+async def get_improvements(
+    employee_id: str = Query(...),
+    db: AsyncSession = Depends(get_db),
+):
+    """Retrieve the latest KRA/KPI session improvements for the employee."""
+    from sqlalchemy import select
+    from app.models.kra_kpi_model import KRAKPISession
+    
+    # Query for approved KRAKPISessions with sent_to_employee improvements
+    # We sort by updated_at descending to get the latest
+    result = await db.execute(
+        select(KRAKPISession)
+        .where(
+            KRAKPISession.employee_id == employee_id,
+            KRAKPISession.improvement_status == "sent_to_employee"
+        )
+        .order_by(KRAKPISession.updated_at.desc())
+    )
+    session = result.scalars().first()
+    if not session:
+        return {
+            "has_improvement_plan": False,
+            "skill_ratings": [],
+            "improvement_area": "",
+            "improvement_goal": ""
+        }
+        
+    return {
+        "has_improvement_plan": True,
+        "skill_ratings": session.skill_ratings,
+        "improvement_area": session.improvement_area,
+        "improvement_goal": session.improvement_goal,
+        "updated_at": session.updated_at.isoformat() if session.updated_at else None,
+        "reviewed_by": session.reviewed_by
+    }
+
+
+@router.get("/{jd_session_id}/review-skills")
+async def get_review_skills(
+    jd_session_id: str,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Fetch consolidated unique skills for manager review.
+    If already generated, returns the stored skills. Otherwise, invokes LLM to generate them.
+    """
+    from sqlalchemy import select
+    from app.models.kra_kpi_model import KRAKPISession
+    from app.models.jd_session_model import JDSession
+    from app.agents.kra_kpi_agent import consolidate_skills_for_review
+    import uuid
+
+    # 1. Fetch KRA/KPI session
+    record = await get_kra_kpi_by_jd_session(db, jd_session_id)
+    if not record:
+        raise HTTPException(
+            status_code=404,
+            detail="No KRA/KPI session found for this Job Description."
+        )
+
+    # If manager has already generated or rated, return them
+    if record.skill_ratings:
+        return {"skills": record.skill_ratings}
+
+    # 2. Fetch employee JD session to get the JD skills
+    try:
+        jd_uuid = uuid.UUID(jd_session_id)
+        jd_res = await db.execute(select(JDSession).where(JDSession.id == jd_uuid))
+        jd_session = jd_res.scalars().first()
+    except Exception:
+        jd_session = None
+
+    jd_skills = []
+    if jd_session and jd_session.jd_structured:
+        # Extract skills from structured data
+        jd_skills = jd_session.jd_structured.get("skills", [])
+
+    # Extract current KRAs & KPIs from session
+    kras = (record.kras or {}).get("kras", [])
+
+    # 3. Call AI agent to consolidate
+    try:
+        raw_skills = await consolidate_skills_for_review(jd_skills=jd_skills, kras=kras)
+        # Sanitise the skills names returned by the LLM (remove duplicates & soft-skills)
+        from app.agents.validators import SOFT_SKILL_PATTERNS
+        cleaned_skills = []
+        seen_names = set()
+        for s in raw_skills:
+            if not s or not isinstance(s, dict):
+                continue
+            name = s.get("name", "").strip()
+            desc = s.get("description", "").strip()
+            if not name or name.lower() in seen_names:
+                continue
+            # Filter soft skills
+            if any(pattern in name.lower() for pattern in SOFT_SKILL_PATTERNS):
+                continue
+            cleaned_skills.append({"name": name, "description": desc, "rating": None})
+            seen_names.add(name.lower())
+        skills = cleaned_skills
+    except Exception as e:
+        logger.error(f"Error in skills consolidation: {e}")
+        # Fallback list based on raw JD skills
+        skills = [{"name": s, "description": f"Competency in {s}.", "rating": None} for s in jd_skills]
+
+    # Initialize ratings field as null
+    for s in skills:
+        if "rating" not in s:
+            s["rating"] = None
+
+    # 4. Save to DB so it is locked and deterministic for subsequent requests
+    record.skill_ratings = skills
+    await db.commit()
+    await db.refresh(record)
+
+    return {"skills": record.skill_ratings}
+
+
+@router.post("/{jd_session_id}/review")
+async def review_kra_kpi(
+    jd_session_id: str,
+    request: KRAKPIReviewRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Submit manager review of KRA/KPI framework.
+    Rates skills and updates session status.
+    """
+    from datetime import datetime, timezone
+    from app.models.user_model import Employee
+    from sqlalchemy import select
+
+    record = await get_kra_kpi_by_jd_session(db, jd_session_id)
+    if not record:
+        raise HTTPException(status_code=404, detail="No KRA/KPI session found.")
+
+    if request.action not in ["approved", "rejected"]:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid action. Must be 'approved' or 'rejected'."
+        )
+
+    # 1. Fetch reviewer role
+    reviewer_res = await db.execute(
+        select(Employee).where(Employee.id == request.reviewer_id)
+    )
+    reviewer = reviewer_res.scalar_one_or_none()
+    reviewer_role = reviewer.role if reviewer else "manager"
+
+    # 2. Update status based on reviewer role and action
+    now = datetime.now(timezone.utc)
+    record.reviewed_by = request.reviewer_id
+    record.reviewer_comment = request.comment
+    record.reviewed_at = now
+
+    if request.action == "rejected":
+        if reviewer_role in ["hr", "admin"]:
+            record.status = "hr_rejected"
+        else:
+            record.status = "manager_rejected"
+    elif request.action == "approved":
+        if reviewer_role in ["hr", "admin"]:
+            record.status = "approved"
+        else:
+            record.status = "sent_to_hr"
+            # Set improvements only when manager approves
+            if request.skill_ratings is not None:
+                record.skill_ratings = request.skill_ratings
+            # We clear/ignore the improvement areas/goals since we only use ratings now
+            record.improvement_area = None
+            record.improvement_goal = None
+            record.improvement_status = "sent_to_employee"
+
+    record.updated_at = now
+    await db.commit()
+    await db.refresh(record)
+
+    # 3. Invalidate Redis cache
+    from app.core.cache import invalidate_pattern
+    await invalidate_pattern("cache:jd_list:*")
+    await invalidate_pattern("cache:manager_pending:*")
+    await invalidate_pattern("cache:hr_pending:*")
+    await invalidate_pattern("cache:dept_stats:*")
+    await invalidate_pattern(f"cache:jd_detail:*{jd_session_id}*")
+    await invalidate_pattern(f"jds:employee:{record.employee_id}")
+
+    return {
+        "status": "success",
+        "message": f"KRA/KPI framework successfully {request.action} by {reviewer_role}.",
+        "kra_kpi_status": record.status,
+    }

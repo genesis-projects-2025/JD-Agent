@@ -73,7 +73,15 @@ async def init_db():
             # If using SQLite (e.g. for local testing/development), return early
             # since SQLite does not support PostgreSQL-specific DDL and PL/pgSQL syntax.
             if conn.dialect.name == "sqlite":
-                for col, col_type in [("reviewer_comment", "TEXT"), ("reviewed_by", "VARCHAR(255)"), ("reviewed_at", "TIMESTAMP")]:
+                for col, col_type in [
+                    ("reviewer_comment", "TEXT"),
+                    ("reviewed_by", "VARCHAR(255)"),
+                    ("reviewed_at", "TIMESTAMP"),
+                    ("skill_ratings", "TEXT"),
+                    ("improvement_area", "TEXT"),
+                    ("improvement_goal", "TEXT"),
+                    ("improvement_status", "VARCHAR(50)"),
+                ]:
                     try:
                         await conn.execute(text(f"ALTER TABLE kra_kpi_sessions ADD COLUMN {col} {col_type}"))
                     except Exception:
@@ -88,6 +96,10 @@ async def init_db():
             await conn.execute(text("ALTER TABLE kra_kpi_sessions ADD COLUMN IF NOT EXISTS reviewer_comment TEXT"))
             await conn.execute(text("ALTER TABLE kra_kpi_sessions ADD COLUMN IF NOT EXISTS reviewed_by VARCHAR(255)"))
             await conn.execute(text("ALTER TABLE kra_kpi_sessions ADD COLUMN IF NOT EXISTS reviewed_at TIMESTAMP WITH TIME ZONE"))
+            await conn.execute(text("ALTER TABLE kra_kpi_sessions ADD COLUMN IF NOT EXISTS skill_ratings JSONB"))
+            await conn.execute(text("ALTER TABLE kra_kpi_sessions ADD COLUMN IF NOT EXISTS improvement_area TEXT"))
+            await conn.execute(text("ALTER TABLE kra_kpi_sessions ADD COLUMN IF NOT EXISTS improvement_goal TEXT"))
+            await conn.execute(text("ALTER TABLE kra_kpi_sessions ADD COLUMN IF NOT EXISTS improvement_status VARCHAR(50)"))
             await conn.execute(
                 text("""
                 DO $$

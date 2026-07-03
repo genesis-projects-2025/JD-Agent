@@ -41,6 +41,7 @@ type JDListItem = {
   version: number;
   updated_at: string | null;
   created_at: string | null;
+  kra_kpi_status?: string | null;
 };
 
 type DepartmentEmployee = {
@@ -50,6 +51,7 @@ type DepartmentEmployee = {
   reporting_manager: string;
   jd_status: string;
   last_updated: string | null;
+  kra_kpi_status?: string | null;
 };
 
 const STATUS_CONFIG: Record<

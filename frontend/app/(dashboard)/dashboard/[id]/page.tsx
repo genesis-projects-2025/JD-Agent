@@ -21,6 +21,8 @@ import {
   ChevronLeft,
   Trash2,
   Target,
+  Sparkles,
+  Award,
 } from "lucide-react";
 
 import { DeleteModal } from "@/components/ui/delete-modal";
@@ -44,6 +46,7 @@ import {
   fetchMyTeamStats,
   fetchMyTeamEmployees,
   deleteJD,
+  fetchMyImprovements,
 } from "@/lib/api";
 
 
@@ -63,6 +66,7 @@ type JDListItem = {
   jd_status?: string; // Added
   jd_id?: string; // Added
   last_updated?: string | null; // Added
+  kra_kpi_status?: string | null;
 };
 
 // ── Status config ─────────────────────────────────────────────────────────────
@@ -361,6 +365,7 @@ function EmployeeView({
   const [roleTemplate, setRoleTemplate] = useState<RoleTemplateResponse | null>(null);
   const router = useRouter();
   const [showConfirmModal, setShowConfirmModal] = useState(false);
+  const [improvementPlan, setImprovementPlan] = useState<any>(null);
 
   const handleStartInterview = (e: React.MouseEvent) => {
     if (roleTemplate && roleTemplate.exists && allJds.length === 0) {
@@ -386,11 +391,15 @@ function EmployeeView({
     Promise.all([
       fetchEmployeeJDs(employeeId),
       fetchEmployeeRoleTemplate(employeeId).catch(() => ({ exists: false })),
+      fetchMyImprovements(employeeId).catch(() => null),
     ])
-      .then(([jdsData, templateData]) => {
+      .then(([jdsData, templateData, improvementsData]) => {
         setAllJds(jdsData || []);
         if (templateData && templateData.exists) {
           setRoleTemplate(templateData);
+        }
+        if (improvementsData && improvementsData.has_improvement_plan) {
+          setImprovementPlan(improvementsData);
         }
       })
       .catch(console.error)
@@ -546,6 +555,78 @@ function EmployeeView({
                   💬 Start Custom Interview
                 </Link>
               </div>
+            </div>
+          </div>
+        )}
+        {/* Performance & Skill Development Plan widget */}
+        {improvementPlan && (
+          <div className="bg-gradient-to-br from-indigo-950 via-slate-900 to-blue-950 rounded-[2rem] p-6 sm:p-8 border border-indigo-500/20 text-white relative overflow-hidden shadow-lg shadow-slate-950/20 mb-8 sm:mb-10 animate-in fade-in duration-500">
+            <div className="absolute top-0 right-0 p-32 bg-indigo-500/10 rounded-md blur-3xl -translate-y-1/2 translate-x-1/2 pointer-events-none" />
+            
+            <div className="relative z-10 space-y-6">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-white/10 pb-4">
+                <div>
+                  <div className="flex items-center gap-2 mb-1.5">
+                    <span className="px-2.5 py-1 bg-indigo-500/20 text-indigo-200 text-[10px] font-semibold tracking-wider uppercase rounded-md border border-indigo-500/30">
+                      📊 Skill Gap Profile
+                    </span>
+                    <span className="text-[11px] text-indigo-300 font-medium">
+                      Skill Assessment
+                    </span>
+                  </div>
+                  <h3 className="text-xl font-bold">Your Skill Gap & Assessment Profile</h3>
+                </div>
+                {improvementPlan.updated_at && (
+                  <div className="text-[10px] text-slate-400 font-semibold self-start sm:self-center bg-white/5 border border-white/10 px-3 py-1.5 rounded-lg">
+                    Last Evaluated: {new Date(improvementPlan.updated_at).toLocaleDateString()}
+                  </div>
+                )}
+              </div>
+
+              {/* Skill Ratings Progress Grid */}
+              {improvementPlan.skill_ratings && improvementPlan.skill_ratings.length > 0 && (
+                <div className="space-y-4">
+                  <h4 className="text-xs font-bold text-slate-300 uppercase tracking-wider">Key Capabilities & Ratings</h4>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {improvementPlan.skill_ratings.map((skill: any) => {
+                      const isNa = skill.rating === "N/A";
+                      const rating = isNa ? 0 : (skill.rating || 0);
+                      let barColor = "bg-rose-500 shadow-rose-500/20";
+                      let textColor = "text-rose-300";
+                      if (isNa) {
+                        barColor = "bg-slate-600 shadow-slate-650/10";
+                        textColor = "text-slate-400";
+                      } else if (rating > 3 && rating <= 7) {
+                        barColor = "bg-amber-500 shadow-amber-500/20";
+                        textColor = "text-amber-300";
+                      } else if (rating > 7) {
+                        barColor = "bg-emerald-500 shadow-emerald-500/20";
+                        textColor = "text-emerald-300";
+                      }
+
+                      return (
+                        <div key={skill.name} className="p-4 bg-white/5 border border-white/10 rounded-xl space-y-2 backdrop-blur-sm">
+                          <div className="flex justify-between items-start gap-2">
+                            <div>
+                              <span className="text-xs font-bold text-white block">{skill.name}</span>
+                              <span className="text-[10px] text-slate-400 block mt-0.5 leading-normal">{skill.description}</span>
+                            </div>
+                            <span className={`text-sm font-extrabold ${textColor} shrink-0`}>
+                              {isNa ? "N/A" : `${rating}/10`}
+                            </span>
+                          </div>
+                          <div className="w-full bg-white/10 h-1.5 rounded-full overflow-hidden">
+                            <div 
+                              className={`h-full rounded-full transition-all duration-500 ${barColor}`} 
+                              style={{ width: isNa ? "100%" : `${rating * 10}%`, opacity: isNa ? 0.35 : 1 }} 
+                            />
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -720,6 +801,7 @@ function ManagerView({ user }: { user: AuthUser }) {
     jd_id?: string;
     jd_status?: string;
     last_updated?: string | null;
+    kra_kpi_status?: string | null;
   };
 
   const [teamStats, setTeamStats] = useState<TeamStats | null>(null);
@@ -731,7 +813,7 @@ function ManagerView({ user }: { user: AuthUser }) {
   const currentView = searchParams.get("view");
 
   const [filter, setFilter] = useState<
-    "all" | "pending" | "approved" | "my_jds" | "my_team" | "feedback"
+    "all" | "pending" | "approved" | "my_jds" | "my_team" | "feedback" | "skill_assessment"
   >(
     currentView === "feedback"
       ? "feedback"
@@ -743,7 +825,9 @@ function ManagerView({ user }: { user: AuthUser }) {
             ? "pending"
             : currentView === "approved"
               ? "approved"
-              : "pending", // Default to "pending" (Action Required) as the primary view
+              : currentView === "skill_assessment"
+                ? "skill_assessment"
+                : "pending", // Default to "pending" (Action Required) as the primary view
   );
 
   // Derived JDs based on filter
@@ -811,6 +895,22 @@ function ManagerView({ user }: { user: AuthUser }) {
     }
     load();
   }, [user.employee_id]);
+
+  useEffect(() => {
+    if (currentView === "feedback") {
+      setFilter("feedback");
+    } else if (currentView === "my_team") {
+      setFilter("my_team");
+    } else if (currentView === "my_jds") {
+      setFilter("my_jds");
+    } else if (currentView === "pending") {
+      setFilter("pending");
+    } else if (currentView === "approved") {
+      setFilter("approved");
+    } else if (currentView === "skill_assessment") {
+      setFilter("skill_assessment");
+    }
+  }, [currentView]);
 
   if (loading) return <LoadingScreen />;
 
@@ -1183,6 +1283,17 @@ function ManagerView({ user }: { user: AuthUser }) {
                 </div>
               )}
             </div>
+          ) : filter === "skill_assessment" ? (
+            <SkillAssessmentDirectory
+              employees={myTeamEmployees}
+              onAssessEmployee={(jdId, employeeId, employeeName, kraKpiStatus) => {
+                if (!kraKpiStatus || kraKpiStatus === "draft" || kraKpiStatus === "confirmed") {
+                  setBlockedEmployeeName(employeeName);
+                } else {
+                  setViewingKraKpi({ jdId, employeeId, employeeName });
+                }
+              }}
+            />
           ) : (
             <JDGrid 
               jds={jds} 
@@ -1700,6 +1811,157 @@ function HRView({ user }: { user: AuthUser }) {
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+function SkillAssessmentDirectory({
+  employees,
+  onAssessEmployee,
+}: {
+  employees: any[];
+  onAssessEmployee: (jdId: string, employeeId: string, employeeName: string, kraKpiStatus?: string | null) => void;
+}) {
+  const [subFilter, setSubFilter] = useState<"all" | "completed" | "pending">("all");
+
+  const ratedEmployees = employees.filter((emp) => {
+    return emp.kra_kpi_status === "approved";
+  });
+
+  const pendingEmployees = employees.filter((emp) => {
+    return emp.kra_kpi_status !== "approved" && emp.jd_id && emp.kra_kpi_status && emp.kra_kpi_status !== "draft" && emp.kra_kpi_status !== "confirmed";
+  });
+
+  const filtered = useMemo(() => {
+    if (subFilter === "completed") return ratedEmployees;
+    if (subFilter === "pending") return pendingEmployees;
+    return employees.filter(emp => emp.jd_id);
+  }, [subFilter, employees, ratedEmployees, pendingEmployees]);
+
+  // Group by department
+  const grouped = useMemo(() => {
+    const groups: Record<string, any[]> = {};
+    filtered.forEach((emp) => {
+      const dept = emp.department || "Other";
+      if (!groups[dept]) groups[dept] = [];
+      groups[dept].push(emp);
+    });
+    // Sort departments alphabetically
+    return Object.keys(groups)
+      .sort((a, b) => a.localeCompare(b))
+      .reduce((acc, key) => {
+        acc[key] = groups[key];
+        return acc;
+      }, {} as Record<string, any[]>);
+  }, [filtered]);
+
+  return (
+    <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+      {/* Sub tabs filter */}
+      <div className="flex gap-2 border-b border-surface-200 pb-px">
+        {[
+          { key: "all", label: `All Team Members (${employees.filter(e => e.jd_id).length})` },
+          { key: "completed", label: `Completed Assessments (${ratedEmployees.length})` },
+          { key: "pending", label: `Pending Assessments (${pendingEmployees.length})` },
+        ].map((tab) => {
+          const isActive = subFilter === tab.key;
+          return (
+            <button
+              key={tab.key}
+              onClick={() => setSubFilter(tab.key as any)}
+              className={`px-4 py-2 text-xs font-semibold border-b-2 -mb-px transition-all ${
+                isActive
+                  ? "border-primary-600 text-primary-600 font-bold"
+                  : "border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300"
+              }`}
+            >
+              {tab.label}
+            </button>
+          );
+        })}
+      </div>
+
+      {Object.keys(grouped).length === 0 ? (
+        <div className="bg-white rounded-[2.5rem] border border-surface-200 shadow-md p-20 text-center">
+          <Award className="w-12 h-12 text-surface-200 mx-auto mb-4" />
+          <p className="text-surface-500 font-medium">No skill assessments match the selected filter.</p>
+        </div>
+      ) : (
+        <div className="space-y-8">
+          {Object.entries(grouped).map(([deptName, emps]) => (
+            <div key={deptName} className="space-y-4">
+              <div className="flex items-center gap-2.5 px-2">
+                <span className="w-1.5 h-4 rounded-full bg-primary-500 shadow-sm" />
+                <h3 className="text-sm font-semibold text-surface-800 tracking-wide">{deptName}</h3>
+                <span className="text-[10px] font-bold bg-primary-50 text-primary-600 px-2 py-0.5 rounded-full">
+                  {emps.length} {emps.length === 1 ? 'member' : 'members'}
+                </span>
+              </div>
+
+              <div className="bg-white rounded-[2.5rem] border border-surface-200 shadow-md overflow-hidden">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left border-collapse">
+                    <thead>
+                      <tr className="bg-surface-50/50">
+                        <th className="px-6 py-5 text-[10px] font-medium text-surface-400 border-b border-surface-100 w-1/3">Team Member</th>
+                        <th className="px-6 py-5 text-[10px] font-medium text-surface-400 border-b border-surface-100 w-1/3">Designation</th>
+                        <th className="px-6 py-5 text-[10px] font-medium text-surface-400 border-b border-surface-100">Assessment Status</th>
+                        <th className="px-6 py-5 text-[10px] font-medium text-surface-400 border-b border-surface-100 text-right">Action</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-surface-50">
+                      {emps.map((emp) => {
+                        const isRated = emp.kra_kpi_status === "approved";
+                        return (
+                          <tr key={emp.employee_id} className="hover:bg-surface-50/50 transition-colors group">
+                            <td className="px-6 py-5">
+                              <div className="flex items-center gap-3">
+                                <div className="w-10 h-10 rounded-md bg-primary-50 text-primary-600 flex items-center justify-center font-medium text-xs ring-1 ring-primary-100">
+                                  {emp.name.split(' ').map((n: string) => n[0]).join('').slice(0, 2).toUpperCase()}
+                                </div>
+                                <div>
+                                  <p className="font-medium text-surface-900 text-sm">{emp.name}</p>
+                                  <p className="text-[10px] font-medium text-surface-400 font-mono ">{emp.employee_id}</p>
+                                </div>
+                              </div>
+                            </td>
+                            <td className="px-6 py-5">
+                              <p className="text-xs font-medium text-surface-600 leading-snug">{emp.designation}</p>
+                            </td>
+                            <td className="px-6 py-5">
+                              <div className={`inline-flex items-center gap-2 px-3 py-1 rounded-lg border text-[10px] font-medium ${
+                                isRated 
+                                  ? "bg-emerald-50 border-emerald-200 text-emerald-700" 
+                                  : "bg-amber-50 border-amber-200 text-amber-700"
+                              }`}>
+                                <span className={`w-1.5 h-1.5 rounded-md bg-current opacity-40`} />
+                                {isRated ? "Completed & Sent" : "Awaiting Assessment"}
+                              </div>
+                            </td>
+                            <td className="px-6 py-5 text-right">
+                              <button
+                                onClick={() => onAssessEmployee(emp.jd_id, emp.employee_id, emp.name, emp.kra_kpi_status)}
+                                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[10px] font-semibold tracking-wider shadow-sm transition-all border ${
+                                  isRated
+                                    ? "border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
+                                    : "border-primary-200 bg-primary-50 text-primary-700 hover:bg-primary-100"
+                                }`}
+                              >
+                                <Award className="w-3.5 h-3.5 animate-pulse" />
+                                {isRated ? "View Skill Profile" : "Rate Capabilities"}
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

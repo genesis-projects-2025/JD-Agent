@@ -226,18 +226,15 @@ Based on HR instructions, system freezes, and admin requests, the platform has u
 | `backend/app/routers/hr_routes.py` | **Recursive Team Hierarchy (July 2026):** Changed `/my-team-employees` and `/my-team-stats` to fetch recursive (direct + indirect) reportees instead of only immediate reports, allowing heads and directors to view full hierarchy JDs. |
 | `backend/app/routers/admin_routes.py` | **Admin KRA/KPI Editing API (July 2026):** Added `PUT /admin/kra-kpi/{employee_id}` endpoint to update KRA/KPI framework records for both `UploadedKRAKPI` and active `KRAKPISession` tables. |
 | `backend/app/routers/admin_jd_routes.py` | **Admin JD Editing API (July 2026):** Added `PUT /admin/jds/{jd_id}` endpoint to modify reference JDs and synchronize changes to active employee `JDSession` objects. |
-| `frontend/lib/api.ts` | **Admin KRA/KPI & JD Editing API (July 2026):** Added `updateAdminKRAKPI` and `updateAdminReferenceJD` API functions. |
-| `frontend/app/admin/(dashboard)/jd/[id]/page.tsx` | **Admin KRA/KPI Editing Panel (July 2026):** Added a tab switcher ("Job Description" / "Performance Goals") and built a full inline editor allowing admins to view, modify, add, or delete KRAs and KPIs. |
-| `frontend/app/admin/(dashboard)/jd-library/page.tsx` | **Admin JD Upload Inline Editor (July 2026):** Implemented an "Edit JD" toggle inside the upload Preview Modal, allowing admins to modify Designation, Level, Department, Purpose, Responsibilities, Skills, Tools, and Qualifications before or after publishing. |
-| `frontend/app/admin/jds/[id]/page.tsx` | **Admin JD Details Inline Editor (July 2026):** Integrated the exact same "Edit JD" inline editing workspace into the reference library details view modal to support modifications. |
-| `backend/app/services/db_query_service.py` | **Admin Brain Agent (July 2026):** Implemented read-only safe SQL validation and execution service. |
-| `backend/app/services/vector_service.py` | **Admin Brain Agent (July 2026):** Added `employee_id` mapping in JD vector metadata, and implemented KRA/KPI vector indexing. |
-| `backend/app/services/admin_brain_agent_service.py` | **Admin Brain Agent (July 2026):** Created Hybrid SQL + Vector orchestrator supporting professional tone, streaming SSE events, and robust error guardrails. |
-| `backend/app/routers/admin_brain_agent_routes.py` | **Admin Brain Agent (July 2026):** Exposed streaming route `/admin/brain-agent/chat/stream` for administrative queries. |
+| `frontend/lib/api.ts` | **Admin Brain Agent (July 2026):** Added session list, details, delete, and CSV export API functions. |
+| `backend/app/models/brain_agent_model.py` | **Admin Brain Agent (July 2026):** Created persistent BrainAgentSession and BrainAgentConversationTurn DB schemas. |
+| `backend/app/services/brain_agent_anomaly_service.py` | **Admin Brain Agent (July 2026):** Developed proactive DB audit diagnostics operating under isolated transaction savepoints. |
+| `backend/app/services/admin_brain_agent_service.py` | **Admin Brain Agent (July 2026):** Upgraded orchestrator to support DB session loading/saving, Langfuse callbacks, concurrent multi-tool runs, and entity pronoun tracking. |
+| `backend/app/routers/admin_brain_agent_routes.py` | **Admin Brain Agent (July 2026):** Added endpoints for session history lists, details retrieval, session deletion, and safe SELECT query CSV downloads. |
+| `frontend/app/admin/(dashboard)/brain-agent/page.tsx` | **Admin Brain Agent (July 2026):** Created persistent conversation sidebar history, collapsible diagnostic banner, Recharts togglable charts visualizer, and export CSV controls. |
 | `backend/app/main.py` | **Admin Brain Agent (July 2026):** Registered the new Admin Brain Agent router. |
 | `backend/scripts/sync_krakpis_to_pinecone.py` | **Admin Brain Agent (July 2026):** Pre-synced all active employee goals into Pinecone vectors. |
 | `backend/scripts/test_admin_brain_agent.py` | **Admin Brain Agent (July 2026):** Integration test script to verify SQL injection block and chat streaming. |
-| `frontend/app/admin/(dashboard)/brain-agent/page.tsx` | **Admin Brain Agent (July 2026):** Created slate monochromatic minimalistic chat workspace page with template query triggers and fetch-reader streaming. |
 | `frontend/app/admin/(dashboard)/layout.tsx` | **Admin Brain Agent (July 2026):** Registered \"Brain Agent\" navigation entry in sidebar. |
 | `backend/app/agents/kra_kpi_agent.py` | **Credit Cost Optimization (July 2026):** Swapped KRA/KPI interview model to `gemini-2.5-flash` to reduce API cost by 94%. |
 | `backend/app/services/kra_kpi_service.py` | **Credit Cost Optimization (July 2026):** Swapped all KPI extraction and parsing instances to `gemini-2.5-flash`. |

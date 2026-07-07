@@ -1,6 +1,8 @@
 import logging
+import json
 from typing import List, Dict
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
@@ -15,24 +17,27 @@ class ChatRequest(BaseModel):
     message: str
     history: List[Dict[str, str]] = None
 
-class ChatResponse(BaseModel):
-    status: str
-    reply: str
-
-@router.post("/chat", response_model=ChatResponse)
-async def chat_with_brain_agent(
+@router.post("/chat/stream")
+async def chat_stream_endpoint(
     request: ChatRequest,
     db: AsyncSession = Depends(get_db),
     admin_role: str = Depends(get_current_admin),
 ):
     """
-    POST /admin/brain-agent/chat
+    POST /admin/brain-agent/chat/stream
     Allows authenticated administrators to query the corporate knowledge base
-    via the Hybrid RAG/SQL Admin Brain Agent.
+    via the Hybrid RAG/SQL Admin Brain Agent, streaming responses back in real-time.
     """
-    try:
-        reply = await AdminBrainAgentService.chat(db, request.message, request.history)
-        return ChatResponse(status="success", reply=reply)
-    except Exception as e:
-        logger.error(f"Error in brain agent chat endpoint: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+    async def event_generator():
+        try:
+            async for event in AdminBrainAgentService.chat_stream(
+                db=db,
+                message=request.message,
+                history=request.history
+            ):
+                yield f"data: {json.dumps(event)}\n\n"
+        except Exception as e:
+            logger.error(f"Error in brain agent chat stream: {e}")
+            yield f"data: {json.dumps({'type': 'chunk', 'content': f' Error during processing: {str(e)}'})}\n\n"
+
+    return StreamingResponse(event_generator(), media_type="text/event-stream")

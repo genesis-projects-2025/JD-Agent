@@ -6,12 +6,9 @@ import {
     Send,
     Bot,
     User,
-    Sparkles,
     Loader2,
     Database,
-    ShieldAlert,
     Terminal,
-    Target,
     HelpCircle,
     ArrowRight
 } from "lucide-react";
@@ -28,23 +25,23 @@ interface Message {
 
 const SUGGESTED_QUERIES = [
     {
-        title: "Employee Directory Info",
-        desc: "List DIR05's reporting team members and their designation details.",
+        title: "Employee Directory",
+        desc: "Query reports under Director DIR05.",
         query: "Which employees report to DIR05 (Dr. Bhanu Prasad) and what are their designations? Render as a table."
     },
     {
-        title: "KRA Weights Check",
-        desc: "Find any active performance goal frameworks that don't sum to 100%.",
+        title: "KPI Weight Audits",
+        desc: "Identify framework weights deviating from 100%.",
         query: "Are there any employee KRA frameworks (in kra_kpi_sessions) where the total weights do not sum up to 100%? If so, list them."
     },
     {
-        title: "Skills & Gaps Analysis",
-        desc: "List employees in Quality Assurance with low skill ratings.",
+        title: "Skill Competency Ratings",
+        desc: "List employee ratings within Quality Assurance.",
         query: "Find employees in Quality Assurance who have skill ratings in their KRA sheets, and list their names and ratings."
     },
     {
-        title: "Role Description Search",
-        desc: "Search Pinecone vectors for tasks related to compliance audits.",
+        title: "Compliance Goal Search",
+        desc: "Locate tasks matching audit goals in Pinecone.",
         query: "Perform a vector search for any JD tasks or performance goals related to 'external audits' or 'compliance'."
     }
 ];
@@ -64,7 +61,7 @@ function MarkdownRenderer({ content }: { content: string }) {
             renderedElements.push(
                 <ul key={key} className="list-disc pl-5 my-2 space-y-1">
                     {listItems.map((item, idx) => (
-                        <li key={idx} className="text-xs text-slate-700 leading-relaxed" dangerouslySetInnerHTML={{ __html: formatInline(item) }} />
+                        <li key={idx} className="text-xs text-zinc-700 leading-relaxed" dangerouslySetInnerHTML={{ __html: formatInline(item) }} />
                     ))}
                 </ul>
             );
@@ -76,22 +73,22 @@ function MarkdownRenderer({ content }: { content: string }) {
     const flushTable = (key: string) => {
         if (tableRows.length > 0 || tableHeader.length > 0) {
             renderedElements.push(
-                <div key={key} className="overflow-x-auto my-3 border border-slate-200 rounded-lg shadow-sm">
-                    <table className="min-w-full divide-y divide-slate-200 text-xs">
+                <div key={key} className="overflow-x-auto my-3 border border-zinc-200 rounded-lg bg-white">
+                    <table className="min-w-full divide-y divide-zinc-200 text-xs">
                         {tableHeader.length > 0 && (
-                            <thead className="bg-slate-50 font-bold">
+                            <thead className="bg-zinc-50 font-bold">
                                 <tr>
                                     {tableHeader.map((h, i) => (
-                                        <th key={i} className="px-4 py-2.5 text-left text-slate-650 font-semibold border-b border-slate-200" dangerouslySetInnerHTML={{ __html: formatInline(h) }} />
+                                        <th key={i} className="px-4 py-2.5 text-left text-zinc-600 font-semibold border-b border-zinc-200" dangerouslySetInnerHTML={{ __html: formatInline(h) }} />
                                     ))}
                                 </tr>
                             </thead>
                         )}
-                        <tbody className="divide-y divide-slate-150 bg-white">
+                        <tbody className="divide-y divide-zinc-100 bg-white">
                             {tableRows.map((row, idx) => (
-                                <tr key={idx} className={idx % 2 === 0 ? "bg-white" : "bg-slate-50/50"}>
+                                <tr key={idx} className={idx % 2 === 0 ? "bg-white" : "bg-zinc-50/30"}>
                                     {row.map((cell, i) => (
-                                        <td key={i} className="px-4 py-2 text-slate-700 max-w-xs truncate" dangerouslySetInnerHTML={{ __html: formatInline(cell) }} />
+                                        <td key={i} className="px-4 py-2 text-zinc-700 max-w-xs truncate" dangerouslySetInnerHTML={{ __html: formatInline(cell) }} />
                                     ))}
                                 </tr>
                             ))}
@@ -109,7 +106,7 @@ function MarkdownRenderer({ content }: { content: string }) {
         return text
             .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
             .replace(/\*(.*?)\*/g, '<em>$1</em>')
-            .replace(/`(.*?)`/g, '<code class="bg-slate-100 text-indigo-600 px-1.5 py-0.5 rounded font-mono text-[10px]">$1</code>');
+            .replace(/`(.*?)`/g, '<code class="bg-zinc-100 text-zinc-800 px-1 py-0.5 rounded font-mono text-[10px]">$1</code>');
     };
 
     for (let i = 0; i < lines.length; i++) {
@@ -149,19 +146,19 @@ function MarkdownRenderer({ content }: { content: string }) {
         // Headers
         if (line.startsWith('###')) {
             renderedElements.push(
-                <h5 key={i} className="text-sm font-bold text-slate-800 mt-4 mb-2" dangerouslySetInnerHTML={{ __html: formatInline(line.substring(3).trim()) }} />
+                <h5 key={i} className="text-sm font-bold text-zinc-800 mt-4 mb-2" dangerouslySetInnerHTML={{ __html: formatInline(line.substring(3).trim()) }} />
             );
             continue;
         }
         if (line.startsWith('##')) {
             renderedElements.push(
-                <h4 key={i} className="text-base font-bold text-slate-800 mt-4 mb-2" dangerouslySetInnerHTML={{ __html: formatInline(line.substring(2).trim()) }} />
+                <h4 key={i} className="text-base font-bold text-zinc-800 mt-4 mb-2" dangerouslySetInnerHTML={{ __html: formatInline(line.substring(2).trim()) }} />
             );
             continue;
         }
         if (line.startsWith('#')) {
             renderedElements.push(
-                <h3 key={i} className="text-lg font-bold text-slate-800 mt-4 mb-2" dangerouslySetInnerHTML={{ __html: formatInline(line.substring(1).trim()) }} />
+                <h3 key={i} className="text-lg font-bold text-zinc-800 mt-4 mb-2" dangerouslySetInnerHTML={{ __html: formatInline(line.substring(1).trim()) }} />
             );
             continue;
         }
@@ -169,7 +166,7 @@ function MarkdownRenderer({ content }: { content: string }) {
         // Normal line
         if (line) {
             renderedElements.push(
-                <p key={i} className="text-xs text-slate-700 leading-relaxed mb-2" dangerouslySetInnerHTML={{ __html: formatInline(line) }} />
+                <p key={i} className="text-xs text-zinc-700 leading-relaxed mb-2" dangerouslySetInnerHTML={{ __html: formatInline(line) }} />
             );
         }
     }
@@ -186,12 +183,13 @@ export default function AdminBrainAgentPage() {
         {
             id: "welcome",
             role: "model",
-            content: "Welcome to the Admin Brain Agent workspace. I have direct query capabilities over employee registries, reporting structures, JD sessions, and KRA/KPI performance frameworks.\n\nAsk me any question related to employees, hierarchy statistics, workflow targets, or semantic searches over job descriptions. I'll analyze the dataset and provide a detailed report.",
+            content: "System initialized. direct relational SQL queries and vector semantic searches are enabled.\n\nEnter a request to perform analytical database validation or fetch organizational job descriptions.",
             timestamp: new Date()
         }
     ]);
     const [input, setInput] = useState("");
     const [loading, setLoading] = useState(false);
+    const [statusIndicator, setStatusIndicator] = useState<string | null>(null);
     const messagesEndRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
@@ -218,17 +216,16 @@ export default function AdminBrainAgentPage() {
         };
         setMessages(prev => [...prev, newMessage]);
         setLoading(true);
+        setStatusIndicator("Initiating query analysis...");
 
         try {
             const token = getCookie(cookieKeys.ADMIN_TOKEN);
-            
-            // Format history for backend API context
             const history = messages.slice(1).map(m => ({
                 role: m.role,
                 content: m.content
             }));
 
-            const res = await fetch(`${API_URL}/admin/brain-agent/chat`, {
+            const response = await fetch(`${API_URL}/admin/brain-agent/chat/stream`, {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/json",
@@ -240,74 +237,112 @@ export default function AdminBrainAgentPage() {
                 })
             });
 
-            if (!res.ok) {
-                const err = await res.json().catch(() => ({}));
-                throw new Error(err.detail || "Brain Agent is taking too long to reply.");
+            if (!response.ok) {
+                const err = await response.json().catch(() => ({}));
+                throw new Error(err.detail || "Connection failed.");
             }
 
-            const data = await res.json();
-            const botMessage: Message = {
-                id: `msg-${Date.now() + 1}`,
+            const reader = response.body?.getReader();
+            const decoder = new TextDecoder();
+            if (!reader) return;
+
+            const botMessageId = `msg-${Date.now() + 1}`;
+            setMessages(prev => [...prev, {
+                id: botMessageId,
                 role: "model",
-                content: data.reply,
+                content: "",
                 timestamp: new Date()
-            };
-            setMessages(prev => [...prev, botMessage]);
+            }]);
+
+            let accumulatedContent = "";
+            let buffer = "";
+
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+
+                buffer += decoder.decode(value, { stream: true });
+                const lines = buffer.split("\n");
+                buffer = lines.pop() || "";
+
+                for (const line of lines) {
+                    const cleanLine = line.trim();
+                    if (!cleanLine.startsWith("data: ")) continue;
+
+                    const jsonStr = cleanLine.substring(6);
+                    try {
+                        const parsed = JSON.parse(jsonStr);
+                        if (parsed.type === "chunk") {
+                            accumulatedContent += parsed.content;
+                            setMessages(prev => prev.map(m => {
+                                if (m.id === botMessageId) {
+                                    return { ...m, content: accumulatedContent };
+                                }
+                                return m;
+                            }));
+                        } else if (parsed.type === "status") {
+                            setStatusIndicator(parsed.content);
+                        }
+                    } catch (e) {
+                        console.warn("Chunk parse error:", e);
+                    }
+                }
+            }
         } catch (err: any) {
             console.error(err);
             const errorMessage: Message = {
                 id: `msg-error-${Date.now()}`,
                 role: "model",
-                content: `⚠️ **Agent Execution Error**: ${err.message || "Failed to reach backend."}\n\nPlease check your server logs or try another query.`,
+                content: `Error: ${err.message || "Failed to retrieve reply."}`,
                 timestamp: new Date()
             };
             setMessages(prev => [...prev, errorMessage]);
         } finally {
             setLoading(false);
+            setStatusIndicator(null);
         }
     };
 
     return (
-        <div className="flex flex-col h-[calc(100vh-8rem)] space-y-4">
-            {/* Header section */}
-            <div className="flex items-center justify-between border-b border-slate-200 pb-4">
+        <div className="flex flex-col h-[calc(100vh-8rem)] space-y-4 font-sans text-zinc-800">
+            {/* Header section (Minimalistic) */}
+            <div className="flex items-center justify-between border-b border-zinc-250 pb-4">
                 <div>
-                    <h1 className="text-2xl font-bold text-slate-900 flex items-center gap-2">
-                        <Sparkles className="w-5 h-5 text-indigo-500 animate-pulse" />
-                        Admin Brain Agent
+                    <h1 className="text-lg font-semibold text-zinc-900 tracking-tight flex items-center gap-2">
+                        Executive Intelligence Oracle
                     </h1>
-                    <p className="text-xs text-slate-500 mt-0.5">
-                        Relational SQL + Vector Hybrid Intelligence Workspace (Admin-Only Access)
+                    <p className="text-[11px] text-zinc-500">
+                        Read-only administrative directory & vector index client
                     </p>
                 </div>
-                <div className="flex items-center gap-2 bg-indigo-50 border border-indigo-100 rounded-xl px-3 py-1.5 text-[10px] font-bold text-indigo-700">
-                    <Database className="w-3.5 h-3.5" />
+                <div className="flex items-center gap-1.5 bg-zinc-100 border border-zinc-200 rounded-lg px-2.5 py-1 text-[10px] text-zinc-600 font-medium">
+                    <Database className="w-3 h-3 text-zinc-500" />
                     Knowledge Base Active
                 </div>
             </div>
 
-            {/* Chat viewport / suggestions split */}
+            {/* Split View */}
             <div className="flex-1 flex flex-col lg:flex-row gap-6 min-h-0">
-                {/* Chat Pane */}
-                <div className="flex-1 flex flex-col bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
-                    {/* Message Area */}
-                    <div className="flex-1 overflow-y-auto p-6 space-y-4 custom-scrollbar">
+                {/* Chat Panel */}
+                <div className="flex-1 flex flex-col bg-white border border-zinc-200 rounded-xl overflow-hidden">
+                    {/* Viewport */}
+                    <div className="flex-1 overflow-y-auto p-5 space-y-4 custom-scrollbar bg-zinc-50/20">
                         {messages.map((m) => {
                             const isUser = m.role === "user";
                             return (
                                 <div key={m.id} className={`flex gap-3 max-w-[85%] ${isUser ? "ml-auto flex-row-reverse" : "mr-auto"}`}>
-                                    <div className={`w-8 h-8 rounded-lg shrink-0 flex items-center justify-center border ${isUser ? "bg-indigo-600 text-white border-indigo-700" : "bg-slate-100 text-slate-600 border-slate-200"}`}>
-                                        {isUser ? <User className="w-4 h-4" /> : <Bot className="w-4 h-4 text-indigo-500" />}
+                                    <div className={`w-7 h-7 rounded-lg shrink-0 flex items-center justify-center border text-[10px] font-bold ${isUser ? "bg-zinc-800 text-white border-zinc-900" : "bg-zinc-100 text-zinc-600 border-zinc-250"}`}>
+                                        {isUser ? "AD" : "OC"}
                                     </div>
                                     <div>
-                                        <div className={`p-4 rounded-2xl shadow-sm text-sm leading-relaxed ${isUser ? "bg-indigo-600 text-white rounded-tr-none" : "bg-slate-50/50 border border-slate-150 text-slate-800 rounded-tl-none"}`}>
+                                        <div className={`p-3.5 rounded-lg text-xs leading-relaxed border ${isUser ? "bg-zinc-800 text-white border-zinc-900" : "bg-white border-zinc-200 text-zinc-850"}`}>
                                             {isUser ? (
-                                                <p className="whitespace-pre-wrap text-xs font-medium">{m.content}</p>
+                                                <p className="whitespace-pre-wrap font-medium">{m.content}</p>
                                             ) : (
                                                 <MarkdownRenderer content={m.content} />
                                             )}
                                         </div>
-                                        <span className="block text-[9px] text-slate-400 mt-1 px-1 text-right">
+                                        <span className="block text-[9px] text-zinc-400 mt-1 px-1">
                                             {m.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                                         </span>
                                     </div>
@@ -317,86 +352,86 @@ export default function AdminBrainAgentPage() {
 
                         {loading && (
                             <div className="flex gap-3 max-w-[80%] mr-auto">
-                                <div className="w-8 h-8 rounded-lg shrink-0 flex items-center justify-center bg-slate-100 border border-slate-200">
-                                    <Bot className="w-4 h-4 text-indigo-500" />
+                                <div className="w-7 h-7 rounded-lg shrink-0 flex items-center justify-center bg-zinc-100 border border-zinc-250 text-[10px] font-bold text-zinc-600">
+                                    OC
                                 </div>
-                                <div className="bg-slate-50/50 border border-slate-150 p-4 rounded-2xl rounded-tl-none shadow-sm flex items-center gap-3">
-                                    <Loader2 className="w-4 h-4 text-indigo-600 animate-spin" />
-                                    <span className="text-xs text-slate-500 font-medium animate-pulse">Running data analysis pipeline...</span>
+                                <div className="bg-white border border-zinc-200 p-3.5 rounded-lg flex items-center gap-2.5">
+                                    <Loader2 className="w-3.5 h-3.5 text-zinc-500 animate-spin" />
+                                    <span className="text-xs text-zinc-500 font-medium animate-pulse">{statusIndicator || "Analyzing context..."}</span>
                                 </div>
                             </div>
                         )}
                         <div ref={messagesEndRef} />
                     </div>
 
-                    {/* Input Bar */}
+                    {/* Minimal Input Bar */}
                     <form
                         onSubmit={(e) => {
                             e.preventDefault();
                             handleSend(input);
                         }}
-                        className="p-4 border-t border-slate-150 bg-slate-50/50 flex gap-3"
+                        className="p-3 border-t border-zinc-200 bg-zinc-50/50 flex gap-3"
                     >
                         <input
                             type="text"
                             value={input}
                             onChange={(e) => setInput(e.target.value)}
                             disabled={loading}
-                            placeholder="Ask any question about employees, hierarchy statistics, or skill gaps..."
-                            className="flex-1 px-4 py-3 bg-white border border-slate-250 rounded-xl text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/10 focus:border-indigo-500 transition-all shadow-inner disabled:opacity-50"
+                            placeholder="Enter administrative data query..."
+                            className="flex-1 px-3.5 py-2.5 bg-white border border-zinc-250 rounded-lg text-xs text-zinc-800 placeholder-zinc-400 focus:outline-none focus:border-zinc-650 focus:ring-1 focus:ring-zinc-650 transition-all disabled:opacity-50"
                         />
                         <button
                             type="submit"
                             disabled={loading || !input.trim()}
-                            className="px-5 py-3 bg-indigo-600 hover:bg-indigo-750 text-white rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2 shadow-md shadow-indigo-100 disabled:opacity-50"
+                            className="px-4 py-2.5 bg-zinc-900 hover:bg-zinc-850 text-white border border-zinc-950 rounded-lg text-xs font-semibold transition-all flex items-center justify-center gap-1.5 disabled:opacity-50"
                         >
-                            <Send className="w-4 h-4" />
-                            Send
+                            <Send className="w-3.5 h-3.5" />
+                            Run
                         </button>
                     </form>
                 </div>
 
-                {/* Suggestions Pane */}
-                <div className="w-full lg:w-80 shrink-0 space-y-4">
-                    <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm space-y-4">
-                        <h3 className="text-sm font-bold text-slate-850 flex items-center gap-2">
-                            <HelpCircle className="w-4 h-4 text-indigo-500" />
-                            Suggested Templates
+                {/* Templates Panel (Minimalistic) */}
+                <div className="w-full lg:w-72 shrink-0 space-y-4">
+                    <div className="bg-white border border-zinc-200 rounded-xl p-4 space-y-3">
+                        <h3 className="text-xs font-semibold text-zinc-900 flex items-center gap-1.5">
+                            <HelpCircle className="w-3.5 h-3.5 text-zinc-500" />
+                            Template Queries
                         </h3>
-                        <p className="text-[11px] text-slate-500 leading-relaxed">
-                            Click any query below to run a direct analytical analysis over the corporate database and RAG model.
+                        <p className="text-[10px] text-zinc-500 leading-normal">
+                            Select a template query to evaluate organizational metrics or cross-reference performance goals.
                         </p>
                         
-                        <div className="space-y-3 pt-2">
+                        <div className="space-y-2 pt-1.5">
                             {SUGGESTED_QUERIES.map((q, idx) => (
                                 <button
                                     key={idx}
                                     onClick={() => handleSend(q.query)}
                                     disabled={loading}
-                                    className="w-full text-left p-3.5 rounded-xl border border-slate-150 hover:border-indigo-300 hover:bg-indigo-50/30 transition-all duration-200 group flex items-start justify-between gap-3 text-xs disabled:opacity-50"
+                                    className="w-full text-left p-3 rounded-lg border border-zinc-200 hover:border-zinc-350 hover:bg-zinc-50/50 transition-all duration-150 group flex items-center justify-between gap-3 text-xs disabled:opacity-50"
                                 >
-                                    <div className="space-y-1">
-                                        <div className="font-bold text-slate-800 group-hover:text-indigo-750 transition-colors">
+                                    <div className="space-y-0.5">
+                                        <div className="font-semibold text-zinc-800 group-hover:text-zinc-950 transition-colors">
                                             {q.title}
                                         </div>
-                                        <div className="text-[10px] text-slate-450 leading-relaxed">
+                                        <div className="text-[9px] text-zinc-450 leading-relaxed">
                                             {q.desc}
                                         </div>
                                     </div>
-                                    <ArrowRight className="w-3.5 h-3.5 text-slate-400 shrink-0 group-hover:translate-x-0.5 group-hover:text-indigo-600 transition-all self-center" />
+                                    <ArrowRight className="w-3 h-3 text-zinc-400 shrink-0 group-hover:translate-x-0.5 group-hover:text-zinc-700 transition-all" />
                                 </button>
                             ))}
                         </div>
                     </div>
 
-                    {/* Security Notice */}
-                    <div className="bg-slate-900 border border-slate-800 text-slate-400 rounded-2xl p-5 shadow-sm space-y-3">
-                        <h4 className="text-xs font-bold text-white flex items-center gap-1.5">
-                            <Terminal className="w-3.5 h-3.5 text-indigo-400" />
-                            Security Protocol
+                    {/* Notice Block */}
+                    <div className="bg-zinc-900 border border-zinc-950 text-zinc-450 rounded-xl p-4 space-y-1.5">
+                        <h4 className="text-[11px] font-semibold text-white flex items-center gap-1.5">
+                            <Terminal className="w-3 h-3 text-zinc-450" />
+                            Read-Only Protocol
                         </h4>
-                        <p className="text-[10px] text-slate-400 leading-relaxed">
-                            All database accesses are restricted to read-only `SELECT` queries on approved schemas. Alteration, modification, or exposure of authentication tables is prohibited.
+                        <p className="text-[9px] text-zinc-400 leading-normal">
+                            All operations are executed within a secured read-only SELECT context. Schemas and system configurations cannot be altered.
                         </p>
                     </div>
                 </div>

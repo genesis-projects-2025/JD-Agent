@@ -13,6 +13,15 @@ import {
     Clock,
     AlertCircle,
     Building,
+    Target,
+    Sparkles,
+    Plus,
+    Trash2,
+    Save,
+    ChevronDown,
+    ChevronUp,
+    AlertTriangle,
+    Loader2,
 } from "lucide-react";
 import { getCookie, cookieKeys } from "@/lib/cookies";
 import { downloadJDPdfClient } from "@/lib/download-jd-pdf";
@@ -95,6 +104,15 @@ export default function AdminJDViewPage() {
 
     const jdId = params.id as string;
 
+    // --- KRA/KPI Tab States ---
+    const [activeTab, setActiveTab] = useState<"jd" | "kra-kpi">("jd");
+    const [kraRecord, setKraRecord] = useState<any | null>(null);
+    const [loadingKra, setLoadingKra] = useState(false);
+    const [kraError, setKraError] = useState<string | null>(null);
+    const [isEditingKra, setIsEditingKra] = useState(false);
+    const [editedKras, setEditedKras] = useState<any[]>([]);
+    const [savingKra, setSavingKra] = useState(false);
+
     const fetchJDData = async () => {
         try {
             setLoading(true);
@@ -117,73 +135,9 @@ export default function AdminJDViewPage() {
 
             const data = await response.json();
 
-            // If API fails, show mock data for demonstration
             if (!data || (!data.structured_data && !data.jd_structured)) {
-                setJdData({
-                    id: jdId,
-                    employee_id: "EMP001",
-                    employee_name: "John Smith",
-                    structured_data: {
-                        role_title: "Senior Software Engineer",
-                        department: "Engineering",
-                        level: "Senior",
-                        purpose: "Lead development of scalable web applications and mentor junior developers while ensuring high-quality code standards and best practices.",
-                        tasks: [
-                            "Design and implement complex software solutions",
-                            "Code review and mentor junior developers",
-                            "Architect scalable system components",
-                            "Collaborate with cross-functional teams",
-                            "Optimize application performance",
-                            "Participate in technical planning and architecture decisions"
-                        ],
-                        priority_tasks: [
-                            "Lead major feature development",
-                            "Ensure code quality and standards",
-                            "Mentor team members"
-                        ],
-                        skills: [
-                            "JavaScript/TypeScript",
-                            "React/Next.js",
-                            "Node.js",
-                            "Python",
-                            "System Design",
-                            "Code Review",
-                            "Team Leadership"
-                        ],
-                        tools: [
-                            "VS Code",
-                            "Git",
-                            "Docker",
-                            "Jenkins",
-                            "Postman",
-                            "Figma"
-                        ],
-                        technologies: [
-                            "React",
-                            "Next.js",
-                            "TypeScript",
-                            "Node.js",
-                            "PostgreSQL",
-                            "Redis",
-                            "AWS"
-                        ],
-                        qualifications: {
-                            education: "Bachelor's degree in Computer Science or equivalent",
-                            experience_years: "5+ years",
-                            certifications: ["AWS Certified Developer", "React Certification"]
-                        },
-                        working_relationships: {
-                            reports_to: "Engineering Manager",
-                            team_size: "5 direct reports",
-                            stakeholders: ["Product Manager", "Design Team", "DevOps Team", "QA Team"]
-                        }
-                    },
-                    processing_status: "approved",
-                    uploaded_at: new Date().toISOString(),
-                    text_length: 2450
-                });
+                setError("JD structured data not found.");
             } else {
-                // Robust parsing and Pulse Pharma Schema Alignment (Inflight Migration)
                 const safeParseObject = (obj: any): any => {
                     if (!obj) return {};
                     if (typeof obj !== "string") return obj;
@@ -197,7 +151,6 @@ export default function AdminJDViewPage() {
 
                 let pStruct = safeParseObject(data.jd_structured);
 
-                // Fallback: If structured data is completely empty, try pulling it from the generated_jd block
                 if (
                     !pStruct ||
                     Object.keys(pStruct).length === 0 ||
@@ -213,9 +166,7 @@ export default function AdminJDViewPage() {
                     } catch (e) { }
                 }
 
-                // --- Pulse Pharma Schema Alignment (Inflight Migration) ---
                 if (pStruct && typeof pStruct === "object") {
-                    // Map legacy/LLM keys to new keys if they exist and new keys are empty
                     if (pStruct.key_responsibilities && !pStruct.responsibilities) {
                         pStruct.responsibilities = pStruct.key_responsibilities;
                     }
@@ -243,25 +194,19 @@ export default function AdminJDViewPage() {
                     if (pStruct.additional_details && !pStruct.additional) {
                         pStruct.additional = pStruct.additional_details;
                     }
-
-                    // Preserve job_level / joblevel through migration
                     if (pStruct.joblevel && !pStruct.job_level) {
                         pStruct.job_level = pStruct.joblevel;
                     }
-                    
-                    // talent_bar -> top-level education/experience (LLM schema fix)
                     if (pStruct.talent_bar && typeof pStruct.talent_bar === "object") {
                         pStruct.education = pStruct.education || pStruct.talent_bar.education || "";
                         pStruct.experience = pStruct.experience || pStruct.talent_bar.experience || "";
                     }
-                    // qualifications nested -> top-level
                     if (pStruct.qualifications && typeof pStruct.qualifications === "object") {
                         pStruct.education = pStruct.education || pStruct.qualifications.education || "";
                         pStruct.experience = pStruct.experience || pStruct.qualifications.experience || "";
                     }
                 }
 
-                // Final Failsafe for missing keys
                 if (!pStruct || typeof pStruct !== "object") pStruct = {};
                 pStruct.responsibilities = pStruct.responsibilities || [];
                 pStruct.skills = pStruct.skills || [];
@@ -274,10 +219,8 @@ export default function AdminJDViewPage() {
                 pStruct.additional = pStruct.additional || {};
                 pStruct.team_structure = pStruct.team_structure || {};
                 pStruct.work_environment = pStruct.work_environment || {};
-                // Preserve job_level at top level — critical for PDF render
                 pStruct.job_level = pStruct.job_level || pStruct.joblevel || "";
 
-                // Map to frontend's expected JDData structure
                 const empInfo = pStruct.employee_information || {};
                 const wr = pStruct.working_relationships || {};
 
@@ -323,15 +266,149 @@ export default function AdminJDViewPage() {
         }
     };
 
+    const fetchKraData = async () => {
+        setLoadingKra(true);
+        setKraError(null);
+        try {
+            const token = getCookie(cookieKeys.ADMIN_TOKEN);
+            const res = await fetch(`${API_URL}/kra-kpi/${jdId}`, {
+                headers: {
+                    Authorization: `Bearer ${token}`
+                }
+            });
+            if (res.status === 404) {
+                setKraRecord(null);
+            } else if (!res.ok) {
+                throw new Error("Failed to load KRA/KPI");
+            } else {
+                const data = await res.json();
+                setKraRecord(data);
+                const krasArray = data?.kras?.kras || [];
+                setEditedKras(JSON.parse(JSON.stringify(krasArray)));
+            }
+        } catch (err) {
+            console.error("Error loading KRA/KPI", err);
+            setKraError(err instanceof Error ? err.message : "Failed to load KRA/KPI");
+        } finally {
+            setLoadingKra(false);
+        }
+    };
+
     useEffect(() => {
         const token = getCookie(cookieKeys.ADMIN_TOKEN);
         if (!token) {
             router.push("/admin/login");
             return;
         }
-
         fetchJDData();
     }, [jdId]);
+
+    useEffect(() => {
+        if (activeTab === "kra-kpi") {
+            fetchKraData();
+        }
+    }, [activeTab, jdId]);
+
+    // --- KRA/KPI Editing Handlers ---
+    const handleUpdateKraField = (idx: number, field: string, value: any) => {
+        setEditedKras((prev) => {
+            const updated = [...prev];
+            updated[idx] = {
+                ...updated[idx],
+                [field]: field === 'weight' ? (value === '' ? 0 : parseInt(value) || 0) : value
+            };
+            return updated;
+        });
+    };
+
+    const handleDeleteKra = (idx: number) => {
+        setEditedKras((prev) => prev.filter((_, i) => i !== idx));
+    };
+
+    const handleAddKra = () => {
+        setEditedKras((prev) => [
+            ...prev,
+            {
+                kra_id: `custom_kra_${Date.now()}`,
+                title: "New Key Result Area",
+                description: "",
+                weight: 0,
+                kpis: []
+            }
+        ]);
+    };
+
+    const handleUpdateKpiField = (kraIdx: number, kpiIdx: number, field: string, value: any) => {
+        setEditedKras((prev) => {
+            const updated = [...prev];
+            const kra = { ...updated[kraIdx] };
+            const kpis = [...(kra.kpis || [])];
+            kpis[kpiIdx] = {
+                ...kpis[kpiIdx],
+                [field]: value
+            };
+            kra.kpis = kpis;
+            updated[kraIdx] = kra;
+            return updated;
+        });
+    };
+
+    const handleDeleteKpi = (kraIdx: number, kpiIdx: number) => {
+        setEditedKras((prev) => {
+            const updated = [...prev];
+            const kra = { ...updated[kraIdx] };
+            kra.kpis = (kra.kpis || []).filter((_: any, i: number) => i !== kpiIdx);
+            updated[kraIdx] = kra;
+            return updated;
+        });
+    };
+
+    const handleAddKpi = (kraIdx: number) => {
+        setEditedKras((prev) => {
+            const updated = [...prev];
+            const kra = { ...updated[kraIdx] };
+            kra.kpis = [
+                ...(kra.kpis || []),
+                {
+                    kpi_id: `custom_kpi_${Date.now()}`,
+                    title: "New KPI Indicator",
+                    description: "",
+                    metric: "",
+                    target: ""
+                }
+            ];
+            updated[kraIdx] = kra;
+            return updated;
+        });
+    };
+
+    const handleSaveKraChanges = async () => {
+        if (!jdData) return;
+        setSavingKra(true);
+        try {
+            const token = getCookie(cookieKeys.ADMIN_TOKEN);
+            const res = await fetch(`${API_URL}/admin/kra-kpi/${jdData.employee_id}`, {
+                method: "PUT",
+                headers: {
+                    "Content-Type": "application/json",
+                    Authorization: `Bearer ${token}`,
+                },
+                body: JSON.stringify({ kras: { kras: editedKras } }),
+            });
+            if (!res.ok) {
+                const errData = await res.json().catch(() => ({}));
+                throw new Error(errData.detail || "Failed to update KRA/KPI framework");
+            }
+            alert("KRA/KPI framework successfully updated and saved to employee dashboard!");
+            setIsEditingKra(false);
+            await fetchKraData();
+        } catch (err) {
+            console.error("Failed to save KRA/KPI", err);
+            alert(err instanceof Error ? err.message : "Failed to save KRA/KPI framework");
+        } finally {
+            setSavingKra(false);
+        }
+    };
 
     if (loading) {
         return (
@@ -350,7 +427,6 @@ export default function AdminJDViewPage() {
     if (error || !jdData) {
         return (
             <div className="space-y-6">
-                {/* Header */}
                 <div className="flex items-center gap-4">
                     <Link
                         href="/admin/dashboard"
@@ -360,7 +436,6 @@ export default function AdminJDViewPage() {
                         Back to Dashboard
                     </Link>
                 </div>
-
                 <div className="text-center py-12">
                     <AlertCircle className="w-16 h-16 text-red-500 mx-auto mb-4" />
                     <h2 className="text-xl font-semibold text-slate-900 mb-2">Error Loading JD</h2>
@@ -371,6 +446,7 @@ export default function AdminJDViewPage() {
     }
 
     const structured = jdData.structured_data;
+    const totalWeight = editedKras.reduce((acc, k) => acc + (k.weight || 0), 0);
 
     return (
         <div className="space-y-6">
@@ -407,35 +483,329 @@ export default function AdminJDViewPage() {
                 </div>
 
                 <div className="flex items-center gap-3">
-                    <button
-                        onClick={() => {
-                            const dataToDownload = jdData.jd_structured || jdData.structured_data;
-                            if (dataToDownload) {
-                                downloadJDPdfClient(
-                                    dataToDownload,
-                                    structured.role_title || undefined,
-                                    structured.department || undefined
-                                );
-                            } else {
-                                alert("No JD data available to download.");
-                            }
-                        }}
-                        className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-                    >
-                        <Download className="w-4 h-4" />
-                        Export PDF
-                    </button>
+                    {activeTab === "jd" && (
+                        <button
+                            onClick={() => {
+                                const dataToDownload = jdData.jd_structured || jdData.structured_data;
+                                if (dataToDownload) {
+                                    downloadJDPdfClient(
+                                        dataToDownload,
+                                        structured.role_title || undefined,
+                                        structured.department || undefined
+                                    );
+                                } else {
+                                    alert("No JD data available to download.");
+                                }
+                            }}
+                            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-semibold"
+                        >
+                            <Download className="w-4 h-4" />
+                            Export PDF
+                        </button>
+                    )}
                 </div>
             </div>
 
-            {/* JD Content */}
-            <div className="bg-slate-50 p-6 rounded-xl border border-slate-200 shadow-inner flex justify-center overflow-x-auto">
-                <PdfDocumentView
-                    data={jdData.jd_structured || jdData.structured_data}
-                    roleTitle={structured.role_title}
-                    dept={structured.department}
-                />
+            {/* Tab Switcher */}
+            <div className="flex items-center gap-1 bg-slate-100 p-1.5 rounded-xl w-fit border border-slate-250/20">
+                <button
+                    onClick={() => setActiveTab("jd")}
+                    className={`px-5 py-2.5 text-xs font-bold rounded-lg transition-all flex items-center gap-2 ${activeTab === "jd" ? "bg-white text-blue-700 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}
+                >
+                    <FileText className="w-4 h-4" />
+                    Job Description
+                </button>
+                <button
+                    onClick={() => setActiveTab("kra-kpi")}
+                    className={`px-5 py-2.5 text-xs font-bold rounded-lg transition-all flex items-center gap-2 ${activeTab === "kra-kpi" ? "bg-white text-indigo-700 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}
+                >
+                    <Target className="w-4 h-4" />
+                    Performance Goals (KRA/KPI)
+                </button>
             </div>
+
+            {/* JD Content Tab */}
+            {activeTab === "jd" && (
+                <div className="bg-slate-50 p-6 rounded-xl border border-slate-200 shadow-inner flex justify-center overflow-x-auto">
+                    <PdfDocumentView
+                        data={jdData.jd_structured || jdData.structured_data}
+                        roleTitle={structured.role_title}
+                        dept={structured.department}
+                    />
+                </div>
+            )}
+
+            {/* KRA/KPI Tab */}
+            {activeTab === "kra-kpi" && (
+                <div className="space-y-6">
+                    {loadingKra ? (
+                        <div className="h-[40vh] flex flex-col items-center justify-center space-y-4">
+                            <Loader2 className="w-10 h-10 text-indigo-600 animate-spin" />
+                            <p className="text-sm font-medium text-slate-400">Loading KRA/KPI framework...</p>
+                        </div>
+                    ) : kraError ? (
+                        <div className="bg-red-50 border border-red-200 rounded-xl p-6 text-center">
+                            <AlertCircle className="w-10 h-10 text-red-500 mx-auto mb-2" />
+                            <h3 className="text-md font-semibold text-red-800">Failed to load KRA/KPI</h3>
+                            <p className="text-xs text-red-600 mt-1">{kraError}</p>
+                        </div>
+                    ) : !kraRecord ? (
+                        <div className="bg-white border border-slate-200 rounded-2xl p-12 text-center shadow-sm">
+                            <Target className="w-12 h-12 text-slate-300 mx-auto mb-4" />
+                            <h3 className="text-lg font-bold text-slate-800">No Goals Deployed</h3>
+                            <p className="text-sm text-slate-500 mt-1 max-w-md mx-auto">
+                                No performance framework (KRA/KPI) has been uploaded or configured for this employee yet.
+                            </p>
+                            <Link
+                                href="/admin/jd-library"
+                                className="inline-flex items-center gap-2 mt-6 px-5 py-2.5 bg-indigo-600 text-white rounded-xl text-xs font-bold hover:bg-indigo-750 transition-all shadow-sm"
+                            >
+                                <Plus className="w-4 h-4" />
+                                Upload KRA/KPI Framework
+                            </Link>
+                        </div>
+                    ) : (
+                        /* KRA KPI Editor Card */
+                        <div className="bg-white rounded-2xl border border-slate-200 p-8 shadow-sm space-y-6">
+                            <div className="flex items-center justify-between border-b border-slate-100 pb-5">
+                                <div>
+                                    <h2 className="text-xl font-bold text-slate-900 flex items-center gap-2">
+                                        <Sparkles className="w-5 h-5 text-indigo-500" />
+                                        Performance Framework (KRA/KPI)
+                                    </h2>
+                                    <p className="text-xs text-slate-500 mt-0.5">
+                                        Managing performance targets for {jdData.employee_name} ({jdData.employee_id})
+                                    </p>
+                                </div>
+                                <div className="flex items-center gap-3">
+                                    {totalWeight > 0 && (
+                                        <span className={`text-xs font-bold px-3 py-1.5 border rounded-lg ${totalWeight === 100 ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-amber-50 text-amber-700 border-amber-200'}`}>
+                                            Total Weight: {totalWeight}%
+                                        </span>
+                                    )}
+                                    <button
+                                        onClick={() => {
+                                            if (isEditingKra) {
+                                                // Reset changes
+                                                setEditedKras(JSON.parse(JSON.stringify(kraRecord?.kras?.kras || [])));
+                                            }
+                                            setIsEditingKra(!isEditingKra);
+                                        }}
+                                        className="px-4 py-2 border border-slate-200 rounded-lg text-xs font-semibold text-slate-600 hover:bg-slate-50 transition-colors shadow-sm"
+                                    >
+                                        {isEditingKra ? "Cancel" : "Edit Framework"}
+                                    </button>
+                                </div>
+                            </div>
+
+                            {/* Weight Visualizer Bar */}
+                            {editedKras.length > 0 && (
+                                <div className="h-2.5 w-full bg-slate-100 rounded-full overflow-hidden flex shadow-inner">
+                                    {editedKras.map((kra, idx) => {
+                                        const colors = ['bg-indigo-500', 'bg-violet-500', 'bg-emerald-500', 'bg-amber-500', 'bg-rose-500', 'bg-blue-500'];
+                                        const color = colors[idx % colors.length];
+                                        return (
+                                            <div
+                                                key={idx}
+                                                className={`${color} h-full transition-all duration-300`}
+                                                style={{ width: `${(kra.weight / (totalWeight || 1)) * 100 || 20}%` }}
+                                                title={`${kra.title}: ${kra.weight}%`}
+                                            />
+                                        );
+                                    })}
+                                </div>
+                            )}
+
+                            {/* Weight warning */}
+                            {isEditingKra && totalWeight !== 100 && (
+                                <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex items-start gap-3">
+                                    <AlertTriangle className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />
+                                    <div>
+                                        <h4 className="text-xs font-bold text-amber-800">Weights do not sum to 100%</h4>
+                                        <p className="text-[11px] text-amber-600 mt-0.5">
+                                            Currently, the sum of all KRA weights is {totalWeight}%. It is highly recommended to adjust weights so they sum up to exactly 100%.
+                                        </p>
+                                    </div>
+                                </div>
+                            )}
+
+                            <div className="space-y-6">
+                                {editedKras.map((kra, idx) => (
+                                    <div key={idx} className="border border-slate-200 rounded-2xl overflow-hidden shadow-sm bg-white hover:border-slate-300 transition-colors">
+                                        <div className="bg-slate-50/80 p-4 border-b border-slate-200 flex items-center justify-between gap-4">
+                                            <div className="flex-1">
+                                                <span className="text-[10px] text-indigo-600 font-bold uppercase tracking-wider flex items-center gap-2">
+                                                    KRA {idx + 1}
+                                                    {isEditingKra && (
+                                                        <button
+                                                            onClick={() => handleDeleteKra(idx)}
+                                                            className="text-red-500 hover:text-red-700 transition-colors ml-2"
+                                                            title="Delete KRA"
+                                                        >
+                                                            <Trash2 className="w-3.5 h-3.5" />
+                                                        </button>
+                                                    )}
+                                                </span>
+                                                {isEditingKra ? (
+                                                    <input
+                                                        type="text"
+                                                        value={kra.title}
+                                                        onChange={(e) => handleUpdateKraField(idx, 'title', e.target.value)}
+                                                        className="w-full bg-white border border-slate-200 rounded px-2.5 py-1.5 text-sm font-semibold text-slate-900 mt-1 focus:outline-none focus:border-indigo-500"
+                                                    />
+                                                ) : (
+                                                    <h4 className="text-sm font-semibold text-slate-900 mt-0.5">{kra.title}</h4>
+                                                )}
+                                            </div>
+                                            <div>
+                                                {isEditingKra ? (
+                                                    <div className="flex items-center gap-1 bg-white border border-slate-200 rounded px-2.5 py-1.5 w-24">
+                                                        <input
+                                                            type="number"
+                                                            value={kra.weight ?? 0}
+                                                            onChange={(e) => handleUpdateKraField(idx, 'weight', e.target.value)}
+                                                            className="w-full bg-transparent text-xs text-center font-bold text-indigo-700 outline-none"
+                                                            placeholder="Weight"
+                                                        />
+                                                        <span className="text-xs font-semibold text-slate-400 select-none">%</span>
+                                                    </div>
+                                                ) : kra.weight ? (
+                                                    <span className="px-2.5 py-1 bg-indigo-50 border border-indigo-150 rounded-lg text-xs font-bold text-indigo-700">
+                                                        {kra.weight}% Weight
+                                                    </span>
+                                                ) : null}
+                                            </div>
+                                        </div>
+                                        <div className="p-4 space-y-4">
+                                            <div>
+                                                <label className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block mb-1">Description</label>
+                                                {isEditingKra ? (
+                                                    <textarea
+                                                        value={kra.description || ""}
+                                                        onChange={(e) => handleUpdateKraField(idx, 'description', e.target.value)}
+                                                        className="w-full bg-white border border-slate-200 rounded px-2.5 py-1.5 text-xs text-slate-700 focus:outline-none focus:border-indigo-500"
+                                                        rows={2}
+                                                    />
+                                                ) : (
+                                                    <p className="text-xs text-slate-500 leading-relaxed">{kra.description}</p>
+                                                )}
+                                            </div>
+                                            
+                                            <div className="border-t border-slate-100 pt-3">
+                                                <div className="flex items-center justify-between mb-2">
+                                                    <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">KPI Key Performance Indicators</span>
+                                                    {isEditingKra && (
+                                                        <button
+                                                            onClick={() => handleAddKpi(idx)}
+                                                            className="flex items-center gap-1 px-2.5 py-1 bg-slate-100 hover:bg-slate-200 border border-slate-200 rounded text-[10px] font-semibold text-slate-600 transition-colors"
+                                                        >
+                                                            <Plus className="w-3 h-3" /> Add KPI
+                                                        </button>
+                                                    )}
+                                                </div>
+
+                                                <div className="space-y-3">
+                                                    {(kra.kpis || []).map((kpi: any, kpiIdx: number) => (
+                                                        <div key={kpiIdx} className="bg-slate-50/50 rounded-xl p-3 border border-slate-100 space-y-3">
+                                                            <div className="flex items-start justify-between gap-3">
+                                                                <div className="flex-1 space-y-2">
+                                                                    {isEditingKra ? (
+                                                                        <div className="space-y-2">
+                                                                            <input
+                                                                                type="text"
+                                                                                value={kpi.title}
+                                                                                onChange={(e) => handleUpdateKpiField(idx, kpiIdx, 'title', e.target.value)}
+                                                                                placeholder="KPI Title"
+                                                                                className="w-full bg-white border border-slate-200 rounded px-2 py-1 text-xs font-semibold text-slate-800 focus:outline-none"
+                                                                            />
+                                                                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                                                                <input
+                                                                                    type="text"
+                                                                                    value={kpi.metric || ""}
+                                                                                    onChange={(e) => handleUpdateKpiField(idx, kpiIdx, 'metric', e.target.value)}
+                                                                                    placeholder="Metric / Measurement"
+                                                                                    className="w-full bg-white border border-slate-200 rounded px-2 py-1 text-[11px] text-slate-600 focus:outline-none"
+                                                                                />
+                                                                                <input
+                                                                                    type="text"
+                                                                                    value={kpi.target || ""}
+                                                                                    onChange={(e) => handleUpdateKpiField(idx, kpiIdx, 'target', e.target.value)}
+                                                                                    placeholder="Target Date / Value"
+                                                                                    className="w-full bg-white border border-slate-200 rounded px-2 py-1 text-[11px] text-slate-600 focus:outline-none"
+                                                                                />
+                                                                            </div>
+                                                                        </div>
+                                                                    ) : (
+                                                                        <div>
+                                                                            <h5 className="text-xs font-semibold text-slate-800">
+                                                                                {kpiIdx + 1}. {kpi.title}
+                                                                            </h5>
+                                                                            <div className="flex flex-wrap items-center gap-3 mt-1 text-[10px] text-slate-500">
+                                                                                {kpi.metric && <span>Metric: <strong className="text-slate-700">{kpi.metric}</strong></span>}
+                                                                                {kpi.target && <span>Target: <strong className="text-slate-700">{kpi.target}</strong></span>}
+                                                                            </div>
+                                                                        </div>
+                                                                    )}
+                                                                </div>
+                                                                {isEditingKra && (
+                                                                    <button
+                                                                        onClick={() => handleDeleteKpi(idx, kpiIdx)}
+                                                                        className="text-slate-400 hover:text-red-500 transition-colors p-1"
+                                                                        title="Delete KPI"
+                                                                    >
+                                                                        <Trash2 className="w-3.5 h-3.5" />
+                                                                    </button>
+                                                                )}
+                                                            </div>
+                                                        </div>
+                                                    ))}
+                                                    {(kra.kpis || []).length === 0 && (
+                                                        <p className="text-[11px] text-slate-400 italic">No KPIs added to this KRA yet.</p>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                ))}
+
+                                {editedKras.length === 0 && (
+                                    <div className="text-center py-8 bg-slate-50 border border-slate-200 rounded-xl">
+                                        <p className="text-xs text-slate-400 italic">No KRAs in this framework. Click Add KRA below.</p>
+                                    </div>
+                                )}
+
+                                {isEditingKra && (
+                                    <div className="flex justify-between items-center border-t border-slate-100 pt-5">
+                                        <button
+                                            onClick={handleAddKra}
+                                            className="inline-flex items-center gap-2 px-4 py-2 border border-slate-200 rounded-lg text-xs font-semibold text-indigo-600 hover:bg-indigo-50 hover:border-indigo-200 transition-all shadow-sm"
+                                        >
+                                            <Plus className="w-4 h-4" /> Add KRA
+                                        </button>
+                                        <button
+                                            onClick={handleSaveKraChanges}
+                                            disabled={savingKra}
+                                            className="inline-flex items-center gap-2 px-5 py-2.5 bg-indigo-600 hover:bg-indigo-750 text-white rounded-xl text-xs font-bold transition-all shadow-md shadow-indigo-100 disabled:opacity-50"
+                                        >
+                                            {savingKra ? (
+                                                <>
+                                                    <Loader2 className="w-4 h-4 animate-spin" />
+                                                    Saving...
+                                                </>
+                                            ) : (
+                                                <>
+                                                    <Save className="w-4 h-4" />
+                                                    Save Changes
+                                                </>
+                                            )}
+                                        </button>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    )}
+                </div>
+            )}
         </div>
     );
 }

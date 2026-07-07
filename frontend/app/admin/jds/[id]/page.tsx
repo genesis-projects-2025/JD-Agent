@@ -10,7 +10,7 @@ import {
   fetchAdminReferenceJDPreview,
   publishAdminReferenceJD,
 } from '@/lib/api'
-import { Briefcase, Users, FileText, CheckCircle, XCircle, Download, Eye, Shield, Target, Wrench, Calendar, Send, Loader2, X } from 'lucide-react'
+import { Briefcase, Users, FileText, CheckCircle, XCircle, Download, Eye, Shield, Target, Wrench, Calendar, Send, Loader2, X, Save, Plus, Trash2, Sparkles } from 'lucide-react'
 import Link from 'next/link'
 import { downloadJDPdfClient } from '@/lib/download-jd-pdf'
 import { PdfDocumentView } from '@/components/jd/pdf-document-view'
@@ -30,6 +30,67 @@ export default function JDDetailPage() {
   const [showFullView, setShowFullView] = useState(false)
   const [previewData, setPreviewData] = useState<ReferenceJDPreviewResponse["data"] | null>(null)
   const [loadingPreview, setLoadingPreview] = useState(false)
+
+  // JD Preview editing states
+  const [isEditingJD, setIsEditingJD] = useState(false)
+  const [editedJdTitle, setEditedJdTitle] = useState('')
+  const [editedJdDept, setEditedJdDept] = useState('')
+  const [editedJdLevel, setEditedJdLevel] = useState('')
+  const [editedJdPurpose, setEditedJdPurpose] = useState('')
+  const [editedJdTasks, setEditedJdTasks] = useState<string[]>([])
+  const [editedJdSkills, setEditedJdSkills] = useState<string[]>([])
+  const [editedJdTools, setEditedJdTools] = useState<string[]>([])
+  const [editedJdEducation, setEditedJdEducation] = useState('')
+  const [editedJdExperience, setEditedJdExperience] = useState('')
+  const [savingEditedJd, setSavingEditedJd] = useState(false)
+
+  const handleUpdateTask = (idx: number, val: string) => {
+    setEditedJdTasks(prev => {
+      const copy = [...prev];
+      copy[idx] = val;
+      return copy;
+    });
+  };
+
+  const handleAddTask = () => {
+    setEditedJdTasks(prev => [...prev, '']);
+  };
+
+  const handleRemoveTask = (idx: number) => {
+    setEditedJdTasks(prev => prev.filter((_, i) => i !== idx));
+  };
+
+  const handleUpdateSkill = (idx: number, val: string) => {
+    setEditedJdSkills(prev => {
+      const copy = [...prev];
+      copy[idx] = val;
+      return copy;
+    });
+  };
+
+  const handleAddSkill = () => {
+    setEditedJdSkills(prev => [...prev, '']);
+  };
+
+  const handleRemoveSkill = (idx: number) => {
+    setEditedJdSkills(prev => prev.filter((_, i) => i !== idx));
+  };
+
+  const handleUpdateTool = (idx: number, val: string) => {
+    setEditedJdTools(prev => {
+      const copy = [...prev];
+      copy[idx] = val;
+      return copy;
+    });
+  };
+
+  const handleAddTool = () => {
+    setEditedJdTools(prev => [...prev, '']);
+  };
+
+  const handleRemoveTool = (idx: number) => {
+    setEditedJdTools(prev => prev.filter((_, i) => i !== idx));
+  };
 
   useEffect(() => {
     const token = getCookie(cookieKeys.ADMIN_TOKEN)
@@ -84,6 +145,104 @@ export default function JDDetailPage() {
     } catch { alert('Failed to load preview') }
     finally { setLoadingPreview(false) }
   }
+
+  const startEditingJd = () => {
+    if (!previewData?.jd_structured) return;
+    const struct = previewData.jd_structured;
+    const ref = previewData.reference_data || {};
+    
+    setEditedJdTitle(ref.role_title || struct.job_title || struct.designation || "");
+    setEditedJdDept(ref.department || struct.department || struct.function || "");
+    setEditedJdLevel(ref.level || struct.experience || struct.level || "");
+    setEditedJdPurpose(struct.purpose || struct.role_summary || "");
+    
+    // Extract arrays safely
+    const tasks = Array.isArray(struct.responsibilities) ? struct.responsibilities : 
+                  Array.isArray(struct.key_responsibilities) ? struct.key_responsibilities : [];
+    setEditedJdTasks([...tasks]);
+    
+    const skl = Array.isArray(struct.skills) ? struct.skills : 
+                Array.isArray(struct.technical_skills) ? struct.technical_skills : [];
+    setEditedJdSkills([...skl]);
+    
+    const tls = Array.isArray(struct.tools) ? struct.tools : 
+                Array.isArray(struct.tools_used) ? struct.tools_used : 
+                Array.isArray(struct.tools_and_technologies) ? struct.tools_and_technologies : [];
+    setEditedJdTools([...tls]);
+    
+    setEditedJdEducation(struct.qualifications?.education || struct.education || struct.qualifications?.required_education || "");
+    setEditedJdExperience(struct.qualifications?.experience || struct.experience || struct.qualifications?.experience_years || "");
+    
+    setIsEditingJD(true);
+  };
+
+  const handleSaveJDEdits = async () => {
+    if (!previewData?.reference_data?.id) return;
+    setSavingEditedJd(true);
+    try {
+      const { updateAdminReferenceJD } = await import("@/lib/api");
+      const updatedStructured = {
+        ...previewData.jd_structured,
+        job_title: editedJdTitle,
+        department: editedJdDept,
+        experience: editedJdLevel,
+        purpose: editedJdPurpose,
+        responsibilities: editedJdTasks,
+        skills: editedJdSkills,
+        tools: editedJdTools,
+        qualifications: {
+          ...previewData.jd_structured?.qualifications,
+          education: editedJdEducation,
+          experience: editedJdExperience
+        },
+        employee_information: {
+          ...previewData.jd_structured?.employee_information,
+          job_title: editedJdTitle,
+          department: editedJdDept
+        }
+      };
+
+      await updateAdminReferenceJD(previewData.reference_data.id, {
+        role_title: editedJdTitle,
+        department: editedJdDept,
+        level: editedJdLevel,
+        structured_data: updatedStructured
+      });
+
+      // Update previewData state with the saved data
+      setPreviewData((prev: any) => {
+        if (!prev) return null;
+        return {
+          ...prev,
+          jd_structured: updatedStructured,
+          reference_data: {
+            ...prev.reference_data,
+            role_title: editedJdTitle,
+            department: editedJdDept
+          }
+        };
+      });
+
+      // Update parent component's reference data to show changes immediately on screen
+      setJd((prev: any) => {
+        if (!prev) return null;
+        return {
+          ...prev,
+          role_title: editedJdTitle,
+          department: editedJdDept,
+          level: editedJdLevel,
+          structured_data: updatedStructured
+        };
+      });
+
+      setIsEditingJD(false);
+      alert("Job Description updated successfully!");
+    } catch (err: any) {
+      alert(err.message || "Failed to update Job Description");
+    } finally {
+      setSavingEditedJd(false);
+    }
+  };
 
   const handleDownloadPDF = () => {
     if (previewData?.jd_structured) {
@@ -289,12 +448,180 @@ export default function JDDetailPage() {
           <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl w-full max-w-4xl relative">
             <div className="sticky top-0 flex items-center justify-between p-5 border-b border-slate-200 bg-white rounded-t-2xl z-10">
               <h3 className="text-lg font-semibold text-slate-900">Employee Dashboard View</h3>
-              <button onClick={() => { setShowFullView(false); setPreviewData(null) }}
-                className="p-2 hover:bg-slate-100 rounded-lg transition-colors"><X className="w-5 h-5 text-slate-500" /></button>
+              <div className="flex items-center gap-3">
+                {previewData && !loadingPreview && (
+                  <button
+                    onClick={() => {
+                      if (isEditingJD) {
+                        setIsEditingJD(false);
+                      } else {
+                        startEditingJd();
+                      }
+                    }}
+                    className="flex items-center gap-1.5 px-3 py-1.5 border border-slate-200 rounded-lg text-xs font-semibold text-slate-600 hover:bg-slate-50 transition-all shadow-sm bg-white"
+                  >
+                    {isEditingJD ? "Cancel" : "Edit JD"}
+                  </button>
+                )}
+                <button onClick={() => { setShowFullView(false); setPreviewData(null); setIsEditingJD(false); }}
+                  className="p-2 hover:bg-slate-100 rounded-lg transition-colors"><X className="w-5 h-5 text-slate-500" /></button>
+              </div>
             </div>
             <div className="p-6 max-h-[80vh] overflow-y-auto">
               {loadingPreview ? (
                 <div className="flex items-center justify-center py-20"><Loader2 className="w-8 h-8 animate-spin text-blue-500" /></div>
+              ) : isEditingJD ? (
+                <div className="space-y-6 max-w-3xl mx-auto bg-slate-50/50 p-6 rounded-2xl border border-slate-150">
+                  <h4 className="text-sm font-bold text-slate-800 border-b border-slate-200 pb-2 mb-4 flex items-center gap-2">
+                    <Sparkles className="w-4 h-4 text-blue-500 animate-pulse" />
+                    Modify JD Fields
+                  </h4>
+                  
+                  {/* Row 1: Designation, Level, Department */}
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Designation</label>
+                      <input
+                        type="text"
+                        value={editedJdTitle}
+                        onChange={(e) => setEditedJdTitle(e.target.value)}
+                        className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-semibold"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Job Level</label>
+                      <input
+                        type="text"
+                        value={editedJdLevel}
+                        onChange={(e) => setEditedJdLevel(e.target.value)}
+                        className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-semibold"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Department</label>
+                      <input
+                        type="text"
+                        value={editedJdDept}
+                        onChange={(e) => setEditedJdDept(e.target.value)}
+                        className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-semibold"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Row 2: Purpose */}
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Purpose of the Role</label>
+                    <textarea
+                      value={editedJdPurpose}
+                      onChange={(e) => setEditedJdPurpose(e.target.value)}
+                      className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all leading-relaxed"
+                      rows={3}
+                    />
+                  </div>
+
+                  {/* Row 3: Responsibilities List */}
+                  <div className="space-y-2">
+                    <div className="flex justify-between items-center">
+                      <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider">Responsibilities</label>
+                      <button onClick={handleAddTask} className="flex items-center gap-1 px-2 py-1 bg-white border border-slate-200 rounded-lg text-[9px] font-bold text-blue-600 hover:bg-slate-50 transition-colors">
+                        <Plus className="w-2.5 h-2.5" /> Add Row
+                      </button>
+                    </div>
+                    <div className="space-y-2">
+                      {editedJdTasks.map((task, idx) => (
+                        <div key={idx} className="flex items-center gap-2">
+                          <span className="text-[10px] text-slate-400 font-mono w-5 text-right">{idx + 1}.</span>
+                          <input
+                            type="text"
+                            value={task}
+                            onChange={(e) => handleUpdateTask(idx, e.target.value)}
+                            className="flex-1 px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-xs text-slate-700 focus:outline-none"
+                            placeholder={`Responsibility ${idx + 1}`}
+                          />
+                          <button onClick={() => handleRemoveTask(idx)} className="text-slate-400 hover:text-red-500 transition-colors p-1">
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Row 4: Skills List */}
+                  <div className="space-y-2">
+                    <div className="flex justify-between items-center">
+                      <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider">Required Skills</label>
+                      <button onClick={handleAddSkill} className="flex items-center gap-1 px-2 py-1 bg-white border border-slate-200 rounded-lg text-[9px] font-bold text-blue-600 hover:bg-slate-50 transition-colors">
+                        <Plus className="w-2.5 h-2.5" /> Add Row
+                      </button>
+                    </div>
+                    <div className="space-y-2">
+                      {editedJdSkills.map((skill, idx) => (
+                        <div key={idx} className="flex items-center gap-2">
+                          <span className="text-[10px] text-slate-400 font-mono w-5 text-right">{idx + 1}.</span>
+                          <input
+                            type="text"
+                            value={skill}
+                            onChange={(e) => handleUpdateSkill(idx, e.target.value)}
+                            className="flex-1 px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-xs text-slate-700 focus:outline-none"
+                            placeholder="Skill"
+                          />
+                          <button onClick={() => handleRemoveSkill(idx)} className="text-slate-400 hover:text-red-500 transition-colors p-1">
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Row 5: Tools & Platforms List */}
+                  <div className="space-y-2">
+                    <div className="flex justify-between items-center">
+                      <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider">Tools & Platforms</label>
+                      <button onClick={handleAddTool} className="flex items-center gap-1 px-2 py-1 bg-white border border-slate-200 rounded-lg text-[9px] font-bold text-blue-600 hover:bg-slate-50 transition-colors">
+                        <Plus className="w-2.5 h-2.5" /> Add Row
+                      </button>
+                    </div>
+                    <div className="space-y-2">
+                      {editedJdTools.map((tool, idx) => (
+                        <div key={idx} className="flex items-center gap-2">
+                          <span className="text-[10px] text-slate-400 font-mono w-5 text-right">{idx + 1}.</span>
+                          <input
+                            type="text"
+                            value={tool}
+                            onChange={(e) => handleUpdateTool(idx, e.target.value)}
+                            className="flex-1 px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-xs text-slate-700 focus:outline-none"
+                            placeholder="Tool / Platform"
+                          />
+                          <button onClick={() => handleRemoveTool(idx)} className="text-slate-400 hover:text-red-500 transition-colors p-1">
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Row 6: Qualifications */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Education</label>
+                      <input
+                        type="text"
+                        value={editedJdEducation}
+                        onChange={(e) => setEditedJdEducation(e.target.value)}
+                        className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Experience</label>
+                      <input
+                        type="text"
+                        value={editedJdExperience}
+                        onChange={(e) => setEditedJdExperience(e.target.value)}
+                        className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
+                      />
+                    </div>
+                  </div>
+                </div>
               ) : previewData?.jd_structured ? (
                 <PdfDocumentView data={previewData.jd_structured} roleTitle={jd?.role_title} dept={jd?.department} />
               ) : (
@@ -302,12 +629,26 @@ export default function JDDetailPage() {
               )}
             </div>
             {previewData && (
-              <div className="sticky bottom-0 p-5 border-t border-slate-200 bg-slate-50 rounded-b-2xl flex gap-3">
-                <button onClick={() => previewData.jd_structured && downloadJDPdfClient(previewData.jd_structured, jd?.role_title, jd?.department)}
-                  className="flex items-center gap-2 px-5 py-2.5 bg-white border border-slate-200 text-slate-700 rounded-lg text-sm font-medium hover:bg-slate-50 shadow-sm">
-                  <Download className="w-4 h-4" />Download PDF
-                </button>
-              </div>
+              isEditingJD ? (
+                <div className="sticky bottom-0 p-5 border-t border-slate-200 bg-slate-50 rounded-b-2xl flex gap-3 justify-end">
+                  <button onClick={() => setIsEditingJD(false)}
+                    className="px-5 py-2.5 border border-slate-200 text-slate-700 bg-white rounded-lg text-sm font-semibold hover:bg-slate-50 transition-all shadow-sm">
+                    Cancel
+                  </button>
+                  <button onClick={handleSaveJDEdits} disabled={savingEditedJd}
+                    className="flex items-center gap-2 px-5 py-2.5 bg-blue-600 text-white rounded-lg text-sm font-semibold hover:bg-blue-700 transition-all shadow-sm disabled:opacity-50">
+                    {savingEditedJd ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                    {savingEditedJd ? 'Saving...' : 'Save JD Changes'}
+                  </button>
+                </div>
+              ) : (
+                <div className="sticky bottom-0 p-5 border-t border-slate-200 bg-slate-50 rounded-b-2xl flex gap-3">
+                  <button onClick={() => previewData.jd_structured && downloadJDPdfClient(previewData.jd_structured, jd?.role_title, jd?.department)}
+                    className="flex items-center gap-2 px-5 py-2.5 bg-white border border-slate-200 text-slate-700 rounded-lg text-sm font-medium hover:bg-slate-50 shadow-sm">
+                    <Download className="w-4 h-4" />Download PDF
+                  </button>
+                </div>
+              )
             )}
           </div>
         </div>

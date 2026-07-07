@@ -234,6 +234,7 @@ async def index_approved_jd(
     experience_level: str = "Mid",
     insights_data: dict | None = None,
     source: str = CANONICAL_SOURCE_APPROVED,
+    employee_id: str | None = None,
 ):
     """Chunk and index an approved JD into Pinecone with canonical metadata."""
     try:
@@ -262,6 +263,10 @@ async def index_approved_jd(
         ) -> None:
             if not text:
                 return
+            extra_to_use = dict(extra_meta) if extra_meta else {}
+            if employee_id:
+                extra_to_use["employee_id"] = employee_id
+
             metadata = _build_metadata(
                 jd_id=jd_id,
                 role_title=jd_title,
@@ -270,7 +275,7 @@ async def index_approved_jd(
                 category=category,
                 source=source,
                 text=text,
-                extra=extra_meta,
+                extra=extra_to_use,
             )
             chunks.append(
                 {
@@ -279,6 +284,7 @@ async def index_approved_jd(
                     "metadata": metadata,
                 }
             )
+
 
         if summary := (structured_data.get("role_summary") or structured_data.get("purpose")):
             add_chunk("role_summary", f"Role: {jd_title}. Summary: {summary}")
@@ -651,3 +657,115 @@ async def find_similar_skills_or_tools(db, table_name: str, query_text: str, lim
     except Exception as e:
         logger.error(f"Error in find_similar_skills_or_tools: {e}")
         return []
+
+
+async def index_employee_kras(
+    employee_id: str,
+    kras_data: dict,
+    role_title: str,
+    department: str = "General",
+    experience_level: str = "Mid",
+):
+    """Index employee KRA/KPI framework into Pinecone for semantic querying."""
+    try:
+        # Delete old KRA/KPI vectors for this employee first
+        try:
+            idx = await get_index_async()
+            if idx:
+                await asyncio.to_thread(lambda: idx.delete(filter={"employee_id": employee_id, "category": "performance_goals"}))
+        except Exception as e:
+            logger.warning("Failed to delete old KRA/KPI vectors for employee %s: %s", employee_id, e)
+
+        chunks: list[dict[str, Any]] = []
+        kras_list = kras_data.get("kras", [])
+        
+        for kra_idx, kra in enumerate(kras_list):
+            kra_title = kra.get("title") or "Key Result Area"
+            kra_desc = kra.get("description") or ""
+            kra_weight = kra.get("weight") or 0
+            
+            # Index the KRA title/description
+            kra_text = f"Employee ID: {employee_id}. Role: {role_title}. KRA {kra_idx+1}: {kra_title} (Weight: {kra_weight}%). Description: {kra_desc}"
+            
+            metadata = _build_metadata(
+                jd_id=f"KRA_{employee_id}",
+                role_title=role_title,
+                department=department,
+                experience_level=experience_level,
+                category="performance_goals",
+                source="employee_kra",
+                text=kra_text,
+                extra={"employee_id": employee_id, "kra_title": kra_title, "weight": kra_weight}
+            )
+            
+            chunks.append({
+                "id": f"{employee_id}_KRA_{kra_idx}",
+                "text": kra_text,
+                "metadata": metadata
+            })
+            
+            # Index each KPI under this KRA
+            kpis_list = kra.get("kpis", [])
+            for kpi_idx, kpi in enumerate(kpis_list):
+                kpi_title = kpi.get("title") or "Key Performance Indicator"
+                kpi_metric = kpi.get("metric") or ""
+                kpi_target = kpi.get("target") or ""
+                kpi_desc = kpi.get("description") or ""
+                
+                kpi_text = (
+                    f"Employee ID: {employee_id}. Role: {role_title}. KRA: {kra_title}. "
+                    f"KPI {kpi_idx+1}: {kpi_title}. Metric: {kpi_metric}. Target: {kpi_target}. "
+                    f"Description: {kpi_desc}"
+                )
+                
+                kpi_metadata = _build_metadata(
+                    jd_id=f"KRA_{employee_id}",
+                    role_title=role_title,
+                    department=department,
+                    experience_level=experience_level,
+                    category="performance_goals",
+                    source="employee_kpi",
+                    text=kpi_text,
+                    extra={
+                        "employee_id": employee_id,
+                        "kra_title": kra_title,
+                        "kpi_title": kpi_title,
+                        "metric": kpi_metric,
+                        "target": kpi_target
+                    }
+                )
+                
+                chunks.append({
+                    "id": f"{employee_id}_KRA_{kra_idx}_KPI_{kpi_idx}",
+                    "text": kpi_text,
+                    "metadata": kpi_metadata
+                })
+
+        if not chunks:
+            return
+
+        texts = [chunk["text"] for chunk in chunks]
+        
+        # Generate embeddings
+        vector_embeddings = await asyncio.to_thread(
+            lambda: get_embeddings().embed_documents(texts)
+        )
+        
+        vectors = [
+            {
+                "id": chunk["id"],
+                "values": vector_embeddings[index],
+                "metadata": chunk["metadata"],
+            }
+            for index, chunk in enumerate(chunks)
+        ]
+        
+        # Upsert to Pinecone
+        idx = await get_index_async()
+        if idx:
+            await asyncio.to_thread(lambda: idx.upsert(vectors=vectors))
+            
+        logger.info("Indexed employee KRA/KPI framework for employee %s (%s vectors)", employee_id, len(chunks))
+    except Exception as e:
+        logger.error("Failed to index employee KRA/KPI: %s", e)
+

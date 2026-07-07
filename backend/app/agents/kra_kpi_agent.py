@@ -30,7 +30,7 @@ logger = logging.getLogger(__name__)
 def _get_llm() -> ChatGoogleGenerativeAI:
     return ChatGoogleGenerativeAI(
         google_api_key=settings.GEMINI_API_KEY,
-        model="gemini-2.5-pro",
+        model="gemini-2.5-flash",
         temperature=0.25,
     )
 

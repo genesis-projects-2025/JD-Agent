@@ -603,3 +603,53 @@ async def publish_jd(
             "published_at": jd.published_at.isoformat() if jd.published_at else None,  # pyright: ignore
         },
     }
+
+
+from pydantic import BaseModel
+
+class UpdateReferenceJDRequest(BaseModel):
+    role_title: str | None = None
+    department: str | None = None
+    level: str | None = None
+    structured_data: dict
+
+
+@router.put("/{jd_id}")
+async def update_reference_jd(
+    jd_id: str,
+    request: UpdateReferenceJDRequest,
+    db: AsyncSession = Depends(get_db),
+    admin_role: str = Depends(get_current_admin),
+):
+    """
+    Update a reference JD (processed JD) with new structured data.
+    """
+    result = await db.execute(select(ReferenceJD).where(ReferenceJD.id == jd_id))
+    jd = result.scalar_one_or_none()
+
+    if not jd:
+        raise HTTPException(status_code=404, detail="JD not found")
+
+    # Update fields if provided
+    if request.role_title:
+        jd.role_title = request.role_title
+    if request.department:
+        jd.department = request.department
+    if request.level:
+        jd.level = request.level
+        
+    # Update structured_data
+    jd.structured_data = request.structured_data
+
+    # If it is already published, sync it to the employee's JDSession
+    if jd.processing_status == "published":
+        session = await _sync_published_reference_jd(db, jd, commit=True)
+    else:
+        await db.commit()
+
+    return {
+        "status": "success",
+        "message": "JD updated successfully",
+        "data": jd.to_dict()
+    }
+

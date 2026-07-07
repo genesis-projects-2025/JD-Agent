@@ -424,3 +424,71 @@ async def confirm_kra_kpi_paste_endpoint(
             detail=f"Failed to confirm KRA/KPI paste: {str(e)}",
         )
 
+
+class UpdateUploadedKRARequest(BaseModel):
+    kras: dict
+
+
+@router.put("/admin/kra-kpi/{employee_id}")
+async def update_admin_kra_kpi(
+    employee_id: str,
+    request: UpdateUploadedKRARequest,
+    db: AsyncSession = Depends(get_db),
+    admin_role: str = Depends(get_current_admin),
+):
+    """
+    Update KRA/KPI framework for an employee on the admin side.
+    Updates UploadedKRAKPI if exists, otherwise updates KRAKPISession.
+    """
+    from app.models.kra_kpi_model import UploadedKRAKPI, KRAKPISession
+    from app.core.cache import invalidate_pattern
+    import logging
+    
+    logger = logging.getLogger(__name__)
+    updated_any = False
+    
+    # 1. Try to find and update UploadedKRAKPI
+    uploaded_res = await db.execute(
+        select(UploadedKRAKPI).where(UploadedKRAKPI.employee_id == employee_id)
+    )
+    uploaded = uploaded_res.scalars().first()
+    if uploaded:
+        uploaded.kras = request.kras
+        logger.info(f"Updated UploadedKRAKPI for employee {employee_id}")
+        updated_any = True
+
+    # 2. Try to find and update KRAKPISession
+    session_res = await db.execute(
+        select(KRAKPISession)
+        .where(KRAKPISession.employee_id == employee_id)
+        .order_by(KRAKPISession.updated_at.desc())
+    )
+    session_record = session_res.scalars().first()
+    if session_record:
+        session_record.kras = request.kras
+        logger.info(f"Updated KRAKPISession for employee {employee_id}")
+        updated_any = True
+        
+    if not updated_any:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No KRA/KPI framework found for employee {employee_id}."
+        )
+        
+    await db.commit()
+    
+    # Invalidate cache patterns
+    await invalidate_pattern(f"jds:employee:{employee_id}")
+    if session_record:
+        await invalidate_pattern(f"cache:jd_detail:*{session_record.jd_session_id}*")
+        
+    return {
+        "status": "success",
+        "message": "KRA/KPI framework updated successfully",
+        "data": {
+            "employee_id": employee_id,
+            "kras": request.kras
+        }
+    }
+
+

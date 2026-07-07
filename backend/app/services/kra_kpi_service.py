@@ -392,7 +392,7 @@ async def generate_kra_suggestions_for_employee(
         existing.manager_employee_id = manager_employee_id
         existing.manager_jd_session_id = str(manager_jd_session.id) if manager_jd_session else None
         existing.manager_kra_kpi_session_id = str(manager_kra_session.id) if manager_kra_session else None
-        existing.generation_model = "gemini-2.5-pro"
+        existing.generation_model = "gemini-2.5-flash"
         existing.generation_error = None
         existing.generated_at = now
         existing.updated_at = now
@@ -408,7 +408,7 @@ async def generate_kra_suggestions_for_employee(
             kra_suggestions=kra_payload,
             generation_step="kra_selection",
             status="draft",
-            generation_model="gemini-2.5-pro",
+            generation_model="gemini-2.5-flash",
             generated_at=now,
         )
         db.add(record)
@@ -1151,7 +1151,7 @@ async def infer_jd_from_kras(employee_id: str, employee_name: str, kras: list) -
     
     llm = ChatGoogleGenerativeAI(
         google_api_key=settings.GEMINI_API_KEY,
-        model="gemini-2.5-pro",
+        model="gemini-2.5-flash",
         temperature=0.2,
         max_output_tokens=4000,
         response_mime_type="application/json",
@@ -1380,7 +1380,7 @@ async def process_kra_kpi_document(
     # 3. Call Gemini to Parse KRA/KPI and JD
     llm = ChatGoogleGenerativeAI(
         google_api_key=settings.GEMINI_API_KEY,
-        model="gemini-2.5-pro",
+        model="gemini-2.5-flash",
         temperature=0.2,
         max_output_tokens=8192,
         response_mime_type="application/json",
@@ -1504,7 +1504,7 @@ async def analyze_kra_kpi_text(
 
     llm = ChatGoogleGenerativeAI(
         google_api_key=settings.GEMINI_API_KEY,
-        model="gemini-2.5-pro",
+        model="gemini-2.5-flash",
         temperature=0.2,
         max_output_tokens=8192,
         response_mime_type="application/json",

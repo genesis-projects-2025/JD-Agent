@@ -12,6 +12,7 @@ import {
     X,
     ShieldCheck,
     Activity,
+    Sparkles,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { getCookie, deleteCookie, cookieKeys } from "@/lib/cookies";
@@ -53,7 +54,8 @@ export default function AdminLayout({
     const navItems = [
         { label: "Dashboard", href: "/admin/dashboard", icon: LayoutDashboard },
         { label: "Feedback Inbox", href: "/admin/feedback", icon: Megaphone },
-        { label: "JD & KRA Uploads", href: "/admin/jd-library", icon: File }
+        { label: "JD & KRA Uploads", href: "/admin/jd-library", icon: File },
+        { label: "Brain Agent", href: "/admin/brain-agent", icon: Sparkles }
     ];
 
     return (

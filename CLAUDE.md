@@ -221,6 +221,15 @@ Based on HR instructions, the JD template was updated across the codebase:
 | `backend/app/agents/kra_kpi_agent.py` | **Skill Gap KPI Prompt Generation (July 2026):** Updated suggestion prompt compiler to support skill gaps parameter. |
 | `backend/app/services/kra_kpi_service.py` | **Skill Gaps & Cascade Alignment (July 2026):** Fetches employee's low manager ratings (rating < 6) to inject into KPI suggestions. Implemented semantic focus filtering of manager KRAs (using Gemini task embeddings) to only suggest relevant subsets during employee KRA setup. |
 | `backend/app/services/vector_service.py` | **Vector Similarity Search (July 2026):** Appended similarity search helpers with native PostgreSQL `<=>` operator and Python math fallback for local environments. |
+| `backend/app/routers/hr_routes.py` | **Recursive Team Hierarchy (July 2026):** Changed `/my-team-employees` and `/my-team-stats` to fetch recursive (direct + indirect) reportees instead of only immediate reports, allowing heads and directors to view full hierarchy JDs. |
+| `backend/app/routers/admin_routes.py` | **Admin KRA/KPI Editing API (July 2026):** Added `PUT /admin/kra-kpi/{employee_id}` endpoint to update KRA/KPI framework records for both `UploadedKRAKPI` and active `KRAKPISession` tables. |
+| `backend/app/routers/admin_jd_routes.py` | **Admin JD Editing API (July 2026):** Added `PUT /admin/jds/{jd_id}` endpoint to modify reference JDs and synchronize changes to active employee `JDSession` objects. |
+| `frontend/lib/api.ts` | **Admin KRA/KPI & JD Editing API (July 2026):** Added `updateAdminKRAKPI` and `updateAdminReferenceJD` API functions. |
+| `frontend/app/admin/(dashboard)/jd/[id]/page.tsx` | **Admin KRA/KPI Editing Panel (July 2026):** Added a tab switcher ("Job Description" / "Performance Goals") and built a full inline editor allowing admins to view, modify, add, or delete KRAs and KPIs. |
+| `frontend/app/admin/(dashboard)/jd-library/page.tsx` | **Admin JD Upload Inline Editor (July 2026):** Implemented an "Edit JD" toggle inside the upload Preview Modal, allowing admins to modify Designation, Level, Department, Purpose, Responsibilities, Skills, Tools, and Qualifications before or after publishing. |
+| `frontend/app/admin/jds/[id]/page.tsx` | **Admin JD Details Inline Editor (July 2026):** Integrated the exact same "Edit JD" inline editing workspace into the reference library details view modal to support modifications. |
+
+
 
 
 ---

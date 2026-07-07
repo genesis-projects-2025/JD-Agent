@@ -1106,3 +1106,45 @@ export async function sendKraKpiMessageStream(
   }
 }
 
+export async function updateAdminKRAKPI(employeeId: string, kras: any): Promise<any> {
+  const res = await fetch(`${API_URL}/admin/kra-kpi/${employeeId}`, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${getCookie(cookieKeys.ADMIN_TOKEN)}`,
+    },
+    body: JSON.stringify({ kras }),
+  });
+  if (!res.ok) {
+    const errData = await res.json().catch(() => ({}));
+    throw new Error(errData.detail || "Failed to update KRA/KPI framework");
+  }
+  return res.json();
+}
+
+export async function updateAdminReferenceJD(
+  jdId: string,
+  payload: {
+    role_title?: string;
+    department?: string;
+    level?: string;
+    structured_data: any;
+  }
+): Promise<any> {
+  const res = await fetch(`${API_URL}/admin/jds/${jdId}`, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${getCookie(cookieKeys.ADMIN_TOKEN)}`,
+    },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const errData = await res.json().catch(() => ({}));
+    throw new Error(errData.detail || "Failed to update JD");
+  }
+  return res.json();
+}
+
+
+

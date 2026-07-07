@@ -53,7 +53,28 @@ class KRAKPIInterviewEngine:
             select(JDSession).where(JDSession.id == uuid.UUID(record.jd_session_id))
         )
         emp_jd = emp_jd_result.scalar_one_or_none()
-        emp_jd_text = emp_jd.jd_text if emp_jd else "No JD text available."
+        
+        # Optimize JD context size by extracting only core lists if structured data is present
+        emp_jd_text = ""
+        if emp_jd:
+            if emp_jd.jd_structured:
+                struct = emp_jd.jd_structured
+                resp = struct.get("responsibilities", [])
+                skills = struct.get("skills", [])
+                tools = struct.get("tools", [])
+                
+                parts = []
+                if resp:
+                    parts.append("Responsibilities:\n" + "\n".join(f"- {r}" for r in resp))
+                if skills:
+                    parts.append("Skills: " + ", ".join(skills))
+                if tools:
+                    parts.append("Tools: " + ", ".join(tools))
+                emp_jd_text = "\n\n".join(parts)
+            else:
+                emp_jd_text = emp_jd.jd_text or "No JD text available."
+        else:
+            emp_jd_text = "No JD text available."
 
         # Fetch manager KRA/KPI context if present
         mgr_kras_text = "Not Available"
@@ -153,14 +174,14 @@ class KRAKPIInterviewEngine:
         from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
         langchain_history = [SystemMessage(content=system_prompt)]
         
-        # Load past turns from DB
+        # Load past turns from DB (pruning to last 8 turns to limit context token growth)
         turns_result = await db.execute(
             select(KRAKPIConversationTurn)
             .where(KRAKPIConversationTurn.session_id == record.id)
             .order_by(KRAKPIConversationTurn.turn_index)
         )
         all_turns = turns_result.scalars().all()
-        for turn in all_turns:
+        for turn in all_turns[-8:]:
             if turn.role == "user":
                 langchain_history.append(HumanMessage(content=turn.content))
             else:

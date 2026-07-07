@@ -251,7 +251,7 @@ async def get_my_team_stats(emp_code: str, db: AsyncSession = Depends(get_db)):
     Returns the team-scoped JD statistics for a manager/head based on their direct reports.
     """
     try:
-        reports = await DashboardService.get_direct_reports(db, emp_code)
+        reports = await DashboardService.get_recursive_reports(db, emp_code)
         emp_codes = list(reports)
         stats = await DashboardService.get_team_stats(db, emp_codes)
         stats["scope"] = "team"
@@ -275,7 +275,7 @@ async def get_my_team_employees(
     Uses shared role approved JDs.
     """
     try:
-        reports = await DashboardService.get_direct_reports(db, emp_code)
+        reports = await DashboardService.get_recursive_reports(db, emp_code)
         if not reports:
             return []
         

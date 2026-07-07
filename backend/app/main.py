@@ -19,6 +19,7 @@ from app.routers.hr_routes import router as hr_router
 from app.routers.feedback_routes import router as feedback_router
 from app.routers.admin_jd_routes import router as admin_jd_router
 from app.routers.kra_kpi_routes import router as kra_kpi_router
+from app.routers.admin_brain_agent_routes import router as admin_brain_agent_router
 
 logger = logging.getLogger(__name__)
 
@@ -69,6 +70,7 @@ app.include_router(admin_jd_router, tags=["Admin JDs"])
 app.include_router(feedback_router)
 app.include_router(hr_router, prefix="/api/hr", tags=["HR Dashboard"])
 app.include_router(kra_kpi_router)
+app.include_router(admin_brain_agent_router)
 
 
 @app.get("/health/live")

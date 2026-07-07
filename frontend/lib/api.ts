@@ -1146,5 +1146,78 @@ export async function updateAdminReferenceJD(
   return res.json();
 }
 
+export interface BrainAgentSession {
+  id: string;
+  title: string;
+  admin_user: string;
+  entity_context: any;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface BrainAgentConversationTurn {
+  id: number;
+  session_id: string;
+  turn_index: number;
+  role: "user" | "assistant";
+  content: string;
+  tool_calls: any;
+  created_at: string;
+}
+
+export async function fetchBrainAgentSessions(): Promise<BrainAgentSession[]> {
+  const res = await fetch(`${API_URL}/admin/brain-agent/sessions`, {
+    headers: {
+      Authorization: `Bearer ${getCookie(cookieKeys.ADMIN_TOKEN)}`,
+    },
+  });
+  if (!res.ok) {
+    throw new Error("Failed to fetch past sessions");
+  }
+  const data = await res.json();
+  return data.sessions || [];
+}
+
+export async function fetchBrainAgentSessionTurns(sessionId: string): Promise<BrainAgentConversationTurn[]> {
+  const res = await fetch(`${API_URL}/admin/brain-agent/sessions/${sessionId}`, {
+    headers: {
+      Authorization: `Bearer ${getCookie(cookieKeys.ADMIN_TOKEN)}`,
+    },
+  });
+  if (!res.ok) {
+    throw new Error("Failed to fetch conversation history");
+  }
+  const data = await res.json();
+  return data.turns || [];
+}
+
+export async function deleteBrainAgentSession(sessionId: string): Promise<void> {
+  const res = await fetch(`${API_URL}/admin/brain-agent/sessions/${sessionId}`, {
+    method: "DELETE",
+    headers: {
+      Authorization: `Bearer ${getCookie(cookieKeys.ADMIN_TOKEN)}`,
+    },
+  });
+  if (!res.ok) {
+    throw new Error("Failed to delete session");
+  }
+}
+
+export async function exportBrainAgentCSV(query: string): Promise<Blob> {
+  const res = await fetch(`${API_URL}/admin/brain-agent/export-csv`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${getCookie(cookieKeys.ADMIN_TOKEN)}`,
+    },
+    body: JSON.stringify({ query }),
+  });
+  if (!res.ok) {
+    const errData = await res.json().catch(() => ({}));
+    throw new Error(errData.detail || "CSV export failed");
+  }
+  return res.blob();
+}
+
 
 

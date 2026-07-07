@@ -136,6 +136,24 @@ async def init_db():
             """)
             )
 
+            # Add trigger specifically to brain_agent_sessions
+            await conn.execute(
+                text("""
+                DO $$
+                BEGIN
+                    IF NOT EXISTS (
+                        SELECT 1 FROM pg_trigger 
+                        WHERE tgname = 'trg_brain_agent_sessions_updated'
+                    ) THEN
+                        CREATE TRIGGER trg_brain_agent_sessions_updated
+                        BEFORE UPDATE ON brain_agent_sessions
+                        FOR EACH ROW EXECUTE FUNCTION touch_updated_at();
+                    END IF;
+                END
+                $$;
+            """)
+            )
+
             # Bootstrap compatibility for fields that newer code requires.
             await conn.execute(
                 text("""

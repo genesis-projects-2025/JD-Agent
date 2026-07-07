@@ -5,6 +5,7 @@ from app.models.feedback_model import Feedback
 from app.models.review_comment_model import JDReviewComment
 from app.models.reference_jd_model import ReferenceJD
 from app.models.kra_kpi_model import KRAKPISession, KRAKPIConversationTurn, UploadedKRAKPI
+from app.models.brain_agent_model import BrainAgentSession, BrainAgentConversationTurn
 
 __all__ = [
     "JDSession",
@@ -23,4 +24,6 @@ __all__ = [
     "KRAKPISession",
     "KRAKPIConversationTurn",
     "UploadedKRAKPI",
+    "BrainAgentSession",
+    "BrainAgentConversationTurn",
 ]

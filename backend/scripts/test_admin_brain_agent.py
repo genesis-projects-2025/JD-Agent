@@ -61,7 +61,7 @@ async def run_tests():
             print(f"\n💬 Query {idx+1}: '{q}'")
             try:
                 reply = ""
-                async for event in AdminBrainAgentService.chat_stream(db, q):
+                async for event in AdminBrainAgentService.chat_stream(db, q, admin_user="admin_test_user"):
                     if event["type"] == "chunk":
                         reply += event["content"]
                     elif event["type"] == "status":

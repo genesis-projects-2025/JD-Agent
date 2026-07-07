@@ -54,23 +54,16 @@ class KRAKPIInterviewEngine:
         )
         emp_jd = emp_jd_result.scalar_one_or_none()
         
-        # Optimize JD context size by extracting only core lists if structured data is present
+        # Optimize JD context size by extracting ONLY the responsibilities if structured data is present
         emp_jd_text = ""
         if emp_jd:
             if emp_jd.jd_structured:
                 struct = emp_jd.jd_structured
                 resp = struct.get("responsibilities", [])
-                skills = struct.get("skills", [])
-                tools = struct.get("tools", [])
-                
-                parts = []
                 if resp:
-                    parts.append("Responsibilities:\n" + "\n".join(f"- {r}" for r in resp))
-                if skills:
-                    parts.append("Skills: " + ", ".join(skills))
-                if tools:
-                    parts.append("Tools: " + ", ".join(tools))
-                emp_jd_text = "\n\n".join(parts)
+                    emp_jd_text = "Responsibilities:\n" + "\n".join(f"- {r}" for r in resp)
+                else:
+                    emp_jd_text = "No responsibilities defined."
             else:
                 emp_jd_text = emp_jd.jd_text or "No JD text available."
         else:

@@ -103,13 +103,15 @@ Stores admin-uploaded KRAs/KPIs parsed directly from Excel without LLM modificat
 
 ---
 
-## 🛠️ HR Modifications Made (June 2026)
+## 🛠️ Modifications Made (June - July 2026)
 
-Based on HR instructions, the JD template was updated across the codebase:
+Based on HR instructions, system freezes, and admin requests, the platform has undergone major features and template changes:
 
 1. **Removed `Band` and `Band Name` fields** from the JD template
 2. **Renamed `Grade` → `Job Level`** everywhere
 3. **Removed `Team` and `Internal Stakeholders` fields** from Working Relationships section
+4. **Admin Brain Agent (July 2026)**: Added a highly intelligent hybrid SQL + Vector agent for administrators to query any employee details, stats, JDs, or goal sheets, complete with SSE streaming, custom table/list markdown parsing, and robust exception-handling guardrails.
+5. **Model Cost & Context Optimizations (July 2026)**: Swapped KRA/KPI generators and interview streams to `gemini-2.5-flash` (saving 94%+ in costs), limited conversation context to a sliding window of the last 8 turns, and trimmed input JD text to strictly responsibilities arrays to reduce token volumes by over 70%.
 
 ### Files changed for HR modifications:
 | File | Change |
@@ -228,6 +230,18 @@ Based on HR instructions, the JD template was updated across the codebase:
 | `frontend/app/admin/(dashboard)/jd/[id]/page.tsx` | **Admin KRA/KPI Editing Panel (July 2026):** Added a tab switcher ("Job Description" / "Performance Goals") and built a full inline editor allowing admins to view, modify, add, or delete KRAs and KPIs. |
 | `frontend/app/admin/(dashboard)/jd-library/page.tsx` | **Admin JD Upload Inline Editor (July 2026):** Implemented an "Edit JD" toggle inside the upload Preview Modal, allowing admins to modify Designation, Level, Department, Purpose, Responsibilities, Skills, Tools, and Qualifications before or after publishing. |
 | `frontend/app/admin/jds/[id]/page.tsx` | **Admin JD Details Inline Editor (July 2026):** Integrated the exact same "Edit JD" inline editing workspace into the reference library details view modal to support modifications. |
+| `backend/app/services/db_query_service.py` | **Admin Brain Agent (July 2026):** Implemented read-only safe SQL validation and execution service. |
+| `backend/app/services/vector_service.py` | **Admin Brain Agent (July 2026):** Added `employee_id` mapping in JD vector metadata, and implemented KRA/KPI vector indexing. |
+| `backend/app/services/admin_brain_agent_service.py` | **Admin Brain Agent (July 2026):** Created Hybrid SQL + Vector orchestrator supporting professional tone, streaming SSE events, and robust error guardrails. |
+| `backend/app/routers/admin_brain_agent_routes.py` | **Admin Brain Agent (July 2026):** Exposed streaming route `/admin/brain-agent/chat/stream` for administrative queries. |
+| `backend/app/main.py` | **Admin Brain Agent (July 2026):** Registered the new Admin Brain Agent router. |
+| `backend/scripts/sync_krakpis_to_pinecone.py` | **Admin Brain Agent (July 2026):** Pre-synced all active employee goals into Pinecone vectors. |
+| `backend/scripts/test_admin_brain_agent.py` | **Admin Brain Agent (July 2026):** Integration test script to verify SQL injection block and chat streaming. |
+| `frontend/app/admin/(dashboard)/brain-agent/page.tsx` | **Admin Brain Agent (July 2026):** Created slate monochromatic minimalistic chat workspace page with template query triggers and fetch-reader streaming. |
+| `frontend/app/admin/(dashboard)/layout.tsx` | **Admin Brain Agent (July 2026):** Registered \"Brain Agent\" navigation entry in sidebar. |
+| `backend/app/agents/kra_kpi_agent.py` | **Credit Cost Optimization (July 2026):** Swapped KRA/KPI interview model to `gemini-2.5-flash` to reduce API cost by 94%. |
+| `backend/app/services/kra_kpi_service.py` | **Credit Cost Optimization (July 2026):** Swapped all KPI extraction and parsing instances to `gemini-2.5-flash`. |
+| `backend/app/agents/kra_kpi_interview_agent.py` | **Credit Cost Optimization (July 2026):** Pruned past conversation history context to last 8 turns, and trimmed input JD data to strictly responsibilities list. |
 
 
 
@@ -243,16 +257,19 @@ JD-Agent/
 │   │   ├── routers/          # FastAPI route handlers
 │   │   │   ├── jd_routes.py          # Main JD chat/stream/generate/save
 │   │   │   ├── admin_jd_routes.py    # Admin JD management & markdown export
-│   │   │   └── kra_kpi_routes.py     # KRA/KPI generation & management (NEW)
+│   │   │   ├── kra_kpi_routes.py     # KRA/KPI generation & management
+│   │   │   └── admin_brain_agent_routes.py # Admin Brain Agent streaming route (NEW)
 │   │   ├── services/
 │   │   │   ├── jd_intelligence.py    # JDStructuredData schema + AI extraction
 │   │   │   ├── jd_service.py         # JD business logic + markdown rendering
 │   │   │   ├── docx_generator.py     # Word DOCX export
-│   │   │   └── kra_kpi_service.py    # KRA/KPI orchestration + prerequisite checks (NEW)
+│   │   │   ├── kra_kpi_service.py    # KRA/KPI orchestration + prerequisite checks
+│   │   │   ├── db_query_service.py   # Safe read-only SQL validation (NEW)
+│   │   │   └── admin_brain_agent_service.py # Hybrid SQL+Vector agentic orchestrator (NEW)
 │   │   ├── agents/
-│   │   │   └── kra_kpi_agent.py      # LLM-based KRA/KPI generator (NEW)
+│   │   │   └── kra_kpi_agent.py      # LLM-based KRA/KPI generator
 │   │   ├── models/
-│   │   │   └── kra_kpi_model.py      # KRAKPISession DB table (NEW)
+│   │   │   └── kra_kpi_model.py      # KRAKPISession DB table
 │   │   ├── schemas/
 │   │   │   └── jd_schema.py          # Pydantic schemas
 │   │   └── agents/                   # LangGraph agent nodes
@@ -261,10 +278,15 @@ JD-Agent/
 │   │   └── jd/
 │   │       ├── jd-preview-panel.tsx  # Live JD preview UI
 │   │       ├── pdf-document-view.tsx # PDF render component
-│   │       ├── kra-kpi-panel.tsx     # KRA/KPI display panel (NEW)
+│   │       ├── kra-kpi-panel.tsx     # KRA/KPI display panel
 │   │       └── ...
+│   ├── app/
+│   │   └── admin/
+│   │       └── (dashboard)/
+│   │           └── brain-agent/
+│   │               └── page.tsx      # Minimalist Brain Agent UI (NEW)
 │   └── lib/
-│       ├── api.ts                    # + KRA/KPI API functions (UPDATED)
+│       ├── api.ts                    # + KRA/KPI API functions
 │       └── download-jd-pdf.ts        # PDF download logic
 └── scripts/
     └── optimize_server.sh

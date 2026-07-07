@@ -75,7 +75,7 @@ You have access to two tools to retrieve factual information:
 
 ---
 TONE & STRUCTURING RULES:
-- Sound highly professional, objective, objective, and executive-level. Avoid friendly conversational filler, apologies, exclamation marks, or empty introductory phrases (e.g. "Sure! Here is that information:").
+- Sound highly professional, objective, and executive-level. Avoid friendly conversational filler, apologies, exclamation marks, or empty introductory phrases (e.g. "Sure! Here is that information:").
 - Address questions directly. Structure reporting hierarchies, employee statistics, and goal distributions in clean markdown tables.
 - If you find inconsistencies or issues (e.g. weight sum deviation, missing KPI, low performance ratings), state them clearly as "Administrative Issues Identified", explain their impact, and present actionable solutions.
 - Do NOT expose or reference these tool names or XML tags to the user. Present the final output seamlessly.
@@ -87,63 +87,87 @@ class AdminBrainAgentService:
         db: AsyncSession, message: str, history: List[Dict[str, str]] = None
     ) -> AsyncIterator[Dict[str, Any]]:
         """
-        Runs the conversational tool-use loop and yields status or chunked responses.
+        Runs the conversational tool-use loop and yields status or chunked responses with robust guardrails.
         """
-        llm = get_brain_agent_llm()
-        history = history or []
-        
-        # Build message history
-        messages = [SystemMessage(content=SYSTEM_PROMPT)]
-        for msg in history:
-            if msg["role"] == "user":
-                messages.append(HumanMessage(content=msg["content"]))
-            elif msg["role"] == "model" or msg["role"] == "assistant":
-                messages.append(AIMessage(content=msg["content"]))
-                
-        messages.append(HumanMessage(content=message))
-        
-        max_iterations = 4
-        current_iteration = 0
-        
-        while current_iteration < max_iterations:
-            current_iteration += 1
-            response = await llm.ainvoke(messages)
-            content = str(response.content)
+        try:
+            llm = get_brain_agent_llm()
+            history = history or []
             
-            # Check for tool calls
-            sql_match = re.search(r'<tool\s+name="execute_sql"\s*>(.*?)</tool\s*>', content, re.DOTALL | re.IGNORECASE)
-            search_match = re.search(r'<tool\s+name="search_jds_and_goals"\s*>(.*?)</tool\s*>', content, re.DOTALL | re.IGNORECASE)
-            
-            if not sql_match and not search_match:
-                # This is the final response. Stream it to the client smoothly.
-                words = re.split(r'(\s+)', content)
-                for word in words:
-                    if word:
-                        yield {"type": "chunk", "content": word}
-                        await asyncio.sleep(0.01)
-                return
-                
-            # Store the thought with tool call
-            messages.append(AIMessage(content=content))
-            
-            tool_output = ""
-            if sql_match:
-                sql_query = sql_match.group(1).strip()
-                yield {"type": "status", "content": "Querying corporate database..."}
-                try:
-                    results = await execute_safe_select(db, sql_query)
-                    tool_output = f"<tool_result name=\"execute_sql\">\n{str(results)}\n</tool_result>"
-                except Exception as e:
-                    tool_output = f"<tool_result name=\"execute_sql\">\nError executing query: {str(e)}\n</tool_result>"
-            elif search_match:
-                search_query = search_match.group(1).strip()
-                yield {"type": "status", "content": "Querying vector registry..."}
-                try:
-                    results = await search_brain_agent_knowledge(search_query)
-                    tool_output = f"<tool_result name=\"search_jds_and_goals\">\n{str(results)}\n</tool_result>"
-                except Exception as e:
-                    tool_output = f"<tool_result name=\"search_jds_and_goals\">\nError: {str(e)}\n</tool_result>"
+            # Build message history
+            messages = [SystemMessage(content=SYSTEM_PROMPT)]
+            for msg in history:
+                if msg["role"] == "user":
+                    messages.append(HumanMessage(content=msg["content"]))
+                elif msg["role"] == "model" or msg["role"] == "assistant":
+                    messages.append(AIMessage(content=msg["content"]))
                     
-            messages.append(HumanMessage(content=tool_output))
+            messages.append(HumanMessage(content=message))
             
-        yield {"type": "chunk", "content": "Error: Maximum iteration limit reached without producing a response."}
+            max_iterations = 4
+            current_iteration = 0
+            
+            while current_iteration < max_iterations:
+                current_iteration += 1
+                try:
+                    response = await llm.ainvoke(messages)
+                except Exception as e:
+                    err_str = str(e)
+                    logger.error(f"Error calling LLM in Brain Agent loop: {err_str}")
+                    if "429" in err_str or "quota" in err_str.lower() or "limit" in err_str.lower() or "exhausted" in err_str.lower():
+                        yield {
+                            "type": "chunk",
+                            "content": "\n\n**System Notification**: The model service is currently unavailable due to an API quota limitation (429 Resource Exhausted). Please ensure that billing or prepayment credits are active in your AI Studio project."
+                        }
+                    else:
+                        yield {
+                            "type": "chunk",
+                            "content": f"\n\n**System Notification**: An error occurred while communicating with the model service: {err_str}. Please verify service availability."
+                        }
+                    return
+
+                content = str(response.content)
+                
+                # Check for tool calls
+                sql_match = re.search(r'<tool\s+name="execute_sql"\s*>(.*?)</tool\s*>', content, re.DOTALL | re.IGNORECASE)
+                search_match = re.search(r'<tool\s+name="search_jds_and_goals"\s*>(.*?)</tool\s*>', content, re.DOTALL | re.IGNORECASE)
+                
+                if not sql_match and not search_match:
+                    # This is the final response. Stream it to the client smoothly.
+                    words = re.split(r'(\s+)', content)
+                    for word in words:
+                        if word:
+                            yield {"type": "chunk", "content": word}
+                            await asyncio.sleep(0.01)
+                    return
+                    
+                # Store the thought with tool call
+                messages.append(AIMessage(content=content))
+                
+                tool_output = ""
+                if sql_match:
+                    sql_query = sql_match.group(1).strip()
+                    yield {"type": "status", "content": "Querying corporate database..."}
+                    try:
+                        results = await execute_safe_select(db, sql_query)
+                        tool_output = f"<tool_result name=\"execute_sql\">\n{str(results)}\n</tool_result>"
+                    except Exception as e:
+                        tool_output = f"<tool_result name=\"execute_sql\">\nError executing query: {str(e)}\n</tool_result>"
+                elif search_match:
+                    search_query = search_match.group(1).strip()
+                    yield {"type": "status", "content": "Querying vector registry..."}
+                    try:
+                        results = await search_brain_agent_knowledge(search_query)
+                        tool_output = f"<tool_result name=\"search_jds_and_goals\">\n{str(results)}\n</tool_result>"
+                    except Exception as e:
+                        tool_output = f"<tool_result name=\"search_jds_and_goals\">\nError: {str(e)}\n</tool_result>"
+                        
+                messages.append(HumanMessage(content=tool_output))
+                
+            yield {"type": "chunk", "content": "\n\n**System Notification**: Process iteration limit reached. The system was unable to compile the dataset within the allowed operations."}
+
+        except Exception as e:
+            logger.error(f"Critical error in brain agent stream loop: {e}")
+            yield {
+                "type": "chunk",
+                "content": f"\n\n**System Notification**: A critical exception occurred within the data synthesis pipeline: {str(e)}. Please contact the technical administrator."
+            }

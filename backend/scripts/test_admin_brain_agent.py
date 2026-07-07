@@ -60,7 +60,12 @@ async def run_tests():
         for idx, q in enumerate(test_queries):
             print(f"\n💬 Query {idx+1}: '{q}'")
             try:
-                reply = await AdminBrainAgentService.chat(db, q)
+                reply = ""
+                async for event in AdminBrainAgentService.chat_stream(db, q):
+                    if event["type"] == "chunk":
+                        reply += event["content"]
+                    elif event["type"] == "status":
+                        print(f"  [Status]: {event['content']}")
                 print(f"🤖 Agent Response:\n{reply}\n")
             except Exception as e:
                 print(f"❌ Agent execution failed: {e}")

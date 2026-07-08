@@ -56,15 +56,9 @@ def get_langfuse_callback_handler(trace_name: str = None, session_id: str = None
     if settings.LANGFUSE_PUBLIC_KEY and settings.LANGFUSE_SECRET_KEY:
         try:
             from langfuse.langchain import CallbackHandler
-            return CallbackHandler(
-                public_key=settings.LANGFUSE_PUBLIC_KEY,
-                secret_key=settings.LANGFUSE_SECRET_KEY,
-                host=settings.LANGFUSE_BASE_URL,
-                trace_name=trace_name,
-                session_id=session_id,
-                user_id=user_id,
-                tags=tags
-            )
+            # Langfuse SDK v4 handles authentication globally from client setup/env.
+            # Metadata like session_id/tags are passed via Langchain's config metadata context.
+            return CallbackHandler()
         except Exception as e:
             logger.warning(f"Failed to initialize Langfuse CallbackHandler: {e}")
     return None

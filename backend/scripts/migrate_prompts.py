@@ -45,6 +45,7 @@ def migrate():
         {"name": "kra-kpi-interview-prompt", "prompt": prompts.KRA_KPI_SYSTEM_PROMPT, "type": "text"},
         {"name": "kra-suggestion-prompt", "prompt": prompts.KRA_SUGGESTION_PROMPT, "type": "text"},
         {"name": "kpi-suggestion-prompt", "prompt": prompts.KPI_SUGGESTION_PROMPT, "type": "text"},
+        {"name": "brain-agent-system", "prompt": prompts.BRAIN_AGENT_SYSTEM_PROMPT, "type": "text"},
     ]
 
     print(f"Found {len(prompts_to_migrate)} prompts to migrate.")

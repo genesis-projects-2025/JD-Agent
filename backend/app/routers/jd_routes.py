@@ -1,6 +1,7 @@
-from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi import APIRouter, Depends, HTTPException, Response, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
+from typing import Optional
 import logging
 import re
 import json
@@ -210,9 +211,14 @@ async def hydrate_session_from_db(session_id: str, db: AsyncSession) -> SessionM
 
 # ── Init ──────────────────────────────────────────────────────────────────────
 @router.post("/init", response_model=InitJDResponse)
-async def init_jd(request: InitJDRequest, db: AsyncSession = Depends(get_db)):
+async def init_jd(
+    request: InitJDRequest,
+    template_session_id: Optional[str] = Query(None),
+    db: AsyncSession = Depends(get_db)
+):
     from sqlalchemy.future import select
     from app.models.user_model import Employee
+    from app.models.jd_session_model import JDSession
 
     emp_result = await db.execute(
         select(Employee).filter(Employee.id == request.employee_id)
@@ -224,6 +230,57 @@ async def init_jd(request: InitJDRequest, db: AsyncSession = Depends(get_db)):
         )
         db.add(emp)
         await db.commit()
+
+    if template_session_id:
+        try:
+            template_uuid = uuid.UUID(template_session_id)
+            template_res = await db.execute(
+                select(JDSession).where(JDSession.id == template_uuid)
+            )
+            template_session = template_res.scalar_one_or_none()
+            if template_session:
+                # Check if this employee already has any JD session (approved or not)
+                existing_res = await db.execute(
+                    select(JDSession)
+                    .where(JDSession.employee_id == request.employee_id)
+                    .order_by(JDSession.updated_at.desc())
+                )
+                existing_session = existing_res.scalars().first()
+                if existing_session:
+                    return {
+                        "id": str(existing_session.id),
+                        "status": existing_session.status,
+                        "employee_id": existing_session.employee_id
+                    }
+
+                # Otherwise, create a pre-approved copy of the standardized JD session
+                new_id = str(uuid.uuid4())
+                new_session = JDSession(
+                    id=uuid.UUID(new_id),
+                    employee_id=request.employee_id,
+                    title=template_session.title,
+                    department=template_session.department,
+                    jd_text=template_session.jd_text,
+                    jd_structured=template_session.jd_structured,
+                    insights=template_session.insights,
+                    status="approved",
+                    version=1,
+                )
+                db.add(new_session)
+                await db.commit()
+
+                await invalidate_pattern("cache:jd_list:*")
+                await invalidate_pattern("cache:dept_stats:*")
+                await invalidate_pattern("cache:dept_employees:*")
+
+                return {
+                    "id": new_id,
+                    "status": "approved",
+                    "employee_id": request.employee_id
+                }
+        except Exception as e:
+            logger.error(f"Failed to copy template session {template_session_id}: {e}")
+
 
     new_id = str(uuid.uuid4())
     memory = SessionMemory()

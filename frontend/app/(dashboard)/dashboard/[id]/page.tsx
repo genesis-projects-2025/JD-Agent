@@ -47,6 +47,7 @@ import {
   fetchMyTeamEmployees,
   deleteJD,
   fetchMyImprovements,
+  initQuestionnaire,
 } from "@/lib/api";
 
 
@@ -244,6 +245,12 @@ function JDGrid({
             <Link
               key={jd.id}
               href={href}
+              onClick={(e) => {
+                if (roleTemplate && roleTemplate.exists && jd.id === roleTemplate.id) {
+                  e.preventDefault();
+                  handleJdClick(jd.id);
+                }
+              }}
               className="group bg-white rounded-md p-6 border border-surface-100 shadow-md hover:shadow-md hover:border-primary-200 transition-all duration-500 flex flex-col justify-between"
             >
               <div>
@@ -304,7 +311,11 @@ function JDGrid({
                         if (onViewKraKpi && jd.employee_id) {
                           onViewKraKpi(jd.id, jd.employee_id, jd.employee_name || "Unknown", jd.kra_kpi_status);
                         } else {
-                          router.push(`/jd/${jd.id}?tab=kra-kpi`);
+                          if (roleTemplate && roleTemplate.exists && jd.id === roleTemplate.id) {
+                            handleJdClick(jd.id, "kra-kpi");
+                          } else {
+                            router.push(`/jd/${jd.id}?tab=kra-kpi`);
+                          }
                         }
                       }}
                       className="text-xs font-medium text-indigo-600 hover:text-indigo-800 inline-flex items-center gap-1.5 transition-colors border-l border-surface-200 pl-4"
@@ -386,6 +397,30 @@ function EmployeeView({
         ? "pending"
         : "all",
   );
+
+  const [templateLoading, setTemplateLoading] = useState(false);
+
+  const handleJdClick = async (jdId: string, tab?: string) => {
+    if (roleTemplate && roleTemplate.exists && jdId === roleTemplate.id) {
+      setTemplateLoading(true);
+      try {
+        const data = await initQuestionnaire({
+          employee_id: employeeId,
+          employee_name: user?.name || "Employee",
+          template_session_id: jdId,
+        });
+        router.push(`/jd/${data.id}${tab ? `?tab=${tab}` : ""}`);
+      } catch (error) {
+        console.error("Failed to copy template JD:", error);
+        alert("Failed to access standard JD copy. Please try again.");
+      } finally {
+        setTemplateLoading(false);
+      }
+    } else {
+      router.push(`/jd/${jdId}${tab ? `?tab=${tab}` : ""}`);
+    }
+  };
+
 
   useEffect(() => {
     Promise.all([
@@ -541,12 +576,17 @@ function EmployeeView({
               </div>
 
               <div className="flex flex-col sm:flex-row gap-3 shrink-0 w-full sm:w-auto">
-                <Link
-                  href={`/jd/${roleTemplate.id}`}
-                  className="px-6 py-3.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-md text-sm font-medium transition-all shadow-md shadow-emerald-900/30 text-center active:scale-[0.98]"
+                <button
+                  onClick={() => handleJdClick(roleTemplate.id)}
+                  disabled={templateLoading}
+                  className="px-6 py-3.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-md text-sm font-medium transition-all shadow-md shadow-emerald-900/30 text-center active:scale-[0.98] disabled:opacity-50 flex items-center justify-center gap-2"
                 >
-                  📄 View Standard JD
-                </Link>
+                  {templateLoading ? (
+                    <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                  ) : (
+                    "📄 View Standard JD"
+                  )}
+                </button>
                 <Link
                   href="/questionnaire"
                   onClick={handleStartInterview}
@@ -739,11 +779,16 @@ function EmployeeView({
                 <button
                   onClick={() => {
                     setShowConfirmModal(false);
-                    router.push(`/jd/${roleTemplate.id}`);
+                    handleJdClick(roleTemplate.id);
                   }}
-                  className="flex-1 px-5 py-3.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-md text-sm font-semibold transition-all active:scale-[0.98] text-center"
+                  disabled={templateLoading}
+                  className="flex-1 px-5 py-3.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-md text-sm font-semibold transition-all active:scale-[0.98] text-center disabled:opacity-50 flex items-center justify-center gap-2"
                 >
-                  📄 View Standard Copy
+                  {templateLoading ? (
+                    <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                  ) : (
+                    "📄 View Standard Copy"
+                  )}
                 </button>
                 <button
                   onClick={() => {

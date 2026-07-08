@@ -297,11 +297,16 @@ export async function fetchEmployeeProfile(empCode: string): Promise<AuthUser> {
 export async function initQuestionnaire({
   employee_id,
   employee_name,
+  template_session_id,
 }: {
   employee_id: string;
   employee_name: string;
+  template_session_id?: string;
 }) {
-  const res = await fetch(`${API_URL}/jd/init`, {
+  const url = template_session_id
+    ? `${API_URL}/jd/init?template_session_id=${encodeURIComponent(template_session_id)}`
+    : `${API_URL}/jd/init`;
+  const res = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ employee_id, employee_name }),

@@ -23,6 +23,26 @@ export default function QuestionnaireStart() {
       .catch(console.error);
   }, []);
 
+  const handleUseTemplate = async () => {
+    setLoading(true);
+    try {
+      const eid = getOrCreateEmployeeId();
+      const user = getCurrentUser();
+      const employeeName = user?.name || ("Employee " + eid.substring(0, 8).toUpperCase());
+      const data = await initQuestionnaire({
+        employee_id: eid,
+        employee_name: employeeName,
+        template_session_id: roleTemplate.id,
+      });
+      router.push(`/jd/${data.id}`);
+    } catch (error) {
+      console.error("Failed to initialize JD from template:", error);
+      alert("Failed to initialize JD. Please try again.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const startInterview = async () => {
     setLoading(true);
     try {
@@ -72,12 +92,18 @@ export default function QuestionnaireStart() {
                 Click below to instantly view this pre-approved standard copy and complete your profile.
               </p>
               <button
-                onClick={() => router.push(`/jd/${roleTemplate.id}`)}
-                className="flex items-center gap-2 px-5 py-3 bg-emerald-600 hover:bg-emerald-500 text-white rounded-md text-sm font-semibold transition-all active:scale-[0.98] shadow-md shadow-emerald-600/10"
+                onClick={handleUseTemplate}
+                disabled={loading}
+                className="flex items-center gap-2 px-5 py-3 bg-emerald-600 hover:bg-emerald-500 text-white rounded-md text-sm font-semibold transition-all active:scale-[0.98] shadow-md shadow-emerald-600/10 disabled:opacity-50"
               >
-                📥 View Standard JD
+                {loading ? (
+                  <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                ) : (
+                  "📥 View Standard JD"
+                )}
               </button>
             </div>
+
 
             {/* Option 2 */}
             <div className="p-5 bg-neutral-50 border border-neutral-200 rounded-2xl">

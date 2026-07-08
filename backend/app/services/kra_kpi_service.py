@@ -146,7 +146,7 @@ async def check_prerequisites(
     else:
         # Option 1: Backwards compatibility - check if they already have KRA/KPI data
         kra_res = await db.execute(
-            select(KRAKPISession).where(KRAKPISession.jd_session_id == uuid.UUID(jd_session_id))
+            select(KRAKPISession).where(KRAKPISession.jd_session_id == str(jd_session_id))
         )
         kra_session = kra_res.scalar_one_or_none()
         is_legacy = kra_session is not None and kra_session.kras and len(kra_session.kras) > 0

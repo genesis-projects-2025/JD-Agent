@@ -36,6 +36,7 @@ export function KRAKPIPrereqModal({
   if (!isOpen || !mounted) return null;
 
   const hasEmployeeJdMissing = missing.includes("employee_jd");
+  const hasEmployeeJdApprovedMissing = missing.includes("employee_jd_approved");
   const hasManagerJdMissing = missing.includes("manager_jd");
   const hasManagerKraMissing = missing.includes("manager_kra_kpi");
   const isManagerBlocker = !hasEmployeeJdMissing && (hasManagerJdMissing || hasManagerKraMissing);
@@ -69,6 +70,15 @@ export function KRAKPIPrereqModal({
             <p className="text-red-800 font-semibold mb-1">📄 Create Your JD First</p>
             <p className="text-xs text-red-700">
               You must complete your questionnaire interview and generate your Job Description before you can define your KRA/KPI framework.
+            </p>
+          </div>
+        ) : null}
+
+        {hasEmployeeJdApprovedMissing ? (
+          <div className="p-3 bg-red-50/50 rounded-xl border border-red-100/50">
+            <p className="text-red-800 font-semibold mb-1">📄 Waiting on Manager JD Approval</p>
+            <p className="text-xs text-red-700">
+              Your Job Description has not been approved by your manager yet. Your manager must review and approve your Job Description before you can generate your KRA/KPI performance goals.
             </p>
           </div>
         ) : null}
@@ -149,6 +159,15 @@ export function KRAKPIPrereqModal({
           </div>
         ) : null}
 
+        {hasEmployeeJdApprovedMissing ? (
+          <div className="p-3 bg-red-50/50 rounded-xl border border-red-100/50">
+            <p className="text-red-800 font-semibold mb-1">📄 Subordinate JD Needs Your Approval</p>
+            <p className="text-xs text-red-700">
+              The Job Description for <span className="font-bold">{employeeName}</span> has not been approved by you yet. Please review and approve their Job Description on your dashboard first.
+            </p>
+          </div>
+        ) : null}
+
         {isManagerBlocker ? (
           <div className="p-3 bg-amber-50/50 rounded-xl border border-amber-100/50">
             <p className="text-amber-800 font-semibold mb-1">👔 Your Setup is Required</p>
@@ -197,6 +216,15 @@ export function KRAKPIPrereqModal({
             <p className="text-red-800 font-semibold mb-1">📄 Employee JD Incomplete</p>
             <p className="text-xs text-red-700">
               The employee <span className="font-bold">{employeeName}</span> (ID: {employeeId}) has not generated their Job Description yet.
+            </p>
+          </div>
+        ) : null}
+
+        {hasEmployeeJdApprovedMissing ? (
+          <div className="p-3 bg-red-50/50 rounded-xl border border-red-100/50">
+            <p className="text-red-800 font-semibold mb-1">📄 Employee JD Manager Approval Pending</p>
+            <p className="text-xs text-red-700">
+              The Job Description for <span className="font-bold">{employeeName}</span> has not been approved by their manager yet.
             </p>
           </div>
         ) : null}

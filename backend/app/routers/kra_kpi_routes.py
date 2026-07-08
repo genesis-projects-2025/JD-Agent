@@ -100,7 +100,7 @@ def _missing_error(e: MissingPrerequisiteError):
             "missing": e.missing,
             "message": e.message,
             "action_required": (
-                "KRA/KPI requires: (1) Your completed JD, "
+                "KRA/KPI requires: (1) Your Job Description (approved by your manager), "
                 "(2) Your manager's completed JD, (3) Your manager's KRA/KPI."
             ),
         },

@@ -143,6 +143,22 @@ async def check_prerequisites(
             "Employee JD has not been generated yet. "
             "Complete the interview and generate the JD first."
         )
+    else:
+        # Option 1: Backwards compatibility - check if they already have KRA/KPI data
+        kra_res = await db.execute(
+            select(KRAKPISession).where(KRAKPISession.jd_session_id == uuid.UUID(jd_session_id))
+        )
+        kra_session = kra_res.scalar_one_or_none()
+        is_legacy = kra_session is not None and kra_session.kras and len(kra_session.kras) > 0
+
+        if not bypass_manager and not is_legacy:
+            # Enforce that the JD is approved by the manager (status is sent_to_hr or approved)
+            if employee_session.status not in {"sent_to_hr", "approved"}:
+                missing.append("employee_jd_approved")
+                details["employee_jd_approved"] = (
+                    "Your Job Description has not been approved by your manager yet. "
+                    "Your manager must review and approve your JD before you can generate your KRA/KPI performance goals."
+                )
 
     # 2. Manager ID
     manager_employee_id = None

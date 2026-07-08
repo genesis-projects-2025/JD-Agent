@@ -1234,7 +1234,7 @@ function ManagerView({ user }: { user: AuthUser }) {
                                     {emp.jd_id ? (
                                       <button
                                         onClick={() => {
-                                          if (!emp.kra_kpi_status || emp.kra_kpi_status === "draft" || emp.kra_kpi_status === "confirmed") {
+                                          if (!emp.kra_kpi_status || emp.kra_kpi_status === "draft") {
                                             setBlockedEmployeeName(emp.name);
                                           } else {
                                             setViewingKraKpi({
@@ -1287,7 +1287,7 @@ function ManagerView({ user }: { user: AuthUser }) {
             <SkillAssessmentDirectory
               employees={myTeamEmployees}
               onAssessEmployee={(jdId, employeeId, employeeName, kraKpiStatus) => {
-                if (!kraKpiStatus || kraKpiStatus === "draft" || kraKpiStatus === "confirmed") {
+                if (!kraKpiStatus || kraKpiStatus === "draft") {
                   setBlockedEmployeeName(employeeName);
                 } else {
                   setViewingKraKpi({ jdId, employeeId, employeeName });
@@ -1299,7 +1299,7 @@ function ManagerView({ user }: { user: AuthUser }) {
               jds={jds} 
               showEmployee={filter !== "my_jds"} 
               onViewKraKpi={(jdId, employeeId, employeeName, kraKpiStatus) => {
-                if (!kraKpiStatus || kraKpiStatus === "draft" || kraKpiStatus === "confirmed") {
+                if (!kraKpiStatus || kraKpiStatus === "draft") {
                   setBlockedEmployeeName(employeeName);
                 } else {
                   setViewingKraKpi({ jdId, employeeId, employeeName });
@@ -1336,6 +1336,117 @@ function ManagerView({ user }: { user: AuthUser }) {
   );
 }
 
+// ── Pending Actions Table Component ──────────────────────────────────────────
+
+function PendingActionsTable({
+  items,
+  type, // "manager" | "hr"
+  onViewKraKpi,
+  router,
+}: {
+  items: JDListItem[];
+  type: "manager" | "hr";
+  onViewKraKpi: (jdId: string, employeeId: string, employeeName: string) => void;
+  router: any;
+}) {
+  if (items.length === 0) {
+    return (
+      <div className="bg-white rounded-[2.5rem] p-16 text-center border border-surface-200 shadow-md">
+        <div className="w-16 h-16 bg-surface-50 rounded-2xl flex items-center justify-center mx-auto mb-4 border border-surface-100">
+          <Clock className="w-8 h-8 text-surface-300 animate-pulse" />
+        </div>
+        <h3 className="text-base font-bold text-surface-900 mb-1">
+          All caught up!
+        </h3>
+        <p className="text-xs text-surface-500 max-w-xs mx-auto">
+          There are no pending approvals required from you as {type === "manager" ? "a reporting manager" : "HR"}.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="bg-white rounded-[2.5rem] border border-surface-200 shadow-md overflow-hidden animate-in fade-in duration-300">
+      <div className="overflow-x-auto">
+        <table className="w-full text-left border-collapse">
+          <thead>
+            <tr className="bg-surface-50/50">
+              <th className="px-6 py-5 text-[10px] font-medium text-surface-400 border-b border-surface-100 w-1/4">Employee</th>
+              <th className="px-6 py-5 text-[10px] font-medium text-surface-400 border-b border-surface-100 w-1/4">Role Title</th>
+              <th className="px-6 py-5 text-[10px] font-medium text-surface-400 border-b border-surface-100">Pending Actions</th>
+              <th className="px-6 py-5 text-[10px] font-medium text-surface-400 border-b border-surface-100 text-right">Actions</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-surface-50">
+            {items.map((jd) => {
+              const showJdAction = type === "manager" ? jd.status === "sent_to_manager" : jd.status === "sent_to_hr";
+              const showKraAction = type === "manager" ? jd.kra_kpi_status === "sent_to_manager" : jd.kra_kpi_status === "sent_to_hr";
+
+              return (
+                <tr key={jd.id} className="hover:bg-surface-50/50 transition-colors group">
+                  <td className="px-6 py-5">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-md bg-purple-50 text-purple-650 flex items-center justify-center font-bold text-xs ring-1 ring-purple-100">
+                        {(jd.employee_name || "Unknown").split(' ').map((n: string) => n[0]).join('').slice(0, 2).toUpperCase()}
+                      </div>
+                      <div>
+                        <p className="font-semibold text-surface-900 text-sm">{jd.employee_name || "Unknown"}</p>
+                        <p className="text-[10px] font-medium text-surface-400 font-mono">{jd.employee_id || "—"}</p>
+                      </div>
+                    </div>
+                  </td>
+                  <td className="px-6 py-5">
+                    <p className="text-xs font-semibold text-surface-700 leading-snug">{jd.title || "Untitled Strategic Role"}</p>
+                    <p className="text-[10px] text-surface-400 mt-0.5">{jd.department || "—"}</p>
+                  </td>
+                  <td className="px-6 py-5">
+                    <div className="flex flex-col gap-1.5">
+                      {showJdAction && (
+                        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[10px] font-bold bg-amber-50 text-amber-700 border border-amber-100 w-fit">
+                          <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+                          JD Approval Pending
+                        </span>
+                      )}
+                      {showKraAction && (
+                        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[10px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-100 w-fit">
+                          <span className="w-1.5 h-1.5 rounded-full bg-indigo-500" />
+                          KRA/KPI Approval Pending
+                        </span>
+                      )}
+                    </div>
+                  </td>
+                  <td className="px-6 py-5 text-right">
+                    <div className="flex justify-end gap-2">
+                      {showJdAction && (
+                        <button
+                          onClick={() => router.push(`/jd/${jd.id}`)}
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-150 transition-all text-[10px] font-bold shadow-sm"
+                        >
+                          <FileText className="w-3.5 h-3.5" />
+                          View JD
+                        </button>
+                      )}
+                      {showKraAction && (
+                        <button
+                          onClick={() => onViewKraKpi(jd.id, jd.employee_id || "", jd.employee_name || "")}
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-indigo-200 bg-indigo-50 text-indigo-700 hover:bg-indigo-150 transition-all text-[10px] font-bold shadow-sm"
+                        >
+                          <Target className="w-3.5 h-3.5" />
+                          View Goals
+                        </button>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
 // ── HR view ───────────────────────────────────────────────────────────────────
 
 function HRView({ user }: { user: AuthUser }) {
@@ -1365,11 +1476,44 @@ function HRView({ user }: { user: AuthUser }) {
     last_updated?: string | null;
   }
 
+  // Manager types
+  type TeamStats = {
+    total_employees?: number;
+    submitted?: number;
+    under_review?: number;
+    approved?: number;
+    completion_percentage?: number;
+    [key: string]: unknown;
+  };
+  type TeamEmployee = {
+    employee_id: string;
+    name: string;
+    designation?: string;
+    department?: string;
+    reporting_manager?: string;
+    jd_id?: string | null;
+    jd_status?: string | null;
+    kra_kpi_status?: string | null;
+    kra_kpi_session_id?: string | null;
+    last_updated?: string | null;
+  };
+
   const [departmentStats, setDepartmentStats] = useState<DepartmentStat[]>([]);
   const [selectedDepartment, setSelectedDepartment] = useState<string | null>(null);
   const [deptEmployees, setDeptEmployees] = useState<DeptEmployee[]>([]);
   const [loadingDept, setLoadingDept] = useState(false);
   const [onlySubmitted, setOnlySubmitted] = useState(true);
+
+  // My Team state for HR users who are also managers
+  const [myTeamEmployees, setMyTeamEmployees] = useState<TeamEmployee[]>([]);
+  const [teamStats, setTeamStats] = useState<TeamStats | null>(null);
+  const [rawManagerJds, setRawManagerJds] = useState<JDListItem[]>([]);
+  const [viewingKraKpi, setViewingKraKpi] = useState<{
+    jdId: string;
+    employeeId: string;
+    employeeName: string;
+  } | null>(null);
+  const [blockedEmployeeName, setBlockedEmployeeName] = useState<string | null>(null);
 
   const [loading, setLoading] = useState(true);
 
@@ -1377,8 +1521,17 @@ function HRView({ user }: { user: AuthUser }) {
   const currentView = searchParams.get("view");
 
   const [filter, setFilter] = useState(
-    currentView === "approvals" ? "sent_to_hr" : "all",
+    currentView === "pending" ? "pending" : "sent_to_hr"
   );
+
+  const managerPendingJds = useMemo(() => {
+    return rawManagerJds.filter(
+      (j) =>
+        j.status === "sent_to_manager" ||
+        j.status === "hr_rejected" ||
+        j.kra_kpi_status === "sent_to_manager"
+    );
+  }, [rawManagerJds]);
 
   // Derived JDs based on filter
   const jds = useMemo(() => {
@@ -1390,21 +1543,50 @@ function HRView({ user }: { user: AuthUser }) {
     if (filter === "approved") {
       return allJds.filter((j) => j.status === "approved");
     }
+    if (filter === "pending") {
+      return managerPendingJds;
+    }
     return allJds;
-  }, [filter, allJds, myJds]);
+  }, [filter, allJds, myJds, managerPendingJds]);
+
+  // Group team employees by department
+  const groupedEmployees = useMemo(() => {
+    const groups: Record<string, TeamEmployee[]> = {};
+    myTeamEmployees.forEach((emp) => {
+      const dept = emp.department || "Other";
+      if (!groups[dept]) groups[dept] = [];
+      groups[dept].push(emp);
+    });
+    return Object.keys(groups)
+      .sort((a, b) => {
+        if (a.toLowerCase() === 'cell therapeutics') return -1;
+        if (b.toLowerCase() === 'cell therapeutics') return 1;
+        return a.localeCompare(b);
+      })
+      .reduce((acc, key) => {
+        acc[key] = groups[key];
+        return acc;
+      }, {} as Record<string, TeamEmployee[]>);
+  }, [myTeamEmployees]);
 
   useEffect(() => {
     async function load() {
       try {
-        const [allData, personalData, statsData] = await Promise.all([
+        const [allData, personalData, statsData, teamEmps, tStats, mJds] = await Promise.all([
           getJDs({ submitted_only: true }),
           fetchEmployeeJDs(user.employee_id),
           fetchHRDepartmentStats().catch(() => []),
+          fetchMyTeamEmployees(user.employee_id).catch(() => []),
+          fetchMyTeamStats(user.employee_id).catch(() => null),
+          fetchManagerPendingJDs(user.employee_id).catch(() => []),
         ]);
         const data = allData || [];
         setAllJds(data);
         setMyJds(personalData || []);
         setDepartmentStats(statsData || []);
+        setMyTeamEmployees(teamEmps || []);
+        setTeamStats(tStats);
+        setRawManagerJds(mJds || []);
       } catch (err) {
         console.error(err);
       } finally {
@@ -1443,12 +1625,98 @@ function HRView({ user }: { user: AuthUser }) {
 
   if (loading) return <LoadingScreen />;
 
+  if (viewingKraKpi) {
+    return (
+      <div className="absolute inset-0 overflow-y-auto p-4 sm:p-6 pb-24 animate-in fade-in duration-300">
+        <div className="max-w-7xl mx-auto space-y-8 pt-14 pb-10 sm:pt-0">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-gradient-to-r from-slate-900 to-indigo-950 rounded-[2rem] p-6 text-white border border-white/10 shadow-lg">
+            <div className="flex items-center gap-4">
+              <button
+                onClick={() => setViewingKraKpi(null)}
+                className="w-10 h-10 bg-white/15 hover:bg-white/20 border border-white/10 rounded-xl flex items-center justify-center transition-colors"
+              >
+                <ChevronLeft className="w-5 h-5 text-white" />
+              </button>
+              <div>
+                <h1 className="text-xl font-bold text-white">Manager Assessment Workspace</h1>
+                <p className="text-xs text-indigo-300">Evaluating performance goals for {viewingKraKpi.employeeName}</p>
+              </div>
+            </div>
+            <div className="bg-white/5 px-4 py-3 rounded-lg border border-white/10 backdrop-blur-sm self-start sm:self-center">
+              <span className="text-[10px] font-medium tracking-[0.2em] text-blue-300 block mb-0.5">JD Session ID</span>
+              <span className="text-xs font-mono font-bold text-slate-200">{viewingKraKpi.jdId}</span>
+            </div>
+          </div>
+          <div className="bg-white rounded-[2.5rem] border border-surface-200 shadow-xl overflow-hidden">
+            <KRAKPIPanel
+              jdSessionId={viewingKraKpi.jdId}
+              employeeId={viewingKraKpi.employeeId}
+              isManager={true}
+            />
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   const counts = {
     all: allJds.length,
     sent_to_hr: allJds.filter((j) => j.status === "sent_to_hr").length,
     approved: allJds.filter((j) => j.status === "approved").length,
     my_jds: myJds.length,
+    pending: managerPendingJds.length,
   };
+
+  const filterTabs = [
+    {
+      key: "sent_to_hr",
+      label: "Action Required by HR",
+      count: counts.sent_to_hr,
+      icon: Clock,
+      color: "text-amber-600",
+      alert: counts.sent_to_hr > 0,
+    },
+    {
+      key: "approved",
+      label: "Approved JDs",
+      count: counts.approved,
+      icon: FileText,
+      color: "text-emerald-600",
+    },
+    {
+      key: "my_jds",
+      label: "My JDs",
+      count: counts.my_jds,
+      icon: FileText,
+      color: "text-blue-600",
+    },
+  ];
+
+  if (myTeamEmployees.length > 0) {
+    filterTabs.push({
+      key: "pending",
+      label: "Action Required (Manager)",
+      count: counts.pending,
+      icon: Clock,
+      color: "text-amber-600",
+      alert: counts.pending > 0,
+    });
+    filterTabs.push({
+      key: "my_team",
+      label: "My Team",
+      count: myTeamEmployees.length,
+      icon: Users,
+      color: "text-indigo-600",
+    });
+  }
+
+  filterTabs.push({
+    key: "departments",
+    label: "Department Pulse",
+    count: departmentStats.length,
+    icon: Users,
+    color: "text-purple-600",
+  });
 
   return (
     <div className="absolute inset-0 overflow-y-auto p-4 sm:p-6 pb-24">
@@ -1499,46 +1767,7 @@ function HRView({ user }: { user: AuthUser }) {
 
         {/* Administrative Filters - Horizontal Scrollable Row style */}
         <div className="bg-white p-2 rounded-md border border-surface-200 shadow-sm flex flex-wrap gap-2">
-          {[
-            {
-              key: "all",
-              label: "Directory",
-              count: counts.all,
-              icon: Briefcase,
-              color: "text-surface-600",
-            },
-            {
-              key: "sent_to_hr",
-              label: "Action Required by HR",
-              count: counts.sent_to_hr,
-              icon: Clock,
-              color: "text-amber-600",
-              alert: counts.sent_to_hr > 0,
-            },
-            {
-              key: "approved",
-              label: "Approved JDs",
-              count: counts.approved,
-              icon: FileText,
-              color: "text-emerald-600",
-            },
-            {
-              key: "my_jds",
-              label: "My JDs",
-              count: counts.my_jds,
-              icon: FileText,
-              color: "text-blue-600",
-            },
-            {
-              key: "departments",
-              label: "Department Pulse",
-              count: departmentStats.length,
-              icon: Users,
-              color: "text-purple-600",
-            },
-
-
-          ].map(({ key, label, count, icon: Icon, color, alert }) => (
+          {filterTabs.map(({ key, label, count, icon: Icon, color, alert }) => (
             <button
               key={key}
               onClick={() => setFilter(key)}
@@ -1797,17 +2026,239 @@ function HRView({ user }: { user: AuthUser }) {
           </div>
         )}
 
-        {filter !== "departments" && (
+        {filter !== "departments" && filter !== "my_team" && filter !== "pending" && filter !== "sent_to_hr" && (
           <div className="space-y-6">
             <h2 className="text-xl font-medium text-surface-900 flex items-center gap-3 px-2">
               <span className="w-1.5 h-6 bg-purple-600 rounded-md" />
-              {filter === "all"
-                ? "All JDs"
-                : filter === "my_jds"
-                  ? "Your Personal Documents"
-                  : "Workflow Results"}
+              {filter === "my_jds"
+                ? "Your Personal Documents"
+                : "Workflow Results"}
             </h2>
-            <JDGrid jds={jds} showEmployee={filter !== "my_jds"} />
+            <JDGrid 
+              jds={jds} 
+              showEmployee={filter !== "my_jds"} 
+              onViewKraKpi={(jdId, employeeId, employeeName, kraKpiStatus) => {
+                if (!kraKpiStatus || kraKpiStatus === "draft") {
+                  setBlockedEmployeeName(employeeName);
+                } else {
+                  setViewingKraKpi({ jdId, employeeId, employeeName });
+                }
+              }}
+            />
+          </div>
+        )}
+
+        {(filter === "pending" || filter === "sent_to_hr") && (
+          <div className="space-y-6">
+            <h2 className="text-xl font-medium text-surface-900 flex items-center gap-3 px-2">
+              <span className="w-1.5 h-6 bg-purple-600 rounded-md" />
+              {filter === "pending" ? "Awaiting Your Approval (Manager)" : "Action Required by HR"}
+            </h2>
+            <PendingActionsTable
+              items={jds}
+              type={filter === "pending" ? "manager" : "hr"}
+              onViewKraKpi={(jdId, employeeId, employeeName) => {
+                setViewingKraKpi({ jdId, employeeId, employeeName });
+              }}
+              router={router}
+            />
+          </div>
+        )}
+
+        {filter === "my_team" && (
+          <div className="space-y-6">
+            <h2 className="text-xl font-medium text-surface-900 flex items-center gap-3 px-2">
+              <span className="w-1.5 h-6 bg-purple-600 rounded-md" />
+              Team Progress Overview
+            </h2>
+            {myTeamEmployees.length === 0 ? (
+              <div className="bg-white rounded-[2.5rem] border border-surface-200 shadow-md p-20 text-center">
+                <Users className="w-12 h-12 text-surface-200 mx-auto mb-4" />
+                <p className="text-surface-500 font-medium">No team members identified in your scope.</p>
+              </div>
+            ) : (
+              <div className="space-y-8 animate-in fade-in duration-500">
+                {/* Stats Summary */}
+                {teamStats && (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+                    <div className="bg-white p-6 rounded-md border border-surface-200 shadow-md hover:shadow-md transition-all duration-300 relative overflow-hidden group">
+                      <div className="absolute top-0 right-0 w-24 h-24 bg-primary-500/5 rounded-md blur-2xl -translate-y-1/2 translate-x-1/2 group-hover:scale-150 transition-transform duration-700" />
+                      <p className="text-[10px] font-medium tracking-[0.2em] text-surface-400 mb-2">Total Team</p>
+                      <p className="text-4xl font-medium text-surface-900 ">{teamStats?.total_employees || 0}</p>
+                    </div>
+                    <div className="bg-white p-6 rounded-md border border-surface-200 shadow-md hover:shadow-md transition-all duration-300 relative overflow-hidden group">
+                      <div className="absolute top-0 right-0 w-24 h-24 bg-blue-500/5 rounded-md blur-2xl -translate-y-1/2 translate-x-1/2 group-hover:scale-150 transition-transform duration-700" />
+                      <p className="text-[10px] font-medium tracking-[0.2em] text-blue-500 mb-2">In Progress</p>
+                      <p className="text-4xl font-medium text-surface-900 ">{(teamStats?.submitted || 0) + (teamStats?.under_review || 0)}</p>
+                    </div>
+                    <div className="bg-white p-6 rounded-md border border-surface-200 shadow-md hover:shadow-md transition-all duration-300 relative overflow-hidden group">
+                      <div className="absolute top-0 right-0 w-24 h-24 bg-emerald-500/5 rounded-md blur-2xl -translate-y-1/2 translate-x-1/2 group-hover:scale-150 transition-transform duration-700" />
+                      <p className="text-[10px] font-medium tracking-[0.2em] text-emerald-500 mb-2">Approved</p>
+                      <p className="text-4xl font-medium text-surface-900 ">{teamStats?.approved || 0}</p>
+                    </div>
+                    <div className="bg-white p-6 rounded-md border border-surface-200 shadow-md hover:shadow-md transition-all duration-300 relative overflow-hidden group">
+                      <div className="absolute top-0 right-0 w-24 h-24 bg-primary-500/10 rounded-md blur-2xl -translate-y-1/2 translate-x-1/2 group-hover:scale-150 transition-transform duration-700" />
+                      <p className="text-[10px] font-medium tracking-[0.2em] text-primary-500 mb-2">Completion</p>
+                      <p className="text-4xl font-medium text-surface-900 ">{teamStats?.completion_percentage || 0}%</p>
+                    </div>
+                  </div>
+                )}
+                
+                {/* Employee Directory Grouped by Department */}
+                <div className="space-y-8">
+                  {Object.entries(groupedEmployees).map(([deptName, emps]) => (
+                    <div key={deptName} className="space-y-4">
+                      <div className="flex items-center gap-2.5 px-2">
+                        <span className="w-1.5 h-4 rounded-full bg-primary-500 shadow-sm" />
+                        <h3 className="text-sm font-semibold text-surface-800 tracking-wide">{deptName}</h3>
+                        <span className="text-[10px] font-bold bg-primary-50 text-primary-600 px-2 py-0.5 rounded-full ring-1 ring-primary-100/30">
+                          {emps.length} {emps.length === 1 ? 'member' : 'members'}
+                        </span>
+                      </div>
+                      
+                      <div className="bg-white rounded-[2.5rem] border border-surface-200 shadow-md overflow-hidden">
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-left border-collapse">
+                            <thead>
+                              <tr className="bg-surface-50/50">
+                                <th className="px-6 py-5 text-[10px] font-medium text-surface-400 border-b border-surface-100 w-1/4">Team Member</th>
+                                <th className="px-6 py-5 text-[10px] font-medium text-surface-400 border-b border-surface-100 w-1/4">Designation</th>
+                                <th className="px-6 py-5 text-[10px] font-medium text-surface-400 border-b border-surface-100">JD Status</th>
+                                <th className="px-6 py-5 text-[10px] font-medium text-surface-400 border-b border-surface-100">KRA / KPI</th>
+                                <th className="px-6 py-5 text-[10px] font-medium text-surface-400 border-b border-surface-100">Action</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-surface-50">
+                              {emps.map((emp) => (
+                                <tr key={emp.employee_id} className="hover:bg-surface-50/50 transition-colors group">
+                                  <td className="px-6 py-5">
+                                    <div className="flex items-center gap-3">
+                                      <div className="w-10 h-10 rounded-md bg-primary-50 text-primary-600 flex items-center justify-center font-medium text-xs ring-1 ring-primary-100">
+                                        {emp.name.split(' ').map((n: string) => n[0]).join('').slice(0, 2).toUpperCase()}
+                                      </div>
+                                      <div>
+                                        <p className="font-medium text-surface-900 text-sm">{emp.name}</p>
+                                        <p className="text-[10px] font-medium text-surface-400 font-mono ">{emp.employee_id}</p>
+                                      </div>
+                                    </div>
+                                  </td>
+                                  <td className="px-6 py-5">
+                                    <p className="text-xs font-medium text-surface-600 leading-snug">{emp.designation}</p>
+                                    <p className="text-[10px] text-surface-400 mt-0.5">Manager: {emp.reporting_manager || 'None'}</p>
+                                  </td>
+                                  <td className="px-6 py-5">
+                                    {(() => {
+                                      const status = emp.jd_status;
+                                      let label = STATUS_CONFIG[status as keyof typeof STATUS_CONFIG]?.label || status;
+                                      let bg = STATUS_CONFIG[status as keyof typeof STATUS_CONFIG]?.bg || 'bg-surface-100 border-surface-200 text-surface-500';
+                                      let color = STATUS_CONFIG[status as keyof typeof STATUS_CONFIG]?.color || '';
+                                      
+                                      if (status === "approved" && emp.kra_kpi_status === "sent_to_manager") {
+                                        label = "KRA/KPI Review";
+                                        bg = "bg-blue-50 border-blue-200 text-blue-700";
+                                        color = "text-blue-700";
+                                      } else if (status === "approved" && emp.kra_kpi_status === "sent_to_hr") {
+                                        label = "KRA/KPI HR Review";
+                                        bg = "bg-purple-50 border-purple-200 text-purple-700";
+                                        color = "text-purple-700";
+                                      } else if (status === "approved" && emp.kra_kpi_status === "manager_rejected") {
+                                        label = "KRA/KPI Rejected";
+                                        bg = "bg-red-50 border-red-200 text-red-700";
+                                        color = "text-red-700";
+                                      } else if (status === "approved" && emp.kra_kpi_status === "hr_rejected") {
+                                        label = "KRA/KPI HR Rejected";
+                                        bg = "bg-red-50 border-red-200 text-red-700";
+                                        color = "text-red-700";
+                                      } else if (status === "approved" && (emp.kra_kpi_status === "draft" || emp.kra_kpi_status === "confirmed")) {
+                                        label = "KRA/KPI Under Process";
+                                        bg = "bg-amber-50 border-amber-200 text-amber-700";
+                                        color = "text-amber-700";
+                                      }
+                                      
+                                      return (
+                                        <div className={`inline-flex items-center gap-2 px-3 py-1 rounded-lg border text-[10px] font-medium ${bg} ${color}`}>
+                                          <span className={`w-1.5 h-1.5 rounded-md bg-current opacity-40`} />
+                                          {label}
+                                        </div>
+                                      );
+                                    })()}
+                                  </td>
+                                  <td className="px-6 py-5">
+                                    {emp.jd_id ? (
+                                      <button
+                                        onClick={() => {
+                                          if (!emp.kra_kpi_status || emp.kra_kpi_status === "draft") {
+                                            setBlockedEmployeeName(emp.name);
+                                          } else {
+                                            setViewingKraKpi({
+                                              jdId: emp.jd_id!,
+                                              employeeId: emp.employee_id,
+                                              employeeName: emp.name
+                                            });
+                                          }
+                                        }}
+                                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100 transition-all text-[10px] font-semibold tracking-wider group/btn shadow-sm"
+                                      >
+                                        <Target className="w-3.5 h-3.5 text-blue-600 group-hover/btn:scale-110 transition-transform" />
+                                        View Goals
+                                      </button>
+                                    ) : (
+                                      <span className="text-[10px] font-medium text-surface-300">—</span>
+                                    )}
+                                  </td>
+                                  <td className="px-6 py-5">
+                                    {emp.jd_id ? (
+                                      <Link
+                                        href={`/jd/${emp.jd_id}`}
+                                        className="inline-flex items-center gap-2 text-[10px] font-medium text-emerald-600 hover:text-emerald-700 transition-colors"
+                                      >
+                                        View JD
+                                        <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-1 transition-transform" />
+                                      </Link>
+                                    ) : (
+                                      <Link
+                                        href={`/dashboard/${safeBtoa(emp.employee_id)}`}
+                                        className="inline-flex items-center gap-2 text-[10px] font-medium text-primary-600 hover:text-primary-700 transition-colors"
+                                      >
+                                        NO JD
+                                        <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-1 transition-transform" />
+                                      </Link>
+                                    )}
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {blockedEmployeeName && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200">
+            <div className="bg-white rounded-[2rem] p-8 max-w-md w-full mx-4 shadow-xl border border-surface-200 animate-in zoom-in-95 duration-200 text-center relative overflow-hidden">
+              <div className="absolute top-0 left-1/2 -translate-x-1/2 w-48 h-48 bg-amber-500/10 rounded-full blur-3xl pointer-events-none" />
+              <div className="w-16 h-16 bg-amber-50 rounded-2xl flex items-center justify-center mx-auto mb-6 border border-amber-100 relative z-10 animate-bounce">
+                <Clock className="w-8 h-8 text-amber-500" />
+              </div>
+              <h3 className="text-xl font-bold text-surface-900 mb-3 relative z-10">
+                KRA & KPI Under Review
+              </h3>
+              <p className="text-sm text-surface-500 max-w-xs mx-auto leading-relaxed mb-8 relative z-10">
+                The KRA & KPI performance goals for <strong className="text-slate-800 font-semibold">{blockedEmployeeName}</strong> are currently under review or have not been finalized yet.
+              </p>
+              <button
+                onClick={() => setBlockedEmployeeName(null)}
+                className="w-full py-3 bg-surface-900 hover:bg-surface-800 text-white rounded-xl text-xs font-bold transition-colors shadow-lg shadow-surface-900/20 active:scale-[0.98]"
+              >
+                Understood, Go Back
+              </button>
+            </div>
           </div>
         )}
       </div>

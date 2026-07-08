@@ -795,11 +795,10 @@ function JDPageContent() {
       <>
         {(() => {
      const isDirectManager = currentUser?.employee_id === jd?.reporting_manager_code;
-     const isHeadReviewingSentToHR = role === "head" && (jd?.status === "sent_to_hr" || jd?.kra_kpi_status === "sent_to_hr");
-     const showManagerActionButtons = (role === "manager" || role === "head") && (
+     const isHeadReviewingSentToHR = (role === "head" || role === "hr" || role === "admin") && (jd?.status === "sent_to_hr" || jd?.kra_kpi_status === "sent_to_hr");
+     const showManagerActionButtons = 
        (isDirectManager && (jd?.status === "sent_to_manager" || jd?.kra_kpi_status === "sent_to_manager")) ||
-       isHeadReviewingSentToHR
-     );
+       (role === "head" && isHeadReviewingSentToHR);
      if (!showManagerActionButtons) return null;
 
      const approveBtnLabel = isApproving
@@ -1312,7 +1311,7 @@ function JDPageContent() {
    <div className="p-5 sm:p-8">
     {currentUser.employee_id !== jd.employee_id && 
      (role === "manager" || role === "head" || role === "hr" || role === "admin") && 
-     (!jd.kra_kpi_status || ["draft", "confirmed"].includes(jd.kra_kpi_status)) ? (
+     (!jd.kra_kpi_status || ["draft"].includes(jd.kra_kpi_status)) ? (
       <div className="bg-surface-50 rounded-[2.5rem] border border-surface-200 p-12 text-center max-w-2xl mx-auto my-8 relative overflow-hidden shadow-sm">
         <div className="absolute top-0 left-1/2 -translate-x-1/2 w-48 h-48 bg-amber-500/5 rounded-full blur-3xl pointer-events-none" />
         <div className="w-16 h-16 bg-white rounded-2xl flex items-center justify-center mx-auto mb-6 shadow-sm border border-surface-100 relative z-10">

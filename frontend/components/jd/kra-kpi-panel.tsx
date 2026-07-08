@@ -106,6 +106,7 @@ function StepBar({ current }: { current: GenerationStep }) {
 function MissingBanner({ status }: { status: PrerequisiteStatus }) {
   const labelMap: Record<string, string> = {
     employee_jd: "Employee JD (yours)",
+    employee_jd_approved: "Employee JD approved by manager",
     manager_jd: "Manager's JD",
     manager_kra_kpi: "Manager's KRA/KPI",
   };
@@ -116,7 +117,7 @@ function MissingBanner({ status }: { status: PrerequisiteStatus }) {
         <div>
           <h3 className="font-semibold text-amber-800 mb-2">Prerequisites Missing</h3>
           <ul className="space-y-1.5 mb-3">
-            {["employee_jd", "manager_jd", "manager_kra_kpi"].map((key) => {
+            {["employee_jd", "employee_jd_approved", "manager_jd", "manager_kra_kpi"].map((key) => {
               const isMissing = status.missing.includes(key);
               return (
                 <li key={key} className="flex items-center gap-2 text-sm">
@@ -2215,19 +2216,54 @@ const ConfirmedView = forwardRef<any, {
         </div>
       )}
 
-      {/* Manager Modify Controls Banner */}
+      {/* Manager Action Panel — rendered at the top for easy access */}
       {isManager && (status === "sent_to_manager" || status === "sent_to_hr") && (
-        <div className="bg-white border border-surface-200 rounded-xl p-3 shadow-sm">
+        <div className="bg-white border border-primary-100 rounded-2xl p-5 shadow-sm space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider">Manager Actions</h4>
+              <p className="text-[11px] text-slate-500 mt-0.5">Evaluate, edit, or approve the performance framework and skill ratings below.</p>
+            </div>
+            {reviewError && (
+              <span className="text-[10px] bg-red-50 text-red-650 px-2.5 py-1 rounded-md border border-red-200 font-medium">
+                Error occurred
+              </span>
+            )}
+          </div>
+
           {!isEditing ? (
-            <button
-              onClick={() => {
-                setEditableKras(JSON.parse(JSON.stringify(kras)));
-                setIsEditing(true);
-              }}
-              className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-primary-600 hover:bg-primary-700 text-white text-xs font-bold rounded-xl transition-all shadow-md active:scale-[0.98]"
-            >
-              <Info className="w-3.5 h-3.5" /> Tweak KRAs, KPIs & Expectation Thresholds
-            </button>
+            <div className="flex flex-col sm:flex-row gap-3">
+              <button
+                onClick={() => {
+                  setEditableKras(JSON.parse(JSON.stringify(kras)));
+                  setIsEditing(true);
+                }}
+                className="flex-1 inline-flex items-center justify-center gap-1.5 px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition-all"
+              >
+                <Edit className="w-3.5 h-3.5" />
+                Tweak JDs & Weights
+              </button>
+              <button
+                onClick={() => handleManagerReviewSubmit("rejected")}
+                disabled={submittingReview}
+                className="flex-1 inline-flex items-center justify-center gap-1.5 px-4 py-2.5 bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-100 text-xs font-bold rounded-xl transition-all disabled:opacity-50"
+              >
+                <AlertTriangle className="w-3.5 h-3.5" />
+                Request Revision
+              </button>
+              <button
+                onClick={() => handleManagerReviewSubmit("approved")}
+                disabled={submittingReview}
+                className="flex-1 inline-flex items-center justify-center gap-1.5 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-md transition-all disabled:opacity-50"
+              >
+                {submittingReview ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <ArrowRight className="w-3.5 h-3.5" />
+                )}
+                Approve Goals
+              </button>
+            </div>
           ) : (
             <div className="flex flex-col sm:flex-row items-center justify-between gap-3 p-1">
               <div>
@@ -2252,6 +2288,10 @@ const ConfirmedView = forwardRef<any, {
                 </button>
               </div>
             </div>
+          )}
+
+          {reviewError && (
+            <p className="text-[11px] text-rose-655 leading-normal">{reviewError}</p>
           )}
         </div>
       )}
@@ -2787,34 +2827,6 @@ const ConfirmedView = forwardRef<any, {
                   </div>
                 );
               })}
-
-              {reviewError && (
-                <div className="text-xs text-rose-700 bg-rose-50 border border-rose-200 rounded-lg px-3 py-2">
-                  {reviewError}
-                </div>
-              )}
-
-              <div className="flex flex-col sm:flex-row gap-3 pt-3 border-t border-slate-100">
-                <button
-                  onClick={() => handleManagerReviewSubmit("rejected")}
-                  disabled={submittingReview}
-                  className="flex-1 px-4 py-3 bg-rose-50 hover:bg-rose-100 text-rose-600 font-bold text-xs rounded-xl flex items-center justify-center gap-2 border border-rose-200 transition-colors disabled:opacity-50"
-                >
-                  <AlertTriangle className="w-4 h-4" /> Request Revision
-                </button>
-                <button
-                  onClick={() => handleManagerReviewSubmit("approved")}
-                  disabled={submittingReview}
-                  className="flex-1 px-5 py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl flex items-center justify-center gap-2 shadow-md shadow-emerald-600/10 transition-colors disabled:opacity-50"
-                >
-                  {submittingReview ? (
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                  ) : (
-                    <ArrowRight className="w-4 h-4" />
-                  )}
-                  Approve KRAs & Submit Review
-                </button>
-              </div>
             </div>
           )}
         </div>

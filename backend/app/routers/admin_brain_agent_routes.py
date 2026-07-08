@@ -3,6 +3,7 @@ Admin Brain Agent Routes.
 
 Exposes:
 - POST /admin/brain-agent/chat/stream — Streaming chat with tool-use loop
+- GET  /admin/brain-agent/insights — Dynamic suggestion cards from live DB
 - GET  /admin/brain-agent/sessions — List past sessions
 - GET  /admin/brain-agent/sessions/{session_id} — Get session conversation turns
 - DELETE /admin/brain-agent/sessions/{session_id} — Delete a session
@@ -22,6 +23,7 @@ from app.core.database import get_db
 from app.routers.admin_routes import get_current_admin
 from app.services.admin_brain_agent_service import AdminBrainAgentService
 from app.services.db_query_service import execute_safe_select
+from app.services.brain_agent_insights_service import generate_dynamic_insights
 
 logger = logging.getLogger(__name__)
 
@@ -63,6 +65,22 @@ async def chat_stream_endpoint(
             yield f"data: {json.dumps({'type': 'chunk', 'content': f'**System Notification**: Stream error: {str(e)}'})}\n\n"
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
+
+
+# ── Dynamic Insights ──
+
+@router.get("/insights")
+async def get_insights(
+    db: AsyncSession = Depends(get_db),
+    admin_user: str = Depends(get_current_admin),
+):
+    """Return dynamic suggestion cards based on live database state."""
+    try:
+        insights = await generate_dynamic_insights(db)
+        return {"insights": insights}
+    except Exception as e:
+        logger.error(f"Error generating insights: {e}")
+        return {"insights": []}
 
 
 # ── Session Management ──

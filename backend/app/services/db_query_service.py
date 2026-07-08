@@ -17,7 +17,8 @@ ALLOWED_TABLES = {
     "tools",
     "employee_skills",
     "employee_tools",
-    "reference_jds"
+    "reference_jds",
+    "feedbacks"
 }
 
 # Forbidden SQL keywords to prevent write/alter/DDL operations

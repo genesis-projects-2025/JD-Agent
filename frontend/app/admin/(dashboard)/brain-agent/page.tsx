@@ -18,7 +18,12 @@ import {
     AlertTriangle,
     ChevronDown,
     ChevronUp,
-    BarChart3
+    BarChart3,
+    Clock,
+    Users,
+    Activity,
+    Sparkles,
+    Zap
 } from "lucide-react";
 import { getCookie, cookieKeys } from "@/lib/cookies";
 import {
@@ -26,7 +31,9 @@ import {
     fetchBrainAgentSessionTurns,
     deleteBrainAgentSession,
     exportBrainAgentCSV,
-    BrainAgentSession
+    fetchPulseInsights,
+    BrainAgentSession,
+    PulseInsight
 } from "@/lib/api";
 import {
     BarChart,
@@ -48,26 +55,20 @@ interface Message {
     sqlQuery?: string; // Cache SQL query if executed in this turn
 }
 
-const SUGGESTED_QUERIES = [
+const FALLBACK_QUERIES = [
     {
-        title: "Employee Directory",
-        desc: "Query reports under Director DIR05.",
-        query: "Which employees report to DIR05 (Dr. Bhanu Prasad) and what are their designations? Render as a table."
+        title: "Organization Overview",
+        description: "Get a high-level view of departments, headcount, and reporting structures.",
+        query: "Show me a summary of all departments with their employee count, number of JDs created, and KRA completion rates in a table.",
+        severity: "insight" as const,
+        icon: "users",
     },
     {
-        title: "KPI Weight Audits",
-        desc: "Identify framework weights deviating from 100%.",
-        query: "Are there any employee KRA frameworks (in kra_kpi_sessions) where the total weights do not sum up to 100%? If so, list them."
-    },
-    {
-        title: "Skill Competency Ratings",
-        desc: "List employee ratings within Quality Assurance.",
-        query: "Find employees in Quality Assurance who have skill ratings in their KRA sheets, and list their names and ratings."
-    },
-    {
-        title: "Compliance Goal Search",
-        desc: "Locate tasks matching audit goals in Pinecone.",
-        query: "Perform a vector search for any JD tasks or performance goals related to 'external audits' or 'compliance'."
+        title: "Performance Framework Audit",
+        description: "Validate KRA weights and KPI completeness across the company.",
+        query: "Run a complete audit of all confirmed KRA frameworks. Check if weights sum to 100%, identify any KRAs without KPIs, and flag employees with incomplete frameworks.",
+        severity: "insight" as const,
+        icon: "chart",
     }
 ];
 
@@ -293,6 +294,8 @@ export default function AdminBrainAgentPage() {
     const [statusIndicator, setStatusIndicator] = useState<string | null>(null);
     const [anomalies, setAnomalies] = useState<string[]>([]);
     const [anomalyOpen, setAnomalyOpen] = useState(false);
+    const [insights, setInsights] = useState<PulseInsight[]>([]);
+    const [insightsLoading, setInsightsLoading] = useState(true);
     const messagesEndRef = useRef<HTMLDivElement>(null);
 
     // Fetch session list
@@ -312,6 +315,14 @@ export default function AdminBrainAgentPage() {
             return;
         }
         loadSessionsList();
+        // Load dynamic insights
+        fetchPulseInsights().then(data => {
+            setInsights(data.length > 0 ? data : FALLBACK_QUERIES as PulseInsight[]);
+            setInsightsLoading(false);
+        }).catch(() => {
+            setInsights(FALLBACK_QUERIES as PulseInsight[]);
+            setInsightsLoading(false);
+        });
     }, []);
 
     useEffect(() => {
@@ -687,20 +698,53 @@ export default function AdminBrainAgentPage() {
                     {/* Suggestions (Horizontal list) */}
                     {messages.length <= 1 && !loading && (
                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3 mb-1">
-                            {SUGGESTED_QUERIES.map((q, idx) => (
-                                <button
-                                    key={idx}
-                                    onClick={() => handleSend(q.query)}
-                                    disabled={loading}
-                                    className="text-left p-4 rounded-2xl bg-zinc-50 hover:bg-zinc-100 transition-all duration-200 group flex flex-col justify-between gap-1.5 text-xs disabled:opacity-50"
-                                >
-                                    <span className="font-semibold text-zinc-850 group-hover:text-zinc-950 flex items-center justify-between w-full">
-                                        {q.title}
-                                        <ArrowRight className="w-3 h-3 text-zinc-400 group-hover:translate-x-0.5 transition-transform" />
-                                    </span>
-                                    <span className="text-[9px] text-zinc-450 leading-relaxed font-normal">{q.desc}</span>
-                                </button>
-                            ))}
+                            {insightsLoading ? (
+                                Array.from({ length: 4 }).map((_, idx) => (
+                                    <div key={idx} className="p-4 rounded-2xl bg-zinc-50 animate-pulse flex flex-col gap-2">
+                                        <div className="h-3 w-24 bg-zinc-200 rounded" />
+                                        <div className="h-2 w-full bg-zinc-100 rounded" />
+                                        <div className="h-2 w-3/4 bg-zinc-100 rounded" />
+                                    </div>
+                                ))
+                            ) : (
+                                insights.map((q, idx) => {
+                                    const severityStyles = {
+                                        critical: "border-l-2 border-l-red-400 bg-red-50/40 hover:bg-red-50/70",
+                                        warning: "border-l-2 border-l-amber-400 bg-amber-50/30 hover:bg-amber-50/60",
+                                        insight: "bg-zinc-50 hover:bg-zinc-100",
+                                    };
+                                    const IconMap: Record<string, any> = {
+                                        alert: AlertTriangle,
+                                        clock: Clock,
+                                        chart: BarChart3,
+                                        users: Users,
+                                        skills: Sparkles,
+                                        activity: Activity,
+                                    };
+                                    const Icon = IconMap[q.icon] || Zap;
+                                    return (
+                                        <button
+                                            key={idx}
+                                            onClick={() => handleSend(q.query)}
+                                            disabled={loading}
+                                            className={`text-left p-4 rounded-2xl transition-all duration-200 group flex flex-col justify-between gap-1.5 text-xs disabled:opacity-50 ${severityStyles[q.severity] || severityStyles.insight}`}
+                                        >
+                                            <span className="font-semibold text-zinc-850 group-hover:text-zinc-950 flex items-center justify-between w-full">
+                                                <span className="flex items-center gap-1.5">
+                                                    <Icon className={`w-3.5 h-3.5 ${
+                                                        q.severity === 'critical' ? 'text-red-500' :
+                                                        q.severity === 'warning' ? 'text-amber-500' :
+                                                        'text-zinc-400'
+                                                    }`} />
+                                                    {q.title}
+                                                </span>
+                                                <ArrowRight className="w-3 h-3 text-zinc-400 group-hover:translate-x-0.5 transition-transform" />
+                                            </span>
+                                            <span className="text-[9px] text-zinc-450 leading-relaxed font-normal">{q.description}</span>
+                                        </button>
+                                    );
+                                })
+                            )}
                         </div>
                     )}
 

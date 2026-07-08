@@ -1220,4 +1220,25 @@ export async function exportBrainAgentCSV(query: string): Promise<Blob> {
 }
 
 
+export interface PulseInsight {
+  title: string;
+  description: string;
+  query: string;
+  severity: "critical" | "warning" | "insight";
+  icon: string;
+}
 
+export async function fetchPulseInsights(): Promise<PulseInsight[]> {
+  try {
+    const res = await fetch(`${API_URL}/admin/brain-agent/insights`, {
+      headers: {
+        Authorization: `Bearer ${getCookie(cookieKeys.ADMIN_TOKEN)}`,
+      },
+    });
+    if (!res.ok) return [];
+    const data = await res.json();
+    return data.insights || [];
+  } catch {
+    return [];
+  }
+}

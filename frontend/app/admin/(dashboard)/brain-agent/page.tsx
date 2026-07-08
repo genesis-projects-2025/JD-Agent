@@ -101,20 +101,20 @@ function MarkdownTableWithChart({ headers, rows }: { headers: string[]; rows: st
     if (headers.length === 0 && rows.length === 0) return null;
 
     return (
-        <div className="my-3 border border-zinc-200 rounded-lg bg-white p-3 space-y-2">
+        <div className="my-3 bg-zinc-50 rounded-xl p-4 space-y-3">
             {isChartReady && (
-                <div className="flex justify-between items-center border-b border-zinc-150 pb-2">
+                <div className="flex justify-between items-center pb-2">
                     <span className="text-[10px] text-zinc-400 font-semibold uppercase tracking-wider">Visualization Mode</span>
                     <div className="flex gap-1">
                         <button
                             onClick={() => setViewMode("table")}
-                            className={`px-2 py-0.5 rounded text-[10px] font-semibold transition-all ${viewMode === "table" ? "bg-zinc-800 text-white" : "bg-zinc-100 text-zinc-650 hover:bg-zinc-200"}`}
+                            className={`px-2 py-0.5 rounded text-[10px] font-semibold transition-all ${viewMode === "table" ? "bg-zinc-800 text-white" : "bg-zinc-100 text-zinc-655 hover:bg-zinc-200"}`}
                         >
                             Table
                         </button>
                         <button
                             onClick={() => setViewMode("chart")}
-                            className={`px-2 py-0.5 rounded text-[10px] font-semibold transition-all ${viewMode === "chart" ? "bg-zinc-800 text-white" : "bg-zinc-100 text-zinc-650 hover:bg-zinc-200"}`}
+                            className={`px-2 py-0.5 rounded text-[10px] font-semibold transition-all ${viewMode === "chart" ? "bg-zinc-800 text-white" : "bg-zinc-100 text-zinc-655 hover:bg-zinc-200"}`}
                         >
                             Chart
                         </button>
@@ -124,21 +124,21 @@ function MarkdownTableWithChart({ headers, rows }: { headers: string[]; rows: st
 
             {viewMode === "table" ? (
                 <div className="overflow-x-auto">
-                    <table className="min-w-full divide-y divide-zinc-200 text-xs">
+                    <table className="min-w-full text-xs">
                         {headers.length > 0 && (
-                            <thead className="bg-zinc-50 font-bold">
+                            <thead className="bg-zinc-100/50 font-bold">
                                 <tr>
                                     {headers.map((h, i) => (
-                                        <th key={i} className="px-4 py-2.5 text-left text-zinc-600 font-semibold border-b border-zinc-200">
+                                        <th key={i} className="px-4 py-2.5 text-left text-zinc-500 font-bold border-b border-zinc-100">
                                             {h}
                                         </th>
                                     ))}
                                 </tr>
                             </thead>
                         )}
-                        <tbody className="divide-y divide-zinc-100 bg-white">
+                        <tbody className="bg-zinc-50/20">
                             {rows.map((row, idx) => (
-                                <tr key={idx} className={idx % 2 === 0 ? "bg-white" : "bg-zinc-50/30"}>
+                                <tr key={idx} className={idx % 2 === 0 ? "bg-transparent" : "bg-zinc-100/20"}>
                                     {row.map((cell, i) => (
                                         <td key={i} className="px-4 py-2 text-zinc-700 max-w-xs truncate">
                                             {cell}
@@ -181,7 +181,7 @@ function MarkdownRenderer({ content }: { content: string }) {
             renderedElements.push(
                 <ul key={key} className="list-disc pl-5 my-2 space-y-1">
                     {listItems.map((item, idx) => (
-                        <li key={idx} className="text-xs text-zinc-700 leading-relaxed" dangerouslySetInnerHTML={{ __html: formatInline(item) }} />
+                        <li key={idx} className="text-xs text-zinc-755 leading-relaxed" dangerouslySetInnerHTML={{ __html: formatInline(item) }} />
                     ))}
                 </ul>
             );
@@ -205,7 +205,7 @@ function MarkdownRenderer({ content }: { content: string }) {
         return text
             .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
             .replace(/\*(.*?)\*/g, '<em>$1</em>')
-            .replace(/`(.*?)`/g, '<code class="bg-zinc-100 text-zinc-800 px-1 py-0.5 rounded font-mono text-[10px]">$1</code>');
+            .replace(/`(.*?)`/g, '<code class="bg-zinc-200/50 text-zinc-800 px-1 py-0.5 rounded font-mono text-[10px]">$1</code>');
     };
 
     for (let i = 0; i < lines.length; i++) {
@@ -284,7 +284,7 @@ export default function AdminBrainAgentPage() {
         {
             id: "welcome",
             role: "model",
-            content: "System initialized. Direct relational SQL queries and vector semantic searches are enabled.\n\nEnter a request to perform analytical database validation or fetch organizational job descriptions.",
+            content: "Welcome to Pulse. Enter an analytical or vector search query to explore database schemas, organization hierarchies, and performance goals.",
             timestamp: new Date()
         }
     ]);
@@ -326,7 +326,6 @@ export default function AdminBrainAgentPage() {
         try {
             const turns = await fetchBrainAgentSessionTurns(sessionId);
             const mappedMessages: Message[] = turns.map(t => {
-                // Find associated SQL query if present in tool calls metadata
                 const sqlCall = t.tool_calls?.find((tc: any) => tc.tool === "execute_sql");
                 return {
                     id: `turn-${t.id}`,
@@ -337,7 +336,6 @@ export default function AdminBrainAgentPage() {
                 };
             });
             
-            // Check if first message contains anomaly context
             if (mappedMessages.length > 0 && mappedMessages[0].role === "model") {
                 extractAnomaliesFromContent(mappedMessages[0].content);
             }
@@ -395,7 +393,7 @@ export default function AdminBrainAgentPage() {
             {
                 id: "welcome",
                 role: "model",
-                content: "System initialized. Direct relational SQL queries and vector semantic searches are enabled.\n\nEnter a request to perform analytical database validation or fetch organizational job descriptions.",
+                content: "Welcome to Pulse. Enter an analytical or vector search query to explore database schemas, organization hierarchies, and performance goals.",
                 timestamp: new Date()
             }
         ]);
@@ -408,7 +406,7 @@ export default function AdminBrainAgentPage() {
             const url = window.URL.createObjectURL(blob);
             const a = document.createElement("a");
             a.href = url;
-            a.download = `brain_agent_export_${Date.now()}.csv`;
+            a.download = `pulse_export_${Date.now()}.csv`;
             document.body.appendChild(a);
             a.click();
             window.URL.revokeObjectURL(url);
@@ -438,7 +436,6 @@ export default function AdminBrainAgentPage() {
 
         try {
             const token = getCookie(cookieKeys.ADMIN_TOKEN);
-            // Collect relative history
             const history = messages.slice(1).map(m => ({
                 role: m.role,
                 content: m.content
@@ -495,7 +492,7 @@ export default function AdminBrainAgentPage() {
                         if (parsed.type === "session") {
                             tempSessionId = parsed.session_id;
                             setSelectedSessionId(parsed.session_id);
-                            loadSessionsList(); // Refresh session list
+                            loadSessionsList();
                         } else if (parsed.type === "tool_call" && parsed.tool === "execute_sql") {
                             lastSql = parsed.query;
                         } else if (parsed.type === "chunk") {
@@ -519,7 +516,6 @@ export default function AdminBrainAgentPage() {
                 }
             }
 
-            // Extract anomalies if this was a diagnostic first load
             extractAnomaliesFromContent(accumulatedContent);
 
         } catch (err: any) {
@@ -538,19 +534,19 @@ export default function AdminBrainAgentPage() {
     };
 
     return (
-        <div className="flex h-[calc(100vh-8rem)] gap-6 font-sans text-zinc-800 bg-zinc-50/30 p-2">
+        <div className="flex h-[calc(100vh-8rem)] gap-6 font-sans text-zinc-800 p-2">
             
             {/* Sidebar List (Left Panel) */}
-            <div className="w-64 border border-zinc-200 rounded-xl bg-white flex flex-col overflow-hidden shrink-0">
-                <div className="p-3 border-b border-zinc-150 flex justify-between items-center bg-zinc-50/50">
+            <div className="w-64 rounded-2xl bg-white flex flex-col overflow-hidden shrink-0 shadow-xs">
+                <div className="p-4 flex justify-between items-center bg-zinc-50/20">
                     <span className="text-xs font-bold text-zinc-900 tracking-tight flex items-center gap-1.5">
-                        <MessageSquare className="w-3.5 h-3.5 text-zinc-650" />
+                        <MessageSquare className="w-3.5 h-3.5 text-zinc-500" />
                         Sessions History
                     </span>
                     <button
                         onClick={handleNewChat}
                         disabled={loading}
-                        className="p-1 rounded-md border border-zinc-200 bg-white hover:bg-zinc-50 transition-colors disabled:opacity-50"
+                        className="p-1.5 rounded-lg bg-zinc-100 hover:bg-zinc-200 transition-colors disabled:opacity-50"
                         title="New Conversation"
                     >
                         <Plus className="w-3.5 h-3.5 text-zinc-700" />
@@ -569,10 +565,10 @@ export default function AdminBrainAgentPage() {
                                 <div
                                     key={s.id}
                                     onClick={() => !loading && handleSelectSession(s.id)}
-                                    className={`w-full group flex items-center justify-between p-2 rounded-lg text-left text-xs cursor-pointer border transition-all ${
+                                    className={`w-full group flex items-center justify-between p-2.5 rounded-xl text-left text-xs cursor-pointer transition-all ${
                                         isSelected
-                                            ? "bg-zinc-800 text-white border-zinc-900"
-                                            : "bg-white text-zinc-650 border-zinc-100 hover:bg-zinc-50/50 hover:border-zinc-200"
+                                            ? "bg-zinc-900 text-white shadow-xs"
+                                            : "bg-transparent text-zinc-600 hover:bg-zinc-50"
                                     }`}
                                 >
                                     <div className="flex-1 truncate mr-2">
@@ -598,30 +594,30 @@ export default function AdminBrainAgentPage() {
             </div>
 
             {/* Chat Workspace (Right Panel) */}
-            <div className="flex-1 flex flex-col min-w-0 bg-white border border-zinc-250 rounded-xl overflow-hidden shadow-sm">
+            <div className="flex-1 flex flex-col min-w-0 bg-white rounded-2xl overflow-hidden shadow-xs">
                 
                 {/* Header */}
-                <div className="p-4 border-b border-zinc-150 flex items-center justify-between bg-zinc-50/30">
+                <div className="p-5 flex items-center justify-between bg-zinc-50/10">
                     <div>
-                        <h1 className="text-sm font-bold text-zinc-950 flex items-center gap-1.5">
-                            Executive Intelligence Oracle
+                        <h1 className="text-sm font-bold text-zinc-955 flex items-center gap-1.5">
+                            Pulse
                         </h1>
-                        <p className="text-[10px] text-zinc-500">
-                            Relational SQL schemas & Pinecone vector knowledge base client
+                        <p className="text-[10px] text-zinc-500 font-medium">
+                            Enterprise Relational & Vector Intelligence System
                         </p>
                     </div>
-                    <div className="flex items-center gap-1.5 bg-zinc-100 border border-zinc-200 rounded-lg px-2 py-1 text-[10px] text-zinc-650 font-semibold shadow-2xs">
-                        <Database className="w-3 h-3 text-zinc-500" />
+                    <div className="flex items-center gap-1.5 bg-zinc-50 rounded-lg px-2.5 py-1 text-[10px] text-zinc-500 font-bold">
+                        <Database className="w-3 h-3 text-zinc-450" />
                         Knowledge Base Active
                     </div>
                 </div>
 
                 {/* Collapsible Anomaly Alert Banner */}
                 {anomalies.length > 0 && (
-                    <div className="mx-4 mt-3 border border-amber-200 bg-amber-50/40 rounded-lg overflow-hidden transition-all duration-150">
+                    <div className="mx-4 mt-3 bg-amber-50 rounded-xl overflow-hidden transition-all duration-150">
                         <button
                             onClick={() => setAnomalyOpen(!anomalyOpen)}
-                            className="w-full px-3 py-2 flex items-center justify-between text-xs text-amber-800 font-semibold hover:bg-amber-100/10 transition-colors"
+                            className="w-full px-3 py-2.5 flex items-center justify-between text-xs text-amber-800 font-semibold hover:bg-amber-100/10 transition-colors"
                         >
                             <span className="flex items-center gap-2">
                                 <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
@@ -630,7 +626,7 @@ export default function AdminBrainAgentPage() {
                             {anomalyOpen ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
                         </button>
                         {anomalyOpen && (
-                            <div className="p-3 border-t border-amber-100 text-[10px] text-amber-750 space-y-1.5 bg-white">
+                            <div className="p-3.5 text-[10px] text-amber-750 space-y-1.5 bg-amber-50/40">
                                 {anomalies.map((an, i) => (
                                     <div key={i} className="flex gap-2 items-start leading-relaxed">
                                         <div className="w-1.5 h-1.5 rounded-full bg-amber-500 mt-1 shrink-0" />
@@ -647,14 +643,19 @@ export default function AdminBrainAgentPage() {
                     {messages.map((m) => {
                         const isUser = m.role === "user";
                         return (
-                            <div key={m.id} className={`flex gap-3 max-w-[85%] ${isUser ? "ml-auto flex-row-reverse" : "mr-auto"}`}>
-                                <div className={`w-7 h-7 rounded-lg shrink-0 flex items-center justify-center border text-[10px] font-bold ${isUser ? "bg-zinc-800 text-white border-zinc-900" : "bg-white text-zinc-650 border-zinc-200"}`}>
-                                    {isUser ? "AD" : "OC"}
+                            <div key={m.id} className={`flex gap-3.5 max-w-[85%] ${isUser ? "ml-auto flex-row-reverse" : "mr-auto"}`}>
+                                <div className={`w-7 h-7 rounded-full shrink-0 flex items-center justify-center text-[10px] font-bold ${isUser ? "bg-zinc-900 text-white" : "bg-zinc-150 text-zinc-700"}`}>
+                                    {isUser ? "AD" : "PL"}
                                 </div>
                                 <div className="space-y-1">
-                                    <div className={`p-3.5 rounded-lg text-xs leading-relaxed border ${isUser ? "bg-zinc-800 text-white border-zinc-900 shadow-sm" : "bg-white border-zinc-200 text-zinc-850 shadow-2xs"}`}>
+                                    <div className={`p-4 rounded-2xl text-xs leading-relaxed ${isUser ? "bg-zinc-900 text-white shadow-sm" : "bg-zinc-100/75 text-zinc-900"}`}>
                                         {isUser ? (
                                             <p className="whitespace-pre-wrap font-medium">{m.content}</p>
+                                        ) : m.content === "" && loading ? (
+                                            <div className="flex items-center gap-2.5 py-1">
+                                                <Loader2 className="w-3.5 h-3.5 text-zinc-500 animate-spin" />
+                                                <span className="text-xs text-zinc-500 font-semibold animate-pulse">{statusIndicator || "Thinking..."}</span>
+                                            </div>
                                         ) : (
                                             <MarkdownRenderer content={m.content} />
                                         )}
@@ -678,23 +679,11 @@ export default function AdminBrainAgentPage() {
                             </div>
                         );
                     })}
-
-                    {loading && (
-                        <div className="flex gap-3 max-w-[80%] mr-auto">
-                            <div className="w-7 h-7 rounded-lg shrink-0 flex items-center justify-center bg-white border border-zinc-200 text-[10px] font-bold text-zinc-650">
-                                OC
-                            </div>
-                            <div className="bg-white border border-zinc-200 p-3.5 rounded-lg flex items-center gap-2.5 shadow-2xs">
-                                <Loader2 className="w-3.5 h-3.5 text-zinc-500 animate-spin" />
-                                <span className="text-xs text-zinc-550 font-medium animate-pulse">{statusIndicator || "Analyzing context..."}</span>
-                            </div>
-                        </div>
-                    )}
                     <div ref={messagesEndRef} />
                 </div>
 
                 {/* Query Input Box */}
-                <div className="p-4 border-t border-zinc-150 bg-zinc-50/50 flex flex-col gap-3">
+                <div className="p-5 bg-zinc-50/20 flex flex-col gap-3.5">
                     {/* Suggestions (Horizontal list) */}
                     {messages.length <= 1 && !loading && (
                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3 mb-1">
@@ -703,7 +692,7 @@ export default function AdminBrainAgentPage() {
                                     key={idx}
                                     onClick={() => handleSend(q.query)}
                                     disabled={loading}
-                                    className="text-left p-3 rounded-lg border border-zinc-200 bg-white hover:border-zinc-350 hover:bg-zinc-50/50 transition-all duration-150 group flex flex-col justify-between gap-1 text-xs disabled:opacity-50"
+                                    className="text-left p-4 rounded-2xl bg-zinc-50 hover:bg-zinc-100 transition-all duration-200 group flex flex-col justify-between gap-1.5 text-xs disabled:opacity-50"
                                 >
                                     <span className="font-semibold text-zinc-850 group-hover:text-zinc-950 flex items-center justify-between w-full">
                                         {q.title}
@@ -728,12 +717,12 @@ export default function AdminBrainAgentPage() {
                             onChange={(e) => setInput(e.target.value)}
                             disabled={loading}
                             placeholder={loading ? "Generating agent intelligence report..." : "Ask administrative directory or goal analysis queries..."}
-                            className="flex-1 px-3.5 py-2.5 bg-white border border-zinc-250 rounded-lg text-xs text-zinc-850 placeholder-zinc-400 focus:outline-none focus:border-zinc-550 focus:ring-1 focus:ring-zinc-550 transition-all disabled:opacity-50"
+                            className="flex-1 px-4 py-3 bg-zinc-100/80 rounded-xl text-xs text-zinc-800 placeholder-zinc-400 focus:outline-none focus:bg-zinc-100 focus:ring-1 focus:ring-zinc-200 transition-all disabled:opacity-50"
                         />
                         <button
                             type="submit"
                             disabled={loading || !input.trim()}
-                            className="px-4 py-2.5 bg-zinc-900 hover:bg-zinc-850 text-white border border-zinc-950 rounded-lg text-xs font-semibold transition-all flex items-center justify-center gap-1.5 disabled:opacity-50"
+                            className="px-5 py-3 bg-zinc-900 hover:bg-zinc-800 text-white rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 disabled:opacity-50"
                         >
                             <Send className="w-3.5 h-3.5" />
                             Run

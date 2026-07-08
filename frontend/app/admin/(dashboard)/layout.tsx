@@ -55,7 +55,7 @@ export default function AdminLayout({
         { label: "Dashboard", href: "/admin/dashboard", icon: LayoutDashboard },
         { label: "Feedback Inbox", href: "/admin/feedback", icon: Megaphone },
         { label: "JD & KRA Uploads", href: "/admin/jd-library", icon: File },
-        { label: "Brain Agent", href: "/admin/brain-agent", icon: Sparkles }
+        { label: "Pulse", href: "/admin/brain-agent", icon: Activity }
     ];
 
     return (

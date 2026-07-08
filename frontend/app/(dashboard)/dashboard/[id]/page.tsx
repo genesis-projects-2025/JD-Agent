@@ -23,6 +23,7 @@ import {
   Target,
   Sparkles,
   Award,
+  Search,
 } from "lucide-react";
 
 import { DeleteModal } from "@/components/ui/delete-modal";
@@ -48,7 +49,9 @@ import {
   deleteJD,
   fetchMyImprovements,
   initQuestionnaire,
+  searchEmployees,
 } from "@/lib/api";
+
 
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -1549,6 +1552,35 @@ function HRView({ user }: { user: AuthUser }) {
   const [loadingDept, setLoadingDept] = useState(false);
   const [onlySubmitted, setOnlySubmitted] = useState(true);
 
+  // HR Global Search States
+  const [pulseSearchQuery, setPulseSearchQuery] = useState("");
+  const [pulseSearchResults, setPulseSearchResults] = useState<any[]>([]);
+  const [loadingPulseSearch, setLoadingPulseSearch] = useState(false);
+
+  useEffect(() => {
+    setPulseSearchQuery("");
+    setPulseSearchResults([]);
+    setSelectedDepartment(null);
+  }, [filter]);
+
+  const handlePulseSearch = async (val: string) => {
+    setPulseSearchQuery(val);
+    if (!val.trim()) {
+      setPulseSearchResults([]);
+      return;
+    }
+    setLoadingPulseSearch(true);
+    try {
+      const data = await searchEmployees(val);
+      setPulseSearchResults(data || []);
+    } catch (error) {
+      console.error("Failed to search employees:", error);
+    } finally {
+      setLoadingPulseSearch(false);
+    }
+  };
+
+
   // My Team state for HR users who are also managers
   const [myTeamEmployees, setMyTeamEmployees] = useState<TeamEmployee[]>([]);
   const [teamStats, setTeamStats] = useState<TeamStats | null>(null);
@@ -1855,85 +1887,245 @@ function HRView({ user }: { user: AuthUser }) {
         </div>
 
         {filter === "departments" && !selectedDepartment && (
-          <div className="bg-white rounded-md border border-surface-200 shadow-md overflow-hidden mb-8">
-            <div className="px-4 sm:px-8 py-5 sm:py-6 border-b border-surface-100 flex flex-col sm:flex-row sm:items-center justify-between bg-surface-50/50 gap-4">
-              <h2 className="text-lg sm:text-xl font-medium text-surface-900 flex items-center gap-3">
-                <span className="w-1.5 h-6 bg-purple-600 rounded-md" />
-                Department Overview
-              </h2>
+          <div className="space-y-6">
+            {/* Sleek Global Search Input */}
+            <div className="bg-white rounded-md border border-surface-200 shadow-sm p-4 sm:p-6">
+              <div className="relative max-w-xl">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                <input
+                  type="text"
+                  placeholder="Search any employee by name or employee ID to view JD, KRA and KPI..."
+                  value={pulseSearchQuery}
+                  onChange={(e) => handlePulseSearch(e.target.value)}
+                  className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500/40 focus:border-purple-400 text-sm text-slate-800 placeholder:text-slate-400 transition-all"
+                />
+                {pulseSearchQuery && (
+                  <button
+                    onClick={() => handlePulseSearch("")}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-400 hover:text-slate-600 font-semibold"
+                  >
+                    Clear
+                  </button>
+                )}
+              </div>
             </div>
 
-            {loading ? (
-              <div className="p-16 flex flex-col items-center justify-center gap-4">
-                <Loader2 className="w-8 h-8 text-primary-500 animate-spin" />
-                <p className="text-surface-500 font-medium">Loading stats...</p>
-              </div>
-            ) : departmentStats.length === 0 ? (
-              <div className="p-16 text-center">
-                <p className="text-surface-500">
-                  No department statistics found.
-                </p>
+            {pulseSearchQuery ? (
+              /* Global Search Results List */
+              <div className="bg-white rounded-md border border-surface-200 shadow-md overflow-hidden mb-8">
+                <div className="px-4 sm:px-8 py-5 border-b border-surface-100 flex items-center justify-between bg-surface-50/50">
+                  <h2 className="text-sm font-semibold text-slate-800 tracking-wide">
+                    Search Results ({pulseSearchResults.length})
+                  </h2>
+                </div>
+                {loadingPulseSearch ? (
+                  <div className="p-16 flex flex-col items-center justify-center gap-4">
+                    <Loader2 className="w-8 h-8 text-purple-600 animate-spin" />
+                    <p className="text-surface-500 font-medium">Searching employees...</p>
+                  </div>
+                ) : pulseSearchResults.length === 0 ? (
+                  <div className="p-16 text-center">
+                    <p className="text-surface-500">No employees found matching "{pulseSearchQuery}"</p>
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left border-collapse">
+                      <thead>
+                        <tr className="bg-surface-50/50">
+                          <th className="px-6 py-4 text-[10px] font-medium text-surface-400 border-b border-surface-100 w-1/4">Employee</th>
+                          <th className="px-6 py-4 text-[10px] font-medium text-surface-400 border-b border-surface-100 w-1/4">Designation & Dept</th>
+                          <th className="px-6 py-4 text-[10px] font-medium text-surface-400 border-b border-surface-100">JD Status</th>
+                          <th className="px-6 py-4 text-[10px] font-medium text-surface-400 border-b border-surface-100">KRA / KPI</th>
+                          <th className="px-6 py-4 text-[10px] font-medium text-surface-400 border-b border-surface-100">Action</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-surface-50">
+                        {pulseSearchResults.map((emp) => (
+                          <tr key={emp.employee_id} className="hover:bg-surface-50/50 transition-colors group">
+                            <td className="px-6 py-4">
+                              <div className="flex items-center gap-3">
+                                <div className="w-9 h-9 rounded-md bg-purple-50 text-purple-600 flex items-center justify-center font-medium text-xs ring-1 ring-purple-100">
+                                  {emp.name.split(' ').map((n: string) => n[0]).join('').slice(0, 2).toUpperCase()}
+                                </div>
+                                <div>
+                                  <p className="font-semibold text-surface-900 text-sm">{emp.name}</p>
+                                  <p className="text-[10px] font-medium text-surface-400 font-mono ">{emp.employee_id}</p>
+                                </div>
+                              </div>
+                            </td>
+                            <td className="px-6 py-4">
+                              <p className="text-xs font-semibold text-surface-600 leading-snug">{emp.designation}</p>
+                              <p className="text-[10px] text-surface-400 mt-0.5">{emp.department}</p>
+                            </td>
+                            <td className="px-6 py-4">
+                              {(() => {
+                                const status = emp.jd_status;
+                                let label = STATUS_CONFIG[status as keyof typeof STATUS_CONFIG]?.label || status;
+                                let bg = STATUS_CONFIG[status as keyof typeof STATUS_CONFIG]?.bg || 'bg-surface-100 border-surface-200 text-surface-500';
+                                let color = STATUS_CONFIG[status as keyof typeof STATUS_CONFIG]?.color || '';
+                                
+                                if (status === "approved" && emp.kra_kpi_status === "sent_to_manager") {
+                                  label = "KRA/KPI Review";
+                                  bg = "bg-blue-50 border-blue-200 text-blue-700";
+                                  color = "text-blue-700";
+                                } else if (status === "approved" && emp.kra_kpi_status === "sent_to_hr") {
+                                  label = "KRA/KPI HR Review";
+                                  bg = "bg-purple-50 border-purple-200 text-purple-700";
+                                  color = "text-purple-700";
+                                } else if (status === "approved" && emp.kra_kpi_status === "manager_rejected") {
+                                  label = "KRA/KPI Rejected";
+                                  bg = "bg-red-50 border-red-200 text-red-700";
+                                  color = "text-red-700";
+                                } else if (status === "approved" && emp.kra_kpi_status === "hr_rejected") {
+                                  label = "KRA/KPI HR Rejected";
+                                  bg = "bg-red-50 border-red-200 text-red-700";
+                                  color = "text-red-700";
+                                } else if (status === "approved" && (emp.kra_kpi_status === "draft" || emp.kra_kpi_status === "confirmed")) {
+                                  label = "KRA/KPI Under Process";
+                                  bg = "bg-amber-50 border-amber-200 text-amber-700";
+                                  color = "text-amber-700";
+                                }
+                                
+                                return (
+                                  <div className={`inline-flex items-center gap-2 px-3 py-1 rounded-lg border text-[10px] font-medium ${bg} ${color}`}>
+                                    <span className={`w-1.5 h-1.5 rounded-md bg-current opacity-40`} />
+                                    {label}
+                                  </div>
+                                );
+                              })()}
+                            </td>
+                            <td className="px-6 py-4">
+                              {emp.jd_id ? (
+                                <button
+                                  onClick={() => {
+                                    if (!emp.kra_kpi_status || emp.kra_kpi_status === "draft") {
+                                      setBlockedEmployeeName(emp.name);
+                                    } else {
+                                      setViewingKraKpi({
+                                        jdId: emp.jd_id!,
+                                        employeeId: emp.employee_id,
+                                        employeeName: emp.name
+                                      });
+                                    }
+                                  }}
+                                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100 transition-all text-[10px] font-semibold tracking-wider group/btn shadow-sm"
+                                >
+                                  <Target className="w-3.5 h-3.5 text-blue-600 group-hover/btn:scale-110 transition-transform" />
+                                  View Goals
+                                </button>
+                              ) : (
+                                <span className="text-[10px] font-medium text-surface-300">—</span>
+                              )}
+                            </td>
+                            <td className="px-6 py-4">
+                              {emp.jd_id ? (
+                                <Link
+                                  href={`/jd/${emp.jd_id}`}
+                                  className="inline-flex items-center gap-2 text-[10px] font-medium text-emerald-600 hover:text-emerald-700 transition-colors"
+                                >
+                                  View JD
+                                  <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-1 transition-transform" />
+                                </Link>
+                              ) : (
+                                <Link
+                                  href={`/dashboard/${safeBtoa(emp.employee_id)}`}
+                                  className="inline-flex items-center gap-2 text-[10px] font-medium text-primary-600 hover:text-primary-700 transition-colors"
+                                >
+                                  NO JD
+                                  <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-1 transition-transform" />
+                                </Link>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
               </div>
             ) : (
-              <div className="p-6 sm:p-8 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {departmentStats.map((stat) => (
-                  <div
-                    key={stat.department}
-                    onClick={() => handleDepartmentClick(stat.department)}
-                    className="border border-surface-200 rounded-md p-5 bg-surface-50/30 hover:shadow-md hover:border-purple-300 transition-all cursor-pointer group"
-                  >
-                    <div className="flex justify-between items-start mb-4">
-                      <h3 className="text-lg font-medium text-surface-900 group-hover:text-purple-700 transition-colors">
-                        {stat.department}
-                      </h3>
-                      <div className="bg-white p-1.5 rounded-lg shadow-sm border border-surface-100">
-                        <Users className="w-4 h-4 text-surface-400" />
-                      </div>
-                    </div>
+              /* Original Department Overview Grid */
+              <div className="bg-white rounded-md border border-surface-200 shadow-md overflow-hidden mb-8">
+                <div className="px-4 sm:px-8 py-5 sm:py-6 border-b border-surface-100 flex flex-col sm:flex-row sm:items-center justify-between bg-surface-50/50 gap-4">
+                  <h2 className="text-lg sm:text-xl font-medium text-surface-900 flex items-center gap-3">
+                    <span className="w-1.5 h-6 bg-purple-600 rounded-md" />
+                    Department Overview
+                  </h2>
+                </div>
 
-                    <div className="flex justify-between items-center mb-2">
-                      <span className="text-sm font-medium text-surface-500">
-                        Completion ({stat.completed_jds}/{stat.total_employees})
-                      </span>
-                      <span className="text-sm font-medium text-purple-600">
-                        {stat.completion_percentage}%
-                      </span>
-                    </div>
-                    <div className="w-full h-3 bg-surface-200 rounded-md overflow-hidden mb-6">
-                      <div
-                        className="h-full bg-purple-500 rounded-md transition-all duration-1000 ease-out"
-                        style={{ width: `${stat.completion_percentage}%` }}
-                      />
-                    </div>
-
-                    <div className="grid grid-cols-3 gap-3">
-                      <div className="bg-white p-2.5 rounded-md border border-surface-100 text-center">
-                        <span className="block text-[10px] font-medium text-surface-400 tracking-wider mb-1">
-                          Submitted
-                        </span>
-                        <span className="text-lg font-medium text-surface-800">
-                          {stat.submitted}
-                        </span>
-                      </div>
-                      <div className="bg-white p-2.5 rounded-md border border-surface-100 text-center">
-                        <span className="block text-[10px] font-medium text-surface-400 tracking-wider mb-1">
-                          Reviewing
-                        </span>
-                        <span className="text-lg font-medium text-purple-600">
-                          {stat.under_review}
-                        </span>
-                      </div>
-                      <div className="bg-white p-2.5 rounded-md border border-surface-100 text-center">
-                        <span className="block text-[10px] font-medium text-surface-400 tracking-wider mb-1">
-                          Approved
-                        </span>
-                        <span className="text-lg font-medium text-emerald-600">
-                          {stat.approved}
-                        </span>
-                      </div>
-                    </div>
+                {loading ? (
+                  <div className="p-16 flex flex-col items-center justify-center gap-4">
+                    <Loader2 className="w-8 h-8 text-primary-500 animate-spin" />
+                    <p className="text-surface-500 font-medium">Loading stats...</p>
                   </div>
-                ))}
+                ) : departmentStats.length === 0 ? (
+                  <div className="p-16 text-center">
+                    <p className="text-surface-500">
+                      No department statistics found.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="p-6 sm:p-8 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                    {departmentStats.map((stat) => (
+                      <div
+                        key={stat.department}
+                        onClick={() => handleDepartmentClick(stat.department)}
+                        className="border border-surface-200 rounded-md p-5 bg-surface-50/30 hover:shadow-md hover:border-purple-300 transition-all cursor-pointer group"
+                      >
+                        <div className="flex justify-between items-start mb-4">
+                          <h3 className="text-lg font-medium text-surface-900 group-hover:text-purple-700 transition-colors">
+                            {stat.department}
+                          </h3>
+                          <div className="bg-white p-1.5 rounded-lg shadow-sm border border-surface-100">
+                            <Users className="w-4 h-4 text-surface-400" />
+                          </div>
+                        </div>
+
+                        <div className="flex justify-between items-center mb-2">
+                          <span className="text-sm font-medium text-surface-500">
+                            Completion ({stat.completed_jds}/{stat.total_employees})
+                          </span>
+                          <span className="text-sm font-medium text-purple-600">
+                            {stat.completion_percentage}%
+                          </span>
+                        </div>
+                        <div className="w-full h-3 bg-surface-200 rounded-md overflow-hidden mb-6">
+                          <div
+                            className="h-full bg-purple-500 rounded-md transition-all duration-1000 ease-out"
+                            style={{ width: `${stat.completion_percentage}%` }}
+                          />
+                        </div>
+
+                        <div className="grid grid-cols-3 gap-3">
+                          <div className="bg-white p-2.5 rounded-md border border-surface-100 text-center">
+                            <span className="block text-[10px] font-medium text-surface-400 tracking-wider mb-1">
+                              Submitted
+                            </span>
+                            <span className="text-lg font-medium text-surface-800">
+                              {stat.submitted}
+                            </span>
+                          </div>
+                          <div className="bg-white p-2.5 rounded-md border border-surface-100 text-center">
+                            <span className="block text-[10px] font-medium text-surface-400 tracking-wider mb-1">
+                              Reviewing
+                            </span>
+                            <span className="text-lg font-medium text-purple-600">
+                              {stat.under_review}
+                            </span>
+                          </div>
+                          <div className="bg-white p-2.5 rounded-md border border-surface-100 text-center">
+                            <span className="block text-[10px] font-medium text-surface-400 tracking-wider mb-1">
+                              Approved
+                            </span>
+                            <span className="text-lg font-medium text-emerald-600">
+                              {stat.approved}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
           </div>

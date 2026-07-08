@@ -243,6 +243,21 @@ export async function fetchDepartmentEmployees(
   return res.json();
 }
 
+export async function searchEmployees(
+  query: string,
+  page: number = 1,
+  limit: number = 50,
+) {
+  const encodedQuery = encodeURIComponent(query);
+  const res = await fetchWithTimeout(
+    `${API_URL}/api/hr/search-employees?q=${encodedQuery}&page=${page}&limit=${limit}`,
+  );
+  if (res.status === 404) return [];
+  if (!res.ok) throw new Error("Failed to search employees");
+  return res.json();
+}
+
+
 export async function fetchMyTeamStats(empCode: string) {
   const res = await fetchWithTimeout(`${API_URL}/api/hr/my-team-stats?emp_code=${empCode}`);
   if (!res.ok) throw new Error("Failed to fetch team statistics");

@@ -42,21 +42,38 @@ async def get_department_stats(db: AsyncSession = Depends(get_db)):
             for row in approved_res.fetchall()
         }
 
-        # Step 3: Get all latest personal JDs for each employee
+        # Step 3: Get latest personal JD and KRA/KPI statuses for all employees
         personal_query = text("""
             WITH LatestJDs AS (
                 SELECT 
                     employee_id, 
-                    status,
+                    status as jd_status,
                     ROW_NUMBER() OVER(PARTITION BY employee_id ORDER BY updated_at DESC) as rn
                 FROM jd_sessions
+            ),
+            LatestKRAKPIs AS (
+                SELECT 
+                    employee_id, 
+                    status as kra_kpi_status,
+                    ROW_NUMBER() OVER(PARTITION BY employee_id ORDER BY updated_at DESC) as rn
+                FROM kra_kpi_sessions
             )
-            SELECT employee_id, status
-            FROM LatestJDs
-            WHERE rn = 1
+            SELECT 
+                o.code as employee_id,
+                lj.jd_status,
+                lk.kra_kpi_status
+            FROM organogram o
+            LEFT JOIN LatestJDs lj ON o.code = lj.employee_id AND lj.rn = 1
+            LEFT JOIN LatestKRAKPIs lk ON o.code = lk.employee_id AND lk.rn = 1
         """)
         personal_res = await db.execute(personal_query)
-        personal_jds = {row.employee_id: row.status for row in personal_res.mappings()}
+        personal_data = {
+            row.employee_id: {
+                "jd_status": row.jd_status,
+                "kra_kpi_status": row.kra_kpi_status
+            }
+            for row in personal_res.mappings()
+        }
 
         # Step 4: Compute stats per department
         dept_stats = {}
@@ -74,21 +91,28 @@ async def get_department_stats(db: AsyncSession = Depends(get_db)):
             stats = dept_stats[department]
             stats["total_employees"] += 1
             
-            # Check status of this employee
-            status = personal_jds.get(code)
+            # Fetch statuses for this employee
+            emp_status_info = personal_data.get(code, {"jd_status": None, "kra_kpi_status": None})
+            jd_status = emp_status_info["jd_status"]
+            kra_kpi_status = emp_status_info["kra_kpi_status"]
             
             # If no personal JD or it is draft, check if there is an approved shared role JD
-            if (not status or status in ["draft", "jd_generated", "collecting"]) and (department, designation) in approved_set:
-                status = "approved"
+            if (not jd_status or jd_status in ["draft", "jd_generated", "collecting"]) and (department, designation) in approved_set:
+                jd_status = "approved"
                 
-            if status in ["sent_to_manager", "manager_rejected"]:
-                stats["submitted"] += 1
+            # Combined workflow progression status check
+            if jd_status == "approved" and kra_kpi_status == "approved":
+                stats["approved"] += 1
                 stats["completed_jds"] += 1
-            elif status in ["sent_to_hr", "hr_rejected"]:
+            elif jd_status in ["sent_to_hr", "hr_rejected"] or kra_kpi_status in ["sent_to_hr", "hr_rejected"]:
                 stats["under_review"] += 1
                 stats["completed_jds"] += 1
-            elif status == "approved":
-                stats["approved"] += 1
+            elif jd_status in ["sent_to_manager", "manager_rejected"] or kra_kpi_status in ["sent_to_manager", "manager_rejected"]:
+                stats["submitted"] += 1
+                stats["completed_jds"] += 1
+            elif jd_status == "approved":
+                # If JD is approved but KRA/KPI is not started or in progress/draft
+                stats["submitted"] += 1
                 stats["completed_jds"] += 1
 
         stats_list = []
@@ -366,5 +390,106 @@ async def get_my_team_employees(
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail="Failed to fetch team employees")
+
+
+@router.get("/search-employees", dependencies=[Depends(hr_required)])
+async def search_employees(
+    q: str,
+    page: int = 1,
+    limit: int = 50,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Search for employees across the company by employee name or code.
+    Accessible by HR/Admin.
+    """
+    try:
+        offset = (page - 1) * limit
+        search_filter = f"%{q.strip()}%"
+
+        # 1. Fetch approved templates map
+        approved_query = text("""
+            SELECT id, department, title
+            FROM jd_sessions
+            WHERE status = 'approved'
+              AND title IS NOT NULL
+              AND department IS NOT NULL
+        """)
+        approved_res = await db.execute(approved_query)
+        approved_map = {(row.department, row.title): str(row.id) for row in approved_res.fetchall()}
+
+        # 2. Query organogram for matching employees
+        query = text("""
+            WITH LatestJDs AS (
+                SELECT 
+                    id as jd_id,
+                    employee_id, 
+                    status,
+                    updated_at,
+                    ROW_NUMBER() OVER(PARTITION BY employee_id ORDER BY updated_at DESC) as rn
+                FROM jd_sessions
+            ),
+            LatestKRAs AS (
+                SELECT 
+                    jd_session_id,
+                    status as kra_kpi_status,
+                    ROW_NUMBER() OVER(PARTITION BY jd_session_id ORDER BY updated_at DESC) as rn
+                FROM kra_kpi_sessions
+            )
+            SELECT 
+                o.code as employee_id,
+                o.employee_name as name,
+                o.designation as designation,
+                o.department as department,
+                o.reporting_manager as reporting_manager,
+                lj.jd_id as jd_session_id,
+                lj.status as jd_status,
+                lk.kra_kpi_status as kra_kpi_status,
+                lj.updated_at as last_updated
+            FROM organogram o
+            LEFT JOIN LatestJDs lj ON o.code = lj.employee_id AND lj.rn = 1
+            LEFT JOIN LatestKRAs lk ON CAST(lj.jd_id AS VARCHAR) = lk.jd_session_id AND lk.rn = 1
+            WHERE o.employee_name ILIKE :search OR o.code ILIKE :search
+            ORDER BY o.employee_name ASC
+            LIMIT :limit OFFSET :offset
+        """)
+
+        result = await db.execute(query, {
+            "search": search_filter,
+            "limit": limit,
+            "offset": offset
+        })
+
+        employees = []
+        for row in result.mappings():
+            status = row.jd_status
+            jd_id = row.jd_session_id
+            last_updated = row.last_updated
+            
+            # Resolve zero-bloat shared role approved JDs
+            if (not status or status in ["draft", "jd_generated", "collecting"]) and (row.department, row.designation) in approved_map:
+                status = "approved"
+                jd_id = approved_map[(row.department, row.designation)]
+            elif not status or status in ["draft", "jd_generated", "collecting"]:
+                status = "Not Submitted"
+                
+            employees.append({
+                "employee_id": row.employee_id,
+                "name": row.name,
+                "designation": row.designation,
+                "department": row.department,
+                "reporting_manager": row.reporting_manager,
+                "jd_status": status,
+                "jd_id": jd_id,
+                "kra_kpi_status": row.kra_kpi_status,
+                "last_updated": last_updated.isoformat() if last_updated else None
+            })
+
+        return employees
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail="Failed to search employees")
 
 

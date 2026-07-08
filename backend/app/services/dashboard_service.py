@@ -95,23 +95,72 @@ class DashboardService:
                 "completion_percentage": 0
             }
 
+        # Fetch approved templates map
+        approved_query = text("""
+            SELECT DISTINCT department, title
+            FROM jd_sessions
+            WHERE status = 'approved'
+              AND title IS NOT NULL
+              AND department IS NOT NULL
+        """)
+        approved_res = await db.execute(approved_query)
+        approved_set = {
+            (row.department, row.title)
+            for row in approved_res.fetchall()
+        }
+
         query = text("""
+            WITH LatestJDs AS (
+                SELECT 
+                    employee_id, 
+                    status as jd_status,
+                    ROW_NUMBER() OVER(PARTITION BY employee_id ORDER BY updated_at DESC) as rn
+                FROM jd_sessions
+                WHERE employee_id = ANY(:codes)
+            ),
+            LatestKRAKPIs AS (
+                SELECT 
+                    employee_id, 
+                    status as kra_kpi_status,
+                    ROW_NUMBER() OVER(PARTITION BY employee_id ORDER BY updated_at DESC) as rn
+                FROM kra_kpi_sessions
+                WHERE employee_id = ANY(:codes)
+            )
             SELECT 
-                COUNT(CASE WHEN j.status = 'sent_to_manager' THEN 1 END) as submitted,
-                COUNT(CASE WHEN j.status = 'sent_to_hr' THEN 1 END) as under_review,
-                COUNT(CASE WHEN j.status = 'approved' THEN 1 END) as approved
-            FROM jd_sessions j
-            WHERE j.employee_id = ANY(:codes)
-              AND j.status IN ('sent_to_manager', 'sent_to_hr', 'approved')
+                o.code as employee_id,
+                o.designation,
+                o.department,
+                lj.jd_status,
+                lk.kra_kpi_status
+            FROM organogram o
+            LEFT JOIN LatestJDs lj ON o.code = lj.employee_id AND lj.rn = 1
+            LEFT JOIN LatestKRAKPIs lk ON o.code = lk.employee_id AND lk.rn = 1
+            WHERE o.code = ANY(:codes)
         """)
         
         result = await db.execute(query, {"codes": emp_codes})
-        row = result.mappings().first()
         
+        submitted = 0
+        under_review = 0
+        approved = 0
+        
+        for row in result.mappings():
+            jd_status = row.jd_status
+            kra_kpi_status = row.kra_kpi_status
+            
+            if (not jd_status or jd_status in ["draft", "jd_generated", "collecting"]) and (row.department, row.designation) in approved_set:
+                jd_status = "approved"
+                
+            if jd_status == "approved" and kra_kpi_status == "approved":
+                approved += 1
+            elif jd_status in ["sent_to_hr", "hr_rejected"] or kra_kpi_status in ["sent_to_hr", "hr_rejected"]:
+                under_review += 1
+            elif jd_status in ["sent_to_manager", "manager_rejected"] or kra_kpi_status in ["sent_to_manager", "manager_rejected"]:
+                submitted += 1
+            elif jd_status == "approved":
+                submitted += 1
+                
         total = len(emp_codes)
-        submitted = row.submitted or 0
-        under_review = row.under_review or 0
-        approved = row.approved or 0
         completed = submitted + under_review + approved
         percentage = round((completed / total) * 100) if total > 0 else 0
         

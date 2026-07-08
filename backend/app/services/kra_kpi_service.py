@@ -171,56 +171,74 @@ async def check_prerequisites(
             ic = employee_session.insights.get("identity_context", {})
             manager_employee_id = _extract_code_from_reports_to(ic.get("reports_to", ""))
 
-        if not manager_employee_id:
-            missing += ["manager_jd", "manager_kra_kpi"]
-            details["manager_jd"] = "Could not identify your reporting manager. Please contact HR to update your reporting structure."
-            details["manager_kra_kpi"] = "Manager not identified — cannot check manager KRA/KPI."
-            raise MissingPrerequisiteError(missing, _build_missing_message(details))
+        if manager_employee_id:
+            # Audit manager's designation in organogram to auto-bypass executive manager requirements
+            from sqlalchemy import text
+            try:
+                res = await db.execute(
+                    text("SELECT designation, code FROM organogram WHERE code = :code"),
+                    {"code": manager_employee_id}
+                )
+                mgr_org = res.mappings().first()
+                if mgr_org:
+                    mgr_desig = (mgr_org.get("designation") or "").lower()
+                    mgr_code = (mgr_org.get("code") or "").upper()
+                    if any(k in mgr_desig for k in ["director", "president", "vp", "vice president", "ceo", "coo", "md", "board", "md & ceo"]) or mgr_code.startswith("DIR") or mgr_code.startswith("MD"):
+                        bypass_manager = True
+            except Exception as e:
+                logger.error(f"Error checking manager designation in organogram: {e}")
 
-        # 3. Manager JD
-        mgr_jd_result = await db.execute(
-            select(JDSession)
-            .where(JDSession.employee_id == manager_employee_id)
-            .where(JDSession.status.in_(list(COMPLETED_JD_STATUSES)))
-            .order_by(JDSession.updated_at.desc())
-        )
-        manager_jd_session = mgr_jd_result.scalars().first()
+        if not bypass_manager:
+            if not manager_employee_id:
+                missing += ["manager_jd", "manager_kra_kpi"]
+                details["manager_jd"] = "Could not identify your reporting manager. Please contact HR to update your reporting structure."
+                details["manager_kra_kpi"] = "Manager not identified — cannot check manager KRA/KPI."
+                raise MissingPrerequisiteError(missing, _build_missing_message(details))
 
-        if not manager_jd_session:
-            missing.append("manager_jd")
-            details["manager_jd"] = (
-                f"Your manager's Job Description has not been generated yet. "
-                f"Request your manager (ID: {manager_employee_id}) to complete their JD interview first."
+            # 3. Manager JD
+            mgr_jd_result = await db.execute(
+                select(JDSession)
+                .where(JDSession.employee_id == manager_employee_id)
+                .where(JDSession.status.in_(list(COMPLETED_JD_STATUSES)))
+                .order_by(JDSession.updated_at.desc())
             )
+            manager_jd_session = mgr_jd_result.scalars().first()
 
-        # 4. Manager KRA/KPI
-        mgr_kra_result = await db.execute(
-            select(KRAKPISession)
-            .where(KRAKPISession.employee_id == manager_employee_id)
-            .where(KRAKPISession.status.in_(["confirmed", "draft"]))
-            .order_by(KRAKPISession.updated_at.desc())
-        )
-        manager_kra_session = mgr_kra_result.scalars().first()
+            if not manager_jd_session:
+                missing.append("manager_jd")
+                details["manager_jd"] = (
+                    f"Your manager's Job Description has not been generated yet. "
+                    f"Request your manager (ID: {manager_employee_id}) to complete their JD interview first."
+                )
 
-        if not manager_kra_session:
-            from app.models.kra_kpi_model import UploadedKRAKPI
-            uploaded_res = await db.execute(
-                select(UploadedKRAKPI).where(UploadedKRAKPI.employee_id == manager_employee_id)
+            # 4. Manager KRA/KPI
+            mgr_kra_result = await db.execute(
+                select(KRAKPISession)
+                .where(KRAKPISession.employee_id == manager_employee_id)
+                .where(KRAKPISession.status.in_(["confirmed", "draft"]))
+                .order_by(KRAKPISession.updated_at.desc())
             )
-            manager_uploaded_kra = uploaded_res.scalars().first()
-            if manager_uploaded_kra:
-                class MockKRAKPISession:
-                    def __init__(self, uploaded):
-                        self.id = uploaded.id
-                        self.kras = uploaded.kras
-                manager_kra_session = MockKRAKPISession(manager_uploaded_kra)
+            manager_kra_session = mgr_kra_result.scalars().first()
 
-        if not manager_kra_session:
-            missing.append("manager_kra_kpi")
-            details["manager_kra_kpi"] = (
-                f"Your manager's KRA/KPI framework has not been created yet. "
-                f"Request your manager (ID: {manager_employee_id}) to generate their KRAs/KPIs first."
-            )
+            if not manager_kra_session:
+                from app.models.kra_kpi_model import UploadedKRAKPI
+                uploaded_res = await db.execute(
+                    select(UploadedKRAKPI).where(UploadedKRAKPI.employee_id == manager_employee_id)
+                )
+                manager_uploaded_kra = uploaded_res.scalars().first()
+                if manager_uploaded_kra:
+                    class MockKRAKPISession:
+                        def __init__(self, uploaded):
+                            self.id = uploaded.id
+                            self.kras = uploaded.kras
+                    manager_kra_session = MockKRAKPISession(manager_uploaded_kra)
+
+            if not manager_kra_session:
+                missing.append("manager_kra_kpi")
+                details["manager_kra_kpi"] = (
+                    f"Your manager's KRA/KPI framework has not been created yet. "
+                    f"Request your manager (ID: {manager_employee_id}) to generate their KRAs/KPIs first."
+                )
     else:
         # Bypassed manager prerequisites, but let's try to fetch them optionally as reference anyway if they happen to exist!
         try:

@@ -147,10 +147,14 @@ function JDGrid({
   jds,
   showEmployee,
   onViewKraKpi,
+  roleTemplate,
+  handleJdClick,
 }: {
   jds: JDListItem[];
   showEmployee: boolean;
   onViewKraKpi?: (jdId: string, employeeId: string, employeeName: string, kraKpiStatus?: string | null) => void;
+  roleTemplate?: RoleTemplateResponse | null;
+  handleJdClick?: (jdId: string, tab?: string) => Promise<void> | void;
 }) {
   // Hooks must be called at the top level, before any conditional returns
   const router = useRouter();
@@ -251,7 +255,7 @@ function JDGrid({
               onClick={(e) => {
                 if (roleTemplate && roleTemplate.exists && jd.id === roleTemplate.id) {
                   e.preventDefault();
-                  handleJdClick(jd.id);
+                  handleJdClick?.(jd.id);
                 }
               }}
               className="group bg-white rounded-md p-6 border border-surface-100 shadow-md hover:shadow-md hover:border-primary-200 transition-all duration-500 flex flex-col justify-between"
@@ -315,7 +319,7 @@ function JDGrid({
                           onViewKraKpi(jd.id, jd.employee_id, jd.employee_name || "Unknown", jd.kra_kpi_status);
                         } else {
                           if (roleTemplate && roleTemplate.exists && jd.id === roleTemplate.id) {
-                            handleJdClick(jd.id, "kra-kpi");
+                            handleJdClick?.(jd.id, "kra-kpi");
                           } else {
                             router.push(`/jd/${jd.id}?tab=kra-kpi`);
                           }
@@ -580,7 +584,7 @@ function EmployeeView({
 
               <div className="flex flex-col sm:flex-row gap-3 shrink-0 w-full sm:w-auto">
                 <button
-                  onClick={() => handleJdClick(roleTemplate.id)}
+                  onClick={() => handleJdClick(roleTemplate.id || "")}
                   disabled={templateLoading}
                   className="px-6 py-3.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-md text-sm font-medium transition-all shadow-md shadow-emerald-900/30 text-center active:scale-[0.98] disabled:opacity-50 flex items-center justify-center gap-2"
                 >
@@ -758,7 +762,7 @@ function EmployeeView({
                 : `Filtered: ${filter.charAt(0).toUpperCase() + filter.slice(1)}`}
             </h2>
           </div>
-          <JDGrid jds={jds} showEmployee={false} />
+          <JDGrid jds={jds} showEmployee={false} roleTemplate={roleTemplate} handleJdClick={handleJdClick} />
         </div>
 
         {showConfirmModal && roleTemplate && (
@@ -782,7 +786,7 @@ function EmployeeView({
                 <button
                   onClick={() => {
                     setShowConfirmModal(false);
-                    handleJdClick(roleTemplate.id);
+                    handleJdClick(roleTemplate.id || "");
                   }}
                   disabled={templateLoading}
                   className="flex-1 px-5 py-3.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-md text-sm font-semibold transition-all active:scale-[0.98] text-center disabled:opacity-50 flex items-center justify-center gap-2"
@@ -1557,12 +1561,6 @@ function HRView({ user }: { user: AuthUser }) {
   const [pulseSearchResults, setPulseSearchResults] = useState<any[]>([]);
   const [loadingPulseSearch, setLoadingPulseSearch] = useState(false);
 
-  useEffect(() => {
-    setPulseSearchQuery("");
-    setPulseSearchResults([]);
-    setSelectedDepartment(null);
-  }, [filter]);
-
   const handlePulseSearch = async (val: string) => {
     setPulseSearchQuery(val);
     if (!val.trim()) {
@@ -1600,6 +1598,12 @@ function HRView({ user }: { user: AuthUser }) {
   const [filter, setFilter] = useState(
     currentView === "pending" ? "pending" : "sent_to_hr"
   );
+
+  useEffect(() => {
+    setPulseSearchQuery("");
+    setPulseSearchResults([]);
+    setSelectedDepartment(null);
+  }, [filter]);
 
   const managerPendingJds = useMemo(() => {
     return rawManagerJds.filter(

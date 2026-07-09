@@ -1,13 +1,15 @@
 """
-Admin Brain Agent Service v2.
+Admin Brain Agent Service v3.
 
 Hybrid SQL + Vector agentic orchestrator with:
 - Persistent conversation sessions (DB-backed)
 - Langfuse tracing and prompt management
-- Multi-tool concurrent execution
-- Entity tracking for pronoun resolution
+- Multi-tool concurrent execution (all tool calls per response)
+- Entity tracking from user messages, assistant responses, and SQL results
 - Proactive anomaly detection on new sessions
-- Robust error guardrails
+- Markdown-formatted tool results for token efficiency
+- Response cleanup and 2000-token output limit
+- 6-turn conversation history window
 """
 
 import logging
@@ -31,16 +33,21 @@ from app.models.brain_agent_model import BrainAgentSession, BrainAgentConversati
 logger = logging.getLogger(__name__)
 
 
+# Maximum output tokens for brain agent responses
+MAX_OUTPUT_TOKENS = 2000
+
+
 def _get_brain_agent_llm():
     return ChatGoogleGenerativeAI(
         google_api_key=settings.GEMINI_API_KEY,
         model="gemini-2.5-flash",
         temperature=0.15,
+        max_output_tokens=MAX_OUTPUT_TOKENS,
     )
 
 
-async def search_brain_agent_knowledge(query_text: str, top_k: int = 5) -> List[str]:
-    """Retrieve semantic chunks from Pinecone across all categories."""
+async def search_brain_agent_knowledge(query_text: str, top_k: int = 8, token_budget: int = 1500) -> List[Dict[str, Any]]:
+    """Enhanced semantic search with reranking, dedup, and token budget for Brain Agent."""
     try:
         query_vec = await asyncio.to_thread(
             lambda: get_embeddings().embed_query(query_text)
@@ -50,18 +57,52 @@ async def search_brain_agent_knowledge(query_text: str, top_k: int = 5) -> List[
             return []
 
         results = await asyncio.to_thread(
-            lambda: idx.query(vector=query_vec, top_k=top_k, include_metadata=True)
+            lambda: idx.query(vector=query_vec, top_k=max(top_k * 3, 20), include_metadata=True)
         )
 
-        contexts = []
+        scored = []
+        seen_keys = {}  # track count per role::category
         for match in results.get("matches", []):
             meta = match.get("metadata", {})
-            text_val = meta.get("text", "")
-            if text_val:
-                category = meta.get("category", "general")
-                role = meta.get("role_title", "N/A")
-                contexts.append(f"[{category.upper()} - Role: {role}] {text_val}")
-        return contexts
+            text_val = meta.get("text", "").strip()
+            score = float(match.get("score", 0))
+
+            if score < 0.35 or not text_val:
+                continue
+
+            role = meta.get("role_title", "N/A")
+            category = meta.get("category", "general")
+            department = meta.get("department", "N/A")
+
+            # Light dedup: max 2 chunks per role+category combo
+            dedup_key = f"{role}::{category}"
+            if seen_keys.get(dedup_key, 0) >= 2:
+                continue
+            seen_keys[dedup_key] = seen_keys.get(dedup_key, 0) + 1
+
+            scored.append({
+                "score": score,
+                "text": text_val,
+                "category": category,
+                "role_title": role,
+                "department": department,
+            })
+
+        scored.sort(key=lambda x: x["score"], reverse=True)
+
+        # Token-budget-aware truncation
+        results_out = []
+        consumed = 0
+        for item in scored:
+            est = len(item["text"]) // 4
+            if consumed + est > token_budget:
+                break
+            results_out.append(item)
+            consumed += est
+            if len(results_out) >= top_k:
+                break
+
+        return results_out
     except Exception as e:
         logger.error(f"Brain agent vector search failed: {e}")
         return []
@@ -94,6 +135,82 @@ def _extract_entities(text: str) -> Dict[str, Any]:
             break
 
     return entities
+
+
+def _extract_entities_from_sql_results(results: List[Dict]) -> Dict[str, Any]:
+    """Extract employee IDs and names from SQL query results for entity tracking."""
+    entities = {}
+    if not results:
+        return entities
+    for row in results:
+        for key, val in row.items():
+            val_str = str(val).strip()
+            # Employee IDs
+            if re.match(r'^E\d{3,5}$', val_str):
+                entities["last_employee_id"] = val_str
+            # Employee names from common column names
+            if key in ("name", "employee_name", "emp_name") and val_str and len(val_str) > 2:
+                entities["last_employee_name"] = val_str
+            # Department
+            if key in ("department", "dept") and val_str and len(val_str) > 2:
+                entities["last_department"] = val_str
+    return entities
+
+
+def _format_sql_results_as_markdown(results: List[Dict]) -> str:
+    """Convert SQL results to a compact markdown table for token efficiency."""
+    if not results:
+        return "No results found."
+    # Cap rows to prevent token explosion
+    truncated = False
+    if len(results) > 30:
+        results = results[:30]
+        truncated = True
+
+    headers = list(results[0].keys())
+    lines = ["| " + " | ".join(str(h) for h in headers) + " |"]
+    lines.append("| " + " | ".join(["---"] * len(headers)) + " |")
+    for row in results:
+        row_vals = []
+        for h in headers:
+            val = row.get(h, "")
+            # Truncate long cell values
+            val_str = str(val) if val is not None else ""
+            if len(val_str) > 150:
+                val_str = val_str[:147] + "..."
+            row_vals.append(val_str)
+        lines.append("| " + " | ".join(row_vals) + " |")
+
+    table = "\n".join(lines)
+    if truncated:
+        table += "\n\n*Results truncated to 30 rows. Use more specific filters to narrow down.*"
+    return table
+
+
+def _format_search_results(results: List[Dict]) -> str:
+    """Format vector search results with metadata context."""
+    if not results:
+        return "No matching documents found in the knowledge base."
+    lines = []
+    for r in results:
+        lines.append(
+            f"**[{r.get('category', 'general').upper()}]** "
+            f"Role: {r.get('role_title', 'N/A')} | "
+            f"Dept: {r.get('department', 'N/A')}\n{r.get('text', '')}"
+        )
+    return "\n\n---\n\n".join(lines)
+
+
+def _clean_response(content: str) -> str:
+    """Post-process: remove leaked tool XML, clean formatting."""
+    # Remove any leaked tool/tool_result tags
+    content = re.sub(r'<tool[^>]*>.*?</tool\s*>', '', content, flags=re.DOTALL)
+    content = re.sub(r'<tool_result[^>]*>.*?</tool_result\s*>', '', content, flags=re.DOTALL)
+    # Remove empty headers
+    content = re.sub(r'#{1,4}\s*\n', '', content)
+    # Collapse excessive newlines
+    content = re.sub(r'\n{4,}', '\n\n\n', content)
+    return content.strip()
 
 
 def _format_entity_context(entity_ctx: Dict[str, Any]) -> str:
@@ -169,7 +286,6 @@ class AdminBrainAgentService:
         message: str,
         admin_user: str,
         session_id: Optional[str] = None,
-        history: Optional[List[Dict[str, str]]] = None,
     ) -> AsyncIterator[Dict[str, Any]]:
         """
         Runs the conversational tool-use loop with full persistence,
@@ -232,7 +348,7 @@ class AdminBrainAgentService:
             # ── Build LangChain Message History ──
             messages = [SystemMessage(content=system_prompt)]
 
-            # Load persisted turns from DB (last 10 turns for context window)
+            # Load persisted turns from DB (last 6 turns for token efficiency)
             if session_id and session:
                 db_turns_result = await db.execute(
                     select(BrainAgentConversationTurn)
@@ -240,13 +356,18 @@ class AdminBrainAgentService:
                     .order_by(BrainAgentConversationTurn.turn_index)
                 )
                 db_turns = db_turns_result.scalars().all()
-                for turn in db_turns[-10:]:
+                for turn in db_turns[-6:]:
                     if turn.role == "user":
                         messages.append(HumanMessage(content=turn.content))
                     else:
                         messages.append(AIMessage(content=turn.content))
 
             messages.append(HumanMessage(content=message))
+
+            # ── Extract entities from user message ──
+            user_entities = _extract_entities(message)
+            if user_entities:
+                entity_context.update(user_entities)
 
             # ── Persist User Turn ──
             turn_count_result = await db.execute(
@@ -301,18 +422,19 @@ class AdminBrainAgentService:
 
                 content = str(response.content)
 
-                # ── Multi-Tool Parsing (concurrent) ──
-                sql_match = re.search(
+                # ── Multi-Tool Parsing (all tool calls via findall) ──
+                sql_matches = re.findall(
                     r'<tool\s+name="execute_sql"\s*>(.*?)</tool\s*>',
                     content, re.DOTALL | re.IGNORECASE,
                 )
-                search_match = re.search(
+                search_matches = re.findall(
                     r'<tool\s+name="search_jds_and_goals"\s*>(.*?)</tool\s*>',
                     content, re.DOTALL | re.IGNORECASE,
                 )
 
-                if not sql_match and not search_match:
-                    # Final response — stream it
+                if not sql_matches and not search_matches:
+                    # Final response — clean and stream it
+                    content = _clean_response(content)
                     words = re.split(r'(\s+)', content)
                     for word in words:
                         if word:
@@ -329,7 +451,7 @@ class AdminBrainAgentService:
                     )
                     db.add(assistant_turn)
 
-                    # Update entity context
+                    # Update entity context from response
                     new_entities = _extract_entities(content)
                     if new_entities:
                         entity_context.update(new_entities)
@@ -340,33 +462,40 @@ class AdminBrainAgentService:
 
                 # Store thought with tool calls
                 messages.append(AIMessage(content=content))
-                tool_results = []
 
-                # Execute tools concurrently
+                # Execute ALL tools concurrently
                 async def run_sql(query: str) -> str:
                     try:
                         results = await execute_safe_select(db, query)
-                        return f'<tool_result name="execute_sql">\n{str(results)}\n</tool_result>'
+                        # Extract entities from SQL results for context tracking
+                        sql_entities = _extract_entities_from_sql_results(results)
+                        if sql_entities:
+                            entity_context.update(sql_entities)
+                        formatted = _format_sql_results_as_markdown(results)
+                        return f'<tool_result name="execute_sql">\n{formatted}\n</tool_result>'
                     except Exception as e:
                         return f'<tool_result name="execute_sql">\nError: {str(e)}\n</tool_result>'
 
                 async def run_search(query: str) -> str:
                     try:
                         results = await search_brain_agent_knowledge(query)
-                        return f'<tool_result name="search_jds_and_goals">\n{str(results)}\n</tool_result>'
+                        formatted = _format_search_results(results)
+                        return f'<tool_result name="search_jds_and_goals">\n{formatted}\n</tool_result>'
                     except Exception as e:
                         return f'<tool_result name="search_jds_and_goals">\nError: {str(e)}\n</tool_result>'
 
                 tasks = []
-                if sql_match:
-                    sql_query = sql_match.group(1).strip()
+                # Process ALL SQL tool calls
+                for sql_query_str in sql_matches:
+                    sql_query = sql_query_str.strip()
                     yield {"type": "status", "content": "Querying corporate database..."}
                     yield {"type": "tool_call", "tool": "execute_sql", "query": sql_query}
                     tasks.append(run_sql(sql_query))
                     all_tool_calls.append({"tool": "execute_sql", "query": sql_query})
 
-                if search_match:
-                    search_query = search_match.group(1).strip()
+                # Process ALL search tool calls
+                for search_query_str in search_matches:
+                    search_query = search_query_str.strip()
                     yield {"type": "status", "content": "Querying vector registry..."}
                     yield {"type": "tool_call", "tool": "search_jds_and_goals", "query": search_query}
                     tasks.append(run_search(search_query))

@@ -57,7 +57,6 @@ async def chat_stream_endpoint(
                 message=request.message,
                 admin_user=admin_user,
                 session_id=request.session_id,
-                history=request.history,
             ):
                 yield f"data: {json.dumps(event)}\n\n"
         except Exception as e:

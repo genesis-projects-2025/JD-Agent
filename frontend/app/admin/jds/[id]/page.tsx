@@ -148,8 +148,8 @@ export default function JDDetailPage() {
 
   const startEditingJd = () => {
     if (!previewData?.jd_structured) return;
-    const struct = previewData.jd_structured;
-    const ref = previewData.reference_data || {};
+    const struct = previewData.jd_structured as any;
+    const ref = (previewData.reference_data || {}) as any;
     
     setEditedJdTitle(ref.role_title || struct.job_title || struct.designation || "");
     setEditedJdDept(ref.department || struct.department || struct.function || "");
@@ -181,8 +181,9 @@ export default function JDDetailPage() {
     setSavingEditedJd(true);
     try {
       const { updateAdminReferenceJD } = await import("@/lib/api");
+      const struct = previewData.jd_structured as any;
       const updatedStructured = {
-        ...previewData.jd_structured,
+        ...struct,
         job_title: editedJdTitle,
         department: editedJdDept,
         experience: editedJdLevel,
@@ -191,12 +192,12 @@ export default function JDDetailPage() {
         skills: editedJdSkills,
         tools: editedJdTools,
         qualifications: {
-          ...previewData.jd_structured?.qualifications,
+          ...struct?.qualifications,
           education: editedJdEducation,
           experience: editedJdExperience
         },
         employee_information: {
-          ...previewData.jd_structured?.employee_information,
+          ...struct?.employee_information,
           job_title: editedJdTitle,
           department: editedJdDept
         }

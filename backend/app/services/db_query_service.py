@@ -78,17 +78,26 @@ def validate_sql_query(sql: str) -> None:
 async def execute_safe_select(db: AsyncSession, sql: str, params: Dict[str, Any] = None) -> List[Dict[str, Any]]:
     """
     Validates and executes a SELECT query safely.
+    Uses savepoints to prevent transaction poisoning from bad SQL.
+    Auto-appends LIMIT 50 if no LIMIT clause is present.
     Returns list of dicts.
     """
     validate_sql_query(sql)
-    
+
+    # Auto-append LIMIT to prevent massive result sets
+    sql_clean_check = sql.strip().lower()
+    if "limit" not in sql_clean_check:
+        sql = sql.rstrip().rstrip(";") + " LIMIT 50"
+
     params = params or {}
     try:
-        result = await db.execute(text(sql), params)
-        # Handle select results
-        if result.returns_rows:
-            return [dict(row) for row in result.mappings().all()]
-        return []
+        # Use savepoint (begin_nested) so a bad query doesn't poison the session
+        async with db.begin_nested():
+            result = await db.execute(text(sql), params)
+            # Handle select results
+            if result.returns_rows:
+                return [dict(row) for row in result.mappings().all()]
+            return []
     except Exception as e:
         logger.error(f"SQL execution failed: {e}. Query: {sql}")
         raise SQLQueryError(f"Database error: {str(e)}")

@@ -244,9 +244,9 @@ export function downloadKRACSVClient(kras: FinalKRA[], jdData: any): void {
     if (kpis.length === 0) {
       excelRowsHtml += `
         <tr>
-          <td style="font-weight:bold;background-color:#F2F4F7;border:1px solid #D0D5DD;vertical-align:middle;font-family:Arial,sans-serif;">${esc(kra.title)}</td>
-          <td style="text-align:center;font-weight:bold;background-color:#F2F4F7;border:1px solid #D0D5DD;vertical-align:middle;font-family:Arial,sans-serif;">${esc(kra.weight)}%</td>
-          <td colspan="6" style="text-align:center;color:#667085;border:1px solid #D0D5DD;font-family:Arial,sans-serif;">No KPIs defined for this Key Result Area.</td>
+          <td style="font-weight:bold;background-color:#ffffff;border:1px solid #D0D5DD;vertical-align:middle;font-family:Arial,sans-serif;">${esc(kra.title)}</td>
+          <td style="text-align:center;font-weight:bold;background-color:#ffffff;border:1px solid #D0D5DD;vertical-align:middle;font-family:Arial,sans-serif;">${esc(kra.weight)}%</td>
+          <td colspan="6" style="text-align:center;color:#667085;border:1px solid #D0D5DD;font-family:Arial,sans-serif;background-color:#ffffff;">No KPIs defined for this Key Result Area.</td>
         </tr>
       `;
     } else {
@@ -257,14 +257,14 @@ export function downloadKRACSVClient(kras: FinalKRA[], jdData: any): void {
         
         excelRowsHtml += `
           <tr>
-            ${idx === 0 ? `<td rowspan="${rowSpan}" style="font-weight:bold;background-color:#F2F4F7;border:1px solid #D0D5DD;vertical-align:middle;font-family:Arial,sans-serif;">${esc(kra.title)}</td>` : ""}
-            ${idx === 0 ? `<td rowspan="${rowSpan}" style="text-align:center;font-weight:bold;background-color:#F2F4F7;border:1px solid #D0D5DD;vertical-align:middle;font-family:Arial,sans-serif;">${esc(kra.weight)}%</td>` : ""}
-            <td style="border:1px solid #D0D5DD;vertical-align:top;font-family:Arial,sans-serif;"><strong>${esc(kpi.title)}</strong>${kpi.description ? `<br/><span style="font-size:8.5pt;color:#475467;">${esc(kpi.description)}</span>` : ""}</td>
-            <td style="text-align:center;font-weight:bold;border:1px solid #D0D5DD;vertical-align:top;font-family:Arial,sans-serif;">${esc(kpi.weight)}%</td>
-            <td style="border:1px solid #D0D5DD;vertical-align:top;font-family:Arial,sans-serif;">${esc(kpi.target)}</td>
-            <td style="background-color:#FEF3F2;color:#B42220;border:1px solid #D0D5DD;vertical-align:top;font-family:Arial,sans-serif;">${esc(belowVal)}</td>
-            <td style="background-color:#F9F5FF;color:#6941C6;border:1px solid #D0D5DD;vertical-align:top;font-family:Arial,sans-serif;">${esc(meetsVal)}</td>
-            <td style="background-color:#ECFDF3;color:#027A48;border:1px solid #D0D5DD;vertical-align:top;font-family:Arial,sans-serif;">${esc(excelVal)}</td>
+            ${idx === 0 ? `<td rowspan="${rowSpan}" style="font-weight:bold;background-color:#ffffff;border:1px solid #D0D5DD;vertical-align:middle;font-family:Arial,sans-serif;">${esc(kra.title)}</td>` : ""}
+            ${idx === 0 ? `<td rowspan="${rowSpan}" style="text-align:center;font-weight:bold;background-color:#ffffff;border:1px solid #D0D5DD;vertical-align:middle;font-family:Arial,sans-serif;">${esc(kra.weight)}%</td>` : ""}
+            <td style="border:1px solid #D0D5DD;vertical-align:top;font-family:Arial,sans-serif;background-color:#ffffff;"><strong>${esc(kpi.title)}</strong>${kpi.description ? `<br/><span style="font-size:8.5pt;color:#475467;">${esc(kpi.description)}</span>` : ""}</td>
+            <td style="text-align:center;border:1px solid #D0D5DD;vertical-align:top;font-family:Arial,sans-serif;background-color:#ffffff;">${esc(kpi.weight)}%</td>
+            <td style="border:1px solid #D0D5DD;vertical-align:top;font-family:Arial,sans-serif;background-color:#ffffff;">${esc(kpi.target)}</td>
+            <td style="border:1px solid #D0D5DD;vertical-align:top;font-family:Arial,sans-serif;background-color:#ffffff;">${esc(belowVal)}</td>
+            <td style="border:1px solid #D0D5DD;vertical-align:top;font-family:Arial,sans-serif;background-color:#ffffff;">${esc(meetsVal)}</td>
+            <td style="border:1px solid #D0D5DD;vertical-align:top;font-family:Arial,sans-serif;background-color:#ffffff;">${esc(excelVal)}</td>
           </tr>
         `;
       });
@@ -282,7 +282,7 @@ export function downloadKRACSVClient(kras: FinalKRA[], jdData: any): void {
           <x:Name>KRA & KPI Sheet</x:Name>
           <x:WorksheetOptions>
             <x:DisplayGridlines/>
-          </WorksheetOptions>
+          </x:WorksheetOptions>
         </x:ExcelWorksheet>
       </x:ExcelWorksheets>
     </x:ExcelWorkbook>
@@ -291,44 +291,44 @@ export function downloadKRACSVClient(kras: FinalKRA[], jdData: any): void {
   <style>
     body { font-family: 'Segoe UI', Arial, sans-serif; }
     table { border-collapse: collapse; }
-    td, th { border: 1px solid #EAECF0; padding: 8px; font-size: 10pt; }
-    .title-row { font-size: 15pt; font-weight: bold; color: #5B2053; background-color: #FCFCFD; text-align: center; }
-    .metadata-label { background-color: #FCFCFD; font-weight: bold; color: #475467; border: 1px solid #EAECF0; }
-    .metadata-value { color: #101828; border: 1px solid #EAECF0; }
-    .header-cell { background-color: #5B2053; color: #ffffff; font-weight: bold; text-align: center; border: 1px solid #98A2B3; }
+    td, th { border: 1px solid #D0D5DD; padding: 8px; font-size: 10pt; }
+    .title-row { font-size: 14pt; font-weight: bold; color: #101828; text-align: left; }
+    .metadata-label { background-color: #F9FAFB; font-weight: bold; color: #344054; border: 1px solid #D0D5DD; }
+    .metadata-value { color: #101828; border: 1px solid #D0D5DD; background-color: #ffffff; }
+    .header-cell { background-color: #F9FAFB; color: #101828; font-weight: bold; text-align: center; border: 1px solid #D0D5DD; }
   </style>
 </head>
 <body>
   <table>
     <tbody>
       <tr>
-        <td colspan="8" class="title-row" style="text-align:center;font-size:16pt;font-weight:bold;color:#5B2053;height:45px;vertical-align:middle;border:1px solid #EAECF0;font-family:Arial,sans-serif;">
+        <td colspan="8" class="title-row" style="text-align:left;font-size:15pt;font-weight:bold;color:#101828;height:40px;vertical-align:middle;border:none;font-family:Arial,sans-serif;">
           PULSE PHARMA - PERFORMANCE KRA & KPI SHEET
         </td>
       </tr>
-      <tr><td colspan="8" style="border:none;height:15px;"></td></tr>
+      <tr><td colspan="8" style="border:none;height:10px;"></td></tr>
       <tr>
-        <td class="metadata-label" style="font-weight:bold;background-color:#F9FAFB;font-family:Arial,sans-serif;">Employee Name:</td>
-        <td class="metadata-value" colspan="3" style="font-family:Arial,sans-serif;">${employeeName}</td>
-        <td class="metadata-label" style="font-weight:bold;background-color:#F9FAFB;font-family:Arial,sans-serif;">Employee ID:</td>
-        <td class="metadata-value" colspan="3" style="font-family:Arial,sans-serif;">${employeeId}</td>
+        <td class="metadata-label" style="font-weight:bold;background-color:#F9FAFB;font-family:Arial,sans-serif;border:1px solid #D0D5DD;">Employee Name:</td>
+        <td class="metadata-value" colspan="3" style="font-family:Arial,sans-serif;border:1px solid #D0D5DD;">${employeeName}</td>
+        <td class="metadata-label" style="font-weight:bold;background-color:#F9FAFB;font-family:Arial,sans-serif;border:1px solid #D0D5DD;">Employee ID:</td>
+        <td class="metadata-value" colspan="3" style="font-family:Arial,sans-serif;border:1px solid #D0D5DD;">${employeeId}</td>
       </tr>
       <tr>
-        <td class="metadata-label" style="font-weight:bold;background-color:#F9FAFB;font-family:Arial,sans-serif;">Designation:</td>
-        <td class="metadata-value" colspan="3" style="font-family:Arial,sans-serif;">${designation}</td>
-        <td class="metadata-label" style="font-weight:bold;background-color:#F9FAFB;font-family:Arial,sans-serif;">Department:</td>
-        <td class="metadata-value" colspan="3" style="font-family:Arial,sans-serif;">${department}</td>
+        <td class="metadata-label" style="font-weight:bold;background-color:#F9FAFB;font-family:Arial,sans-serif;border:1px solid #D0D5DD;">Designation:</td>
+        <td class="metadata-value" colspan="3" style="font-family:Arial,sans-serif;border:1px solid #D0D5DD;">${designation}</td>
+        <td class="metadata-label" style="font-weight:bold;background-color:#F9FAFB;font-family:Arial,sans-serif;border:1px solid #D0D5DD;">Department:</td>
+        <td class="metadata-value" colspan="3" style="font-family:Arial,sans-serif;border:1px solid #D0D5DD;">${department}</td>
       </tr>
       <tr><td colspan="8" style="border:none;height:15px;"></td></tr>
-      <tr style="background-color:#5B2053;color:#ffffff;font-weight:bold;text-align:center;height:30px;">
-        <th class="header-cell" style="background-color:#5B2053;color:#ffffff;border:1px solid #98A2B3;width:250px;font-family:Arial,sans-serif;">KRA Title</th>
-        <th class="header-cell" style="background-color:#5B2053;color:#ffffff;border:1px solid #98A2B3;width:100px;font-family:Arial,sans-serif;">KRA Weight (%)</th>
-        <th class="header-cell" style="background-color:#5B2053;color:#ffffff;border:1px solid #98A2B3;width:250px;font-family:Arial,sans-serif;">KPI Title</th>
-        <th class="header-cell" style="background-color:#5B2053;color:#ffffff;border:1px solid #98A2B3;width:100px;font-family:Arial,sans-serif;">KPI Weight (%)</th>
-        <th class="header-cell" style="background-color:#5B2053;color:#ffffff;border:1px solid #98A2B3;width:300px;font-family:Arial,sans-serif;">KPI Target Description</th>
-        <th class="header-cell" style="background-color:#5B2053;color:#ffffff;border:1px solid #98A2B3;color:#B42220;width:180px;font-family:Arial,sans-serif;">Below Expectations (Needs Imp.)</th>
-        <th class="header-cell" style="background-color:#5B2053;color:#ffffff;border:1px solid #98A2B3;color:#6941C6;width:180px;font-family:Arial,sans-serif;">Meets Expectations</th>
-        <th class="header-cell" style="background-color:#5B2053;color:#ffffff;border:1px solid #98A2B3;color:#027A48;width:180px;font-family:Arial,sans-serif;">Excellent Performance (Outstanding)</th>
+      <tr style="background-color:#F9FAFB;color:#101828;font-weight:bold;text-align:center;height:28px;">
+        <th class="header-cell" style="background-color:#F9FAFB;color:#101828;border:1px solid #D0D5DD;width:250px;font-family:Arial,sans-serif;">KRA Title</th>
+        <th class="header-cell" style="background-color:#F9FAFB;color:#101828;border:1px solid #D0D5DD;width:100px;font-family:Arial,sans-serif;">KRA Weight (%)</th>
+        <th class="header-cell" style="background-color:#F9FAFB;color:#101828;border:1px solid #D0D5DD;width:250px;font-family:Arial,sans-serif;">KPI Title</th>
+        <th class="header-cell" style="background-color:#F9FAFB;color:#101828;border:1px solid #D0D5DD;width:100px;font-family:Arial,sans-serif;">KPI Weight (%)</th>
+        <th class="header-cell" style="background-color:#F9FAFB;color:#101828;border:1px solid #D0D5DD;width:300px;font-family:Arial,sans-serif;">KPI Target Description</th>
+        <th class="header-cell" style="background-color:#F9FAFB;color:#101828;border:1px solid #D0D5DD;width:180px;font-family:Arial,sans-serif;">Below Expectations (Needs Imp.)</th>
+        <th class="header-cell" style="background-color:#F9FAFB;color:#101828;border:1px solid #D0D5DD;width:180px;font-family:Arial,sans-serif;">Meets Expectations</th>
+        <th class="header-cell" style="background-color:#F9FAFB;color:#101828;border:1px solid #D0D5DD;width:180px;font-family:Arial,sans-serif;">Excellent Performance (Outstanding)</th>
       </tr>
       ${excelRowsHtml}
     </tbody>

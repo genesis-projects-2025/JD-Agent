@@ -79,10 +79,10 @@ export function downloadKRAPdfClient(
             ${esc(kpi.target)}
           </td>
           <td style="padding:10px;border:1px solid #D0D5DD;font-size:9.5pt;background:#FEF3F2;color:#B42220;vertical-align:top;width:15%;">
-            ${esc(kpi.threshold?.below || "Not defined")}
+            ${esc(kpi.threshold?.below || (kpi.threshold as any)?.below_expectation || "Not defined")}
           </td>
           <td style="padding:10px;border:1px solid #D0D5DD;font-size:9.5pt;background:#F9F5FF;color:#6941C6;vertical-align:top;width:15%;">
-            ${esc(kpi.threshold?.meets || "Not defined")}
+            ${esc(kpi.threshold?.meets || (kpi.threshold as any)?.meets_expectation || "Not defined")}
           </td>
           <td style="padding:10px;border:1px solid #D0D5DD;font-size:9.5pt;background:#ECFDF3;color:#027A48;vertical-align:top;width:15%;">
             ${esc(kpi.threshold?.excellent || "Not defined")}
@@ -231,78 +231,121 @@ export function downloadKRACSVClient(kras: FinalKRA[], jdData: any): void {
     return;
   }
 
-  const employeeName = jdData?.employee_name || "Employee";
-  const employeeId   = jdData?.employee_id || "N/A";
-  const designation  = jdData?.title || "N/A";
-  const department   = jdData?.department || "N/A";
+  const employeeName = esc(jdData?.employee_name || "Employee");
+  const employeeId   = esc(jdData?.employee_id || "N/A");
+  const designation  = esc(jdData?.title || "N/A");
+  const department   = esc(jdData?.department || "N/A");
   
-  // Create rows array
-  const rows: string[][] = [];
-
-  // Metadata headers
-  rows.push(["PULSE PHARMA - PERFORMANCE KRA & KPI SHEET"]);
-  rows.push(["Employee Name:", employeeName, "Employee ID:", employeeId]);
-  rows.push(["Designation:", designation, "Department:", department]);
-  rows.push([]); // blank line
-
-  // Column Headers
-  rows.push([
-    "KRA Title",
-    "KRA Weight (%)",
-    "KPI Title",
-    "KPI Weight (%)",
-    "KPI Target Description",
-    "Below Expectations Threshold",
-    "Meets Expectations Threshold",
-    "Excellent Performance Threshold"
-  ]);
-
+  let excelRowsHtml = "";
   kras.forEach((kra) => {
     const kpis = kra.kpis || [];
+    const rowSpan = kpis.length || 1;
+    
     if (kpis.length === 0) {
-      rows.push([kra.title, String(kra.weight), "No KPIs defined", "0", "", "", "", ""]);
+      excelRowsHtml += `
+        <tr>
+          <td style="font-weight:bold;background-color:#F2F4F7;border:1px solid #D0D5DD;vertical-align:middle;font-family:Arial,sans-serif;">${esc(kra.title)}</td>
+          <td style="text-align:center;font-weight:bold;background-color:#F2F4F7;border:1px solid #D0D5DD;vertical-align:middle;font-family:Arial,sans-serif;">${esc(kra.weight)}%</td>
+          <td colspan="6" style="text-align:center;color:#667085;border:1px solid #D0D5DD;font-family:Arial,sans-serif;">No KPIs defined for this Key Result Area.</td>
+        </tr>
+      `;
     } else {
       kpis.forEach((kpi, idx) => {
-        // Only write KRA name and KRA weight on the first row of its KPIs to keep it clean (Excel grouping style)
-        rows.push([
-          idx === 0 ? kra.title : "",
-          idx === 0 ? String(kra.weight) : "",
-          kpi.title,
-          String(kpi.weight),
-          kpi.target || "",
-          kpi.threshold?.below || "",
-          kpi.threshold?.meets || "",
-          kpi.threshold?.excellent || ""
-        ]);
+        const belowVal = kpi.threshold?.below || (kpi.threshold as any)?.below_expectation || "";
+        const meetsVal = kpi.threshold?.meets || (kpi.threshold as any)?.meets_expectation || "";
+        const excelVal = kpi.threshold?.excellent || "";
+        
+        excelRowsHtml += `
+          <tr>
+            ${idx === 0 ? `<td rowspan="${rowSpan}" style="font-weight:bold;background-color:#F2F4F7;border:1px solid #D0D5DD;vertical-align:middle;font-family:Arial,sans-serif;">${esc(kra.title)}</td>` : ""}
+            ${idx === 0 ? `<td rowspan="${rowSpan}" style="text-align:center;font-weight:bold;background-color:#F2F4F7;border:1px solid #D0D5DD;vertical-align:middle;font-family:Arial,sans-serif;">${esc(kra.weight)}%</td>` : ""}
+            <td style="border:1px solid #D0D5DD;vertical-align:top;font-family:Arial,sans-serif;"><strong>${esc(kpi.title)}</strong>${kpi.description ? `<br/><span style="font-size:8.5pt;color:#475467;">${esc(kpi.description)}</span>` : ""}</td>
+            <td style="text-align:center;font-weight:bold;border:1px solid #D0D5DD;vertical-align:top;font-family:Arial,sans-serif;">${esc(kpi.weight)}%</td>
+            <td style="border:1px solid #D0D5DD;vertical-align:top;font-family:Arial,sans-serif;">${esc(kpi.target)}</td>
+            <td style="background-color:#FEF3F2;color:#B42220;border:1px solid #D0D5DD;vertical-align:top;font-family:Arial,sans-serif;">${esc(belowVal)}</td>
+            <td style="background-color:#F9F5FF;color:#6941C6;border:1px solid #D0D5DD;vertical-align:top;font-family:Arial,sans-serif;">${esc(meetsVal)}</td>
+            <td style="background-color:#ECFDF3;color:#027A48;border:1px solid #D0D5DD;vertical-align:top;font-family:Arial,sans-serif;">${esc(excelVal)}</td>
+          </tr>
+        `;
       });
     }
   });
 
-  // Convert to CSV string, handling quotes and commas
-  const csvContent = rows
-    .map((row) =>
-      row
-        .map((cell) => {
-          const val = cell ? cell.trim().replace(/"/g, '""') : "";
-          return val.includes(",") || val.includes("\n") || val.includes('"')
-            ? `"${val}"`
-            : val;
-        })
-        .join(",")
-    )
-    .join("\r\n");
+  const excelHtml = `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">
+<head>
+  <meta charset="utf-8">
+  <!--[if gte mso 9]>
+  <xml>
+    <x:ExcelWorkbook>
+      <x:ExcelWorksheets>
+        <x:ExcelWorksheet>
+          <x:Name>KRA & KPI Sheet</x:Name>
+          <x:WorksheetOptions>
+            <x:DisplayGridlines/>
+          </WorksheetOptions>
+        </x:ExcelWorksheet>
+      </x:ExcelWorksheets>
+    </x:ExcelWorkbook>
+  </xml>
+  <![endif]-->
+  <style>
+    body { font-family: 'Segoe UI', Arial, sans-serif; }
+    table { border-collapse: collapse; }
+    td, th { border: 1px solid #EAECF0; padding: 8px; font-size: 10pt; }
+    .title-row { font-size: 15pt; font-weight: bold; color: #5B2053; background-color: #FCFCFD; text-align: center; }
+    .metadata-label { background-color: #FCFCFD; font-weight: bold; color: #475467; border: 1px solid #EAECF0; }
+    .metadata-value { color: #101828; border: 1px solid #EAECF0; }
+    .header-cell { background-color: #5B2053; color: #ffffff; font-weight: bold; text-align: center; border: 1px solid #98A2B3; }
+  </style>
+</head>
+<body>
+  <table>
+    <tbody>
+      <tr>
+        <td colspan="8" class="title-row" style="text-align:center;font-size:16pt;font-weight:bold;color:#5B2053;height:45px;vertical-align:middle;border:1px solid #EAECF0;font-family:Arial,sans-serif;">
+          PULSE PHARMA - PERFORMANCE KRA & KPI SHEET
+        </td>
+      </tr>
+      <tr><td colspan="8" style="border:none;height:15px;"></td></tr>
+      <tr>
+        <td class="metadata-label" style="font-weight:bold;background-color:#F9FAFB;font-family:Arial,sans-serif;">Employee Name:</td>
+        <td class="metadata-value" colspan="3" style="font-family:Arial,sans-serif;">${employeeName}</td>
+        <td class="metadata-label" style="font-weight:bold;background-color:#F9FAFB;font-family:Arial,sans-serif;">Employee ID:</td>
+        <td class="metadata-value" colspan="3" style="font-family:Arial,sans-serif;">${employeeId}</td>
+      </tr>
+      <tr>
+        <td class="metadata-label" style="font-weight:bold;background-color:#F9FAFB;font-family:Arial,sans-serif;">Designation:</td>
+        <td class="metadata-value" colspan="3" style="font-family:Arial,sans-serif;">${designation}</td>
+        <td class="metadata-label" style="font-weight:bold;background-color:#F9FAFB;font-family:Arial,sans-serif;">Department:</td>
+        <td class="metadata-value" colspan="3" style="font-family:Arial,sans-serif;">${department}</td>
+      </tr>
+      <tr><td colspan="8" style="border:none;height:15px;"></td></tr>
+      <tr style="background-color:#5B2053;color:#ffffff;font-weight:bold;text-align:center;height:30px;">
+        <th class="header-cell" style="background-color:#5B2053;color:#ffffff;border:1px solid #98A2B3;width:250px;font-family:Arial,sans-serif;">KRA Title</th>
+        <th class="header-cell" style="background-color:#5B2053;color:#ffffff;border:1px solid #98A2B3;width:100px;font-family:Arial,sans-serif;">KRA Weight (%)</th>
+        <th class="header-cell" style="background-color:#5B2053;color:#ffffff;border:1px solid #98A2B3;width:250px;font-family:Arial,sans-serif;">KPI Title</th>
+        <th class="header-cell" style="background-color:#5B2053;color:#ffffff;border:1px solid #98A2B3;width:100px;font-family:Arial,sans-serif;">KPI Weight (%)</th>
+        <th class="header-cell" style="background-color:#5B2053;color:#ffffff;border:1px solid #98A2B3;width:300px;font-family:Arial,sans-serif;">KPI Target Description</th>
+        <th class="header-cell" style="background-color:#5B2053;color:#ffffff;border:1px solid #98A2B3;color:#B42220;width:180px;font-family:Arial,sans-serif;">Below Expectations (Needs Imp.)</th>
+        <th class="header-cell" style="background-color:#5B2053;color:#ffffff;border:1px solid #98A2B3;color:#6941C6;width:180px;font-family:Arial,sans-serif;">Meets Expectations</th>
+        <th class="header-cell" style="background-color:#5B2053;color:#ffffff;border:1px solid #98A2B3;color:#027A48;width:180px;font-family:Arial,sans-serif;">Excellent Performance (Outstanding)</th>
+      </tr>
+      ${excelRowsHtml}
+    </tbody>
+  </table>
+</body>
+</html>`;
 
-  // Create downloadable link
-  const blob = new Blob([new Uint8Array([0xEF, 0xBB, 0xBF]), csvContent], {
-    type: "text/csv;charset=utf-8;"
+  // Download logic for Excel file
+  const blob = new Blob([new Uint8Array([0xEF, 0xBB, 0xBF]), excelHtml], {
+    type: "application/vnd.ms-excel;charset=utf-8;"
   });
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
-  
-  // Format filename cleanly
   const cleanDesignation = designation.replace(/[^a-zA-Z0-9]/g, "_");
+  
   link.setAttribute("href", url);
-  link.setAttribute("download", `KRA_KPI_${employeeId}_${cleanDesignation}.csv`);
+  link.setAttribute("download", `KRA_KPI_${employeeId}_${cleanDesignation}.xls`);
   link.style.visibility = "hidden";
   
   document.body.appendChild(link);

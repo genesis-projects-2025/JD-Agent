@@ -47,10 +47,11 @@ This repository is integrated with Langfuse for prompt management and LLM observ
 - **Prerequisite Rules**: Normal KRA/KPI generation requires that both the employee's JD, the manager's JD, and the manager's KRA/KPI frameworks exist and are approved.
 - **Bypass Rule**: Executive/high-level roles (Director, VP, CEO, MD, President) reporting directly to managing structures do not require manager JDs/KRAs. Check employee designation or level in `organogram` and bypass these checks when true inside `kra_kpi_service.py`.
 
-## 7. Brain Agent v3 Orchestrator
-- **Multi-Tool Parsing**: The agent parses XML tags from response content. It uses `re.findall` (not `re.search`) to run all tool tags concurrently.
-- **Context Boundaries**: The context window history is limited to the last 6 turns (not 10) to reduce token count.
-- **Output Limit**: Gemini 2.5 Flash invocation limits response output to 2000 tokens (`max_output_tokens=2000`).
-- **Entity Resolution**: Entities (like Employee IDs and departments) are extracted from user queries, LLM answers, and SQL results to proactively resolve pronouns.
-- **Result Formatting**: SQL query outputs are auto-formatted into markdown tables, truncating cell content past 150 characters and capping responses at 30 rows. Semantic search outputs return metadata headers.
+## 7. Brain Agent v3 Orchestrator & Optimizations
+- **Semantic Caching**: Uses a thread-safe, TTL-expiring, LRU in-memory query cache (`brain_agent_cache_service.py`) to skip LLM calls on repeated/similar queries (similarity threshold `0.92`).
+- **JIT Tool Execution & Sequential Processing**: Pre-retrieval knowledge loading is disabled. The agent queries corporate data dynamically. Multiple SQL queries are processed sequentially (not concurrently) to prevent SQLAlchemy `AsyncSession` connection errors.
+- **Zero-Cost Intent Classification**: Classified query intent is logged dynamically based on actual tool usage (e.g. `SQL_QUERY`, `VECTOR_SEARCH`), eliminating the intent detection LLM call.
+- **History Summarization**: Older assistant turns (past the last 2 recent turns) are represented in history via short one-sentence Python-generated summaries to save token space.
+- **Tightened Data Limits**: SQL markdown tables are capped at 15 rows (from 30) and cell contents are truncated at 80 characters (from 150). Vector searches are capped at `top_k=4` and `1200` tokens.
+- **PostgreSQL Column Naming**: The job level column in the `organogram` table is physically named `joblevel` (without underscore). The system prompt must always specify `joblevel` to avoid `UndefinedColumnError`.
 - **Post-processing**: The `_clean_response` utility filters out any leaked tool blocks or redundant newlines.

@@ -369,6 +369,7 @@ async def save_questionnaire_jd(
                 role=turn.get("role", "unknown"),
                 content=turn.get("content", ""),
             )
+            db.add(new_turn)
     # Delete stale KRA/KPI session on JD save/update
     from app.models.kra_kpi_model import KRAKPISession
     await db.execute(

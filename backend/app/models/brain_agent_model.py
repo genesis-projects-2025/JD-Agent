@@ -62,6 +62,7 @@ class BrainAgentConversationTurn(Base):
     turn_index: Mapped[int] = mapped_column(Integer, nullable=False)
     role: Mapped[str] = mapped_column(Text, nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)
+    summary: Mapped[str] = mapped_column(Text, nullable=True)
     tool_calls: Mapped[dict] = mapped_column(JSONB, nullable=True)
     created_at: Mapped[datetime.datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
@@ -81,6 +82,7 @@ class BrainAgentConversationTurn(Base):
             "turn_index": self.turn_index,
             "role": self.role,
             "content": self.content,
+            "summary": self.summary,
             "tool_calls": self.tool_calls,
             "created_at": self.created_at.isoformat() if self.created_at else None,
         }

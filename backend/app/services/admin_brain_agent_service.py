@@ -31,6 +31,7 @@ from app.services.vector_service import get_embeddings, get_index_async
 from app.services.brain_agent_anomaly_service import run_diagnostics, format_anomaly_context
 from app.models.brain_agent_model import BrainAgentSession, BrainAgentConversationTurn
 from app.agents.admin_brain_state import BaseAgentState
+from app.services.brain_agent_cache_service import check_cache, store_cache
 
 logger = logging.getLogger(__name__)
 
@@ -51,8 +52,8 @@ def _get_brain_agent_llm():
 
 async def search_brain_agent_knowledge(
     query_text: str,
-    top_k: int = 8,
-    token_budget: int = 2000,
+    top_k: int = 4,
+    token_budget: int = 1200,
     filters: Optional[Dict[str, Any]] = None,
 ) -> List[Dict[str, Any]]:
     """Enhanced semantic search with reranking, dedup, token budget, and dynamic filters for Brain Agent."""
@@ -181,8 +182,8 @@ def _format_sql_results_as_markdown(results: List[Dict]) -> str:
         return "No results found."
     # Cap rows to prevent token explosion
     truncated = False
-    if len(results) > 30:
-        results = results[:30]
+    if len(results) > 15:
+        results = results[:15]
         truncated = True
 
     headers = list(results[0].keys())
@@ -194,14 +195,14 @@ def _format_sql_results_as_markdown(results: List[Dict]) -> str:
             val = row.get(h, "")
             # Truncate long cell values
             val_str = str(val) if val is not None else ""
-            if len(val_str) > 150:
-                val_str = val_str[:147] + "..."
+            if len(val_str) > 80:
+                val_str = val_str[:77] + "..."
             row_vals.append(val_str)
         lines.append("| " + " | ".join(row_vals) + " |")
 
     table = "\n".join(lines)
     if truncated:
-        table += "\n\n*Results truncated to 30 rows. Use more specific filters to narrow down.*"
+        table += "\n\n*Results truncated to 15 rows. Use more specific filters to narrow down.*"
     return table
 
 
@@ -217,6 +218,26 @@ def _format_search_results(results: List[Dict]) -> str:
             f"Dept: {r.get('department', 'N/A')}\n{r.get('text', '')}"
         )
     return "\n\n---\n\n".join(lines)
+
+
+def _generate_text_summary(text: str) -> str:
+    """Generate a clean, one-sentence summary of the text using Python to save tokens."""
+    if not text:
+        return ""
+    # Strip markdown formatting
+    clean = re.sub(r'[*#_`\-|]', '', text).strip()
+    # Replace multiple spaces/newlines
+    clean = re.sub(r'\s+', ' ', clean)
+    # Take first sentence or first 120 characters
+    sentences = clean.split('. ')
+    if sentences:
+        first_sentence = sentences[0].strip()
+        if len(first_sentence) > 120:
+            return first_sentence[:117] + "..."
+        if first_sentence and not first_sentence.endswith('.'):
+            return first_sentence + "."
+        return first_sentence
+    return clean[:120] + "..."
 
 
 def _clean_response(content: str) -> str:
@@ -911,25 +932,61 @@ class AdminBrainAgentService:
                 "final_response": None,
             }
 
-            # ── Node 1: Intent Detection ──
-            yield {"type": "status", "content": "Analyzing query scope and intent..."}
-            parsed_intent = await _detect_query_intent(message, llm)
-            state.update(parsed_intent)
-            
-            # If entity context has a department or employee name, and intent detector didn't find one, resolve from context
-            if not state["target_name"] and state["target_scope"] == "EMPLOYEE" and entity_context.get("last_employee_name"):
-                state["target_name"] = entity_context["last_employee_name"]
-            if not state["target_name"] and state["target_scope"] == "DEPARTMENT" and entity_context.get("last_department"):
-                state["target_name"] = entity_context["last_department"]
+            # ── Check Semantic Cache ──
+            try:
+                cached_response = await check_cache(message)
+                if cached_response:
+                    logger.info(f"Cache hit for query: '{message}'")
+                    words = re.split(r'(\s+)', cached_response)
+                    for word in words:
+                        if word:
+                            yield {"type": "chunk", "content": word}
+                            await asyncio.sleep(0.008)
 
-            # ── Node 2: Entity Resolution (SQL verification) ──
-            yield {"type": "status", "content": f"Resolving entities for {state['target_scope']} scope..."}
-            state = await _resolve_entities(state, db)
+                    # Persist user and assistant turns
+                    turn_count_result = await db.execute(
+                        select(BrainAgentConversationTurn)
+                        .where(BrainAgentConversationTurn.session_id == session.id)
+                    )
+                    existing_turns = turn_count_result.scalars().all()
+                    next_turn_index = len(existing_turns)
 
-            # ── Node 3: Filter & Retrieval Node ──
-            if not state["is_final"]:
-                yield {"type": "status", "content": "Retrieving context records from knowledge base..."}
-                state = await _retrieve_knowledge(state, db)
+                    user_turn = BrainAgentConversationTurn(
+                        session_id=session.id,
+                        turn_index=next_turn_index,
+                        role="user",
+                        content=message,
+                        summary=message[:100],
+                    )
+                    db.add(user_turn)
+
+                    assistant_turn = BrainAgentConversationTurn(
+                        session_id=session.id,
+                        turn_index=next_turn_index + 1,
+                        role="assistant",
+                        content=cached_response,
+                        summary=_generate_text_summary(cached_response),
+                        tool_calls=None,
+                    )
+                    db.add(assistant_turn)
+
+                    # Write to query_logs
+                    try:
+                        from app.models.enrichment_model import QueryLog
+                        async with db.begin_nested():
+                            log = QueryLog(
+                                query=message,
+                                query_type="CACHED",
+                                answer=cached_response
+                            )
+                            db.add(log)
+                    except Exception as _le:
+                        logger.warning(f"Failed to log cached query: {_le}")
+
+                    await db.commit()
+                    return
+            except Exception as ce:
+                logger.warning(f"Error during semantic cache check: {ce}")
 
             # ── Persist User Turn ──
             turn_count_result = await db.execute(
@@ -944,65 +1001,20 @@ class AdminBrainAgentService:
                 turn_index=next_turn_index,
                 role="user",
                 content=message,
+                summary=message[:100],
             )
             db.add(user_turn)
             next_turn_index += 1
 
-            # ── Safeguard Short-Circuit Check ──
-            if state["is_final"] and state["final_response"]:
-                # Stream the error/safe response directly
-                content = state["final_response"]
-                words = re.split(r'(\s+)', content)
-                for word in words:
-                    if word:
-                        yield {"type": "chunk", "content": word}
-                        await asyncio.sleep(0.008)
-
-                assistant_turn = BrainAgentConversationTurn(
-                    session_id=session.id,
-                    turn_index=next_turn_index,
-                    role="assistant",
-                    content=content,
-                    tool_calls=None,
-                )
-                db.add(assistant_turn)
-                
-                # Write to query_logs
-                try:
-                    from app.models.enrichment_model import QueryLog
-                    async with db.begin_nested():
-                        log = QueryLog(
-                            query=message,
-                            query_type=state.get("query_type", "POINT_LOOKUP"),
-                            answer=content
-                        )
-                        db.add(log)
-                except Exception as _le:
-                    logger.warning(f"Failed to log short-circuit query: {_le}")
-
-                await db.commit()
-                return
-
-            # ── Node 4: Anomaly Diagnostics (Disabled by User Request) ──
-            anomaly_text = ""
-
-            # ── Node 5: Compliance Oracle Prompt Assembly ──
+            # ── Compliance Oracle Prompt Assembly ──
             entity_text = _format_entity_context(entity_context)
             system_prompt = get_compiled_prompt(
                 "brain-agent-system",
                 BRAIN_AGENT_SYSTEM_PROMPT,
                 entity_context=entity_text,
-                anomaly_context=anomaly_text,
+                anomaly_context="",
             )
             
-            # Format and inject containerized verified memories
-            resolved_emp = state["worker_results"].get("resolved_employee")
-            profile_context = _format_resolved_employee_record(resolved_emp)
-            containerized_context = _format_containerized_memories(state["retrieved_memories"])
-            
-            if profile_context:
-                containerized_context = profile_context + "\n\n" + containerized_context
-                
             compliance_block = f"""
 --- [COMPLIANCE ORACLE RESTRICTIONS] ---
 You are a rigid corporate compliance oracle. You have zero external training knowledge. 
@@ -1013,7 +1025,7 @@ Do not synthesize, infer, or hallucinate names, metrics, or software tools. Rely
 ----------------------------------------
 
 --- [CONTAINERIZED KNOWLEDGE BASE MEMORIES] ---
-{containerized_context}
+No verified corporate records found matching this query in the vector store. Call search_jds_and_goals to query the vector registry, or execute_sql to query the database.
 -----------------------------------------------
 """
             system_prompt = system_prompt + "\n\n" + compliance_block
@@ -1021,7 +1033,7 @@ Do not synthesize, infer, or hallucinate names, metrics, or software tools. Rely
             # ── Build LangChain Message History ──
             messages = [SystemMessage(content=system_prompt)]
 
-            # Load persisted turns from DB (last 6 turns)
+            # Load persisted turns from DB (last 6 turns, summarization for turns older than the last 2)
             if session_id and session:
                 db_turns_result = await db.execute(
                     select(BrainAgentConversationTurn)
@@ -1029,11 +1041,18 @@ Do not synthesize, infer, or hallucinate names, metrics, or software tools. Rely
                     .order_by(BrainAgentConversationTurn.turn_index)
                 )
                 db_turns = db_turns_result.scalars().all()
-                for turn in db_turns[-6:]:
+                turns_to_process = db_turns[-6:]
+                for i, turn in enumerate(turns_to_process):
+                    is_recent = (len(turns_to_process) - i) <= 2
+                    
+                    content_to_use = turn.content
+                    if not is_recent and turn.role == "assistant" and getattr(turn, "summary", None):
+                        content_to_use = f"[Past Turn Summary: {turn.summary}]"
+                        
                     if turn.role == "user":
-                        messages.append(HumanMessage(content=turn.content))
+                        messages.append(HumanMessage(content=content_to_use))
                     else:
-                        messages.append(AIMessage(content=turn.content))
+                        messages.append(AIMessage(content=content_to_use))
 
             messages.append(HumanMessage(content=message))
 
@@ -1050,11 +1069,6 @@ Do not synthesize, infer, or hallucinate names, metrics, or software tools. Rely
                 tags=["brain-agent"],
             )
             callbacks = [handler] if handler else []
-
-            # If there's a resolution note from fuzzy matching, yield it to the user first
-            if "resolution_note" in state.get("worker_results", {}):
-                note = state["worker_results"]["resolution_note"]
-                yield {"type": "chunk", "content": f"*{note}*\n\n"}
 
             # ── Agentic Tool Loop ──
             max_iterations = 5
@@ -1102,12 +1116,14 @@ Do not synthesize, infer, or hallucinate names, metrics, or software tools. Rely
                             yield {"type": "chunk", "content": word}
                             await asyncio.sleep(0.008)
 
-                    # Persist assistant turn
+                    # Persist assistant turn with summary
+                    summary_text = _generate_text_summary(content)
                     assistant_turn = BrainAgentConversationTurn(
                         session_id=session.id,
                         turn_index=next_turn_index,
                         role="assistant",
                         content=content,
+                        summary=summary_text,
                         tool_calls=all_tool_calls if all_tool_calls else None,
                     )
                     db.add(assistant_turn)
@@ -1118,18 +1134,35 @@ Do not synthesize, infer, or hallucinate names, metrics, or software tools. Rely
                         entity_context.update(new_entities)
                         session.entity_context = entity_context
 
-                    # Write to query_logs
+                    # Write to query_logs (dynamically categorize query type)
+                    has_sql = any(tc["tool"] == "execute_sql" for tc in all_tool_calls)
+                    has_search = any(tc["tool"] == "search_jds_and_goals" for tc in all_tool_calls)
+                    if has_sql and has_search:
+                        resolved_qtype = "HYBRID"
+                    elif has_sql:
+                        resolved_qtype = "SQL_QUERY"
+                    elif has_search:
+                        resolved_qtype = "VECTOR_SEARCH"
+                    else:
+                        resolved_qtype = "POINT_LOOKUP"
+
                     try:
                         from app.models.enrichment_model import QueryLog
                         async with db.begin_nested():
                             log = QueryLog(
                                 query=message,
-                                query_type=state.get("query_type", "POINT_LOOKUP"),
+                                query_type=resolved_qtype,
                                 answer=content
                             )
                             db.add(log)
                     except Exception as _le:
                         logger.warning(f"Failed to log standard query: {_le}")
+
+                    # Store in semantic cache
+                    try:
+                        await store_cache(message, content, str(session.id))
+                    except Exception as ce:
+                        logger.warning(f"Failed to cache query: {ce}")
 
                     await db.commit()
                     return
@@ -1152,23 +1185,53 @@ Do not synthesize, infer, or hallucinate names, metrics, or software tools. Rely
 
                 async def run_search(query: str) -> str:
                     try:
-                        # Strictly pass the resolved filters to prevent context bleeding in searches
+                        # Extract employee ID or department dynamically from search query
+                        filters = {}
+                        emp_ids = re.findall(r'\b(E\d{3,5})\b', query)
+                        if emp_ids:
+                            filters = {"$or": [{"employee_id": emp_ids[-1]}, {"jd_id": f"KRA_{emp_ids[-1]}"}]}
+                        else:
+                            query_lower = query.lower()
+                            matched_dept = None
+                            if "quality control" in query_lower or "qc" in query_lower:
+                                matched_dept = "Quality Control"
+                            elif "quality assurance" in query_lower or "qa" in query_lower:
+                                matched_dept = "Quality Assurance"
+                            elif "cqa" in query_lower:
+                                matched_dept = "CQA"
+                            elif "hr" in query_lower or "human resources" in query_lower or "hrd" in query_lower:
+                                matched_dept = "HR & Admin"
+                            elif "finance" in query_lower or "accounts" in query_lower:
+                                matched_dept = "Finance"
+                            elif "r&d" in query_lower or "research" in query_lower:
+                                matched_dept = "Research & Development"
+                            elif "production" in query_lower:
+                                matched_dept = "Production"
+                            elif "it" in query_lower or "tech" in query_lower:
+                                matched_dept = "IT"
+                            
+                            if matched_dept:
+                                filters = {"department": matched_dept}
+
                         results = await search_brain_agent_knowledge(
                             query, 
-                            filters=state["worker_results"].get("pinecone_filters")
+                            top_k=4,
+                            token_budget=1200,
+                            filters=filters if filters else None
                         )
                         formatted = _format_search_results(results)
                         return f'<tool_result name="search_jds_and_goals">\n{formatted}\n</tool_result>'
                     except Exception as e:
                         return f'<tool_result name="search_jds_and_goals">\nError: {str(e)}\n</tool_result>'
 
-                tasks = []
-                # Process ALL SQL tool calls
+                tool_results = []
+                # Process ALL SQL tool calls sequentially to prevent SQLAlchemy concurrent session errors
                 for sql_query_str in sql_matches:
                     sql_query = sql_query_str.strip()
                     yield {"type": "status", "content": "Querying corporate database..."}
                     yield {"type": "tool_call", "tool": "execute_sql", "query": sql_query}
-                    tasks.append(run_sql(sql_query))
+                    res_val = await run_sql(sql_query)
+                    tool_results.append(res_val)
                     all_tool_calls.append({"tool": "execute_sql", "query": sql_query})
 
                 # Process ALL search tool calls
@@ -1176,12 +1239,12 @@ Do not synthesize, infer, or hallucinate names, metrics, or software tools. Rely
                     search_query = search_query_str.strip()
                     yield {"type": "status", "content": "Querying vector registry..."}
                     yield {"type": "tool_call", "tool": "search_jds_and_goals", "query": search_query}
-                    tasks.append(run_search(search_query))
+                    res_val = await run_search(search_query)
+                    tool_results.append(res_val)
                     all_tool_calls.append({"tool": "search_jds_and_goals", "query": search_query})
 
-                if tasks:
-                    results = await asyncio.gather(*tasks)
-                    combined_result = "\n\n".join(results)
+                if tool_results:
+                    combined_result = "\n\n".join(tool_results)
                     messages.append(HumanMessage(content=combined_result))
 
             # Iteration limit reached

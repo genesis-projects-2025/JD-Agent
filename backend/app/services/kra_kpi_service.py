@@ -307,9 +307,11 @@ def _build_missing_message(details: dict) -> str:
 async def get_kra_kpi_by_jd_session(
     db: AsyncSession, jd_session_id: str,
 ) -> KRAKPISession | None:
+    from sqlalchemy.orm import selectinload
     result = await db.execute(
         select(KRAKPISession)
         .where(KRAKPISession.jd_session_id == jd_session_id)
+        .options(selectinload(KRAKPISession.conversation_turns))
         .order_by(KRAKPISession.updated_at.desc())
     )
     return result.scalars().first()
@@ -1800,6 +1802,6 @@ async def sync_kra_kpi_session_to_db(
             db.add(new_turn)
 
         await db.commit()
-        await db.refresh(record)
+        await db.refresh(record, ["conversation_turns"])
     return record
 

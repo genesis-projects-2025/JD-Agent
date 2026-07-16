@@ -119,6 +119,13 @@ class KRAKPISession(Base):
     )
 
     def to_dict(self) -> dict:
+        history = []
+        if "conversation_turns" in self.__dict__ and self.conversation_turns is not None:
+            history = [
+                {"role": t.role, "content": t.content}
+                for t in self.conversation_turns
+            ]
+
         return {
             "id": str(self.id),
             "jd_session_id": self.jd_session_id,
@@ -142,6 +149,7 @@ class KRAKPISession(Base):
             "generation_model": self.generation_model,
             "generation_error": self.generation_error,
             "conversation_state": self.conversation_state,
+            "conversation_history": history,
             "generated_at": self.generated_at.isoformat() if self.generated_at else None,
             "confirmed_at": self.confirmed_at.isoformat() if self.confirmed_at else None,
             "created_at": self.created_at.isoformat() if self.created_at else None,

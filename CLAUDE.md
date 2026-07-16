@@ -239,6 +239,8 @@ Based on HR instructions, system freezes, and admin requests, the platform has u
 | `backend/app/agents/kra_kpi_agent.py` | **Credit Cost Optimization (July 2026):** Swapped KRA/KPI interview model to `gemini-2.5-flash` to reduce API cost by 94%. |
 | `backend/app/services/kra_kpi_service.py` | **Credit Cost Optimization (July 2026):** Swapped all KPI extraction and parsing instances to `gemini-2.5-flash`. |
 | `backend/app/agents/kra_kpi_interview_agent.py` | **Credit Cost Optimization (July 2026):** Pruned past conversation history context to last 8 turns, and trimmed input JD data to strictly responsibilities list. |
+| `backend/app/models/kra_kpi_model.py` | **KRA/KPI Resume History Fix (July 2026):** Updated `KRAKPISession.to_dict()` to include `conversation_history` list when `conversation_turns` relationship is loaded. |
+| `backend/app/services/kra_kpi_service.py` | **KRA/KPI Resume History Fix (July 2026):** Updated `get_kra_kpi_by_jd_session` helper to eagerly load `conversation_turns` via `selectinload`. Updated `sync_kra_kpi_session_to_db` to refresh relationship on save. |
 
 
 

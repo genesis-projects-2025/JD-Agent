@@ -6,6 +6,14 @@ from app.models.review_comment_model import JDReviewComment
 from app.models.reference_jd_model import ReferenceJD
 from app.models.kra_kpi_model import KRAKPISession, KRAKPIConversationTurn, UploadedKRAKPI
 from app.models.brain_agent_model import BrainAgentSession, BrainAgentConversationTurn
+from app.models.enrichment_model import (
+    TaskAutomationScore,
+    EmployeeWorkSummary,
+    DepartmentDependency,
+    DepartmentRollupMetric,
+    BottleneckInsight,
+    QueryLog,
+)
 
 __all__ = [
     "JDSession",
@@ -26,4 +34,10 @@ __all__ = [
     "UploadedKRAKPI",
     "BrainAgentSession",
     "BrainAgentConversationTurn",
+    "TaskAutomationScore",
+    "EmployeeWorkSummary",
+    "DepartmentDependency",
+    "DepartmentRollupMetric",
+    "BottleneckInsight",
+    "QueryLog",
 ]

@@ -139,7 +139,8 @@ async def generate_excel():
                 "department": department,
                 "jd status": mapped_status,
                 "status details": details,
-                "reporting manager": reporting_manager
+                "reporting manager": reporting_manager,
+                "sso link": f"https://jd.pulsepharma.net/sso?employee_id={emp_code}"
             })
             
         # 5. Write to Excel
@@ -148,15 +149,18 @@ async def generate_excel():
         # Path details
         output_filename = "Employee_JD_Status_Report.xlsx"
         
-        # Let's save in the workspace root: /Users/manideekshith/Desktop/JD-Agent
-        workspace_path = f"/Users/manideekshith/Desktop/JD-Agent/{output_filename}"
+        # Save in the workspace root
+        workspace_path = f"/Users/manideekshith/Developer/JD-Agent/{output_filename}"
         
-        # And in the artifacts folder: /Users/manideekshith/.gemini/antigravity-cli/brain/829fafb2-12cc-4fb5-8496-0d1d1ed55567
-        artifact_dir = "/Users/manideekshith/.gemini/antigravity-cli/brain/829fafb2-12cc-4fb5-8496-0d1d1ed55567"
+        # Save in the downloads folder
+        downloads_path = f"/Users/manideekshith/Downloads/{output_filename}"
+        
+        # Save in the artifacts folder for this conversation
+        artifact_dir = "/Users/manideekshith/.gemini/antigravity-cli/brain/84fcbea4-9145-4abb-9658-1eec9c15c12c"
         artifact_path = os.path.join(artifact_dir, output_filename)
         
-        # Save to both paths
-        for p in [workspace_path, artifact_path]:
+        # Save to all paths
+        for p in [workspace_path, downloads_path, artifact_path]:
             # Create directories if they do not exist
             os.makedirs(os.path.dirname(p), exist_ok=True)
             
@@ -228,6 +232,9 @@ async def generate_excel():
                             cell.font = status_font
                         else:
                             cell.fill = fill_to_use
+                            if col_num == 9: # sso link
+                                cell.hyperlink = cell.value
+                                cell.font = Font(name='Arial', size=10, color='0563C1', underline='single')
                             
                 # Auto-adjust column widths
                 for col in worksheet.columns:

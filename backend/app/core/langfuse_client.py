@@ -56,16 +56,39 @@ def get_langfuse_callback_handler(trace_name: str = None, session_id: str = None
     if settings.LANGFUSE_PUBLIC_KEY and settings.LANGFUSE_SECRET_KEY:
         try:
             from langfuse.langchain import CallbackHandler
-            handler_kwargs = {}
-            if trace_name:
-                handler_kwargs["trace_name"] = trace_name
-            if session_id:
-                handler_kwargs["session_id"] = session_id
-            if user_id:
-                handler_kwargs["user_id"] = user_id
-            if tags:
-                handler_kwargs["tags"] = tags
-            return CallbackHandler(**handler_kwargs)
+            
+            class CustomCallbackHandler(CallbackHandler):
+                def __init__(self, trace_name_val=None, session_id_val=None, user_id_val=None, tags_val=None, **kwargs):
+                    super().__init__(**kwargs)
+                    self._default_trace_name = trace_name_val
+                    self._default_session_id = session_id_val
+                    self._default_user_id = user_id_val
+                    self._default_tags = tags_val
+
+                def _parse_langfuse_trace_attributes(self, *, metadata=None, tags=None):
+                    meta_to_use = dict(metadata) if metadata is not None else {}
+                    if self._default_trace_name and "langfuse_trace_name" not in meta_to_use:
+                        meta_to_use["langfuse_trace_name"] = self._default_trace_name
+                    if self._default_session_id and "langfuse_session_id" not in meta_to_use:
+                        meta_to_use["langfuse_session_id"] = self._default_session_id
+                    if self._default_user_id and "langfuse_user_id" not in meta_to_use:
+                        meta_to_use["langfuse_user_id"] = self._default_user_id
+                    if self._default_tags and "langfuse_tags" not in meta_to_use:
+                        meta_to_use["langfuse_tags"] = self._default_tags
+                        
+                    tags_to_use = list(tags) if tags is not None else []
+                    if self._default_tags and not tags:
+                        tags_to_use = self._default_tags
+                        
+                    return super()._parse_langfuse_trace_attributes(metadata=meta_to_use, tags=tags_to_use)
+            
+            return CustomCallbackHandler(
+                trace_name_val=trace_name,
+                session_id_val=session_id,
+                user_id_val=user_id,
+                tags_val=tags
+            )
         except Exception as e:
             logger.warning(f"Failed to initialize Langfuse CallbackHandler: {e}")
     return None
+

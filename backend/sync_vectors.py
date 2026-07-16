@@ -10,7 +10,7 @@ logger = logging.getLogger(__name__)
 async def sync_approved_jds():
     async with AsyncSessionLocal() as db:
         query = text("""
-            SELECT id, title, department, jd_structured 
+            SELECT id, title, department, jd_structured, employee_id 
             FROM jd_sessions 
             WHERE status = 'approved'
         """)
@@ -31,7 +31,8 @@ async def sync_approved_jds():
                     jd_id=str(row.id),
                     structured_data=row.jd_structured or {},
                     department=row.department or "General",
-                    title_override=row.title
+                    title_override=row.title,
+                    employee_id=str(row.employee_id) if row.employee_id else None,
                 )
                 logger.info(f"Successfully indexed {row.id}")
             except Exception as e:

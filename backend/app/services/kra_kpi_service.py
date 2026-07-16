@@ -675,6 +675,23 @@ async def save_weights_and_confirm(
 
     await db.commit()
     await db.refresh(record)
+
+    if confirm:
+        import asyncio
+        from app.services.enrichment_service import run_employee_summary
+        from app.core.database import AsyncSessionLocal
+        
+        async def _run_kra_enrichment_bg(emp_id: str):
+            async with AsyncSessionLocal() as bg_db:
+                try:
+                    await run_employee_summary(bg_db, emp_id)
+                except Exception as _e:
+                    import logging
+                    logger = logging.getLogger(__name__)
+                    logger.error(f"KRA summary enrichment task failed for employee {emp_id}: {_e}")
+        
+        asyncio.create_task(_run_kra_enrichment_bg(str(record.employee_id)))
+
     return record
 
 

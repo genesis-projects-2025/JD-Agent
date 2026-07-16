@@ -46,7 +46,8 @@ async def run_tests():
     search_results = await search_brain_agent_knowledge("compliance audit targets", top_k=2)
     print(f"  Matches retrieved: {len(search_results)}")
     for r in search_results:
-        print(f"    - {r[:100]}...")
+        text_val = r.get("text", "") if isinstance(r, dict) else str(r)
+        print(f"    - {text_val[:100]}...")
 
     # 3. Agent Execution Test
     print("\n🧠 3. Testing Conversational Loop with AdminBrainAgentService...")

@@ -101,6 +101,42 @@ def _safe_uuid(val: str) -> uuid.UUID:
     return uuid.UUID(val)
 
 
+async def _run_offline_enrichment_pipeline(jd_id: uuid.UUID, employee_id: str):
+    """Background task to run JD enrichment jobs in an isolated session."""
+    from app.core.database import AsyncSessionLocal
+    from sqlalchemy import select
+    from app.models.jd_session_model import JDSession
+    from app.services.enrichment_service import (
+        run_task_automation_scoring,
+        run_dependency_extraction,
+        run_employee_summary
+    )
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    async with AsyncSessionLocal() as db:
+        try:
+            # 1. Fetch JDSession fresh
+            res = await db.execute(select(JDSession).where(JDSession.id == jd_id))
+            jd_session = res.scalars().first()
+            if not jd_session:
+                logger.warning(f"Background enrichment: JDSession {jd_id} not found.")
+                return
+            
+            # 2. Run Task Automation Scoring
+            await run_task_automation_scoring(db, jd_session)
+            
+            # 3. Run Dependency Extraction
+            await run_dependency_extraction(db, jd_session)
+            
+            # 4. Run Employee Summary (which reads the JD we just scored)
+            await run_employee_summary(db, employee_id)
+            
+            logger.info(f"Background enrichment completed successfully for JD {jd_id} / Employee {employee_id}")
+        except Exception as e:
+            logger.error(f"Background offline enrichment pipeline failed for JD {jd_id}: {e}")
+
+
 def _trigger_rag_indexing(record: JDSession):
     """Fire-and-forget indexing task for approved JDs."""
     if not record or record.status != "approved" or not record.jd_structured:
@@ -119,13 +155,20 @@ def _trigger_rag_indexing(record: JDSession):
     elif any(k in exp_text for k in ["principal", "architect", "staff", "10+"]):
         exp_level = "Expert"
 
+    # Spawn RAG indexing task
     task = asyncio.create_task(
         index_approved_jd(
             jd_id=str(record.id),
             structured_data=record.jd_structured,
             department=record.department or "General",
             experience_level=exp_level,
+            employee_id=str(record.employee_id) if record.employee_id else None,
         )
+    )
+    
+    # Spawn offline enrichment pipeline task
+    asyncio.create_task(
+        _run_offline_enrichment_pipeline(record.id, str(record.employee_id) if record.employee_id else "")
     )
     
     # Add error handler to log failures

@@ -141,6 +141,7 @@ async def _sync_published_reference_jd(
             # pyrefly: ignore [bad-argument-type]
             experience_level=jd.level or "Mid",
             source="published_reference_jd",
+            employee_id=str(session.employee_id) if session.employee_id else None,
         )
     )
     

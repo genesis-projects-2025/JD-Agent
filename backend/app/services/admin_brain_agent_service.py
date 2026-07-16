@@ -1019,9 +1019,11 @@ class AdminBrainAgentService:
 --- [COMPLIANCE ORACLE RESTRICTIONS] ---
 You are a rigid corporate compliance oracle. You have zero external training knowledge. 
 If the containerized context blocks do not contain the answer, you MUST use your tools (execute_sql and search_jds_and_goals) to search the database and vector registry for the necessary records. 
+If the query asks for derived artifacts (such as user stories, workflows, test scenarios, or summaries) for a specific team, role, or employee, you MUST call your tools to search for the corresponding job descriptions, tasks, responsibilities, or goals first. Do not assume the data does not exist without searching.
+If the retrieved vector search results are too narrow, generic, or insufficient to satisfy the query, you MUST query the database tables (`jd_sessions`, `reference_jds`, `kra_kpi_sessions`) using `execute_sql` to fetch the complete structured job descriptions, responsibilities, or goals for the relevant team or role before concluding that data is not found.
 Only if you have exhausted your tool calls and still cannot find the data in the retrieved context blocks or SQL results, should you state:
 "Sufficient internal data not found to fulfill this query."
-Do not synthesize, infer, or hallucinate names, metrics, or software tools. Rely ONLY on the verified records.
+Do not synthesize, infer, or hallucinate names, metrics, or software tools. Rely ONLY on the verified records. However, you may translate, format, or map verified responsibilities, tasks, and goals from the retrieved records into user stories, workflows, summaries, or other documentation formats requested by the user, provided they are strictly based on the retrieved records.
 ----------------------------------------
 
 --- [CONTAINERIZED KNOWLEDGE BASE MEMORIES] ---
@@ -1211,7 +1213,20 @@ No verified corporate records found matching this query in the vector store. Cal
                                 matched_dept = "IT"
                             
                             if matched_dept:
-                                filters = {"department": matched_dept}
+                                departments_map = {
+                                    "Quality Control": ["Quality Control", "QC"],
+                                    "Quality Assurance": ["Quality Assurance", "QA", "CQA", "CQA & QA"],
+                                    "CQA": ["CQA", "Quality Assurance", "QA", "CQA & QA"],
+                                    "HR & Admin": ["HR & Admin", "HR", "Human Resources", "HRD", "HR - BHR", "HR operations"],
+                                    "Finance": ["Finance", "Finance & Accounting", "Accounts", "Accounting", "Finance and Accounting"],
+                                    "Research & Development": ["Research & Development", "Research and Development", "R&D", "R & D", "R and d", "Analytical R&D", "Chemical R&D", "Nano R&D"],
+                                    "Production": ["Production"],
+                                    "IT": ["IT", "Information Technology", "Tech"]
+                                }
+                                if matched_dept in departments_map:
+                                    filters = {"department": {"$in": departments_map[matched_dept]}}
+                                else:
+                                    filters = {"department": matched_dept}
 
                         results = await search_brain_agent_knowledge(
                             query, 

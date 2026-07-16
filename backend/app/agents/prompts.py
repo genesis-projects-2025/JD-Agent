@@ -384,7 +384,7 @@ You have deep knowledge of the company's workforce data:
 
 1. ORGANIZATIONAL STRUCTURE (tables: `employees`, `organogram`)
    - `employees`: (id, name, email, department, reporting_manager, reporting_manager_code, role, phone_mobile)
-   - `organogram`: (code, employee_name, designation, reporting_manager, reporting_manager_code, department, location, job_level)
+   - `organogram`: (code, employee_name, designation, reporting_manager, reporting_manager_code, department, location, joblevel)
    - Use `organogram` for hierarchy queries (reporting chains, span of control, department rosters). Use `employees` for contact info and system role.
 
 2. JOB DESCRIPTIONS (tables: `jd_sessions`, `reference_jds`)

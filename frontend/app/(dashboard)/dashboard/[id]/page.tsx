@@ -1619,10 +1619,10 @@ function HRView({ user }: { user: AuthUser }) {
     if (filter === "my_jds") return myJds;
     if (filter === "all") return allJds;
     if (filter === "sent_to_hr") {
-      return allJds.filter((j) => j.status === "sent_to_hr");
+      return allJds.filter((j) => j.status === "sent_to_hr" || j.kra_kpi_status === "sent_to_hr");
     }
     if (filter === "approved") {
-      return allJds.filter((j) => j.status === "approved");
+      return allJds.filter((j) => j.status === "approved" && j.kra_kpi_status !== "sent_to_hr");
     }
     if (filter === "pending") {
       return managerPendingJds;
@@ -1742,8 +1742,8 @@ function HRView({ user }: { user: AuthUser }) {
 
   const counts = {
     all: allJds.length,
-    sent_to_hr: allJds.filter((j) => j.status === "sent_to_hr").length,
-    approved: allJds.filter((j) => j.status === "approved").length,
+    sent_to_hr: allJds.filter((j) => j.status === "sent_to_hr" || j.kra_kpi_status === "sent_to_hr").length,
+    approved: allJds.filter((j) => j.status === "approved" && j.kra_kpi_status !== "sent_to_hr").length,
     my_jds: myJds.length,
     pending: managerPendingJds.length,
   };

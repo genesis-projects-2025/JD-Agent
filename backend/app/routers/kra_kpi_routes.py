@@ -499,7 +499,22 @@ async def send_for_approval_endpoint(
         )
 
     now = datetime.now(timezone.utc)
-    record.status = "sent_to_manager"
+    
+    # Dynamic Routing Logic: If employee has no manager or reports directly to HR (E6679)
+    from app.models.user_model import Employee
+    from sqlalchemy import select
+    emp_res = await db.execute(select(Employee).where(Employee.id == record.employee_id))
+    employee = emp_res.scalar_one_or_none()
+    
+    target_status = "sent_to_manager"
+    message = "KRA/KPI framework sent to manager for approval."
+    if employee:
+        mgr_code = employee.reporting_manager_code
+        if not mgr_code or str(mgr_code).strip() == "" or str(mgr_code).strip() == "E6679":
+            target_status = "sent_to_hr"
+            message = "KRA/KPI framework sent directly to HR for approval."
+
+    record.status = target_status
     record.updated_at = now
     await db.commit()
     await db.refresh(record)
@@ -514,7 +529,7 @@ async def send_for_approval_endpoint(
 
     return {
         "status": "success",
-        "message": "KRA/KPI framework sent to manager for approval.",
+        "message": message,
         "kra_kpi_status": record.status,
     }
 

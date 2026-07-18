@@ -49,10 +49,10 @@ logger = logging.getLogger(__name__)
 # NOTE: The interview LLM is managed in agents/interview.py, not here.
 @lru_cache(maxsize=2)
 def get_jd_llm():
-    """Lazy-initialized Gemini Pro instance for JD generation."""
+    """Lazy-initialized Gemini Flash instance for JD generation."""
     return ChatGoogleGenerativeAI(
         google_api_key=settings.GEMINI_API_KEY,
-        model="gemini-2.5-pro",
+        model="gemini-2.5-flash",
         temperature=0.1,
         response_mime_type="application/json",
     )
@@ -61,11 +61,11 @@ def get_jd_llm():
 jd_llm = get_jd_llm()
 
 
-async def _invoke_with_retry(llm, messages, max_retries=2):
+async def _invoke_with_retry(llm, messages, max_retries=2, callbacks=None):
     """Invoke LLM with exponential backoff on transient failures (429, 500)."""
     for attempt in range(max_retries + 1):
         try:
-            return await llm.ainvoke(messages)
+            return await llm.ainvoke(messages, callbacks=callbacks)
         except Exception as e:
             err = str(e).lower()
             is_retryable = "429" in err or "500" in err or "resource_exhausted" in err
@@ -451,6 +451,16 @@ async def handle_jd_generation(session_memory: SessionMemory) -> dict:
     """Dedicated JD generation — called ONLY from POST /jd/generate endpoint."""
     logger.info("[JD Generation] STARTED")
 
+    from app.core.langfuse_client import get_langfuse_callback_handler
+    
+    # Initialize Langfuse CallbackHandler for JD generation tracing
+    handler = get_langfuse_callback_handler(
+        trace_name="jd-generation",
+        session_id=str(session_memory.id) if session_memory.id else None,
+        user_id=str(session_memory.employee_id) if session_memory.employee_id else None
+    )
+    callbacks = [handler] if handler else []
+
     insights_dict = safe_to_dict(session_memory.insights)
     if not insights_dict:
         raise ValueError("No insights collected yet. Complete the interview first.")
@@ -476,7 +486,7 @@ async def handle_jd_generation(session_memory: SessionMemory) -> dict:
 
     logger.info("Calling JD LLM...")
     try:
-        response = await _invoke_with_retry(jd_llm, messages)
+        response = await _invoke_with_retry(jd_llm, messages, callbacks=callbacks)
     except Exception as e:
         err_msg = str(e)
         if (

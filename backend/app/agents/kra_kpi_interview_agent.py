@@ -167,14 +167,14 @@ class KRAKPIInterviewEngine:
         from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
         langchain_history = [SystemMessage(content=system_prompt)]
         
-        # Load past turns from DB (pruning to last 8 turns to limit context token growth)
+        # Load past turns from DB (pruning to last 4 turns to limit context token growth)
         turns_result = await db.execute(
             select(KRAKPIConversationTurn)
             .where(KRAKPIConversationTurn.session_id == record.id)
             .order_by(KRAKPIConversationTurn.turn_index)
         )
         all_turns = turns_result.scalars().all()
-        for turn in all_turns[-8:]:
+        for turn in all_turns[-4:]:
             if turn.role == "user":
                 langchain_history.append(HumanMessage(content=turn.content))
             else:

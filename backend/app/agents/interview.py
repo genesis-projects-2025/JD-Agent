@@ -1272,6 +1272,8 @@ Keep it professional and brief."""
         questions_asked: list | None = None,
         transition_context: str = "",
         previous_questions_text: list | None = None,
+        session_id: str | None = None,
+        employee_id: str | None = None,
     ) -> AsyncIterator[dict]:
         """Execute one interview turn with streaming.
 
@@ -1425,8 +1427,8 @@ Keep it professional and brief."""
             turn_count = insights.get("deep_dive_turn_count") or 1
             insights["_deep_dive_turn_number"] = turn_count
 
-        # Apply context filtering and memory compression
-        filtered_insights = _apply_context_filter(insights, agent_name)
+        # Apply context filtering (with empty values stripped) and memory compression
+        filtered_insights = _apply_context_filter(_compact_insights(insights), agent_name)
         compressed_recent = self._compress_memory(recent_messages, len(recent_messages))
 
         logger.info(
@@ -1460,8 +1462,18 @@ Keep it professional and brief."""
             # This covers the TTFB gap while the LLM is generating
             yield {"type": "status", "content": "Formulating next question..."}
 
+            from app.core.langfuse_client import get_langfuse_callback_handler
+            
+            # Setup Langfuse CallbackHandler for interview turn
+            handler = get_langfuse_callback_handler(
+                trace_name=f"jd-interview-{agent_name.lower()}",
+                session_id=session_id,
+                user_id=employee_id
+            )
+            callbacks = [handler] if handler else []
+
             try:
-                async for chunk in _interview_llm.astream(messages):
+                async for chunk in _interview_llm.astream(messages, callbacks=callbacks):
                     if chunk.content:
                         if is_first_chunk:
                             ttfb = time.perf_counter() - llm_start_time

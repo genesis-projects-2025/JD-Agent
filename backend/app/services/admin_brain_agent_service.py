@@ -1035,7 +1035,7 @@ No verified corporate records found matching this query in the vector store. Cal
             # ── Build LangChain Message History ──
             messages = [SystemMessage(content=system_prompt)]
 
-            # Load persisted turns from DB (last 6 turns, summarization for turns older than the last 2)
+            # Load persisted turns from DB (last 3 turns, summarization for turns older than the last 2)
             if session_id and session:
                 db_turns_result = await db.execute(
                     select(BrainAgentConversationTurn)
@@ -1043,7 +1043,7 @@ No verified corporate records found matching this query in the vector store. Cal
                     .order_by(BrainAgentConversationTurn.turn_index)
                 )
                 db_turns = db_turns_result.scalars().all()
-                turns_to_process = db_turns[-6:]
+                turns_to_process = db_turns[-3:]
                 for i, turn in enumerate(turns_to_process):
                     is_recent = (len(turns_to_process) - i) <= 2
                     

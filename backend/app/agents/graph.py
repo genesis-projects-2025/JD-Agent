@@ -227,6 +227,8 @@ async def run_interview_turn_stream(
             questions_asked=questions_asked,
             transition_context=transition_context,
             previous_questions_text=previous_questions_text,
+            session_id=str(session_memory.id) if session_memory.id else None,
+            employee_id=str(session_memory.employee_id) if session_memory.employee_id else None,
         ):
             if event["type"] == "chunk":
                 yield f"data: {json.dumps({'type': 'chunk', 'content': event['content']}, separators=(',', ':'))}\n\n"

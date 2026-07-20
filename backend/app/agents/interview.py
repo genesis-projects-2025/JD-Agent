@@ -635,7 +635,9 @@ def build_interview_messages(
                 if clean_content not in recent_questions:
                     recent_questions.append(clean_content)
 
-    system_content = build_system_messages(
+    from app.agents.dynamic_prompts import build_split_system_messages
+
+    static_content, dynamic_content = build_split_system_messages(
         phase=agent_name,
         insights=insights,
         rag_context=retrieved_context,
@@ -644,7 +646,11 @@ def build_interview_messages(
         recent_questions=recent_questions,
     )
 
-    messages.append(SystemMessage(content=system_content))
+    # 1. Append Static System Message (for Gemini implicit context caching)
+    messages.append(SystemMessage(content=static_content))
+
+    # 2. Append Dynamic System Message (context/memory state change)
+    messages.append(SystemMessage(content=dynamic_content))
 
     # 2. Append recent history (Conversational Context)
     # OPTIMIZATION: Truncate history to the last 6 messages.
@@ -1472,6 +1478,9 @@ Keep it professional and brief."""
             )
             callbacks = [handler] if handler else []
 
+            duplicate_found = False
+            buffer_flushed = False
+
             try:
                 async for chunk in _interview_llm.astream(messages, callbacks=callbacks):
                     if chunk.content:
@@ -1480,19 +1489,107 @@ Keep it professional and brief."""
                             logger.info(f"[Perf] LLM Time to First Byte: {ttfb:.2f}s")
                             is_first_chunk = False
                         response_chunks.append(chunk.content)
+                        current_text = "".join(response_chunks)
 
-                        # Yield cumulative chunk immediately for real-time streaming
-                        # (Frontend expects cumulative text in setStreamingQuestion)
-                        yield {"type": "chunk", "content": "".join(response_chunks)}
+                        # Buffer check: evaluate once we have at least 50 characters
+                        if not buffer_flushed and len(current_text) >= 50:
+                            if _is_question_repeated(current_text, questions_asked, previous_questions_text):
+                                logger.info(f"  [DEDUP] Stream-time duplicate detected: '{current_text}'")
+                                duplicate_found = True
+                                break # Stop the duplicate stream immediately
+                            else:
+                                buffer_flushed = True
+
+                        if buffer_flushed:
+                            yield {"type": "chunk", "content": current_text}
+
+                # Flush any remaining content if stream ended early without reaching 50 chars
+                if not duplicate_found and not buffer_flushed:
+                    final_text = "".join(response_chunks)
+                    if _is_question_repeated(final_text, questions_asked, previous_questions_text):
+                        duplicate_found = True
+                    else:
+                        buffer_flushed = True
+                        yield {"type": "chunk", "content": final_text}
+
             except Exception as e:
                 logger.error(f"[Interview] Streaming failed: {e}")
-                yield {
-                    "type": "chunk",
-                    "content": "I encountered an error processing your request. Could you rephrase your last point?",
-                }
+                err_str = str(e).lower()
+                friendly_msg = "Could you describe your main daily activities in more detail?"
+                if "429" in err_str or "quota" in err_str or "exhausted" in err_str:
+                    yield {
+                        "type": "chunk",
+                        "content": f"The AI model quota is temporarily exhausted. Let's focus on: {friendly_msg}",
+                    }
+                else:
+                    yield {
+                        "type": "chunk",
+                        "content": f"I had a brief connection issue. Could you tell me more about: {friendly_msg}",
+                    }
                 return
 
-            response_text = "".join(response_chunks)
+            # Handle duplicate detection and fallback retry
+            if duplicate_found:
+                logger.info("  [DEDUP] Initiating in-stream retry to generate a unique question.")
+                yield {"type": "status", "content": "Refining question details..."}
+
+                # Instruct the retry model to find a new angle
+                dedup_msgs = messages + [
+                    AIMessage(content="".join(response_chunks)),
+                    HumanMessage(
+                        content=(
+                            "SYSTEM: Your previous question was already asked. "
+                            "Ask a DIFFERENT question about something NOT yet covered. "
+                            "Check the DATA ALREADY COLLECTED section."
+                        )
+                    ),
+                ]
+
+                retry_chunks = []
+                retry_duplicate = False
+                retry_flushed = False
+
+                try:
+                    async for chunk in _response_llm.astream(dedup_msgs, callbacks=callbacks):
+                        if chunk.content:
+                            retry_chunks.append(chunk.content)
+                            current_retry_text = "".join(retry_chunks)
+
+                            if not retry_flushed and len(current_retry_text) >= 50:
+                                if _is_question_repeated(current_retry_text, questions_asked, previous_questions_text):
+                                    logger.warning("  [DEDUP] Double duplicate detected during retry. Aborting.")
+                                    retry_duplicate = True
+                                    break
+                                else:
+                                    retry_flushed = True
+
+                            if retry_flushed:
+                                yield {"type": "chunk", "content": current_retry_text}
+
+                    # Final flush for retry stream
+                    if not retry_duplicate and not retry_flushed:
+                        final_retry_text = "".join(retry_chunks)
+                        if _is_question_repeated(final_retry_text, questions_asked, previous_questions_text):
+                            retry_duplicate = True
+                        else:
+                            retry_flushed = True
+                            yield {"type": "chunk", "content": final_retry_text}
+
+                    if retry_duplicate:
+                        # Direct fallback copy for better UI on double-failures
+                        fallback_q = _get_silent_agent_response(agent_name, insights) or "Could you share some more details about your day-to-day workflow?"
+                        yield {"type": "chunk", "content": fallback_q}
+                        response_text = fallback_q
+                    else:
+                        response_text = "".join(retry_chunks)
+
+                except Exception as e:
+                    logger.error(f"[Interview] Retry streaming failed: {e}")
+                    fallback_q = "Could you tell me more about your responsibilities in this role?"
+                    yield {"type": "chunk", "content": fallback_q}
+                    response_text = fallback_q
+            else:
+                response_text = "".join(response_chunks)
 
         # Step 2: Loop control — check for agent stall
         is_stalled = self._check_agent_stall(agent_name, extracted, insights)

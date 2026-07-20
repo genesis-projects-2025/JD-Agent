@@ -1000,3 +1000,124 @@ def build_system_messages(
         is_first_turn=is_first_turn,
         recent_questions=recent_questions,
     )
+
+
+def build_split_system_messages(
+    phase: str,
+    insights: dict,
+    rag_context: List[str] | None = None,
+    transition_context: str = "",
+    is_first_turn: bool = False,
+    recent_questions: List[str] | None = None,
+) -> tuple[str, str]:
+    """
+    Split the system message into a Static part (for prompt caching)
+    and a Dynamic part (representing conversation state).
+    """
+    if rag_context is None:
+        rag_context = []
+    if recent_questions is None:
+        recent_questions = []
+
+    # --- 1. Static Prefix ---
+    static_parts = [BASE_PERSONA]
+    
+    industry_strategy = _get_industry_strategy(insights)
+    static_parts.append(
+        f"\n🧠 INDUSTRY STRATEGY:\n{industry_strategy}\nUse this specific lens when formulating your questions. Do not ask generic HR questions."
+    )
+    
+    if rag_context:
+        examples = "\n".join([f"  • {ex}" for ex in rag_context[:2]])
+        static_parts.append(f"\n💡 CONTEXTUAL EXAMPLES (Do NOT copy verbatim):\n{examples}")
+        
+    # Standard format instructions
+    if phase in ["ToolsAgent", "SkillsAgent", "JDGeneratorAgent"]:
+        static_parts.append("\n📝 FORMAT: Present data clearly. NO question marks.")
+    else:
+        static_parts.append(
+            "\n📝 FORMAT: Exactly ONE question. No introductory text. No filler. No acknowledgments. Keep the wording concise, natural, and easy to follow when spoken aloud. 1-3 short sentences max."
+        )
+
+    # RULE: ABSOLUTE ROLE ISOLATION for BasicInfoAgent Turn 1
+    turns = (insights.get("agent_turn_counts") or {}).get("BasicInfoAgent", 0)
+    if phase == "BasicInfoAgent" and turns <= 1:
+        for i in range(len(static_parts)):
+            if "🧠 INDUSTRY STRATEGY" in static_parts[i]:
+                static_parts[i] = (
+                    "🧠 INDUSTRY STRATEGY: Stay grounded and universal for this initial mission inquiry."
+                )
+
+    static_text = "\n".join(static_parts)
+
+    # --- 2. Dynamic Context ---
+    dynamic_parts = []
+    
+    # Add Identity Context (Already Known Information)
+    identity = insights.get("identity_context", {})
+    if identity:
+        dynamic_parts.append("\n👤 IDENTITY CONTEXT (ALREADY KNOWN - DO NOT ASK FOR THIS):")
+        if identity.get("title"):
+            dynamic_parts.append(f"  - Job Title: {identity['title']}")
+        if identity.get("department"):
+            dynamic_parts.append(f"  - Department: {identity['department']}")
+        if identity.get("reports_to"):
+            dynamic_parts.append(f"  - Reports To: {identity['reports_to']}")
+        dynamic_parts.append(
+            "Use the above title/department as context for your questions, but never ask the user to provide or confirm them."
+        )
+
+    # Add phase-specific instructions — ALL DYNAMICALLY GENERATED
+    if phase == "BasicInfoAgent":
+        phase_instruction = _build_basic_info_instruction(insights)
+    elif phase == "DeepDiveAgent":
+        phase_instruction = _build_deep_dive_instruction(insights)
+    elif phase == "QualificationAgent":
+        phase_instruction = _build_qualification_instruction(insights)
+    elif phase == "WorkflowIdentifierAgent":
+        phase_instruction = _build_workflow_identifier_instruction(insights)
+    else:
+        phase_instruction = PHASE_INSTRUCTIONS.get(phase, "")
+
+    if phase_instruction:
+        dynamic_parts.append(f"\n🎯 CURRENT MISSION:\n{phase_instruction}")
+
+    # Add already collected summary (Surfaces everything to prevent repetition)
+    collected_summary = build_already_collected_summary(insights, phase)
+    dynamic_parts.append(collected_summary)
+
+    # Add transition context
+    if transition_context:
+        dynamic_parts.append(f"\n🔄 TRANSITION: {transition_context}")
+        dynamic_parts.append("Go immediately to the next question. No bridge sentences.")
+
+    # Explicit Anti-Repetition
+    if recent_questions:
+        q_lines = "\n".join(
+            [f"  - {q}" for q in recent_questions[-8:]]
+        )
+        dynamic_parts.append(
+            f"\n⛔ BANNED QUESTIONS (RECENTLY ASKED):\n"
+            f"You MUST NOT ask any question that is semantically similar to these recent questions:\n"
+            f"{q_lines}\n"
+            f"Find a NEW angle or advance the mission."
+        )
+
+    # Add first turn greeting protocol
+    if is_first_turn:
+        user_name = insights.get("identity_context", {}).get("employee_name", "User")
+        role = insights.get("identity_context", {}).get("title", "this role")
+        dept = insights.get("identity_context", {}).get(
+            "department", "the organization"
+        )
+        dynamic_parts.append(
+            f"\n⚠️ FIRST MESSAGE PROTOCOL (MANDATORY): Start by greeting {user_name} in a warm, confident HR tone. "
+            f"Explicitly mention their position as '{role}' within the '{dept}' team. "
+            f"Then immediately ask your first question about the core purpose of their role. Keep it to 2 sentences max."
+        )
+        dynamic_parts.append(
+            "\n📝 OVERRIDE FORMAT: Start with the mandated professional greeting and role/team context, then ask EXACTLY ONE question. Keep the phrasing warm and smooth for text-to-speech. No filler after the greeting and no extra acknowledgment phrases."
+        )
+
+    dynamic_text = "\n".join(dynamic_parts)
+    return static_text, dynamic_text

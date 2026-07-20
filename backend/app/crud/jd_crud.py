@@ -106,6 +106,7 @@ async def _run_offline_enrichment_pipeline(jd_id: uuid.UUID, employee_id: str):
     from app.core.database import AsyncSessionLocal
     from sqlalchemy import select
     from app.models.jd_session_model import JDSession
+    from app.models.kra_kpi_model import KRAKPISession
     from app.services.enrichment_service import (
         run_task_automation_scoring,
         run_dependency_extraction,
@@ -121,6 +122,34 @@ async def _run_offline_enrichment_pipeline(jd_id: uuid.UUID, employee_id: str):
             jd_session = res.scalars().first()
             if not jd_session:
                 logger.warning(f"Background enrichment: JDSession {jd_id} not found.")
+                return
+            
+            # Validate JD status is approved
+            if jd_session.status != "approved":
+                logger.info(f"Background enrichment skipped: JDSession {jd_id} status is '{jd_session.status}' (requires 'approved')")
+                return
+
+            # Avoid duplicate background runs if the enrichment has already been done once
+            from app.models.enrichment_model import EmployeeWorkSummary
+            summary_res = await db.execute(
+                select(EmployeeWorkSummary).where(EmployeeWorkSummary.employee_id == employee_id)
+            )
+            existing_summary = summary_res.scalars().first()
+            if existing_summary:
+                logger.info(f"Background enrichment skipped: EmployeeWorkSummary already exists for Employee {employee_id}.")
+                return
+
+            # Check if there is a manager-approved KRA/KPI framework for this employee
+            # (Note: KRA status is 'sent_to_hr' when manager approves, and 'approved' when HR/admin approves)
+            kra_res = await db.execute(
+                select(KRAKPISession).where(
+                    KRAKPISession.employee_id == employee_id,
+                    KRAKPISession.status.in_(["sent_to_hr", "approved"])
+                )
+            )
+            kra_session = kra_res.scalars().first()
+            if not kra_session:
+                logger.info(f"Background enrichment skipped: No manager-approved KRAKPISession found for Employee {employee_id}.")
                 return
             
             # 2. Run Task Automation Scoring

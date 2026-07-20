@@ -1,46 +1,55 @@
 """
 Admin Brain Agent Service v3.
 
-Hybrid SQL + Vector agentic orchestrator with:
-- Persistent conversation sessions (DB-backed)
-- Langfuse tracing and prompt management
-- Multi-tool concurrent execution (all tool calls per response)
-- Entity tracking from user messages, assistant responses, and SQL results
-- Proactive anomaly detection on new sessions
-- Markdown-formatted tool results for token efficiency
-- Response cleanup and 2000-token output limit
-- 6-turn conversation history window
+This service acts as the central orchestrator (Brain) for administrator queries.
+It combines SQL querying (via SQLAlchemy) and semantic search (via Pinecone/Gemini vector spaces)
+in an agentic ReAct loop.
+
+Key features:
+1. Persistent conversation sessions stored in PostgreSQL.
+2. Langfuse tracing and prompt observability.
+3. Multi-tool concurrent and sequential execution (running SQL and searches together).
+4. Automated context/entity tracking across dialogue turns (remembering employee IDs and departments).
+5. Post-response formatting, cleaning, and token conservation.
+6. Semantic cache checks before calling the LLM to save token latency.
 """
 
+import asyncio
+import json
 import logging
 import re
 import uuid
-import json
 from typing import Any, Dict, List, AsyncIterator, Optional
-from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
-from sqlalchemy import select, desc, text
-from sqlalchemy.ext.asyncio import AsyncSession
-import asyncio
 
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
+from langchain_google_genai import ChatGoogleGenerativeAI
+from sqlalchemy import desc, select, text
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.agents.admin_brain_state import BaseAgentState
+from app.agents.prompts import BRAIN_AGENT_SYSTEM_PROMPT
 from app.core.config import settings
 from app.core.langfuse_client import get_compiled_prompt, get_langfuse_callback_handler
-from app.agents.prompts import BRAIN_AGENT_SYSTEM_PROMPT
+from app.models.brain_agent_model import BrainAgentConversationTurn, BrainAgentSession
+from app.services.brain_agent_anomaly_service import run_diagnostics, format_anomaly_context
+from app.services.brain_agent_cache_service import check_cache, store_cache
 from app.services.db_query_service import execute_safe_select
 from app.services.vector_service import get_embeddings, get_index_async
-from app.services.brain_agent_anomaly_service import run_diagnostics, format_anomaly_context
-from app.models.brain_agent_model import BrainAgentSession, BrainAgentConversationTurn
-from app.agents.admin_brain_state import BaseAgentState
-from app.services.brain_agent_cache_service import check_cache, store_cache
 
 logger = logging.getLogger(__name__)
-
 
 # Maximum output tokens for brain agent responses
 MAX_OUTPUT_TOKENS = 2000
 
 
 def _get_brain_agent_llm():
+    """
+    Initializes and returns the Gemini LLM engine configured for agentic orchestration.
+    
+    Why:
+      - Uses gemini-2.5-flash for rapid reasoning cycles and accurate XML tag output generation.
+      - Temperature is set to 0.1 to maximize determinism in SQL generation and fact extraction.
+    """
     return ChatGoogleGenerativeAI(
         google_api_key=settings.GEMINI_API_KEY,
         model="gemini-2.5-flash",
@@ -56,8 +65,18 @@ async def search_brain_agent_knowledge(
     token_budget: int = 1200,
     filters: Optional[Dict[str, Any]] = None,
 ) -> List[Dict[str, Any]]:
-    """Enhanced semantic search with reranking, dedup, token budget, and dynamic filters for Brain Agent."""
+    """
+    Performs custom semantic search over Job Descriptions (JDs) and goals in Pinecone.
+    
+    Features:
+      1. Generates query embeddings in a thread pool using Gemini.
+      2. Pulls 3x candidates (up to 20) to allow a diverse pool for subsequent deduplication.
+      3. Deduplicates results: keeps maximum of 2 chunks per unique job title and category combination
+         to prevent a single repetitive JD from consuming the entire context window.
+      4. Limits the results returned to remain within the defined token budget.
+    """
     try:
+        # Generate the query embedding vector safely in a thread
         query_vec = await asyncio.to_thread(
             lambda: get_embeddings().embed_query(query_text)
         )
@@ -65,6 +84,7 @@ async def search_brain_agent_knowledge(
         if not idx:
             return []
 
+        # Build Pinecone query arguments
         query_args = {
             "vector": query_vec,
             "top_k": max(top_k * 3, 20),
@@ -73,17 +93,19 @@ async def search_brain_agent_knowledge(
         if filters:
             query_args["filter"] = filters
 
+        # Fetch candidates
         results = await asyncio.to_thread(
             lambda: idx.query(**query_args)
         )
 
         scored = []
-        seen_keys = {}  # track count per role::category
+        seen_keys = {}  # Tracks occurrence counts of role::category keys
         for match in results.get("matches", []):
             meta = match.get("metadata", {})
             text_val = meta.get("text", "").strip()
             score = float(match.get("score", 0))
 
+            # Filter out weak vector matches
             if score < 0.35 or not text_val:
                 continue
 
@@ -92,7 +114,7 @@ async def search_brain_agent_knowledge(
             department = meta.get("department", "N/A")
             emp_id = meta.get("employee_id") or "N/A"
 
-            # Light dedup: max 2 chunks per role+category combo
+            # Apply light deduplication: no more than 2 chunks per role::category
             dedup_key = f"{role}::{category}"
             if seen_keys.get(dedup_key, 0) >= 2:
                 continue
@@ -107,13 +129,14 @@ async def search_brain_agent_knowledge(
                 "employee_id": emp_id,
             })
 
+        # Sort matches by vector similarity score descending
         scored.sort(key=lambda x: x["score"], reverse=True)
 
-        # Token-budget-aware truncation
+        # Truncate output based on token budget to prevent LLM prompt overflow
         results_out = []
         consumed = 0
         for item in scored:
-            est = len(item["text"]) // 4
+            est = len(item["text"]) // 4  # Standard characters-to-tokens estimation
             if consumed + est > token_budget:
                 break
             results_out.append(item)
@@ -129,17 +152,20 @@ async def search_brain_agent_knowledge(
 
 def _extract_entities(text: str) -> Dict[str, Any]:
     """
-    Zero-cost entity extraction using regex patterns.
-    Extracts employee IDs, names (capitalized words), and departments.
+    Performs fast regex scanning to extract key entities directly from dialogue text.
+    
+    Why:
+      Avoids calling LLM parsers for simple entity extraction.
+      Finds employee IDs (e.g. 'E102') and maps department keywords (e.g. 'Quality Control').
     """
     entities = {}
 
-    # Extract employee IDs (E followed by digits)
+    # Regex search for pattern: E followed by 3 to 5 digits (e.g., E145, E1003)
     emp_ids = re.findall(r'\b(E\d{3,5})\b', text)
     if emp_ids:
         entities["last_employee_id"] = emp_ids[-1]
 
-    # Extract department references from known department keywords
+    # Regex search for department terms
     dept_patterns = [
         r'(?:department|dept|division)\s*(?:of|:)?\s*([A-Z][a-zA-Z\s&]+)',
         r'(?:in|from|under)\s+(Quality\s*(?:Control|Assurance)|Digital\s+Transformation|'
@@ -157,30 +183,41 @@ def _extract_entities(text: str) -> Dict[str, Any]:
 
 
 def _extract_entities_from_sql_results(results: List[Dict]) -> Dict[str, Any]:
-    """Extract employee IDs and names from SQL query results for entity tracking."""
+    """
+    Extracts referenced employee codes, employee names, and departments from SQL execution outputs.
+    This dynamically updates context memory keys (e.g., resolving 'what are his KPIs?' in subsequent turns).
+    """
     entities = {}
     if not results:
         return entities
     for row in results:
         for key, val in row.items():
             val_str = str(val).strip()
-            # Employee IDs
+            # Track Employee IDs
             if re.match(r'^E\d{3,5}$', val_str):
                 entities["last_employee_id"] = val_str
-            # Employee names from common column names
+            # Track Employee Names
             if key in ("name", "employee_name", "emp_name") and val_str and len(val_str) > 2:
                 entities["last_employee_name"] = val_str
-            # Department
+            # Track Departments
             if key in ("department", "dept") and val_str and len(val_str) > 2:
                 entities["last_department"] = val_str
     return entities
 
 
 def _format_sql_results_as_markdown(results: List[Dict]) -> str:
-    """Convert SQL results to a compact markdown table for token efficiency."""
+    """
+    Converts SQL database result arrays into a structured markdown table.
+    
+    Why:
+      - Raw database lists use too many tokens and are hard for the LLM to parse.
+      - Truncates cells exceeding 80 characters to keep prompt payloads light.
+      - Limits results to 15 rows maximum.
+    """
     if not results:
         return "No results found."
-    # Cap rows to prevent token explosion
+    
+    # Cap rows to prevent context size explosion
     truncated = False
     if len(results) > 15:
         results = results[:15]
@@ -193,8 +230,8 @@ def _format_sql_results_as_markdown(results: List[Dict]) -> str:
         row_vals = []
         for h in headers:
             val = row.get(h, "")
-            # Truncate long cell values
             val_str = str(val) if val is not None else ""
+            # Truncate very wide database columns
             if len(val_str) > 80:
                 val_str = val_str[:77] + "..."
             row_vals.append(val_str)
@@ -207,7 +244,9 @@ def _format_sql_results_as_markdown(results: List[Dict]) -> str:
 
 
 def _format_search_results(results: List[Dict]) -> str:
-    """Format vector search results with metadata context."""
+    """
+    Formats Pinecone search outputs into clean, categorized text blocks.
+    """
     if not results:
         return "No matching documents found in the knowledge base."
     lines = []
@@ -221,14 +260,18 @@ def _format_search_results(results: List[Dict]) -> str:
 
 
 def _generate_text_summary(text: str) -> str:
-    """Generate a clean, one-sentence summary of the text using Python to save tokens."""
+    """
+    Creates a single-sentence summary of dialogue turns using string parsing.
+    
+    Why:
+      - Conversation turn logs can become massive, draining model token budgets.
+      - We replace older conversation history turns with this short summary.
+    """
     if not text:
         return ""
-    # Strip markdown formatting
+    # Strip basic markdown structural symbols
     clean = re.sub(r'[*#_`\-|]', '', text).strip()
-    # Replace multiple spaces/newlines
     clean = re.sub(r'\s+', ' ', clean)
-    # Take first sentence or first 120 characters
     sentences = clean.split('. ')
     if sentences:
         first_sentence = sentences[0].strip()
@@ -241,21 +284,29 @@ def _generate_text_summary(text: str) -> str:
 
 
 def _clean_response(content: str) -> str:
-    """Post-process: remove leaked tool XML, clean formatting."""
-    # Remove any leaked tool/tool_result tags
+    """
+    Removes leaked tool markers (like XML tags) and cleans up formatting spacing before output.
+    """
+    # Remove raw XML block remnants
     content = re.sub(r'<tool[^>]*>.*?</tool\s*>', '', content, flags=re.DOTALL)
     content = re.sub(r'<tool_result[^>]*>.*?</tool_result\s*>', '', content, flags=re.DOTALL)
-    # Remove empty headers
+    # Remove empty markdown headings
     content = re.sub(r'#{1,4}\s*\n', '', content)
-    # Collapse excessive newlines
+    # Collapse repetitive linebreaks
     content = re.sub(r'\n{4,}', '\n\n\n', content)
-    # Collapse excessive spaces (5 or more consecutive spaces to 4 spaces)
+    # Collapse wide tabs/spaces
     content = re.sub(r' {5,}', '    ', content)
     return content.strip()
 
 
 def _format_entity_context(entity_ctx: Dict[str, Any]) -> str:
-    """Format entity context into a system prompt injection block."""
+    """
+    Converts tracked entity contexts (e.g., last referenced ID) into a prompt instruction.
+    
+    Why:
+      Injecting this directly into the system message allows the LLM to resolve pronouns 
+      like "his", "her", or "their department" in the user's latest query.
+    """
     if not entity_ctx:
         return ""
 
@@ -271,7 +322,9 @@ def _format_entity_context(entity_ctx: Dict[str, Any]) -> str:
 
 
 def _format_containerized_memories(memories: List[Dict[str, Any]]) -> str:
-    """Format retrieved vector database memories into string-bounded containers."""
+    """
+    Formats Pinecone documents into structured text blocks.
+    """
     if not memories:
         return "No verified corporate records found matching this query in the vector store."
     
@@ -289,7 +342,9 @@ def _format_containerized_memories(memories: List[Dict[str, Any]]) -> str:
 
 
 def _format_resolved_employee_record(resolved: Dict[str, Any]) -> str:
-    """Format resolved SQL employee record into a verified profile block."""
+    """
+    Formats SQL employee search outcomes into a clean profile block.
+    """
     if not resolved:
         return ""
     return (
@@ -303,7 +358,14 @@ def _format_resolved_employee_record(resolved: Dict[str, Any]) -> str:
 
 
 async def _detect_query_intent(message: str, llm) -> Dict[str, Any]:
-    """Parse user message to extract scope, target name, and analytical query types."""
+    """
+    Parses a user prompt to determine its scope, targets, and routing categorizations.
+    
+    Note:
+      This is a routing assistant logic block. In version 3, intent classification is logged
+      dynamically based on the actual tools executed inside the loop to save API tokens, but
+      this remains active as a diagnostic/parsing fallback.
+    """
     intent_prompt = f"""You are the query routing parser for Pulse Pharma's Executive Intelligence System.
 Analyze the user's incoming message and determine all relevant query types that are required to answer the query fully.
 
@@ -364,7 +426,10 @@ Return ONLY a raw JSON object matching this schema, without any markdown formatt
 
 
 def _get_department_aliases(dept_name: str) -> List[str]:
-    """Map a department name to all possible synonyms in both organogram and enrichment tables."""
+    """
+    Maps shorthand abbreviations or keywords to their database department names.
+    Ensures SQL operations check all synonyms (e.g. mapping "QC" to ["Quality Control", "QC"]).
+    """
     dept_lower = dept_name.lower().strip()
     
     groups = [
@@ -384,11 +449,9 @@ def _get_department_aliases(dept_name: str) -> List[str]:
         {"production", "production-tts", "production (liq)", "production (osd)", "plant operations"}
     ]
     
-    # If the dept_name falls into any group, return the whole group
     for g in groups:
         if any(alias in dept_lower or dept_lower in alias for alias in g):
-            # Normalize list to return strings exactly matching the cases we saw in database
-            # We want to match what's in the DB:
+            # Map canonical cases in database
             db_candidates = [
                 "Finance & Accounting", "Accounts", "Finance",
                 "Quality Assurance", "Quality Control", "CQA", "Quality",
@@ -409,12 +472,16 @@ def _get_department_aliases(dept_name: str) -> List[str]:
 
 
 async def _resolve_entities(state: BaseAgentState, db: AsyncSession) -> BaseAgentState:
-    """Fuzzy-match and resolve target names (employee/department) to verified database entries."""
+    """
+    Performs entity mapping check. Maps employee names to IDs or handles name disambiguation.
+    
+    If multiple employee name matches are found, it generates a prompt to ask the user to clarify.
+    """
     scope = state["target_scope"]
     name = state["target_name"]
     
     if scope == "EMPLOYEE" and name:
-        # Check if direct ID search (e.g. E104)
+        # If the query contains a direct Employee ID (e.g. E104)
         if re.match(r'^E\d{3,5}$', name.strip(), re.IGNORECASE):
             emp_id = name.strip().upper()
             query = text("""
@@ -431,12 +498,12 @@ async def _resolve_entities(state: BaseAgentState, db: AsyncSession) -> BaseAgen
                 state["worker_results"]["resolved_employee"] = dict(row)
                 return state
         
-        # 1. Fetch all employees to perform fuzzy/partial/disambiguation checks in memory
+        # Load all employees to perform fuzzy/partial matches in-memory
         query_all = text("SELECT code, employee_name, department, designation FROM organogram")
         res_all = await db.execute(query_all)
         all_employees = [dict(r) for r in res_all.mappings().all()]
         
-        # 2. Check if a department is mentioned in the user message for disambiguation
+        # Scan if department is mentioned in the query
         mentioned_depts = []
         user_msg_lower = state["user_message"].lower()
         for group in [
@@ -451,25 +518,23 @@ async def _resolve_entities(state: BaseAgentState, db: AsyncSession) -> BaseAgen
             if any(alias in user_msg_lower for alias in group):
                 mentioned_depts.extend(group)
         
-        # 3. Filter candidates based on name matching
         name_to_resolve = name.strip().lower()
         candidates = []
         
         for emp in all_employees:
             emp_name_lower = emp["employee_name"].lower()
             words = name_to_resolve.split()
-            # If all words of the search name are in the employee name, or it's a substring
             if all(w in emp_name_lower for w in words) or emp_name_lower in words:
                 candidates.append(emp)
                 
-        # If no substring matches, try difflib get_close_matches for typo-tolerance
+        # If no substring matches, try typo-tolerant search
         if not candidates:
             import difflib
             emp_names = [emp["employee_name"] for emp in all_employees]
             close_names = difflib.get_close_matches(name, emp_names, n=5, cutoff=0.4)
             candidates = [emp for emp in all_employees if emp["employee_name"] in close_names]
             
-        # 4. If we have multiple candidates and a department is mentioned, filter by department
+        # Clarify matches if multiple exist using department context
         if len(candidates) > 1 and mentioned_depts:
             filtered = [
                 emp for emp in candidates
@@ -479,7 +544,7 @@ async def _resolve_entities(state: BaseAgentState, db: AsyncSession) -> BaseAgen
             if filtered:
                 candidates = filtered
                 
-        # 5. Handle resolved candidates
+        # Commit resolved candidates
         if not candidates:
             state["is_final"] = True
             state["final_response"] = f"Data Error: No employee matching the name '{name}' was found within the company database."
@@ -489,10 +554,10 @@ async def _resolve_entities(state: BaseAgentState, db: AsyncSession) -> BaseAgen
             state["target_name"] = resolved["employee_name"]
             state["worker_results"]["resolved_employee"] = resolved
             
-            # If the matched name is different from the input name, add a resolution note
             if resolved["employee_name"].lower() != name.strip().lower():
                 state["worker_results"]["resolution_note"] = f"Showing records for **{resolved['employee_name']}**, as no exact match was found for '{name}'."
         else:
+            # Emit list of candidates so the admin can clarify
             state["is_final"] = True
             options_str = "\n".join(f"- **{emp['employee_name']}** ({emp['code']}) — {emp['designation']} in {emp['department']}" for emp in candidates)
             state["final_response"] = (
@@ -501,7 +566,6 @@ async def _resolve_entities(state: BaseAgentState, db: AsyncSession) -> BaseAgen
             )
             
     elif scope == "DEPARTMENT" and name:
-        # Match department substrings in organogram
         query = text("""
             SELECT DISTINCT department 
             FROM organogram 
@@ -513,7 +577,6 @@ async def _resolve_entities(state: BaseAgentState, db: AsyncSession) -> BaseAgen
         if row:
             state["target_name"] = row["department"]
         else:
-            # Fallback to checking task_automation_scores
             query_tas = text("""
                 SELECT DISTINCT department 
                 FROM task_automation_scores 
@@ -525,7 +588,6 @@ async def _resolve_entities(state: BaseAgentState, db: AsyncSession) -> BaseAgen
             if row_tas:
                 state["target_name"] = row_tas["department"]
             else:
-                # Fallback to checking mapping of abbreviations / aliases (e.g. QC, QA, HR, IT, R&D)
                 name_lower = name.lower().strip()
                 resolved_dept = None
                 
@@ -562,7 +624,13 @@ async def _resolve_entities(state: BaseAgentState, db: AsyncSession) -> BaseAgen
 
 
 def _build_in_clause(prefix: str, items: list[str]) -> tuple[str, dict[str, str]]:
-    """Build a standard SQL IN clause placeholder string and its bind parameter dictionary."""
+    """
+    Generates standard IN clause parameters for SQL queries.
+    
+    Example:
+      _build_in_clause("dept", ["HR", "HRD"])
+      Returns -> ("(:dept_0, :dept_1)", {"dept_0": "HR", "dept_1": "HRD"})
+    """
     if not items:
         return "('')", {}
     placeholders = [f":{prefix}_{i}" for i in range(len(items))]
@@ -572,7 +640,10 @@ def _build_in_clause(prefix: str, items: list[str]) -> tuple[str, dict[str, str]
 
 
 async def _retrieve_knowledge(state: BaseAgentState, db: AsyncSession) -> BaseAgentState:
-    """Build dynamic metadata filters and retrieve context based on query_types routing."""
+    """
+    Executes background retrieval routines depending on identified query types.
+    Can query Pinecone, compute averages on tables, or fetch hierarchy paths.
+    """
     if state["is_final"]:
         return state
         
@@ -584,12 +655,10 @@ async def _retrieve_knowledge(state: BaseAgentState, db: AsyncSession) -> BaseAg
             filters = {}
             if state["target_scope"] == "EMPLOYEE" and state["target_id"]:
                 emp_code = state["target_id"]
-                # Retrieve approved JD session ID if it exists
                 jd_query = text("SELECT id FROM jd_sessions WHERE employee_id = :emp_code AND status = 'approved' LIMIT 1")
                 jd_res = await db.execute(jd_query, {"emp_code": emp_code})
                 jd_row = jd_res.mappings().first()
                 
-                # Build dynamic OR-filter compatibility for old and new indexes
                 filter_list = [
                     {"employee_id": emp_code},
                     {"jd_id": f"KRA_{emp_code}"}
@@ -604,17 +673,15 @@ async def _retrieve_knowledge(state: BaseAgentState, db: AsyncSession) -> BaseAg
                 
             state["worker_results"]["pinecone_filters"] = filters
             
-            # Execute query
             results = await search_brain_agent_knowledge(
                 query_text=state["enhanced_query"],
                 top_k=8,
                 filters=filters
             )
             
-            # Fallback for DEPARTMENT: if filtered search returns 0, try without department filter
+            # Fallback for department mismatch queries
             if state["target_scope"] == "DEPARTMENT" and not results and filters:
-                logger.info(f"Department filter {filters} returned 0 results. Retrying search without department filter.")
-                # Clear filters in worker results so that the agent's tools don't inherit the broken filter either
+                logger.info(f"Department filter {filters} returned 0 results. Retrying search without filter.")
                 state["worker_results"]["pinecone_filters"] = None
                 results = await search_brain_agent_knowledge(
                     query_text=state["enhanced_query"],
@@ -622,7 +689,7 @@ async def _retrieve_knowledge(state: BaseAgentState, db: AsyncSession) -> BaseAg
                     filters=None
                 )
 
-            # Safeguard: if target_scope is EMPLOYEE but zero vector results returned, short-circuit
+            # Safety fallback for missing targets
             if state["target_scope"] == "EMPLOYEE" and not results:
                 state["is_final"] = True
                 state["final_response"] = f"Data Error: No employee matching the name '{state['target_name']}' was found within the company database."
@@ -633,7 +700,6 @@ async def _retrieve_knowledge(state: BaseAgentState, db: AsyncSession) -> BaseAg
         elif query_type == "AGGREGATE_RANKING":
             dept = state["target_name"]
             if state["target_scope"] == "DEPARTMENT" and dept:
-                # Check if user wants manual tasks or automatable tasks
                 user_msg = state["user_message"].lower()
                 sort_order = "ASC" if any(k in user_msg for k in ["manual", "hand", "physical", "non-automated", "lowest"]) else "DESC"
                 
@@ -816,15 +882,19 @@ async def _retrieve_knowledge(state: BaseAgentState, db: AsyncSession) -> BaseAg
                     
     state["retrieved_memories"] = all_memories
     return state
-        
-    return state
 
 
 class AdminBrainAgentService:
+    """
+    Main Service class containing database entry-points for Admin Session Listings,
+    conversation recovery, and the primary streaming chat loop.
+    """
 
     @staticmethod
     async def list_sessions(db: AsyncSession, admin_user: str) -> List[Dict]:
-        """List past sessions for an admin user, newest first."""
+        """
+        Lists all past conversation sessions for a given administrator.
+        """
         try:
             result = await db.execute(
                 select(BrainAgentSession)
@@ -840,7 +910,9 @@ class AdminBrainAgentService:
 
     @staticmethod
     async def get_session_turns(db: AsyncSession, session_id: str) -> List[Dict]:
-        """Get all conversation turns for a specific session."""
+        """
+        Retrieves the complete list of turns for a specific session ID to restore conversation history.
+        """
         try:
             result = await db.execute(
                 select(BrainAgentConversationTurn)
@@ -855,7 +927,9 @@ class AdminBrainAgentService:
 
     @staticmethod
     async def delete_session(db: AsyncSession, session_id: str) -> bool:
-        """Delete a session and all its turns."""
+        """
+        Deletes a session and cascadingly removes all of its associated dialogue turns.
+        """
         try:
             result = await db.execute(
                 select(BrainAgentSession)
@@ -879,9 +953,26 @@ class AdminBrainAgentService:
         session_id: Optional[str] = None,
     ) -> AsyncIterator[Dict[str, Any]]:
         """
-        Runs the conversational tool-use loop with full persistence,
-        Langfuse tracing, multi-tool concurrency, entity tracking,
-        intent parsing, strict metadata filtering, and compliance safeguards.
+        Launches the ReAct agentic execution loop for administrator requests.
+        
+        Flow:
+          1. Sets up the persistent session (or retrieves it if session_id is supplied).
+          2. Performs a semantic cache check. If a match is found, streams the cached answer
+             immediately to avoid LLM invocation costs and latency.
+          3. Initializes the message history. The last 3 dialogue turns are retrieved. Summaries
+             are used for older turns to save token budget.
+          4. Compiles system prompts and compliance rules restricting outside knowledge.
+          5. Enters the Agent Tool Loop (max 5 iterations):
+             - Invokes Gemini-2.5-Flash.
+             - Scans generated content for custom tool XML tags: `<tool name="...">...</tool>`.
+             - If no tags are found, the final answer is prepared, cached, saved to the database,
+               and streamed to the user.
+             - If tool tags are present, they are extracted.
+               - `execute_sql` queries are executed sequentially to avoid connection poisoning.
+                 SQL results are formatted into clean Markdown tables.
+               - `search_jds_and_goals` queries run Pinecone semantic searches.
+             - Tool results are packaged inside `<tool_result>` tags, appended to the history,
+               and a new loop iteration starts.
         """
         try:
             llm = _get_brain_agent_llm()
@@ -892,7 +983,7 @@ class AdminBrainAgentService:
             is_new_session = session_id is None
 
             if session_id:
-                # Load existing session
+                # Load existing session from DB
                 try:
                     result = await db.execute(
                         select(BrainAgentSession)
@@ -905,7 +996,7 @@ class AdminBrainAgentService:
                     pass
 
             if not session:
-                # Create new session
+                # Create a new conversation session
                 session = BrainAgentSession(
                     admin_user=admin_user,
                     title=message[:80].strip(),
@@ -915,7 +1006,7 @@ class AdminBrainAgentService:
                 await db.flush()
                 is_new_session = True
 
-            # Emit session_id to frontend
+            # Return session details to frontend
             yield {"type": "session", "session_id": str(session.id)}
 
             # ── BaseAgentState Initialization ──
@@ -937,13 +1028,14 @@ class AdminBrainAgentService:
                 cached_response = await check_cache(message)
                 if cached_response:
                     logger.info(f"Cache hit for query: '{message}'")
+                    # Stream cached text to user
                     words = re.split(r'(\s+)', cached_response)
                     for word in words:
                         if word:
                             yield {"type": "chunk", "content": word}
                             await asyncio.sleep(0.008)
 
-                    # Persist user and assistant turns
+                    # Persist session conversation turns in database
                     turn_count_result = await db.execute(
                         select(BrainAgentConversationTurn)
                         .where(BrainAgentConversationTurn.session_id == session.id)
@@ -970,7 +1062,7 @@ class AdminBrainAgentService:
                     )
                     db.add(assistant_turn)
 
-                    # Write to query_logs
+                    # Write query audit log
                     try:
                         from app.models.enrichment_model import QueryLog
                         async with db.begin_nested():
@@ -1015,6 +1107,7 @@ class AdminBrainAgentService:
                 anomaly_context="",
             )
             
+            # The compliance block prevents hallucinations and forces tool execution to read internal databases
             compliance_block = f"""
 --- [COMPLIANCE ORACLE RESTRICTIONS] ---
 You are a rigid corporate compliance oracle. You have zero external training knowledge. 
@@ -1035,7 +1128,7 @@ No verified corporate records found matching this query in the vector store. Cal
             # ── Build LangChain Message History ──
             messages = [SystemMessage(content=system_prompt)]
 
-            # Load persisted turns from DB (last 3 turns, summarization for turns older than the last 2)
+            # Load past conversation turns, using summaries for older turns
             if session_id and session:
                 db_turns_result = await db.execute(
                     select(BrainAgentConversationTurn)
@@ -1099,7 +1192,7 @@ No verified corporate records found matching this query in the vector store. Cal
 
                 content = str(response.content)
 
-                # ── Multi-Tool Parsing (all tool calls via findall) ──
+                # ── Extract SQL and Vector search calls from XML block ──
                 sql_matches = re.findall(
                     r'<tool\s+name\s*=\s*["\']?execute_sql["\']?\s*>(.*?)</tool\s*>',
                     content, re.DOTALL | re.IGNORECASE,
@@ -1110,7 +1203,7 @@ No verified corporate records found matching this query in the vector store. Cal
                 )
 
                 if not sql_matches and not search_matches:
-                    # Final response — clean and stream it
+                    # Final answer received: clean and stream
                     content = _clean_response(content)
                     words = re.split(r'(\s+)', content)
                     for word in words:
@@ -1118,7 +1211,7 @@ No verified corporate records found matching this query in the vector store. Cal
                             yield {"type": "chunk", "content": word}
                             await asyncio.sleep(0.008)
 
-                    # Persist assistant turn with summary
+                    # Persist assistant turn
                     summary_text = _generate_text_summary(content)
                     assistant_turn = BrainAgentConversationTurn(
                         session_id=session.id,
@@ -1130,13 +1223,13 @@ No verified corporate records found matching this query in the vector store. Cal
                     )
                     db.add(assistant_turn)
 
-                    # Update entity context from response
+                    # Update entity context
                     new_entities = _extract_entities(content)
                     if new_entities:
                         entity_context.update(new_entities)
                         session.entity_context = entity_context
 
-                    # Write to query_logs (dynamically categorize query type)
+                    # Classify query intent based on tools used
                     has_sql = any(tc["tool"] == "execute_sql" for tc in all_tool_calls)
                     has_search = any(tc["tool"] == "search_jds_and_goals" for tc in all_tool_calls)
                     if has_sql and has_search:
@@ -1148,6 +1241,7 @@ No verified corporate records found matching this query in the vector store. Cal
                     else:
                         resolved_qtype = "POINT_LOOKUP"
 
+                    # Log query trace
                     try:
                         from app.models.enrichment_model import QueryLog
                         async with db.begin_nested():
@@ -1169,14 +1263,14 @@ No verified corporate records found matching this query in the vector store. Cal
                     await db.commit()
                     return
 
-                # Store thought with tool calls
+                # Record reasoning thought in message log
                 messages.append(AIMessage(content=content))
 
-                # Execute ALL tools concurrently
+                # Define async tool executors
                 async def run_sql(query: str) -> str:
                     try:
+                        # Wrap raw SQL with nested transactions for safety
                         results = await execute_safe_select(db, query)
-                        # Extract entities from SQL results for context tracking
                         sql_entities = _extract_entities_from_sql_results(results)
                         if sql_entities:
                             entity_context.update(sql_entities)
@@ -1187,7 +1281,6 @@ No verified corporate records found matching this query in the vector store. Cal
 
                 async def run_search(query: str) -> str:
                     try:
-                        # Extract employee ID or department dynamically from search query
                         filters = {}
                         emp_ids = re.findall(r'\b(E\d{3,5})\b', query)
                         if emp_ids:
@@ -1240,7 +1333,7 @@ No verified corporate records found matching this query in the vector store. Cal
                         return f'<tool_result name="search_jds_and_goals">\nError: {str(e)}\n</tool_result>'
 
                 tool_results = []
-                # Process ALL SQL tool calls sequentially to prevent SQLAlchemy concurrent session errors
+                # Execute SQL queries sequentially to avoid SQLAlchemy connection issues
                 for sql_query_str in sql_matches:
                     sql_query = sql_query_str.strip()
                     yield {"type": "status", "content": "Querying corporate database..."}
@@ -1249,7 +1342,7 @@ No verified corporate records found matching this query in the vector store. Cal
                     tool_results.append(res_val)
                     all_tool_calls.append({"tool": "execute_sql", "query": sql_query})
 
-                # Process ALL search tool calls
+                # Execute vector searches
                 for search_query_str in search_matches:
                     search_query = search_query_str.strip()
                     yield {"type": "status", "content": "Querying vector registry..."}
@@ -1262,7 +1355,7 @@ No verified corporate records found matching this query in the vector store. Cal
                     combined_result = "\n\n".join(tool_results)
                     messages.append(HumanMessage(content=combined_result))
 
-            # Iteration limit reached
+            # Iteration limit reached (failsafe)
             yield {
                 "type": "chunk",
                 "content": "\n\n**System Notification**: Process iteration limit reached. The system was unable to compile the dataset within the allowed operations.",

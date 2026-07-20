@@ -46,11 +46,18 @@ class JDStructuredData(BaseModel):
 
 class JDIntelligenceService:
     """
-    Process and structure JD PDFs using AI (Gemini 2.5 Flash)
+    JDIntelligenceService orchestrates the end-to-end processing pipeline for reference 
+    Job Description (JD) documents (PDF and DOCX formats). It validates the file, extracts the 
+    raw text using format-specific processors, parses and structures the text into a standardized 
+    JSON schema using Gemini 2.5 Flash, and generates semantic vector chunks for future searchability.
     """
 
     def __init__(self):
-        """Initialize LLM with Gemini 2.5 flash"""
+        """
+        Initializes the JDIntelligenceService.
+        Sets up the LangChain client for Gemini 2.5 Flash (gemini-2.5-flash) 
+        with a low temperature (0.2) to maintain factual consistency and formatting accuracy.
+        """
         self.llm = ChatGoogleGenerativeAI(
             google_api_key=settings.GEMINI_API_KEY,
             model="gemini-2.5-flash",
@@ -69,30 +76,29 @@ class JDIntelligenceService:
         employee_name: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
-        Main processing pipeline for PDF or DOCX:
-        1. Validate file
-        2. Extract text (format-specific)
-        3. Parse into structured JD using Gemini 2.5 Flash
-        4. Generate vector embeddings
-        5. Return structured data
-
-        REPLACES: process_jd_pdf() — now supports both formats
+        Orchestrates the entire document ingestion pipeline:
+        1. File Validation: Checks if the PDF or DOCX format is valid.
+        2. Text Extraction: Performs table-aware parsing for DOCX or standard text extraction for PDF.
+        3. Structured Parsing: Uses Gemini 2.5 Flash to organize text into a schema (JDStructuredData).
+        4. Vector Indexing: Creates semantic segments of the structured data for vector search.
+        5. Return Metadata: Packages the parsed data and metadata into a final response.
 
         Args:
-            file_bytes: Raw file bytes
-            filename: Original filename
-            file_type: "pdf" or "docx"
-            uploaded_by: Admin user ID who uploaded
-            employee_id: Optional employee ID
-            employee_name: Optional employee name
+            file_bytes: Raw bytes of the uploaded file.
+            filename: Original name of the file.
+            file_type: File extension string, either "pdf" or "docx".
+            uploaded_by: ID/role of the administrator uploading the file.
+            employee_id: Optional identifier of the associated employee.
+            employee_name: Optional name of the associated employee.
 
         Returns:
-            Dictionary with processed JD data
+            A dictionary containing the parsed 'structured_data', file metadata (e.g., character count,
+            page count), file type, processing status, and indexing info.
         """
         try:
             file_type_lower = file_type.lower()
 
-            # Step 1: Validate file (format-specific)
+            # Step 1: Validate file structure using format-specific rules
             logger.info(f"Validating {file_type_lower.upper()}: {filename}")
 
             if file_type_lower == "pdf":
@@ -105,26 +111,25 @@ class JDIntelligenceService:
             if not is_valid:
                 raise Exception(f"File validation failed: {error_msg}")
 
-            # Step 2: Extract text (format-specific)
+            # Step 2: Extract content text and document metadata
             logger.info(f"Extracting text from: {filename}")
 
             if file_type_lower == "pdf":
                 text = PDFProcessor.extract_text(file_bytes)
                 metadata = PDFProcessor.extract_metadata(file_bytes)
             elif file_type_lower == "docx":
-                # Use table-aware extractor for multi-page DOCX with structure preservation
+                # Attempt advanced extraction that preserves layout structures and tabular rows
                 try:
                     # pyrefly: ignore [bad-argument-type]
                     extraction_result = await extract_docx_complete(file_bytes)
                     if extraction_result["success"]:
-                        # Use structured data from table extractor for better parsing
+                        # Convert parsed tables and paragraphs into a consolidated structured text block
                         structured_preview = extraction_result["data"]
-                        # Convert structured data to text for AI processing, preserving structure
                         text = self._convert_structured_to_text(structured_preview)
                         metadata = {
                             "num_pages": extraction_result.get(
                                 "table_count", 0
-                            ),  # Approximate
+                            ),  # Approximate representation
                             "char_count": extraction_result.get("char_count", 0),
                             "table_count": extraction_result.get("table_count", 0),
                             "paragraph_count": extraction_result.get(
@@ -136,7 +141,7 @@ class JDIntelligenceService:
                             f"[DOCX] Using table-aware extraction: {extraction_result.get('char_count', 0)} chars from {extraction_result.get('table_count', 0)} tables"
                         )
                     else:
-                        # Fallback to standard processor if table extraction fails
+                        # Fallback to standard paragraph paragraph/run scanner
                         logger.warning(
                             f"[DOCX] Table extraction failed: {extraction_result.get('error')}. Falling back to standard extraction."
                         )
@@ -144,7 +149,7 @@ class JDIntelligenceService:
                         metadata = DOCXProcessor.extract_metadata(file_bytes)
                         metadata["extraction_method"] = "standard_fallback"
                 except Exception as e:
-                    # Fallback to standard processor on any exception
+                    # Generic fallback in case of XML parse errors or other failures in advance parser
                     logger.warning(
                         f"[DOCX] Table extractor error: {str(e)}. Falling back to standard extraction."
                     )
@@ -154,20 +159,20 @@ class JDIntelligenceService:
             else:
                 raise Exception(f"Unsupported file type: {file_type}")
 
-            # Step 3: Parse with Gemini 2.5 Flash (same for both formats)
+            # Step 3: Parse extracted text into standard schema using LLM
             logger.info(f"Parsing JD with Gemini 2.5 Flash: {filename}")
             structured_jd = await self._parse_jd_text(text, employee_name)
 
-            # Add employee info if provided
+            # Enrich the parsed result with employee identifiers if present
             if employee_id:
                 structured_jd["employee_id"] = employee_id
             if employee_name and not structured_jd.get("employee_name"):
                 structured_jd["employee_name"] = employee_name
 
-            # Generate ID
+            # Generate a new unique ID for referencing this JD session/record
             jd_id = str(uuid.uuid4())
 
-            # Step 4: Create vector embeddings (same for both formats)
+            # Step 4: Index segments into Vector DB for semantic lookup
             logger.info(f"Creating vector embeddings for: {filename}")
             await self._create_embeddings(jd_id, structured_jd)
 
@@ -178,8 +183,8 @@ class JDIntelligenceService:
                 "employee_id": employee_id,
                 "employee_name": employee_name or structured_jd.get("employee_name"),
                 "structured_data": structured_jd,
-                "pdf_filename": filename,  # Keep same key for backward compatibility
-                "file_type": file_type_lower,  # ← NEW: track the format
+                "pdf_filename": filename,  # Retained key for backward compatibility
+                "file_type": file_type_lower,
                 "num_pages": metadata.get("num_pages", 0),
                 "processing_status": "processed",
                 "uploaded_by": uploaded_by,
@@ -191,7 +196,6 @@ class JDIntelligenceService:
             logger.error(f"JD processing failed for {filename}: {str(e)}")
             raise Exception(f"JD processing failed: {str(e)}")
 
-    # BACKWARD COMPATIBILITY: Keep old method name, delegate to new one
     async def process_jd_pdf(
         self,
         pdf_bytes: bytes,
@@ -201,8 +205,8 @@ class JDIntelligenceService:
         employee_name: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
-        LEGACY METHOD: Kept for backward compatibility.
-        Delegates to process_jd_document() with file_type="pdf"
+        LEGACY METHOD: Maintained to avoid breaking older API consumers.
+        Delegates straight to process_jd_document() with file_type set to "pdf".
         """
         logger.warning(
             "process_jd_pdf() is deprecated. Use process_jd_document() instead."
@@ -218,11 +222,21 @@ class JDIntelligenceService:
 
     def _extract_partial_data(self, content: str) -> Dict[str, Any]:
         """
-        Extract partial data from malformed JSON response
+        Fallback parser to recover data from malformed or truncated LLM output.
+        Uses regex patterns to scan the response for critical keys (e.g. role_title, department, 
+        level, purpose) and attempts to find/parse the last valid matching braces to retrieve 
+        partial JSON structures.
+
+        Args:
+            content: Raw text returned by the LLM (which failed to decode normally).
+
+        Returns:
+            A dictionary containing as many parsed fields as could be successfully extracted, 
+            using default values for any missing parts.
         """
         logger.warning("Attempting to extract partial data from malformed JSON")
 
-        # Initialize with defaults
+        # Initialize structured dictionary with default safe values
         structured_data = {
             "role_title": "Unknown Role",
             "department": "Unknown",
@@ -246,7 +260,7 @@ class JDIntelligenceService:
         }
 
         try:
-            # Try to extract key-value pairs using regex
+            # 1. Regex scanning for top-level string fields in case the response is heavily truncated
             import re
 
             # Extract role_title
@@ -264,13 +278,12 @@ class JDIntelligenceService:
             if match:
                 structured_data["level"] = match.group(1)
 
-            # Extract purpose (may be truncated)
+            # Extract purpose
             match = re.search(r'"purpose"\s*:\s*"([^"]+)"', content)
             if match:
                 structured_data["purpose"] = match.group(1)
 
-            # Try to parse as much JSON as possible
-            # Find the last complete object
+            # 2. Bracket counter scan: find the last index where parentheses are fully balanced
             brace_count = 0
             last_complete = 0
             for i, char in enumerate(content):
@@ -281,6 +294,7 @@ class JDIntelligenceService:
                     if brace_count == 0:
                         last_complete = i + 1
 
+            # If a balanced JSON subset is found, parse and merge it
             if last_complete > 0:
                 try:
                     partial_json = content[:last_complete]
@@ -299,35 +313,46 @@ class JDIntelligenceService:
         return structured_data
 
     def _convert_structured_to_text(self, structured_data: dict) -> str:
-        """Convert structured data from table extractor to text for AI processing"""
+        """
+        Converts the rich dictionary extracted by the table-aware docx parser back 
+        into a clean, unified plain text representation. This formatted text acts 
+        as context input to the LLM.
+
+        Args:
+            structured_data: Dict returned by extract_docx_complete containing 
+                             categorized items and raw paragraph/table fields.
+
+        Returns:
+            A single formatted string with key-value headers, table row segments, 
+            and paragraph text.
+        """
         text_parts = []
         
-        # Add key-value pairs from structured data in a clean format
+        # 1. Append key-value attributes (excluding internal keys starting with '_')
         for key, value in structured_data.items():
             if not key.startswith("_") and value:
                 if isinstance(value, list):
-                    if value:  # Only add if list is not empty
+                    if value:  # Only append non-empty lists
                         text_parts.append(f"{key}: {', '.join(value)}")
                 elif isinstance(value, dict):
-                    if value:  # Only add if dict is not empty
-                        # Flatten the dictionary for cleaner text
+                    if value:  # Flatten nested dictionaries for cleaner reading
                         dict_items = []
                         for dict_key, dict_value in value.items():
-                            if dict_value:  # Only add non-empty values
+                            if dict_value:
                                 dict_items.append(f"{dict_key}: {dict_value}")
                         if dict_items:
                             text_parts.append(f"{key}: {', '.join(dict_items)}")
                 else:
                     text_parts.append(f"{key}: {value}")
         
-        # Add raw data (critical for fields that weren't mapped explicitly)
+        # 2. Append tables and paragraphs stored in '_raw_data' to preserve full context
         if "_raw_data" in structured_data:
             raw_data = structured_data["_raw_data"]
             if "tables" in raw_data and raw_data["tables"]:
                 text_parts.append("\n--- FULL TABLE DATA ---")
                 for table in raw_data["tables"]:
                     for row in table.get("content", []):
-                        # Join non-empty cells
+                        # Join non-empty cell strings with pipe separators
                         cells = [str(cell).replace('\n', ' ').strip() for cell in row if str(cell).strip()]
                         if cells:
                             text_parts.append(" | ".join(cells))
@@ -343,14 +368,15 @@ class JDIntelligenceService:
         self, text: str, employee_name: Optional[str] = None
     ) -> Dict[str, Any]:
         """
-        Parse raw JD text into structured format using Gemini 2.5 Pro
+        Parses raw unstructured text into structured JD dictionary fields.
+        Delegates processing to self._parse_jd_text_fallback().
 
         Args:
-            text: Raw JD text
-            employee_name: Optional employee name for context
+            text: Unified text representation of the document.
+            employee_name: Optional name of the employee for contextual relevance.
 
         Returns:
-            Structured JD data matching your schema
+            A dictionary conforming to the JDStructuredData schema.
         """
         return await self._parse_jd_text_fallback(text, employee_name)
 
@@ -381,11 +407,11 @@ class JDIntelligenceService:
         
         1. role_title: Job title/position (e.g., "Senior Software Engineer", "Marketing Manager")
         2. department: Department or function (e.g., "Engineering", "Marketing", "Sales")
-        3. level: Seniority level - choose from: ["Junior", "Mid", "Senior", "Lead", "Head", "Director", "VP"]
+        3. level: Seniority level - choose from: ["Junior", "Mid", "Senior", "Lead", "Head", "Director", "VP","Level 1", "Level 2", "Level 3", "Level 4", "Level 5"]
         4. purpose: Main purpose/mission of the role (50-150 words, be concise)
         5. tasks: List of ALL key responsibilities EXACTLY as they appear in the text (do not summarize or limit the count, include every single point)
         6. priority_tasks: Top 3-5 most critical tasks (subset of tasks)
-        7. skills: ALL Technical and domain skills required EXACTLY as they appear (do not summarize or limit the count, include every single point)
+        7. skills: ALL Technical and domain skills required EXACTLY as they appear (do not summarize or limit the count, include every single point but make sure they are relevant to the role and not generic soft skills)
         8. tools: Software, platforms, tools used (list of 3-10 items)
         9. technologies: Frameworks, languages, tech stack (list of 3-10 items)
         10. qualifications: EXACTLY as they appear in the text, DO NOT summarize
@@ -487,17 +513,18 @@ class JDIntelligenceService:
 
     async def _create_embeddings(self, jd_id: str, structured_jd: Dict[str, Any]):
         """
-        Create vector embeddings for JD sections to enable semantic search
+        Creates semantic chunks of the structured JD data and indexes them into the 
+        Vector Database to facilitate search queries matching skills, roles, or tools.
 
         Args:
-            jd_id: Reference JD ID
-            structured_jd: Structured JD data
+            jd_id: Reference identifier of the processed JD record.
+            structured_jd: The fully parsed JD dictionary.
         """
         try:
-            # Create chunks for different sections
+            # Categorize the structured fields into separate chunks with relative relevance weights
             chunks = []
 
-            # Role summary chunk
+            # Chunk 1: Role Summary (Weight: 1.0)
             if structured_jd.get("role_title") and structured_jd.get("purpose"):
                 chunks.append(
                     {
@@ -507,7 +534,7 @@ class JDIntelligenceService:
                     }
                 )
 
-            # Skills chunk
+            # Chunk 2: Core Skills (Weight: 0.9)
             if structured_jd.get("skills"):
                 chunks.append(
                     {
@@ -517,7 +544,7 @@ class JDIntelligenceService:
                     }
                 )
 
-            # Tools chunk
+            # Chunk 3: Software & Platforms (Weight: 0.8)
             if structured_jd.get("tools"):
                 chunks.append(
                     {
@@ -527,7 +554,7 @@ class JDIntelligenceService:
                     }
                 )
 
-            # Technologies chunk
+            # Chunk 4: Programming/Technical Stack (Weight: 0.8)
             if structured_jd.get("technologies"):
                 chunks.append(
                     {
@@ -538,7 +565,7 @@ class JDIntelligenceService:
                     }
                 )
 
-            # Tasks chunk (top 5)
+            # Chunk 5: Key Responsibilities (Weight: 0.9)
             if structured_jd.get("tasks"):
                 top_tasks = structured_jd["tasks"][:5]
                 chunks.append(
@@ -549,7 +576,7 @@ class JDIntelligenceService:
                     }
                 )
 
-            # Priority tasks chunk
+            # Chunk 6: Critical Priority Tasks (Weight: 1.0)
             if structured_jd.get("priority_tasks"):
                 chunks.append(
                     {
@@ -560,7 +587,7 @@ class JDIntelligenceService:
                     }
                 )
 
-            # Qualifications chunk
+            # Chunk 7: Academic Background & Experience (Weight: 0.7)
             if structured_jd.get("qualifications"):
                 qual = structured_jd["qualifications"]
                 qual_text = []
@@ -612,17 +639,18 @@ class JDIntelligenceService:
         limit: int = 5,
     ) -> list:
         """
-        Find similar JDs using vector search
+        Executes a vector search to locate similar JDs in the repository based on 
+        supplied filters (skills, title, level, department).
 
         Args:
-            role_title: Role to match
-            department: Department to match
-            level: Seniority level to match
-            skills: Skills to match
-            limit: Maximum number of results
+            role_title: Optional filter for matching job title.
+            department: Optional filter for matching department.
+            level: Optional filter for matching seniority level.
+            skills: Optional list of skills to match against.
+            limit: Maximum result limit for query (defaults to 5).
 
         Returns:
-            List of similar JDs
+            A list of matching/similar reference JD objects retrieved from Vector DB.
         """
         return await find_similar_jds(
             role_title=role_title,

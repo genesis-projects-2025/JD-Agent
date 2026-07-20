@@ -472,7 +472,7 @@ _interview_llm = ChatGoogleGenerativeAI(
 _response_llm = ChatGoogleGenerativeAI(
     google_api_key=settings.GEMINI_API_KEY,
     model="gemini-2.5-flash",
-    temperature=0.4,
+    temperature=0.2,
 )
 
 

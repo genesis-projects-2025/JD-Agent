@@ -1,24 +1,42 @@
 import asyncio
 import logging
+import math
 from typing import Any, List, Optional
 
 from langchain_google_genai import GoogleGenerativeAIEmbeddings
 from pinecone import Pinecone, ServerlessSpec
+from sqlalchemy import text
 
 from app.core.config import settings
 
+# Configure logger for tracking indexing, query performance, and connection states
 logger = logging.getLogger(__name__)
 
+# Global singletons for lazy initialization
 _pc: Pinecone | None = None
 _index = None
 _embeddings: GoogleGenerativeAIEmbeddings | None = None
 _index_name = settings.PINECONE_INDEX_NAME
 
+# Canonical source labels to segregate JD types in vector storage
 CANONICAL_SOURCE_APPROVED = "approved_jd"
 CANONICAL_SOURCE_REFERENCE = "reference_jd"
 
 
 def _normalise_role_tokens(text: str) -> set[str]:
+    """
+    Cleans and tokenizes job role titles to enable precise lexical comparison.
+    
+    Why:
+      Standard vector embeddings can sometimes score unrelated jobs highly due to shared 
+      generic corporate jargon. Lexical overlap of title tokens serves as a boosting mechanism 
+      during our custom reranking.
+    
+    Steps:
+      1. Strips out common English stop words and structural suffixes (e.g., 'jr', 'sr', 'role').
+      2. Replaces slashes and hyphens with spaces to split compound titles (e.g., 'Software/Data-Engineer').
+      3. Normalizes tokens to lowercase and keeps only tokens longer than 2 characters.
+    """
     stop_words = {
         "a",
         "an",
@@ -33,6 +51,7 @@ def _normalise_role_tokens(text: str) -> set[str]:
         "jr",
         "sr",
     }
+    # Clean text, split into words, and filter
     tokens = {
         part.strip().lower()
         for part in text.replace("/", " ").replace("-", " ").split()
@@ -42,22 +61,51 @@ def _normalise_role_tokens(text: str) -> set[str]:
 
 
 def _role_overlap_score(role_query: str, candidate_role: str) -> float:
+    """
+    Calculates the proportion of query role tokens that are present in the candidate role.
+    
+    Why:
+      If a user queries for a "Python Backend Developer", a candidate with "Backend Developer" 
+      should rank higher than a candidate with "Frontend Developer" even if their overall 
+      semantic embedding distance is similar.
+    
+    Returns:
+      A float ratio between 0.0 (no overlap) and 1.0 (complete token overlap).
+    """
     query_tokens = _normalise_role_tokens(role_query)
     candidate_tokens = _normalise_role_tokens(candidate_role)
     if not query_tokens or not candidate_tokens:
         return 0.0
+    # Intersection of sets divided by length of query set
     return len(query_tokens & candidate_tokens) / len(query_tokens)
 
 
 def _canonical_role(metadata: dict[str, Any]) -> str:
+    """
+    Extracts the role title from Pinecone metadata dict using fallback keys.
+    """
     return str(metadata.get("role_title") or metadata.get("role") or "").strip()
 
 
 def _canonical_department(metadata: dict[str, Any]) -> str:
+    """
+    Extracts the department name from Pinecone metadata dict using fallback keys.
+    """
     return str(metadata.get("department") or metadata.get("dept") or "").strip()
 
 
 def _is_matching_department(dept1: str, dept2: str) -> bool:
+    """
+    Compares two department strings and checks if they match, taking synonyms into account.
+    
+    Why:
+      Departments are frequently referred to by different names (e.g., 'HR' vs 'Human Resources' 
+      or 'SCM' vs 'Supply Chain Management'). This function ensures we can correlate them correctly 
+      during search filtering or reranking.
+      
+    Returns:
+      True if department names match or are synonyms; False otherwise.
+    """
     d1 = str(dept1).strip().lower()
     d2 = str(dept2).strip().lower()
     if not d1 or not d2:
@@ -65,6 +113,7 @@ def _is_matching_department(dept1: str, dept2: str) -> bool:
     if d1 == d2:
         return True
     
+    # Predefined dictionary mapping common department variations and abbreviations
     synonyms = {
         "r&d": {"research & development", "research and development", "analytical r&d", "chemical r&d", "nano r&d", "r & d", "r and d"},
         "research & development": {"r&d", "research and development", "analytical r&d", "chemical r&d", "nano r&d", "r & d", "r and d"},
@@ -84,6 +133,7 @@ def _is_matching_department(dept1: str, dept2: str) -> bool:
         "procurement": {"scm", "material sourcing", "supply chain", "supply chain management"},
     }
     
+    # Check if either department is in the synonym list of the other, or if one is a substring of the other
     if d1 in synonyms and d2 in synonyms[d1]:
         return True
     if d2 in synonyms and d1 in synonyms[d2]:
@@ -92,14 +142,23 @@ def _is_matching_department(dept1: str, dept2: str) -> bool:
 
 
 def _canonical_experience(metadata: dict[str, Any]) -> str:
+    """
+    Extracts experience level (e.g., Junior, Mid, Senior) from Pinecone metadata.
+    """
     return str(metadata.get("experience_level") or metadata.get("level") or "").strip()
 
 
 def _canonical_category(metadata: dict[str, Any]) -> str:
+    """
+    Extracts the document chunk's category (e.g., responsibilities, skills) from Pinecone metadata.
+    """
     return str(metadata.get("category") or metadata.get("chunk_type") or "").strip()
 
 
 def _coerce_text_list(items: Any) -> list[str]:
+    """
+    Sanitizes raw input (which could be lists, strings, or None) into a clean list of stripped strings.
+    """
     if not isinstance(items, list):
         return []
     return [str(item).strip() for item in items if str(item).strip()]
@@ -116,6 +175,13 @@ def _build_metadata(
     text: str,
     extra: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    """
+    Standardizes the metadata dictionary structure sent to Pinecone.
+    
+    Why:
+      Maintains strict schema compliance. Keeping the source text directly in the metadata 
+      allows us to construct responses immediately upon retrieval, eliminating database lookup roundtrips.
+    """
     metadata = {
         "jd_id": jd_id,
         "role_title": role_title,
@@ -131,6 +197,13 @@ def _build_metadata(
 
 
 def get_pinecone_client() -> Pinecone:
+    """
+    Initializes and returns the Pinecone client singleton.
+    
+    Why:
+      Follows the singleton design pattern to reuse connections and avoid 
+      re-authenticating on every database operation.
+    """
     global _pc
     if _pc is None:
         if not settings.PINECONE_API_KEY:
@@ -140,7 +213,15 @@ def get_pinecone_client() -> Pinecone:
 
 
 async def _ensure_index_exists_async() -> None:
-    """Async wrapper for Pinecone index creation with timeout."""
+    """
+    Asynchronously checks if the designated Pinecone index exists and creates it if missing.
+    
+    How:
+      - Uses Pinecone client to fetch active indexes.
+      - If settings.PINECONE_INDEX_NAME does not exist, starts serverless index creation.
+      - Uses `asyncio.to_thread` to execute blocking synchronous client calls safely in a separate thread.
+      - Wraps execution in a 10-second timeout block to prevent blocking the web server in case of network lags.
+    """
     try:
         def _sync_ensure():
             client = get_pinecone_client()
@@ -148,11 +229,12 @@ async def _ensure_index_exists_async() -> None:
                 existing_indexes = [idx.name for idx in client.list_indexes()]
             except Exception as e:
                 logger.warning(f"Could not list Pinecone indexes: {e}")
-                return  # Non-critical failure
+                return  # Non-critical failure: continue even if we can't fetch metadata
             
             if _index_name not in existing_indexes:
                 logger.info("Creating Pinecone index: %s", _index_name)
                 try:
+                    # Dimension 3072 is standard for 'models/gemini-embedding-001'
                     client.create_index(
                         name=_index_name,
                         dimension=3072,
@@ -174,7 +256,9 @@ async def _ensure_index_exists_async() -> None:
 
 
 def get_index():
-    """Get Pinecone index (use get_index_async for async context)."""
+    """
+    Returns the synchronous Pinecone Index reference.
+    """
     global _index
     if _index is None:
         try:
@@ -186,7 +270,13 @@ def get_index():
 
 
 async def get_index_async():
-    """Async-safe getter for Pinecone index."""
+    """
+    Asynchronously fetches the Pinecone index reference.
+    
+    Why:
+      Ensures the index is first checked/created asynchronously, then obtains the index handle 
+      via a thread pool to avoid blocking the asynchronous loop.
+    """
     global _index
     if _index is None:
         await _ensure_index_exists_async()
@@ -199,6 +289,10 @@ async def get_index_async():
 
 
 def get_embeddings() -> GoogleGenerativeAIEmbeddings:
+    """
+    Initializes and returns the Google Generative AI embeddings helper singleton.
+    We target 'models/gemini-embedding-001' which produces 3072-dimensional vector spaces.
+    """
     global _embeddings
     if _embeddings is None:
         _embeddings = GoogleGenerativeAIEmbeddings(
@@ -209,6 +303,15 @@ def get_embeddings() -> GoogleGenerativeAIEmbeddings:
 
 
 async def vector_health() -> dict[str, Any]:
+    """
+    Checks the status and availability of the vector database.
+    
+    Returns:
+      A dictionary indicating health status:
+      - {"status": "disabled"} -> Pinecone configuration is missing.
+      - {"status": "degraded", ...} -> Connection failed or index is unreachable.
+      - {"status": "ok", ...} -> Connection is healthy, returns active vector counts.
+    """
     if not settings.PINECONE_API_KEY:
         return {"status": "disabled"}
     try:
@@ -236,8 +339,29 @@ async def index_approved_jd(
     source: str = CANONICAL_SOURCE_APPROVED,
     employee_id: str | None = None,
 ):
-    """Chunk and index an approved JD into Pinecone with canonical metadata."""
+    """
+    Chunks and indexes a structured Job Description (JD) into the Pinecone database.
+    
+    Why:
+      Instead of indexing the entire JD document text as one block (which weakens vector queries), 
+      we divide the JD into categorized blocks (summary, tasks, tools, skills, education, workflow) 
+      to allow high-accuracy, context-specific semantic searches (e.g. searching only responsibilities).
+      
+    How:
+      1. Determines a canonical job title.
+      2. Deletes any pre-existing vectors for this JD ID to prevent duplicates.
+      3. Parses structured JSON details and appends text chunks with metadata for:
+         - Role summary & purpose
+         - Key responsibilities (further checking for metrics and projects indicators)
+         - Tools & technologies list
+         - Technical/required skills
+         - Education/experience credentials
+         - Extracted process workflows
+      4. Asynchronously invokes Gemini Embeddings in thread pools to generate vector representations.
+      5. Upserts batch vectors containing [vector ID, embedding array, metadata schema] into Pinecone.
+    """
     try:
+        # Determine the fallback hierarchy to get a valid job title
         jd_title = (
             title_override
             or structured_data.get("job_title")
@@ -247,6 +371,7 @@ async def index_approved_jd(
             or "Unknown Role"
         )
 
+        # Clear out existing vectors associated with this JD ID to maintain a clean index
         try:
             idx = await get_index_async()
             if idx:
@@ -256,6 +381,7 @@ async def index_approved_jd(
 
         chunks: list[dict[str, Any]] = []
 
+        # Helper callback to construct and register chunks in our processing queue
         def add_chunk(
             category: str,
             text: str,
@@ -285,16 +411,18 @@ async def index_approved_jd(
                 }
             )
 
-
+        # Extract & chunk role summary
         if summary := (structured_data.get("role_summary") or structured_data.get("purpose")):
             add_chunk("role_summary", f"Role: {jd_title}. Summary: {summary}")
 
+        # Extract, prioritize, and chunk responsibilities
         tasks = (
             structured_data.get("key_responsibilities", [])
             or structured_data.get("responsibilities", [])
             or structured_data.get("tasks", [])
         )
         for index, task in enumerate(_coerce_text_list(tasks)):
+            # Assume first 3 tasks are high-priority responsibilities
             importance = "high" if index < 3 else "medium"
             add_chunk(
                 "responsibilities",
@@ -302,6 +430,7 @@ async def index_approved_jd(
                 {"importance": importance},
             )
 
+            # Look for indicators of KPIs or targets within tasks to tag as metrics
             task_lower = task.lower()
             if any(keyword in task_lower for keyword in ["metric", "kpi", "performance", "target", "sla"]):
                 add_chunk(
@@ -309,6 +438,7 @@ async def index_approved_jd(
                     f"Role: {jd_title} Metric (Extracted): {task}",
                     {"importance": "high"},
                 )
+            # Look for projects/initiatives markers to catalog separately
             if any(keyword in task_lower for keyword in ["project", "initiative", "implementation", "launch"]):
                 add_chunk(
                     "projects",
@@ -316,6 +446,7 @@ async def index_approved_jd(
                     {"importance": "medium"},
                 )
 
+        # Extract and catalog software tools / hardware equipment
         tools = _coerce_text_list(
             structured_data.get("tools_and_technologies", [])
             or structured_data.get("tools", [])
@@ -327,6 +458,7 @@ async def index_approved_jd(
                 {"items": tools}
             )
 
+        # Extract and catalog core skills
         skills = _coerce_text_list(
             structured_data.get("skills", [])
             or structured_data.get("technical_skills", [])
@@ -339,6 +471,7 @@ async def index_approved_jd(
                 {"items": skills}
             )
 
+        # Handle details defined within the 'additional_details' dictionary
         additional = structured_data.get("additional_details", {}) or {}
         if isinstance(additional, dict):
             if additional.get("performance_metrics"):
@@ -349,6 +482,7 @@ async def index_approved_jd(
             if additional.get("projects"):
                 add_chunk("projects", f"Role: {jd_title} Projects: {additional.get('projects')}")
 
+            # Education & experience qualifications details
             education = additional.get("education") or structured_data.get("education")
             experience = additional.get("experience") or structured_data.get("experience")
             if education or experience:
@@ -357,6 +491,7 @@ async def index_approved_jd(
                     f"Role: {jd_title} Education: {education or 'N/A'} Experience: {experience or 'N/A'}",
                 )
 
+        # Catalog parsed workflows / operational procedures
         if insights_data and isinstance(insights_data, dict):
             workflows = insights_data.get("workflows", {})
             if isinstance(workflows, dict):
@@ -371,9 +506,10 @@ async def index_approved_jd(
         if not chunks:
             return
 
+        # Prepare strings for Gemini embedding generation
         texts = [chunk["text"] for chunk in chunks]
         
-        # Wrap blocking embedding operation
+        # Call Gemini embeddings safely using asyncio to avoid choking the event loop
         vector_embeddings = await asyncio.to_thread(
             lambda: get_embeddings().embed_documents(texts)
         )
@@ -386,7 +522,7 @@ async def index_approved_jd(
             for index, chunk in enumerate(chunks)
         ]
         
-        # Wrap blocking upsert operation
+        # Commit chunks to Pinecone index in a thread pool
         idx = await get_index_async()
         if idx:
             await asyncio.to_thread(lambda: idx.upsert(vectors=vectors))
@@ -397,6 +533,13 @@ async def index_approved_jd(
 
 
 def estimate_tokens(text: str) -> int:
+    """
+    A lightweight heuristic to estimate the number of LLM tokens in a string.
+    
+    Why:
+      Avoids calling full tokenizers like TikToken for standard budget checks.
+      Estimates ~3.5 characters per token.
+    """
     return len(text) // 3.5 + 1 # pyright: ignore[reportReturnType]
 
 
@@ -408,7 +551,20 @@ async def query_advanced_context(
     top_k: int = 5,
     token_budget: int = 800,
 ) -> List[str]:
-    """Retrieve categorized context with role-aware reranking."""
+    """
+    Retrieves highly relevant, categorized text chunks from Pinecone, applying customized reranking.
+    
+    How it works:
+      1. Converts the natural language role query and category filters into a search vector.
+      2. Performs metadata filtering on categories (e.g., only search within 'skills' or 'responsibilities').
+      3. Requests candidates (3x top_k to allow a pool for reranking).
+      4. Iterates over candidates and adjusts search scores:
+         - Department match: adds bonus score if they match (+0.04), heavily penalizes mismatch (-0.20).
+         - Experience match: applies mild penalty for mismatch (-0.03).
+         - Role Title overlap: computes lexical overlap and boosts scoring.
+      5. Filters out low-scoring matches (similarity score below 0.3).
+      6. Truncates results to fit within the `token_budget` limit to avoid bloating LLM prompts.
+    """
     try:
         categories = [block_type] if isinstance(block_type, str) else block_type
         query_text = (
@@ -416,7 +572,7 @@ async def query_advanced_context(
             "and technical environment details."
         )
         
-        # Wrap blocking embedding operation
+        # Safely generate search vector
         query_vec = await asyncio.to_thread(
             lambda: get_embeddings().embed_query(query_text)
         )
@@ -425,7 +581,7 @@ async def query_advanced_context(
         if not idx:
             return []
 
-        # Wrap blocking query operation
+        # Query Pinecone using metadata category filter
         results = await asyncio.to_thread(
             lambda: idx.query(
                 vector=query_vec,
@@ -435,6 +591,7 @@ async def query_advanced_context(
             )
         )
 
+        # Custom reranking logic implementation
         reranked: list[tuple[float, str]] = []
         for match in results.get("matches", []):  # pyright: ignore
             metadata = match.get("metadata", {})
@@ -443,24 +600,33 @@ async def query_advanced_context(
             candidate_role = _canonical_role(metadata)
             candidate_department = _canonical_department(metadata)
             candidate_experience = _canonical_experience(metadata)
+            # Compute lexical title overlay factor
             role_overlap = _role_overlap_score(role_query, candidate_role or text)
 
             if score < 0.3 or not text:
                 continue
+            
+            # Department matching logic: boost same department, suppress different ones
             if department and candidate_department:
                 if _is_matching_department(department, candidate_department):
                     score += 0.04
                 else:
                     score -= 0.20
+            
+            # Experience level matching logic
             if experience_level and candidate_experience and experience_level.lower() != candidate_experience.lower():
                 score -= 0.03
 
             if score < 0.3:
                 continue
 
+            # Reranked score is a blend of semantic vector similarity + lexical overlap
             reranked.append((score + role_overlap, text))
 
+        # Sort matches by the adjusted score descending
         reranked.sort(key=lambda item: item[0], reverse=True)
+        
+        # Enforce budget restrictions
         contexts: list[str] = []
         consumed_tokens = 0
         for _, text in reranked:
@@ -478,13 +644,20 @@ async def query_advanced_context(
 
 
 async def index_jd_document(jd_id: str, text: str, chunk_type: str, metadata: dict):
-    """Index a single JD document chunk using canonical vector metadata."""
+    """
+    Indexes a single standalone text chunk of a JD into Pinecone.
+    
+    Use case:
+      Generally used when doing custom/ad-hoc additions of single snippets instead of 
+      full structured JD parses.
+    """
     try:
-        # Always wrap embedding in asyncio.to_thread
+        # Generate single text query embedding
         embedding = await asyncio.to_thread(
             lambda: get_embeddings().embed_query(text)
         )
 
+        # Standardize metadata schema
         meta = _build_metadata(
             jd_id=jd_id,
             role_title=str(metadata.get("role_title", "")).strip() or "Unknown Role",
@@ -492,10 +665,11 @@ async def index_jd_document(jd_id: str, text: str, chunk_type: str, metadata: di
             experience_level=str(metadata.get("experience_level") or metadata.get("level") or "Mid"),
             category=chunk_type,
             source=str(metadata.get("source") or CANONICAL_SOURCE_REFERENCE),
-            text=text[:500],
+            text=text[:500],  # Truncate index view text field to 500 chars to avoid Pinecone metadata size issues
             extra={key: value for key, value in metadata.items() if key not in {"role_title", "department", "experience_level", "level", "source"}},
         )
 
+        # Compute a stable identifier
         vector_id = f"{jd_id}_{chunk_type}_{hash(text) % 10000}"
         idx = await get_index_async()
         if idx:
@@ -514,8 +688,23 @@ async def find_similar_jds(
     skills: Optional[list] = None,
     limit: int = 5,
 ) -> list:
-    """Find similar JDs using vector search with canonical metadata and reranking."""
+    """
+    Finds job descriptions in Pinecone that are similar to the provided search criteria.
+    
+    Why:
+      Used when mapping dependencies, identifying overlapping responsibilities, or looking for 
+      clones of JDs across departments to save HR creation time.
+      
+    How:
+      1. Assembles query tags into a text query.
+      2. Computes the query embedding.
+      3. Searches Pinecone index for matches.
+      4. Groups individual vector chunks back by `jd_id` so we return complete JDs instead of separate fragments.
+      5. Selects the maximum similarity score among all chunks of a JD as its group similarity.
+      6. Returns a list sorted by similarity.
+    """
     try:
+        # Synthesize query representation text
         query_parts = []
         if role_title:
             query_parts.append(f"Role: {role_title}")
@@ -530,7 +719,7 @@ async def find_similar_jds(
 
         query_text = ". ".join(query_parts)
         
-        # Wrap blocking embedding operation
+        # Safely compute embedding vector
         query_embedding = await asyncio.to_thread(
             lambda: get_embeddings().embed_query(query_text)
         )
@@ -539,7 +728,7 @@ async def find_similar_jds(
         if not idx:
             return []
 
-        # Wrap blocking query operation
+        # Run query with extra candidates to ensure good grouped diversity
         results = await asyncio.to_thread(
             lambda: idx.query(
                 vector=query_embedding,
@@ -558,6 +747,8 @@ async def find_similar_jds(
             candidate_role = _canonical_role(metadata)
             candidate_department = _canonical_department(metadata)
             candidate_level = _canonical_experience(metadata)
+            
+            # Custom matching heuristics applied to group scores
             overlap = _role_overlap_score(role_title or "", candidate_role or str(metadata.get("text", "")))
             score = float(match.get("score", 0))
             if department and candidate_department:
@@ -568,6 +759,7 @@ async def find_similar_jds(
             if level and candidate_level and level.lower() != candidate_level.lower():
                 score -= 0.03
 
+            # Grouping entries by JD ID
             if jd_id not in grouped:
                 grouped[jd_id] = {
                     "jd_id": jd_id,
@@ -588,25 +780,45 @@ async def find_similar_jds(
                 }
             )
 
+        # Sort JDs by calculated similarity score and limit
         return sorted(grouped.values(), key=lambda item: item["similarity"], reverse=True)[:limit]
     except Exception as e:
         logger.error("Similar JD search failed: %s", e)
         return []
 
-import math
-from sqlalchemy import text
 
 async def get_embeddings_for_text(text_val: str) -> list[float]:
+    """
+    Generates and returns raw floats representing the text embedding vector.
+    """
     embeddings = get_embeddings()
     vector = await asyncio.to_thread(lambda: embeddings.embed_query(text_val))
     return vector
 
+
 async def find_similar_skills_or_tools(db, table_name: str, query_text: str, limit: int = 3, threshold: float = 0.7) -> list[dict]:
-    """Search similar tools or skills in the database using pgvector or a Python fallback for SQLite."""
+    """
+    Searches for semantically similar tools or skills directly in the database.
+    
+    Why:
+      We index standard skills and tools within relational database tables (e.g. Postgres or SQLite) 
+      rather than Pinecone. This function allows us to locate semantic variations using either 
+      native Postgres vector operations, or a standard Python fallback calculation for SQLite.
+      
+    How:
+      1. Generates the embedding representation of search query.
+      2. Detects the database dialect.
+      3. For PostgreSQL:
+         Uses pgvector's cosine distance operator `<=>` (1 - cosine distance is similarity) and 
+         performs a native database query filtered by the similarity threshold.
+      4. For SQLite / other fallbacks:
+         Reads all relevant rows from the table, computes the cosine similarity in Python 
+         using the dot product and square root magnitudes, filters by threshold, and returns the sorted matches.
+    """
     try:
         vector = await get_embeddings_for_text(query_text)
         
-        # Check dialect
+        # Check current database dialect name
         async_conn = await db.connection()
         dialect_name = async_conn.dialect.name
         
@@ -623,7 +835,7 @@ async def find_similar_skills_or_tools(db, table_name: str, query_text: str, lim
             res = await db.execute(sql_query, {"vec": vector_str, "limit": limit, "threshold": threshold})
             return [{"id": r.id, "name": r.name, "similarity": float(r.similarity)} for r in res.all()]
         else:
-            # Fallback for SQLite/others: read all rows and calculate in python
+            # Fallback for SQLite/others: read all rows and calculate similarity mathematically in Python
             sql_query = text(f"SELECT id, name, embedding FROM {table_name} WHERE embedding IS NOT NULL")
             res = await db.execute(sql_query)
             rows = res.all()
@@ -637,7 +849,7 @@ async def find_similar_skills_or_tools(db, table_name: str, query_text: str, lim
                     if not r_vec or len(r_vec) != len(vector):
                         continue
                     
-                    # Cosine similarity calculation
+                    # Cosine similarity formula: (A . B) / (||A|| * ||B||)
                     dot_product = sum(a * b for a, b in zip(vector, r_vec))
                     magnitude_a = math.sqrt(sum(a * a for a in vector))
                     magnitude_b = math.sqrt(sum(b * b for b in r_vec))
@@ -651,7 +863,7 @@ async def find_similar_skills_or_tools(db, table_name: str, query_text: str, lim
                 except Exception:
                     continue
             
-            # Sort by similarity
+            # Sort descending by calculated similarity
             results.sort(key=lambda x: x["similarity"], reverse=True)
             return results[:limit]
     except Exception as e:
@@ -666,9 +878,25 @@ async def index_employee_kras(
     department: str = "General",
     experience_level: str = "Mid",
 ):
-    """Index employee KRA/KPI framework into Pinecone for semantic querying."""
+    """
+    Indexes an employee's Key Result Area (KRA) & Key Performance Indicator (KPI) framework into Pinecone.
+    
+    Why:
+      Allows semantic queries to align employee output with standard job requirements, 
+      facilitate appraisals, or map actual employee deliverables to the JD framework.
+      
+    How:
+      1. Purges existing KRA/KPI vectors for the given employee ID under the 'performance_goals' category.
+      2. Iterates over all KRAs in the payload:
+         - Creates a chunk describing the KRA title, description, and weight (%).
+         - Iterates over all KPIs under this KRA.
+         - Creates a chunk for each KPI detailing its target metrics and descriptions.
+      3. Generates vector embeddings for all KRA and KPI text chunks via Gemini.
+      4. Upserts all chunks to Pinecone under the 'performance_goals' category with rich metadata referencing 
+         employee ID, weights, metrics, and parent KRA titles.
+    """
     try:
-        # Delete old KRA/KPI vectors for this employee first
+        # Delete old KRA/KPI vectors for this employee first to prevent stale records
         try:
             idx = await get_index_async()
             if idx:
@@ -684,7 +912,7 @@ async def index_employee_kras(
             kra_desc = kra.get("description") or ""
             kra_weight = kra.get("weight") or 0
             
-            # Index the KRA title/description
+            # Synthesize text representation for the KRA
             kra_text = f"Employee ID: {employee_id}. Role: {role_title}. KRA {kra_idx+1}: {kra_title} (Weight: {kra_weight}%). Description: {kra_desc}"
             
             metadata = _build_metadata(
@@ -704,7 +932,7 @@ async def index_employee_kras(
                 "metadata": metadata
             })
             
-            # Index each KPI under this KRA
+            # Extract and chunk nested KPIs under the current KRA
             kpis_list = kra.get("kpis", [])
             for kpi_idx, kpi in enumerate(kpis_list):
                 kpi_title = kpi.get("title") or "Key Performance Indicator"
@@ -712,6 +940,7 @@ async def index_employee_kras(
                 kpi_target = kpi.get("target") or ""
                 kpi_desc = kpi.get("description") or ""
                 
+                # Synthesize text representation for the KPI
                 kpi_text = (
                     f"Employee ID: {employee_id}. Role: {role_title}. KRA: {kra_title}. "
                     f"KPI {kpi_idx+1}: {kpi_title}. Metric: {kpi_metric}. Target: {kpi_target}. "
@@ -746,7 +975,7 @@ async def index_employee_kras(
 
         texts = [chunk["text"] for chunk in chunks]
         
-        # Generate embeddings
+        # Asynchronously generate embeddings
         vector_embeddings = await asyncio.to_thread(
             lambda: get_embeddings().embed_documents(texts)
         )
@@ -760,7 +989,7 @@ async def index_employee_kras(
             for index, chunk in enumerate(chunks)
         ]
         
-        # Upsert to Pinecone
+        # Upsert KRA & KPI vectors to Pinecone
         idx = await get_index_async()
         if idx:
             await asyncio.to_thread(lambda: idx.upsert(vectors=vectors))
@@ -768,4 +997,3 @@ async def index_employee_kras(
         logger.info("Indexed employee KRA/KPI framework for employee %s (%s vectors)", employee_id, len(chunks))
     except Exception as e:
         logger.error("Failed to index employee KRA/KPI: %s", e)
-

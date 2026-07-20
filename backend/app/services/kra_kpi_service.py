@@ -51,6 +51,9 @@ class StepError(Exception):
 # ── Data Extraction Helpers ───────────────────────────────────────────────────
 
 async def _get_manager_employee_id(db: AsyncSession, employee_id: str) -> str | None:
+    """
+    Retrieves the manager's employee code for a given employee from the organogram records.
+    """
     result = await db.execute(select(Employee).where(Employee.id == employee_id))
     emp = result.scalar_one_or_none()
     if emp and emp.reporting_manager_code:
@@ -59,12 +62,20 @@ async def _get_manager_employee_id(db: AsyncSession, employee_id: str) -> str | 
 
 
 def _extract_code_from_reports_to(reports_to: str) -> str | None:
+    """
+    Helper function to parse and extract the manager's employee code from a reports_to
+    string format like 'John Doe (MGR123)'.
+    """
     import re
     match = re.search(r"\(([A-Z0-9]+)\)", reports_to)
     return match.group(1) if match else None
 
 
 def _extract_jd_structured(session: JDSession) -> dict:
+    """
+    Retrieves the structured data representation from a JD Session record.
+    Falls back to parsing the plain-text field if the structured field is empty.
+    """
     structured = session.jd_structured or {}
     if not structured and session.jd_text:
         import json
@@ -77,6 +88,10 @@ def _extract_jd_structured(session: JDSession) -> dict:
 
 
 def _extract_employee_data(session: JDSession) -> dict:
+    """
+    Extracts relevant employee JD context attributes (tasks, workflows, skills, tools)
+    to form a formatted context dictionary suitable for feeding into KRA/KPI Gemini agent prompts.
+    """
     insights = session.insights or {}
     structured = _extract_jd_structured(session)
     identity = insights.get("identity_context", {})
@@ -104,6 +119,10 @@ def _extract_employee_data(session: JDSession) -> dict:
 
 
 def _extract_manager_jd_data(session: JDSession) -> dict:
+    """
+    Extracts high-level responsibilities and title from the manager's JD
+    to align the employee's KRA suggestions with the manager's targets.
+    """
     structured = _extract_jd_structured(session)
     insights = session.insights or {}
     identity = insights.get("identity_context", {})
@@ -125,8 +144,37 @@ COMPLETED_JD_STATUSES = {
 async def check_prerequisites(
     db: AsyncSession, jd_session_id: str, employee_id: str, bypass_manager: bool = False,
 ) -> dict[str, Any]:
+    """
+    Validates that all prerequisites for KRA/KPI generation are satisfied:
+    1. Employee's JD must exist and be approved by the manager.
+    2. Manager's JD must be generated and approved.
+    3. Manager's KRA/KPI framework must be created and confirmed/drafted.
+
+    Executive Bypass Rule:
+    High-level roles (Director, VP, CEO, MD, President) reporting directly to managing structures
+    do not require manager JDs/KRAs. If the employee holds an executive title or level,
+    the manager validation checks are bypassed automatically.
+    """
     missing = []
     details = {}
+
+    # ── Executive Bypass Check (Employee Level) ──
+    # Check if the employee holding the session is high-level/executive
+    try:
+        from sqlalchemy import text
+        res = await db.execute(
+            text("SELECT designation, joblevel FROM organogram WHERE code = :code"),
+            {"code": employee_id}
+        )
+        emp_org = res.mappings().first()
+        if emp_org:
+            emp_desig = (emp_org.get("designation") or "").lower()
+            emp_level = str(emp_org.get("joblevel") or "").lower()
+            if any(k in emp_desig for k in ["director", "president", "vp", "vice president", "ceo", "coo", "md", "board", "md & ceo"]) or "exec" in emp_level or "l1" in emp_level or "l2" in emp_level:
+                bypass_manager = True
+                logger.info(f"[ExecutiveBypass] Employee {employee_id} ({emp_desig}, level {emp_level}) bypassed manager prerequisites.")
+    except Exception as e:
+        logger.error(f"Error checking employee designation in organogram: {e}")
 
     # 1. Employee JD
     emp_result = await db.execute(
@@ -381,8 +429,13 @@ async def generate_kra_suggestions_for_employee(
     db: AsyncSession, jd_session_id: str, employee_id: str, bypass_manager: bool = False,
 ) -> KRAKPISession:
     """
-    Step 1: Check prerequisites → Generate 6–7 KRA suggestions → Save and return.
-    Sets generation_step = 'kra_selection'.
+    Step 1: Orchestrates the KRA suggestion generation phase.
+    
+    1. Runs prerequisite validations (checks for approved JD and manager JDs/KRAs, applying executive bypasses).
+    2. Extracts employee responsibilities and applies semantic filtering to align them with manager's KRAs.
+    3. Calls the Gemini-based agent (`generate_kra_suggestions`) to suggest 6-7 custom KRAs.
+    4. Upserts this data into a `KRAKPISession` record in the database.
+    5. Sets `generation_step` to `"kra_selection"` and status to `"draft"`.
     """
     context = await check_prerequisites(db, jd_session_id, employee_id, bypass_manager=bypass_manager)
 
@@ -462,9 +515,15 @@ async def select_kras_and_generate_kpis(
     selected_kra_ids: list[str],
 ) -> KRAKPISession:
     """
-    Step 2: Employee selects KRAs.
-    For each selected KRA, generate 6–7 KPI suggestions in parallel.
-    Sets generation_step = 'kpi_selection'.
+    Step 2: Handles employee selection of KRAs and generates KPI suggestions.
+    
+    1. Validates that at least 1 KRA is selected.
+    2. Resolves the full KRA details (title/description) from the generated suggestions.
+    3. Fetches past employee skill ratings to identify low scores (<6.0/10) as performance "gaps".
+    4. Invokes the Gemini-based agent (`generate_kpi_suggestions_for_kra`) to generate 6-7 custom KPIs
+       for each selected KRA (running them in parallel to optimize response latency).
+    5. Saves KPI suggestions to the session, clearing prior selections.
+    6. Sets `generation_step` to `"kpi_selection"`.
     """
 
     # Validation: at least 1 KRA must be selected
@@ -566,12 +625,13 @@ async def select_kpis_and_build_final(
     selected_kpi_ids: dict[str, list[str]],
 ) -> KRAKPISession:
     """
-    Step 3a: Employee selects 3–5 KPIs per selected KRA.
-    Builds the final KRA/KPI payload with equal initial weights.
-    Sets generation_step = 'weight_adjustment'.
-
-    selected_kpi_ids format: {"kra_001": ["kpi_001", "kpi_002", ...], ...}
-    Validation: 3 ≤ len(kpi_ids) ≤ 5 per KRA
+    Step 3a: Handles employee selection of KPIs for each chosen KRA.
+    
+    1. Validates that at least 1 KPI is selected for each active KRA.
+    2. Resolves selected KPI IDs into full KPI objects.
+    3. Builds the final KRA/KPI JSON structure with weights initialized to None
+       (ready for drag-and-drop weight adjustment by the employee in Step 3b).
+    4. Sets `generation_step` to `"weight_adjustment"`.
     """
     record = await get_kra_kpi_by_jd_session(db, jd_session_id)
     if not record:
@@ -636,9 +696,13 @@ async def save_weights_and_confirm(
     confirm: bool = False,
 ) -> KRAKPISession:
     """
-    Step 3b: Save drag-and-drop weight adjustments.
-    If confirm=True, locks the record (status = 'confirmed').
-    Validates weights sum to 100.
+    Step 3b: Save weight configurations set by the employee for their selected KRAs and KPIs.
+    
+    1. Validates that the sum of KRA weights equals exactly 100%.
+    2. Validates that the sum of KPI weights under each specific KRA equals exactly 100%.
+    3. Normalizes minor rounding differences to ensure exact summation to 100%.
+    4. If confirm=True, transitions generation_step and status to 'confirmed' and logs timestamps.
+       (The background enrichment jobs are skipped here as they run once the manager/HR approves the session).
     """
     total = sum(k.get("weight", 0) for k in kras_with_weights)
     if abs(total - 100) > 1:  # Allow ±1 for rounding
@@ -661,7 +725,7 @@ async def save_weights_and_confirm(
     if not record:
         raise StepError("No KRA/KPI session found.")
 
-    # Normalize to exactly 100
+    # Normalize KRA weights to exactly 100
     if total != 100:
         diff = 100 - total
         kras_with_weights[-1]["weight"] = kras_with_weights[-1]["weight"] + diff
@@ -677,22 +741,6 @@ async def save_weights_and_confirm(
 
     await db.commit()
     await db.refresh(record)
-
-    if confirm:
-        import asyncio
-        from app.services.enrichment_service import run_employee_summary
-        from app.core.database import AsyncSessionLocal
-        
-        async def _run_kra_enrichment_bg(emp_id: str):
-            async with AsyncSessionLocal() as bg_db:
-                try:
-                    await run_employee_summary(bg_db, emp_id)
-                except Exception as _e:
-                    import logging
-                    logger = logging.getLogger(__name__)
-                    logger.error(f"KRA summary enrichment task failed for employee {emp_id}: {_e}")
-        
-        asyncio.create_task(_run_kra_enrichment_bg(str(record.employee_id)))
 
     return record
 

@@ -1,6 +1,6 @@
 """
 Offline Pipeline & Enrichment Services.
-
+Background job to update our database with LLM-enriched insights for each employee and department.
 Implements:
 1. Per-task automation scoring (LLM)
 2. Per-employee work summary (LLM)

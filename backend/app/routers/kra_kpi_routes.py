@@ -827,6 +827,20 @@ async def review_kra_kpi(
     await db.commit()
     await db.refresh(record)
 
+    # Trigger background offline enrichment pipeline if both JD and KRA/KPI are approved
+    if record.status in ["sent_to_hr", "approved"]:
+        import asyncio
+        from app.crud.jd_crud import _run_offline_enrichment_pipeline
+        import uuid
+        try:
+            jd_uuid = uuid.UUID(record.jd_session_id)
+            asyncio.create_task(
+                _run_offline_enrichment_pipeline(jd_uuid, record.employee_id)
+            )
+            logger.info(f"[KRA-KPI APPROVED] Triggered background offline enrichment for Employee {record.employee_id}")
+        except Exception as e:
+            logger.error(f"Failed to trigger offline enrichment pipeline on KRA/KPI approval: {e}")
+
     # 3. Invalidate Redis cache
     from app.core.cache import invalidate_pattern
     await invalidate_pattern("cache:jd_list:*")

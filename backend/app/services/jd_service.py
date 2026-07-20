@@ -1,14 +1,5 @@
 # backend/app/services/jd_service.py
-#
-# Interview service layer — orchestrates conversation turns via the LangGraph
-# multi-agent system and handles JD generation with Gemini Pro.
-#
-# Key responsibilities:
-#   - LLM instance management (JD generation only; interview LLM lives in agents/interview.py)
-#   - JSON response parsing with multi-strategy fallback
-#   - Post-processing pipeline (_process_llm_response) for insight merging & progress tracking
-#   - Streaming and synchronous turn handlers that delegate to agents/graph.py
-
+# all the imports here 
 import asyncio
 import json
 import logging

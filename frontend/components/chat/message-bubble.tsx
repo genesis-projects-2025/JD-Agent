@@ -92,33 +92,13 @@ export default function MessageBubble({
 
   const [isReadyActionTaken, setIsReadyActionTaken] = useState(false);
 
-  // ── Typewriter effect state ───────────────────────────────────────────────
-  const [displayText, setDisplayText] = useState(() =>
-    !message.isStreaming ? message.text : ""
-  );
-  const [isTyping, setIsTyping] = useState(false);
+  // ── Typewriter effect state (Simplified for real-time responsiveness) ──────
+  const [displayText, setDisplayText] = useState(message.text);
   const fullText = message.text;
-  const EFFECT_SPEED = 20;
 
   useEffect(() => {
-    if (displayText.length < fullText.length) {
-      setIsTyping(true);
-      const timeout = setTimeout(() => {
-        const gap = fullText.length - displayText.length;
-        const charsToAdd = gap > 20 ? 5 : 1;
-        setDisplayText(fullText.substring(0, displayText.length + charsToAdd));
-      }, EFFECT_SPEED);
-      return () => clearTimeout(timeout);
-    } else {
-      setIsTyping(false);
-    }
-  }, [displayText, fullText]);
-
-  useEffect(() => {
-    if (!message.isStreaming && displayText.length === 0 && fullText.length > 0) {
-      setDisplayText(fullText);
-    }
-  }, [message.isStreaming, fullText, displayText.length]);
+    setDisplayText(fullText);
+  }, [fullText]);
 
   // ── Sync props to state ───────────────────────────────────────────────────
   useEffect(() => {
@@ -273,7 +253,7 @@ export default function MessageBubble({
                 </span>
               </div>
             ) : null}
-            {message.isStreaming && displayText.length > 0 && isTyping && (
+            {message.isStreaming && displayText && displayText.length > 0 && (
               <span className="inline-block w-1.5 h-4 bg-primary-500 animate-pulse ml-1 align-middle" />
             )}
           </div>

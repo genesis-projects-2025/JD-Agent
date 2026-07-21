@@ -152,8 +152,9 @@ export function useKraKpiChat(jdSessionId: string) {
             content: JSON.stringify(doneData),
           };
           processResponse(doneData, [...updatedHistory, assistantHistoryItem], false);
+          const empId = getOrCreateEmployeeId();
           // Reload record to reflect latest changes
-          fetchKRAKPI(jdSessionId).then(setRecord).catch(() => null);
+          fetchKRAKPI(jdSessionId, empId).then(setRecord).catch(() => null);
         },
         (err) => {
           setIsGenerating(false);
@@ -173,7 +174,8 @@ export function useKraKpiChat(jdSessionId: string) {
     setIsGenerating(true);
     setError(null);
     try {
-      await selectKRAs(jdSessionId, ids);
+      const empId = getOrCreateEmployeeId();
+      await selectKRAs(jdSessionId, ids, empId);
       setIsGenerating(false);
       await sendTextMessage(`I select the following KRAs:\n${titles.map(t => `- ${t}`).join("\n")}`);
     } catch (e: any) {
@@ -186,7 +188,8 @@ export function useKraKpiChat(jdSessionId: string) {
     setIsGenerating(true);
     setError(null);
     try {
-      await selectKPIs(jdSessionId, selectedKpis);
+      const empId = getOrCreateEmployeeId();
+      await selectKPIs(jdSessionId, selectedKpis, empId);
       setIsGenerating(false);
       await sendTextMessage(summaryText);
     } catch (e: any) {
@@ -199,7 +202,8 @@ export function useKraKpiChat(jdSessionId: string) {
     setIsGenerating(true);
     setError(null);
     try {
-      await saveKRAWeights(jdSessionId, kras, true);
+      const empId = getOrCreateEmployeeId();
+      await saveKRAWeights(jdSessionId, kras, true, empId);
       setIsGenerating(false);
       await sendTextMessage("I have adjusted and confirmed the weights for my KRAs and KPIs.");
     } catch (e: any) {
@@ -216,8 +220,8 @@ export function useKraKpiChat(jdSessionId: string) {
         setHydrated(false);
         setError(null);
         try {
-          let existing = await fetchKRAKPI(jdSessionId).catch(() => null);
           const empId = getOrCreateEmployeeId();
+          let existing = await fetchKRAKPI(jdSessionId, empId).catch(() => null);
 
           // Auto-generate session with bypass manager = true if not exists
           if (!existing) {

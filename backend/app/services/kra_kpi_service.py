@@ -353,9 +353,41 @@ def _build_missing_message(details: dict) -> str:
 # ── DB Helpers ────────────────────────────────────────────────────────────────
 
 async def get_kra_kpi_by_jd_session(
-    db: AsyncSession, jd_session_id: str,
+    db: AsyncSession, jd_session_id: str, employee_id: str | None = None,
 ) -> KRAKPISession | None:
     from sqlalchemy.orm import selectinload
+
+    if employee_id:
+        # 1. Primary: Exact match on BOTH employee_id and jd_session_id
+        result = await db.execute(
+            select(KRAKPISession)
+            .where(
+                KRAKPISession.employee_id == employee_id,
+                KRAKPISession.jd_session_id == jd_session_id
+            )
+            .options(selectinload(KRAKPISession.conversation_turns))
+            .order_by(KRAKPISession.updated_at.desc())
+        )
+        rec = result.scalars().first()
+        if rec:
+            return rec
+
+        # 2. Secondary: Match by employee_id alone (handles cloned / role-template JDs)
+        result_emp = await db.execute(
+            select(KRAKPISession)
+            .where(KRAKPISession.employee_id == employee_id)
+            .options(selectinload(KRAKPISession.conversation_turns))
+            .order_by(KRAKPISession.updated_at.desc())
+        )
+        rec_emp = result_emp.scalars().first()
+        if rec_emp:
+            return rec_emp
+
+        # If employee_id was explicitly supplied but no session exists for THIS employee,
+        # return None to prevent leaking another employee's session!
+        return None
+
+    # Fallback if employee_id was not specified
     result = await db.execute(
         select(KRAKPISession)
         .where(KRAKPISession.jd_session_id == jd_session_id)
@@ -513,24 +545,17 @@ async def select_kras_and_generate_kpis(
     db: AsyncSession,
     jd_session_id: str,
     selected_kra_ids: list[str],
+    employee_id: str | None = None,
 ) -> KRAKPISession:
     """
     Step 2: Handles employee selection of KRAs and generates KPI suggestions.
-    
-    1. Validates that at least 1 KRA is selected.
-    2. Resolves the full KRA details (title/description) from the generated suggestions.
-    3. Fetches past employee skill ratings to identify low scores (<6.0/10) as performance "gaps".
-    4. Invokes the Gemini-based agent (`generate_kpi_suggestions_for_kra`) to generate 6-7 custom KPIs
-       for each selected KRA (running them in parallel to optimize response latency).
-    5. Saves KPI suggestions to the session, clearing prior selections.
-    6. Sets `generation_step` to `"kpi_selection"`.
     """
 
     # Validation: at least 1 KRA must be selected
     if len(selected_kra_ids) < 1:
         raise StepError("Please select at least 1 KRA.")
 
-    record = await get_kra_kpi_by_jd_session(db, jd_session_id)
+    record = await get_kra_kpi_by_jd_session(db, jd_session_id, employee_id=employee_id)
     if not record:
         raise StepError("No KRA/KPI session found. Generate KRA suggestions first.")
     if record.generation_step not in ("kra_selection", "kpi_selection"):
@@ -623,17 +648,12 @@ async def select_kpis_and_build_final(
     db: AsyncSession,
     jd_session_id: str,
     selected_kpi_ids: dict[str, list[str]],
+    employee_id: str | None = None,
 ) -> KRAKPISession:
     """
     Step 3a: Handles employee selection of KPIs for each chosen KRA.
-    
-    1. Validates that at least 1 KPI is selected for each active KRA.
-    2. Resolves selected KPI IDs into full KPI objects.
-    3. Builds the final KRA/KPI JSON structure with weights initialized to None
-       (ready for drag-and-drop weight adjustment by the employee in Step 3b).
-    4. Sets `generation_step` to `"weight_adjustment"`.
     """
-    record = await get_kra_kpi_by_jd_session(db, jd_session_id)
+    record = await get_kra_kpi_by_jd_session(db, jd_session_id, employee_id=employee_id)
     if not record:
         raise StepError("No KRA/KPI session found.")
     if record.generation_step not in ("kpi_selection", "weight_adjustment"):
@@ -694,15 +714,10 @@ async def save_weights_and_confirm(
     jd_session_id: str,
     kras_with_weights: list[dict],
     confirm: bool = False,
+    employee_id: str | None = None,
 ) -> KRAKPISession:
     """
     Step 3b: Save weight configurations set by the employee for their selected KRAs and KPIs.
-    
-    1. Validates that the sum of KRA weights equals exactly 100%.
-    2. Validates that the sum of KPI weights under each specific KRA equals exactly 100%.
-    3. Normalizes minor rounding differences to ensure exact summation to 100%.
-    4. If confirm=True, transitions generation_step and status to 'confirmed' and logs timestamps.
-       (The background enrichment jobs are skipped here as they run once the manager/HR approves the session).
     """
     total = sum(k.get("weight", 0) for k in kras_with_weights)
     if abs(total - 100) > 1:  # Allow ±1 for rounding
@@ -721,7 +736,7 @@ async def save_weights_and_confirm(
                 diff = 100 - kpi_total
                 kpis[-1]["weight"] = kpis[-1]["weight"] + diff
 
-    record = await get_kra_kpi_by_jd_session(db, jd_session_id)
+    record = await get_kra_kpi_by_jd_session(db, jd_session_id, employee_id=employee_id)
     if not record:
         raise StepError("No KRA/KPI session found.")
 

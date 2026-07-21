@@ -840,8 +840,9 @@ export async function generateKRASuggestions(
   return data;
 }
 
-export async function fetchKRAKPI(jdSessionId: string): Promise<KRAKPIRecord | null> {
-  const res = await fetch(`${API_URL}/kra-kpi/${jdSessionId}`);
+export async function fetchKRAKPI(jdSessionId: string, employeeId?: string): Promise<KRAKPIRecord | null> {
+  const query = employeeId ? `?employee_id=${encodeURIComponent(employeeId)}` : "";
+  const res = await fetch(`${API_URL}/kra-kpi/${jdSessionId}${query}`);
   if (res.status === 404) return null;
   if (!res.ok) throw new Error("Failed to fetch KRA/KPI");
   return res.json();
@@ -850,8 +851,10 @@ export async function fetchKRAKPI(jdSessionId: string): Promise<KRAKPIRecord | n
 export async function selectKRAs(
   jdSessionId: string,
   selectedKraIds: string[],
+  employeeId?: string,
 ): Promise<{ status: string; generation_step: GenerationStep; kpi_suggestions: KRAKPIRecord["kpi_suggestions"] }> {
-  const res = await fetch(`${API_URL}/kra-kpi/${jdSessionId}/select-kras`, {
+  const query = employeeId ? `?employee_id=${encodeURIComponent(employeeId)}` : "";
+  const res = await fetch(`${API_URL}/kra-kpi/${jdSessionId}/select-kras${query}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ selected_kra_ids: selectedKraIds }),
@@ -866,8 +869,10 @@ export async function selectKRAs(
 export async function selectKPIs(
   jdSessionId: string,
   selectedKpiIds: Record<string, string[]>,
+  employeeId?: string,
 ): Promise<{ status: string; generation_step: GenerationStep; kras: KRAKPIRecord["kras"] }> {
-  const res = await fetch(`${API_URL}/kra-kpi/${jdSessionId}/select-kpis`, {
+  const query = employeeId ? `?employee_id=${encodeURIComponent(employeeId)}` : "";
+  const res = await fetch(`${API_URL}/kra-kpi/${jdSessionId}/select-kpis${query}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ selected_kpi_ids: selectedKpiIds }),
@@ -883,8 +888,10 @@ export async function saveKRAWeights(
   jdSessionId: string,
   kras: FinalKRA[],
   confirm = false,
+  employeeId?: string,
 ): Promise<{ status: string; generation_step: GenerationStep; kras: KRAKPIRecord["kras"] }> {
-  const res = await fetch(`${API_URL}/kra-kpi/${jdSessionId}/weights`, {
+  const query = employeeId ? `?employee_id=${encodeURIComponent(employeeId)}` : "";
+  const res = await fetch(`${API_URL}/kra-kpi/${jdSessionId}/weights${query}`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ kras, confirm }),
@@ -898,8 +905,10 @@ export async function saveKRAWeights(
 
 export async function sendKRAKPIForApproval(
   jdSessionId: string,
+  employeeId?: string,
 ): Promise<{ status: string; message: string; kra_kpi_status: string }> {
-  const res = await fetch(`${API_URL}/kra-kpi/${jdSessionId}/send-for-approval`, {
+  const query = employeeId ? `?employee_id=${encodeURIComponent(employeeId)}` : "";
+  const res = await fetch(`${API_URL}/kra-kpi/${jdSessionId}/send-for-approval${query}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
   });
@@ -948,13 +957,15 @@ export async function addCustomKRA(
   title: string,
   description: string,
   selectedIds?: string[],
+  employeeId?: string,
 ): Promise<{
   status: string;
   kra: KRASuggestion;
   selected_kra_ids: string[];
   kra_suggestions: any;
 }> {
-  const res = await fetch(`${API_URL}/kra-kpi/${jdSessionId}/custom-kra`, {
+  const query = employeeId ? `?employee_id=${encodeURIComponent(employeeId)}` : "";
+  const res = await fetch(`${API_URL}/kra-kpi/${jdSessionId}/custom-kra${query}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ title, description, selected_ids: selectedIds }),
@@ -974,13 +985,15 @@ export async function addCustomKPI(
   measurementMethod: string,
   frequency: string,
   selectedIds?: Record<string, string[]>,
+  employeeId?: string,
 ): Promise<{
   status: string;
   kpi: KPISuggestion;
   selected_kpi_ids: Record<string, string[]>;
   kpi_suggestions: any;
 }> {
-  const res = await fetch(`${API_URL}/kra-kpi/${jdSessionId}/custom-kpi`, {
+  const query = employeeId ? `?employee_id=${encodeURIComponent(employeeId)}` : "";
+  const res = await fetch(`${API_URL}/kra-kpi/${jdSessionId}/custom-kpi${query}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({

@@ -2917,7 +2917,7 @@ export const KRAKPIPanel = forwardRef<any, KRAKPIPanelProps>(
     setError(null);
     try {
       const [existing, status, jdDetail] = await Promise.all([
-        fetchKRAKPI(jdSessionId).catch(() => null),
+        fetchKRAKPI(jdSessionId, employeeId).catch(() => null),
         fetchKRAKPIStatus(jdSessionId, employeeId).catch(() => null),
         fetchJD(jdSessionId).catch(() => null),
       ]);

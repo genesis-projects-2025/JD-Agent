@@ -132,7 +132,7 @@ async def get_status(
             current_step="uploaded",
         )
 
-    record = await get_kra_kpi_by_jd_session(db, jd_session_id)
+    record = await get_kra_kpi_by_jd_session(db, jd_session_id, employee_id=employee_id)
     current_step = record.generation_step if record else None
     status_val = record.status if record else None
 
@@ -190,23 +190,27 @@ async def generate_kra_suggestions_endpoint(
 
 
 @router.get("/{jd_session_id}")
-async def get_kra_kpi(jd_session_id: str, db: AsyncSession = Depends(get_db)):
+async def get_kra_kpi(
+    jd_session_id: str,
+    employee_id: str | None = Query(None),
+    db: AsyncSession = Depends(get_db)
+):
     """Fetch the current KRA/KPI record at any step."""
     from sqlalchemy import select
     from app.models.kra_kpi_model import UploadedKRAKPI
     from app.models.jd_session_model import JDSession
     import uuid
 
-    # Try to find employee_id from jd_session_id
-    employee_id = None
-    try:
-        jd_uuid = uuid.UUID(jd_session_id)
-        jd_res = await db.execute(select(JDSession).where(JDSession.id == jd_uuid))
-        jd_session = jd_res.scalars().first()
-        if jd_session:
-            employee_id = jd_session.employee_id
-    except Exception:
-        pass
+    # Try to find employee_id from jd_session_id if not explicitly provided
+    if not employee_id:
+        try:
+            jd_uuid = uuid.UUID(jd_session_id)
+            jd_res = await db.execute(select(JDSession).where(JDSession.id == jd_uuid))
+            jd_session = jd_res.scalars().first()
+            if jd_session:
+                employee_id = jd_session.employee_id
+        except Exception:
+            pass
 
     if employee_id:
         # Check if there is an admin-uploaded KRA/KPI for this employee
@@ -236,7 +240,7 @@ async def get_kra_kpi(jd_session_id: str, db: AsyncSession = Depends(get_db)):
                 "updated_at": uploaded.updated_at.isoformat() if uploaded.updated_at else None,
             }
 
-    record = await get_kra_kpi_by_jd_session(db, jd_session_id)
+    record = await get_kra_kpi_by_jd_session(db, jd_session_id, employee_id=employee_id)
     if not record:
         raise HTTPException(status_code=404, detail={"error": "not_found", "message": "No KRA/KPI generated yet."})
     return record.to_dict()
@@ -246,6 +250,7 @@ async def get_kra_kpi(jd_session_id: str, db: AsyncSession = Depends(get_db)):
 async def select_kras_endpoint(
     jd_session_id: str,
     request: SelectKRAsRequest,
+    employee_id: str | None = Query(None),
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -257,6 +262,7 @@ async def select_kras_endpoint(
             db=db,
             jd_session_id=jd_session_id,
             selected_kra_ids=request.selected_kra_ids,
+            employee_id=employee_id,
         )
         return {
             "status": "success",
@@ -275,6 +281,7 @@ async def select_kras_endpoint(
 async def select_kpis_endpoint(
     jd_session_id: str,
     request: SelectKPIsRequest,
+    employee_id: str | None = Query(None),
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -286,6 +293,7 @@ async def select_kpis_endpoint(
             db=db,
             jd_session_id=jd_session_id,
             selected_kpi_ids=request.selected_kpi_ids,
+            employee_id=employee_id,
         )
         return {
             "status": "success",
@@ -303,6 +311,7 @@ async def select_kpis_endpoint(
 async def add_custom_kra(
     jd_session_id: str,
     request: CustomKRARequest,
+    employee_id: str | None = Query(None),
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -312,7 +321,7 @@ async def add_custom_kra(
     from sqlalchemy.orm.attributes import flag_modified
     import uuid
 
-    record = await get_kra_kpi_by_jd_session(db, jd_session_id)
+    record = await get_kra_kpi_by_jd_session(db, jd_session_id, employee_id=employee_id)
     if not record:
         raise HTTPException(status_code=404, detail="No KRA/KPI session found.")
 
@@ -359,6 +368,7 @@ async def add_custom_kra(
 async def add_custom_kpi(
     jd_session_id: str,
     request: CustomKPIRequest,
+    employee_id: str | None = Query(None),
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -368,7 +378,7 @@ async def add_custom_kpi(
     from sqlalchemy.orm.attributes import flag_modified
     import uuid
 
-    record = await get_kra_kpi_by_jd_session(db, jd_session_id)
+    record = await get_kra_kpi_by_jd_session(db, jd_session_id, employee_id=employee_id)
     if not record:
         raise HTTPException(status_code=404, detail="No KRA/KPI session found.")
 
@@ -438,6 +448,7 @@ async def add_custom_kpi(
 async def save_weights_endpoint(
     jd_session_id: str,
     request: SaveWeightsRequest,
+    employee_id: str | None = Query(None),
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -450,6 +461,7 @@ async def save_weights_endpoint(
             jd_session_id=jd_session_id,
             kras_with_weights=request.kras,
             confirm=request.confirm,
+            employee_id=employee_id,
         )
         return {
             "status": "confirmed" if request.confirm else "saved",
@@ -467,6 +479,7 @@ async def save_weights_endpoint(
 @router.post("/{jd_session_id}/send-for-approval")
 async def send_for_approval_endpoint(
     jd_session_id: str,
+    employee_id: str | None = Query(None),
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -475,7 +488,7 @@ async def send_for_approval_endpoint(
     Only allowed when generation_step == 'confirmed' and weights sum to 100.
     """
     from datetime import datetime, timezone
-    record = await get_kra_kpi_by_jd_session(db, jd_session_id)
+    record = await get_kra_kpi_by_jd_session(db, jd_session_id, employee_id=employee_id)
     if not record:
         raise HTTPException(status_code=404, detail="No KRA/KPI session found.")
     if record.generation_step != "confirmed":

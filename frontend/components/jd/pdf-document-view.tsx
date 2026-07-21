@@ -89,6 +89,7 @@ export function PdfDocumentView({ data, roleTitle, dept }: Props) {
   const location = getField(data, "location");
   const reportingTo =
     getField(data, "reports_to", "reporting_to") ||
+    data?.working_relationships?.reports_to ||
     data?.working_relationships?.reporting_to ||
     data?.team_structure?.reports_to || "—";
 
@@ -100,13 +101,13 @@ export function PdfDocumentView({ data, roleTitle, dept }: Props) {
   const internal = getStakeholder(data, "internal") || "—";
   const external = getStakeholder(data, "external") || "Not applicable";
   const purpose = getField(data, "purpose", "role_summary");
-  const responsibilities = getArray(data, "responsibilities", "key_responsibilities");
-  const skills = getArray(data, "skills", "technical_skills");
-  const tools = getArray(data, "tools", "tools_used", "tools_and_technologies");
+  const responsibilities = getArray(data, "responsibilities", "key_responsibilities", "tasks", "priority_tasks");
+  const skills = getArray(data, "skills", "technical_skills", "required_skills");
+  const tools = getArray(data, "tools", "tools_used", "tools_and_technologies", "technologies");
 
   // Safe extraction taking into account nested qualifications map
   const rawEducation = data.qualifications?.education || getField(data, "education") || data?.talent_bar?.education;
-  const rawExperience = data.qualifications?.experience || getField(data, "experience") || data?.talent_bar?.experience;
+  const rawExperience = data.qualifications?.experience || data.qualifications?.experience_years || getField(data, "experience", "experience_years") || data?.talent_bar?.experience;
 
   const eduExp = [rawEducation, rawExperience].filter(Boolean).map((s, i) => (
     <React.Fragment key={i}>

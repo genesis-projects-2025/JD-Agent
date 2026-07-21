@@ -193,6 +193,9 @@ def transform_reference_to_jd_session_schema(ref_data: dict) -> dict:
 
     reporting_to_val = wr.get("reports_to") or wr.get("reporting_to") or ref_data.get("reports_to") or ref_data.get("reporting_to") or ""
 
+    resps = safe_get_list(ref_data, "tasks") or safe_get_list(ref_data, "responsibilities") or safe_get_list(ref_data, "key_responsibilities")
+    p_tasks = safe_get_list(ref_data, "priority_tasks") or resps[:3]
+
     return {
         "employee_information": {
             "title": title_val,
@@ -207,7 +210,9 @@ def transform_reference_to_jd_session_schema(ref_data: dict) -> dict:
         "job_level": lvl_val,
         "purpose": ref_data.get("purpose") or ref_data.get("role_summary") or "",
         "role_summary": ref_data.get("purpose") or ref_data.get("role_summary") or "",
-        "responsibilities": safe_get_list(ref_data, "tasks") or safe_get_list(ref_data, "responsibilities") or safe_get_list(ref_data, "key_responsibilities"),
+        "responsibilities": resps,
+        "tasks": resps,
+        "priority_tasks": p_tasks,
         "skills": safe_get_list(ref_data, "skills") or safe_get_list(ref_data, "technical_skills") or safe_get_list(ref_data, "required_skills"),
         "tools": combined_tools,
         "education": qual.get("education") or ref_data.get("education") or "",

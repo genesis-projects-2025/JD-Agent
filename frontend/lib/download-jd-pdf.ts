@@ -90,6 +90,7 @@ export function downloadJDPdfClient(data: any, roleTitle?: string, dept?: string
   const location     = esc(getField(data, "location"));
   const reportingTo  = esc(
     getField(data, "reports_to", "reporting_to") ||
+    data?.working_relationships?.reports_to ||
     data?.working_relationships?.reporting_to ||
     data?.team_structure?.reports_to || "—"
   );
@@ -100,11 +101,11 @@ export function downloadJDPdfClient(data: any, roleTitle?: string, dept?: string
   const internal     = esc(getStakeholder(data, "internal") || "—");
   const external     = esc(getStakeholder(data, "external") || "Not applicable");
   const purpose      = esc(getField(data, "purpose", "role_summary"));
-  const responsibilities = getArray(data, "responsibilities", "key_responsibilities");
+  const responsibilities = getArray(data, "responsibilities", "key_responsibilities", "tasks", "priority_tasks");
   const skills       = getArray(data, "skills", "technical_skills", "required_skills");
-  const tools        = getArray(data, "tools", "tools_used", "tools_and_technologies");
-  const education    = esc(getField(data, "education") || data?.talent_bar?.education || "");
-  const experience   = esc(getField(data, "experience") || data?.talent_bar?.experience || "");
+  const tools        = getArray(data, "tools", "tools_used", "tools_and_technologies", "technologies");
+  const education    = esc(data.qualifications?.education || getField(data, "education") || data?.talent_bar?.education || "");
+  const experience   = esc(data.qualifications?.experience || data.qualifications?.experience_years || getField(data, "experience", "experience_years") || data?.talent_bar?.experience || "");
   const eduExp       = [education, experience].filter(Boolean).join("<br/><br/>");
   const safeTitle    = esc(roleTitle || "Job Description");
 

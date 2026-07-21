@@ -10,6 +10,7 @@ import Link from 'next/link'
 import { downloadJDPdfClient } from '@/lib/download-jd-pdf'
 import { formatDateTime } from '@/lib/format-date'
 import { PdfDocumentView } from '@/components/jd/pdf-document-view'
+import { EmployeeAutocomplete } from '@/components/ui/employee-autocomplete'
 import {
   fetchAdminReferenceJDs,
   fetchAdminReferenceJDPreview,
@@ -667,18 +668,18 @@ export default function JDLibraryPage() {
               </div>
             </div>
             <div className="space-y-6">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-2">Employee ID *</label>
-                  <input type="text" value={employeeId} onChange={(e) => setEmployeeId(e.target.value)} placeholder="e.g., EMP001"
-                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500 transition-all" disabled={uploading} />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-2">Employee Name *</label>
-                  <input type="text" value={employeeName} onChange={(e) => setEmployeeName(e.target.value)} placeholder="e.g., John Manager"
-                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500 transition-all" disabled={uploading} />
-                </div>
-              </div>
+              <EmployeeAutocomplete
+                employeeId={employeeId}
+                employeeName={employeeName}
+                onIdChange={setEmployeeId}
+                onNameChange={setEmployeeName}
+                onSelect={(emp) => {
+                  setEmployeeId(emp.emp_code);
+                  setEmployeeName(emp.emp_name);
+                }}
+                disabled={uploading}
+                theme="blue"
+              />
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-2">Select Files (PDF or DOCX) *</label>
                 <div className={`border-2 border-dashed rounded-xl p-10 text-center cursor-pointer transition-all ${files.length > 0 ? 'border-blue-400 bg-blue-50/30' : 'border-slate-300 hover:border-blue-400 hover:bg-slate-50'}`}
@@ -804,18 +805,18 @@ export default function JDLibraryPage() {
               </div>
 
               <div className="space-y-6">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-2">Employee ID *</label>
-                    <input type="text" value={kraEmployeeId} onChange={(e) => setKraEmployeeId(e.target.value)} placeholder="e.g., EMP001"
-                      className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-500 transition-all" disabled={kraUploading || analyzingKra} />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-2">Employee Name *</label>
-                    <input type="text" value={kraEmployeeName} onChange={(e) => setKraEmployeeName(e.target.value)} placeholder="e.g., John Manager"
-                      className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-500 transition-all" disabled={kraUploading || analyzingKra} />
-                  </div>
-                </div>
+                <EmployeeAutocomplete
+                  employeeId={kraEmployeeId}
+                  employeeName={kraEmployeeName}
+                  onIdChange={setKraEmployeeId}
+                  onNameChange={setKraEmployeeName}
+                  onSelect={(emp) => {
+                    setKraEmployeeId(emp.emp_code);
+                    setKraEmployeeName(emp.emp_name);
+                  }}
+                  disabled={kraUploading || analyzingKra}
+                  theme="indigo"
+                />
 
                 {kraInputMode === 'file' ? (
                   <>

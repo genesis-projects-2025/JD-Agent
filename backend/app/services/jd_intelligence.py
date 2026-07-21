@@ -333,7 +333,7 @@ class JDIntelligenceService:
             if not key.startswith("_") and value:
                 if isinstance(value, list):
                     if value:  # Only append non-empty lists
-                        text_parts.append(f"{key}: {', '.join(value)}")
+                        text_parts.append(f"{key}:\n  - " + "\n  - ".join(str(v) for v in value))
                 elif isinstance(value, dict):
                     if value:  # Flatten nested dictionaries for cleaner reading
                         dict_items = []
@@ -490,6 +490,25 @@ class JDIntelligenceService:
 
             # Parse JSON
             structured_data = json.loads(content)
+
+            # Normalize alias fields to ensure compatibility with all UI viewers
+            tasks_list = structured_data.get("tasks") or structured_data.get("responsibilities") or structured_data.get("key_responsibilities") or []
+            structured_data["tasks"] = tasks_list
+            structured_data["responsibilities"] = tasks_list
+
+            if "qualifications" not in structured_data or not isinstance(structured_data["qualifications"], dict):
+                structured_data["qualifications"] = {}
+            qual = structured_data["qualifications"]
+            exp = qual.get("experience_years") or qual.get("experience") or structured_data.get("experience") or ""
+            qual["experience"] = exp
+            qual["experience_years"] = exp
+
+            if "working_relationships" not in structured_data or not isinstance(structured_data["working_relationships"], dict):
+                structured_data["working_relationships"] = {}
+            wr = structured_data["working_relationships"]
+            reports = wr.get("reports_to") or wr.get("reporting_to") or structured_data.get("reports_to") or ""
+            wr["reports_to"] = reports
+            wr["reporting_to"] = reports
 
             # Validate required fields
             required_fields = ["role_title", "department", "level", "purpose"]

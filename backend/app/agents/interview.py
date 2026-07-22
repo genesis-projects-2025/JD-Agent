@@ -181,6 +181,39 @@ _STOP_WORDS = {
     "know",
     "think",
     "sure",
+    # Domain & Interview Generic Terms (prevent false positive dupe matches)
+    "role",
+    "job",
+    "task",
+    "tasks",
+    "work",
+    "responsibilities",
+    "responsibility",
+    "daily",
+    "regular",
+    "company",
+    "team",
+    "department",
+    "main",
+    "primary",
+    "describe",
+    "share",
+    "details",
+    "detail",
+    "project",
+    "projects",
+    "process",
+    "processes",
+    "provide",
+    "used",
+    "using",
+    "uses",
+    "another",
+    "other",
+    "good",
+    "help",
+    "make",
+    "makes",
 }
 
 
@@ -216,7 +249,7 @@ def _is_question_repeated(
 
     Two-layer check:
       1. Hash match (fast) — exact normalized match
-      2. Keyword overlap (semantic) — >60% keyword overlap with any previous question
+      2. Keyword overlap (semantic) — >70% keyword overlap with any previous question
     """
     if not questions_asked:
         return False
@@ -237,8 +270,8 @@ def _is_question_repeated(
                 continue
             overlap = len(new_keywords & prev_keywords)
             max_possible = max(1, min(len(new_keywords), len(prev_keywords)))
-            # Trigger semantic duplicate at 40% overlap instead of 50% for aggressive dupe-catching
-            if (overlap / max_possible) >= 0.40:
+            # Require >= 70% overlap of specific content keywords to flag as duplicate
+            if (overlap / max_possible) >= 0.70:
                 logger.debug(
                     f"  [DEDUP] ⚠ Semantic overlap detected ({overlap}/{max_possible} keywords)"
                 )
@@ -1468,12 +1501,10 @@ Keep it professional and brief."""
                 user_id=employee_id
             )
             callbacks = [handler] if handler else []
-
-            duplicate_found = False
-            buffer_flushed = False
+            config = {"callbacks": callbacks} if callbacks else None
 
             try:
-                async for chunk in _interview_llm.astream(messages, callbacks=callbacks):
+                async for chunk in _interview_llm.astream(messages, config=config):
                     if chunk.content:
                         if is_first_chunk:
                             ttfb = time.perf_counter() - llm_start_time
@@ -1481,27 +1512,8 @@ Keep it professional and brief."""
                             is_first_chunk = False
                         response_chunks.append(chunk.content)
                         current_text = "".join(response_chunks)
-
-                        # Buffer check: evaluate once we have at least 50 characters
-                        if not buffer_flushed and len(current_text) >= 50:
-                            if _is_question_repeated(current_text, questions_asked, previous_questions_text):
-                                logger.info(f"  [DEDUP] Stream-time duplicate detected: '{current_text}'")
-                                duplicate_found = True
-                                break # Stop the duplicate stream immediately
-                            else:
-                                buffer_flushed = True
-
-                        if buffer_flushed:
-                            yield {"type": "chunk", "content": current_text}
-
-                # Flush any remaining content if stream ended early without reaching 50 chars
-                if not duplicate_found and not buffer_flushed:
-                    final_text = "".join(response_chunks)
-                    if _is_question_repeated(final_text, questions_asked, previous_questions_text):
-                        duplicate_found = True
-                    else:
-                        buffer_flushed = True
-                        yield {"type": "chunk", "content": final_text}
+                        yield {"type": "chunk", "content": current_text}
+                response_text = "".join(response_chunks)
 
             except Exception as e:
                 logger.error(f"[Interview] Streaming failed: {e}")
@@ -1518,69 +1530,6 @@ Keep it professional and brief."""
                         "content": f"I had a brief connection issue. Could you tell me more about: {friendly_msg}",
                     }
                 return
-
-            # Handle duplicate detection and fallback retry
-            if duplicate_found:
-                logger.info("  [DEDUP] Initiating in-stream retry to generate a unique question.")
-                yield {"type": "status", "content": "Refining question details..."}
-
-                # Instruct the retry model to find a new angle
-                dedup_msgs = messages + [
-                    AIMessage(content="".join(response_chunks)),
-                    HumanMessage(
-                        content=(
-                            "SYSTEM: Your previous question was already asked. "
-                            "Ask a DIFFERENT question about something NOT yet covered. "
-                            "Check the DATA ALREADY COLLECTED section."
-                        )
-                    ),
-                ]
-
-                retry_chunks = []
-                retry_duplicate = False
-                retry_flushed = False
-
-                try:
-                    async for chunk in _response_llm.astream(dedup_msgs, callbacks=callbacks):
-                        if chunk.content:
-                            retry_chunks.append(chunk.content)
-                            current_retry_text = "".join(retry_chunks)
-
-                            if not retry_flushed and len(current_retry_text) >= 50:
-                                if _is_question_repeated(current_retry_text, questions_asked, previous_questions_text):
-                                    logger.warning("  [DEDUP] Double duplicate detected during retry. Aborting.")
-                                    retry_duplicate = True
-                                    break
-                                else:
-                                    retry_flushed = True
-
-                            if retry_flushed:
-                                yield {"type": "chunk", "content": current_retry_text}
-
-                    # Final flush for retry stream
-                    if not retry_duplicate and not retry_flushed:
-                        final_retry_text = "".join(retry_chunks)
-                        if _is_question_repeated(final_retry_text, questions_asked, previous_questions_text):
-                            retry_duplicate = True
-                        else:
-                            retry_flushed = True
-                            yield {"type": "chunk", "content": final_retry_text}
-
-                    if retry_duplicate:
-                        # Direct fallback copy for better UI on double-failures
-                        fallback_q = _get_silent_agent_response(agent_name, insights) or "Could you share some more details about your day-to-day workflow?"
-                        yield {"type": "chunk", "content": fallback_q}
-                        response_text = fallback_q
-                    else:
-                        response_text = "".join(retry_chunks)
-
-                except Exception as e:
-                    logger.error(f"[Interview] Retry streaming failed: {e}")
-                    fallback_q = "Could you tell me more about your responsibilities in this role?"
-                    yield {"type": "chunk", "content": fallback_q}
-                    response_text = fallback_q
-            else:
-                response_text = "".join(response_chunks)
 
         # Step 2: Loop control — check for agent stall
         is_stalled = self._check_agent_stall(agent_name, extracted, insights)

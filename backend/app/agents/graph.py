@@ -230,8 +230,8 @@ async def run_interview_turn_stream(
             session_id=str(session_memory.id) if session_memory.id else None,
             employee_id=str(session_memory.employee_id) if session_memory.employee_id else None,
         ):
-            if event["type"] == "chunk":
-                yield f"data: {json.dumps({'type': 'chunk', 'content': event['content']}, separators=(',', ':'))}\n\n"
+            if event["type"] in ("chunk", "status"):
+                yield f"data: {json.dumps(event, separators=(',', ':'))}\n\n"
 
             elif event["type"] == "done":
                 insights = event.get("insights") or insights

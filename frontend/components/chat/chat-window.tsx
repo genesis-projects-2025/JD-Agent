@@ -1,5 +1,3 @@
-// components/chat/chat-window.tsx - ENTERPRISE REDESIGN
-
 import { useEffect, useRef, useCallback } from "react";
 import MessageBubble from "./message-bubble";
 import { Message } from "../../types/message";

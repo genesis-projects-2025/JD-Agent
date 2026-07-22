@@ -463,6 +463,8 @@ async def generate_jd_endpoint(
         conversation_history=session_memory.full_history,
         employee_id=session_memory.employee_id or "",
         employee_name=session_memory.employee_name,
+        generated_jd=result["jd_text"],
+        jd_structured=result["jd_structured"],
         status="jd_generated",
     )
 

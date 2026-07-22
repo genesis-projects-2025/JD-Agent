@@ -284,6 +284,7 @@ export default function Sidebar() {
                             <p className="text-xs text-neutral-400">Pulse Pharma</p>
                         </div>
                     </Link>
+
                     <button
                         onClick={() => setIsMobileOpen(false)}
                         aria-label="Close menu"

@@ -9,6 +9,7 @@ import { getCookie, cookieKeys } from "@/lib/cookies";
 import ChatWindow from "@/components/chat/chat-window";
 import MessageInput from "@/components/chat/message-input";
 import JDPreviewPanel from "@/components/jd/jd-preview-panel";
+import LiveRoleBlueprint from "@/components/chat/LiveRoleBlueprint";
 import ReferenceJDList from "@/components/jd/ReferenceJDList";
 import { useChat } from "@/hooks/useChat";
 import { useVoiceConversation } from "@/hooks/useVoiceConversation";
@@ -51,6 +52,7 @@ export default function QuestionnairePage() {
     currentAgent,
     status,
     structuredData,
+    insights,
     isRateLimited,
     retryTimer,
     updateJd,
@@ -375,6 +377,11 @@ export default function QuestionnairePage() {
             }
           />
         </div>
+
+        {/* Live Role Blueprint Sidebar — shows live extracted insights */}
+        {!showPanel && (
+          <LiveRoleBlueprint insights={insights} currentAgent={currentAgent} />
+        )}
 
         {/* JD Preview Panel — full screen on mobile, 50% on desktop */}
         {showPanel && (

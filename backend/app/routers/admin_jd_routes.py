@@ -96,9 +96,12 @@ async def _sync_published_reference_jd(
     result = await db.execute(
         select(JDSession)
         .options(selectinload(JDSession.employee))
-        .where(JDSession.source_reference_jd_id == jd.id)
+        .where(
+            (JDSession.employee_id == jd.employee_id) | (JDSession.source_reference_jd_id == jd.id)
+        )
+        .order_by(JDSession.updated_at.desc())
     )
-    session = result.scalar_one_or_none()
+    session = result.scalars().first()
 
     if session is None:
         session = JDSession(
@@ -129,6 +132,11 @@ async def _sync_published_reference_jd(
     if commit:
         await db.commit()
         await db.refresh(session)
+        from app.core.cache import invalidate_pattern
+        if jd.employee_id:
+            await invalidate_pattern(f"*jds:employee:{jd.employee_id}*")
+        await invalidate_pattern(f"*cache:jd_detail:{session.id}*")
+        await invalidate_pattern(f"*session:{session.id}*")
 
     task = asyncio.create_task(
         index_approved_jd(

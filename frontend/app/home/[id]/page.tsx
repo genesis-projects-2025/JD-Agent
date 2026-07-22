@@ -7,6 +7,7 @@ import { getCurrentUser, AuthUser, API_URL } from "@/lib/api";
 import { getCookie, setCookie, cookieKeys } from "@/lib/cookies";
 import { PlayCircle, ArrowRight, FilePlus, Loader2 } from "lucide-react";
 import { safeAtob, safeBtoa } from "@/lib/base64";
+import VersionNotificationBell from "@/components/layout/VersionNotificationBell";
 
 export default function HomePage({ params }: { params: Promise<{ id: string }> }) {
   const [user, setUser] = useState<AuthUser | null>(null);
@@ -91,23 +92,25 @@ export default function HomePage({ params }: { params: Promise<{ id: string }> }
               </div>
             </div>
 
-            {/* User Info */}
-            <div className="flex items-center gap-4">
+            {/* User Info & Golden Bell */}
+            <div className="flex items-center gap-3 sm:gap-4">
+              <VersionNotificationBell />
+
               {authenticating ? (
                 <div className="flex items-center gap-2 text-slate-400 font-medium text-xs bg-slate-50 px-3 py-1.5 rounded-md border border-slate-100 animate-pulse">
                   <Loader2 className="w-3.5 h-3.5 animate-spin text-slate-400" />
                   Verifying profile...
                 </div>
               ) : user ? (
-                <>
+                <div className="flex items-center gap-3">
                   <div className="hidden sm:block text-right">
-                    <p className="text-sm font-medium text-slate-900">{user.name}</p>
+                    <p className="text-sm font-bold text-slate-900">{user.name}</p>
                     <p className="text-xs text-slate-500">{user.role || 'Employee'} • {employeeId}</p>
                   </div>
-                  <div className="w-10 h-10 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center font-bold shadow-inner">
+                  <div className="w-10 h-10 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center font-bold shadow-inner border border-blue-200">
                     {user?.name ? user.name.charAt(0).toUpperCase() : "U"}
                   </div>
-                </>
+                </div>
               ) : (
                 <div className="flex items-center gap-2 text-red-600 font-medium text-xs bg-red-50 px-3 py-1.5 rounded-md border border-red-100">
                   Access Restricted

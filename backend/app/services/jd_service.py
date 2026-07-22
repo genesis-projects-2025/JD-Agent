@@ -54,9 +54,10 @@ jd_llm = get_jd_llm()
 
 async def _invoke_with_retry(llm, messages, max_retries=2, callbacks=None):
     """Invoke LLM with exponential backoff on transient failures (429, 500)."""
+    config = {"callbacks": callbacks} if callbacks else None
     for attempt in range(max_retries + 1):
         try:
-            return await llm.ainvoke(messages, callbacks=callbacks)
+            return await llm.ainvoke(messages, config=config)
         except Exception as e:
             err = str(e).lower()
             is_retryable = "429" in err or "500" in err or "resource_exhausted" in err

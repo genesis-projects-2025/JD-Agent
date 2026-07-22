@@ -358,7 +358,7 @@ async def get_kra_kpi_by_jd_session(
     from sqlalchemy.orm import selectinload
 
     if employee_id:
-        # 1. Primary: Exact match on BOTH employee_id and jd_session_id
+        # Primary: Exact match on BOTH employee_id and jd_session_id
         result = await db.execute(
             select(KRAKPISession)
             .where(
@@ -368,26 +368,9 @@ async def get_kra_kpi_by_jd_session(
             .options(selectinload(KRAKPISession.conversation_turns))
             .order_by(KRAKPISession.updated_at.desc())
         )
-        rec = result.scalars().first()
-        if rec:
-            return rec
+        return result.scalars().first()
 
-        # 2. Secondary: Match by employee_id alone (handles cloned / role-template JDs)
-        result_emp = await db.execute(
-            select(KRAKPISession)
-            .where(KRAKPISession.employee_id == employee_id)
-            .options(selectinload(KRAKPISession.conversation_turns))
-            .order_by(KRAKPISession.updated_at.desc())
-        )
-        rec_emp = result_emp.scalars().first()
-        if rec_emp:
-            return rec_emp
-
-        # If employee_id was explicitly supplied but no session exists for THIS employee,
-        # return None to prevent leaking another employee's session!
-        return None
-
-    # Fallback if employee_id was not specified
+    # Fallback if employee_id was not specified: query strictly by jd_session_id
     result = await db.execute(
         select(KRAKPISession)
         .where(KRAKPISession.jd_session_id == jd_session_id)

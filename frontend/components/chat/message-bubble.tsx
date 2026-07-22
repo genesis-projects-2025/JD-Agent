@@ -234,9 +234,42 @@ export default function MessageBubble({
             </div>
           )}
 
-          <div className="text-[14px] sm:text-[15px] leading-[1.5] sm:leading-[1.6] whitespace-pre-wrap min-h-[1.5em] flex flex-col">
+          <div className="text-[14px] sm:text-[15px] leading-[1.5] sm:leading-[1.6] min-h-[1.5em]">
             {displayText ? (
-              displayText.trim().replace(/\n{3,}/g, "\n\n")
+              <span>
+                {(() => {
+                  const cleaned = displayText.trim().replace(/\n{3,}/g, "\n\n");
+                  // Split into paragraphs on double newlines
+                  const paragraphs = cleaned.split(/\n\n/);
+                  return paragraphs.map((para, pIdx) => {
+                    // Process bold markers (**text**) and single line breaks
+                    const lines = para.split("\n");
+                    return (
+                      <span key={pIdx}>
+                        {pIdx > 0 && <><br /><br /></>}
+                        {lines.map((line, lIdx) => {
+                          // Render bold text: **text** → <strong>text</strong>
+                          const parts = line.split(/(\*\*[^*]+\*\*)/g);
+                          return (
+                            <span key={lIdx}>
+                              {lIdx > 0 && <br />}
+                              {parts.map((part, partIdx) => {
+                                if (part.startsWith("**") && part.endsWith("**")) {
+                                  return <strong key={partIdx}>{part.slice(2, -2)}</strong>;
+                                }
+                                return <span key={partIdx}>{part}</span>;
+                              })}
+                            </span>
+                          );
+                        })}
+                      </span>
+                    );
+                  });
+                })()}
+                {message.isStreaming && displayText.length > 0 && (
+                  <span className="inline-block w-1.5 h-4 bg-primary-500 animate-pulse ml-1 align-middle" />
+                )}
+              </span>
             ) : message.isStreaming ? (
               <div className="flex items-center gap-2 text-surface-400 py-1 animate-in fade-in duration-300">
                 <div className="flex gap-1">
@@ -253,9 +286,6 @@ export default function MessageBubble({
                 </span>
               </div>
             ) : null}
-            {message.isStreaming && displayText && displayText.length > 0 && (
-              <span className="inline-block w-1.5 h-4 bg-primary-500 animate-pulse ml-1 align-middle" />
-            )}
           </div>
 
           {/* ── PRIORITY TASK SELECTION UI ──────────────────────────────── */}

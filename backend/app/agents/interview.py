@@ -348,8 +348,9 @@ def _strip_tool_code_leaks(text: str) -> str:
         flags=re.IGNORECASE | re.DOTALL,
     )
 
-    # Clean up double punctuation
-    text = re.sub(r"\s+", " ", text)
+    # Clean up excessive whitespace — preserve newlines for readable formatting
+    text = re.sub(r"[^\S\n]+", " ", text)  # Collapse horizontal spaces/tabs only, NOT newlines
+    text = re.sub(r"\n{3,}", "\n\n", text)  # Collapse 3+ consecutive newlines to double newline
     text = text.replace("} .", ".").replace("}.", ".").replace(" .", ".")
     text = text.replace("! .", "!").replace("? .", "?")
     text = text.replace("!.", "!").replace("?.", "?")
@@ -362,28 +363,18 @@ def _trim_duplicate_response(response_text: str) -> str:
 
     The LLM sometimes generates multiple "turns" in a single response.
     This function detects and trims to keep only the first complete response.
+    
+    IMPORTANT: We preserve context + question pairs. Only trim when there
+    are clearly multiple separate response turns (4+ paragraphs with
+    questions spread far apart).
     """
     if not response_text or not response_text.strip():
         return response_text
 
     text = response_text.strip()
 
-    # Strategy 1: Split on double newlines
-    paragraphs = [p.strip() for p in text.split("\n\n") if p.strip()]
-
-    if len(paragraphs) > 1:
-        first_para = paragraphs[0]
-        if "?" in first_para:
-            logger.info(
-                "  [TRIM] ✓ First paragraph has question — trimming extra paragraphs."
-            )
-            return first_para
-
-        if len(paragraphs) >= 2 and "?" in paragraphs[1]:
-            logger.info("  [TRIM] ✓ Question in 2nd para — keeping first two.")
-            return paragraphs[0] + "\n\n" + paragraphs[1]
-
-    # Strategy 2: Detect transition phrases that signal a "second response"
+    # Strategy 1: Detect transition phrases that signal a "second response"
+    # These markers indicate the LLM started a second turn within one response.
     transition_markers = [
         "Okay, that gives us",
         "Okay, that's a great",
@@ -411,13 +402,13 @@ def _trim_duplicate_response(response_text: str) -> str:
                 )
                 return before
 
-    # Strategy 3: If 2+ questions are far apart, keep only up to the first
+    # Strategy 2: If 3+ questions are spread across distant paragraphs, keep only up to the first
+    # (Two questions close together are fine — context + question is a valid pattern)
     question_positions = [m.start() for m in re.finditer(r"\?", text)]
-    if len(question_positions) >= 2:
-        if "\n\n" in text[question_positions[0] : question_positions[1]]:
-            return text[: question_positions[0] + 1].strip()
-        if question_positions[1] - question_positions[0] > 120:
-            return text[: question_positions[0] + 1].strip()
+    if len(question_positions) >= 3:
+        # If questions are far apart with paragraph breaks, likely a runaway response
+        if "\n\n" in text[question_positions[0] : question_positions[2]]:
+            return text[: question_positions[1] + 1].strip()
 
     return text
 

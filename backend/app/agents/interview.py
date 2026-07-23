@@ -361,9 +361,12 @@ def _get_workflow_fallback_question(insights: dict) -> str:
 
 
 def _strip_tool_code_leaks(text: str) -> str:
-    """Remove occasional LLM hallucinations where it leaks JSON tool calls into the response text."""
+    """Remove occasional LLM hallucinations where it leaks JSON tool calls or tab escape artifacts into the response text."""
     if not text:
         return text
+
+    # Strip literal tab escape sequences, escaped tabs, or /t/t/t/ artifacts
+    text = re.sub(r"(?:/[tT]|\\t|\t)+/?", " ", text)
 
     # Aggressive stripping for {"tool_code"...} or {"name": "save...}
     text = re.sub(

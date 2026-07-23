@@ -120,6 +120,9 @@ async def run_interview_turn(
     """
     # Build initial state from session memory
     insights = dict(session_memory.insights or {})
+    if getattr(session_memory, "id", None):
+        insights["session_id"] = session_memory.id
+
     initial_state = create_initial_state(
         user_message=user_message,
         insights=insights,
@@ -197,6 +200,11 @@ async def run_interview_turn_stream(
     try:
         # 1. Compute current agent
         old_agent = session_memory.current_agent or "BasicInfoAgent"
+        if getattr(session_memory, "id", None):
+            if not session_memory.insights:
+                session_memory.insights = {}
+            session_memory.insights["session_id"] = session_memory.id
+
         agent_name = compute_current_agent(session_memory.insights or {}, old_agent)
 
         # 2. Detect transition

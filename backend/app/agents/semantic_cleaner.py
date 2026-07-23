@@ -59,7 +59,8 @@ async def deduplicate_and_professionalize(
     items: List[Union[str, dict]], 
     item_type: str, 
     role_title: str = "General Role",
-    department: str = ""
+    department: str = "",
+    session_id: str = ""
 ) -> List[Union[str, dict]]:
     """Clean and deduplicate a list of items using an LLM.
 
@@ -78,25 +79,43 @@ async def deduplicate_and_professionalize(
         return [items[0].strip().title() if len(items[0]) <= 15 else items[0]]
 
     try:
+        import time, asyncio
+        start_t = time.perf_counter()
         dept_str = department if department else "General Department"
+        system_content = CLEANING_PROMPT.format(
+            item_type=item_type,
+            raw_list=json.dumps(items),
+            role_title=role_title,
+            department=dept_str,
+        )
         response = await cleaner_llm.ainvoke(
             [
-                SystemMessage(
-                    content=CLEANING_PROMPT.format(
-                        item_type=item_type,
-                        raw_list=json.dumps(items),
-                        role_title=role_title,
-                        department=dept_str,
-                    )
-                ),
+                SystemMessage(content=system_content),
                 HumanMessage(
                     content=f"Clean and professionalize this list of {item_type} for the '{role_title}' in the '{dept_str}' department. Keep tools and skills completely separate, select at most 20 of the most important items, and filter out all noise."
                 ),
             ]
         )
+        latency_ms = (time.perf_counter() - start_t) * 1000
 
         response_text = str(response.content).strip()
         logger.debug(f"[SemanticCleaner] LLM Response: {response_text[:200]}...")
+
+        # Record to token observability
+        from app.services.token_observability_service import log_llm_call
+        asyncio.create_task(
+            log_llm_call(
+                session_id=session_id if session_id else None,
+                agent_name=f"Cleaner-{item_type}",
+                call_type="semantic_cleaning",
+                model_name="gemini-2.5-flash",
+                prompt_tokens=(len(system_content) + 200) // 4,
+                completion_tokens=len(response_text) // 4,
+                latency_ms=latency_ms,
+                prompt_preview=f"Cleaning {len(items)} {item_type} items for {role_title}",
+                response_preview=response_text[:200],
+            )
+        )
 
         # Clean up code blocks if present
         if response_text.startswith("```json"):

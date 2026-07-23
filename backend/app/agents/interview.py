@@ -870,8 +870,15 @@ class InterviewEngine:
 
         try:
             from langchain_core.messages import HumanMessage
+            sess_id = insights.get("session_id")
 
-            response = await _interview_llm.ainvoke([HumanMessage(content=prompt)])
+            response = await _invoke_with_retry(
+                _interview_llm,
+                [HumanMessage(content=prompt)],
+                session_id=sess_id,
+                agent_name=agent_name,
+                call_type="auto_populate",
+            )
             content = str(response.content).strip()
             # Clean possible markdown wrap
             if "```" in content:
@@ -1265,11 +1272,18 @@ Keep it professional and brief."""
 
         # Step 1: Call Conversational LLM for purely "Zero-Filler Questions"
         response_text = ""
+        sess_id = insights.get("session_id")
         if agent_name in SILENT_AGENTS:
             logger.info(f"[Interview] Bypassing LLM for Silent Agent: {agent_name}")
             response_text = _get_silent_agent_response(agent_name, insights)
         else:
-            response = await _invoke_with_retry(_interview_llm, messages)
+            response = await _invoke_with_retry(
+                _interview_llm,
+                messages,
+                session_id=sess_id,
+                agent_name=agent_name,
+                call_type="question_gen",
+            )
             response_text = _extract_text_content(response.content if response else None)
 
         # Step 2: Loop control — check for agent stall
@@ -1308,7 +1322,13 @@ Keep it professional and brief."""
                     )
                 ),
             ]
-            retry_response = await _invoke_with_retry(_response_llm, dedup_msgs)
+            retry_response = await _invoke_with_retry(
+                _response_llm,
+                dedup_msgs,
+                session_id=sess_id,
+                agent_name=agent_name,
+                call_type="dedup_retry",
+            )
             alt_text = _extract_text_content(retry_response.content if retry_response else None).strip()
             if alt_text and not _is_question_repeated(
                 alt_text, questions_asked, previous_questions_text

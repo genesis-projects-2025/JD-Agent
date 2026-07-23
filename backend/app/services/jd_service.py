@@ -52,12 +52,44 @@ def get_jd_llm():
 jd_llm = get_jd_llm()
 
 
-async def _invoke_with_retry(llm, messages, max_retries=2, callbacks=None):
-    """Invoke LLM with exponential backoff on transient failures (429, 500)."""
+async def _invoke_with_retry(llm, messages, max_retries=2, callbacks=None, session_id=None, agent_name="JDGenerator", call_type="jd_synthesis"):
+    """Invoke LLM with exponential backoff on transient failures (429, 500) and real-time token observability."""
+    import time
+    start_t = time.perf_counter()
     config = {"callbacks": callbacks} if callbacks else None
     for attempt in range(max_retries + 1):
         try:
-            return await llm.ainvoke(messages, config=config)
+            res = await llm.ainvoke(messages, config=config)
+            latency_ms = (time.perf_counter() - start_t) * 1000
+
+            prompt_tokens = 0
+            completion_tokens = 0
+            if hasattr(res, "response_metadata") and isinstance(res.response_metadata, dict):
+                usage = res.response_metadata.get("usage_metadata") or res.response_metadata.get("token_usage") or {}
+                prompt_tokens = usage.get("prompt_token_count") or usage.get("input_tokens") or 0
+                completion_tokens = usage.get("candidates_token_count") or usage.get("output_tokens") or 0
+
+            if not prompt_tokens:
+                prompt_text = " ".join(str(m.content) for m in messages)
+                prompt_tokens = len(prompt_text) // 4
+            if not completion_tokens:
+                completion_tokens = len(str(res.content)) // 4
+
+            from app.services.token_observability_service import log_llm_call
+            asyncio.create_task(
+                log_llm_call(
+                    session_id=str(session_id) if session_id else None,
+                    agent_name=agent_name,
+                    call_type=call_type,
+                    model_name=getattr(llm, "model", "gemini-2.5-flash"),
+                    prompt_tokens=prompt_tokens,
+                    completion_tokens=completion_tokens,
+                    latency_ms=latency_ms,
+                    prompt_preview=str(messages[-1].content)[:200] if messages else "",
+                    response_preview=str(res.content)[:200] if res else "",
+                )
+            )
+            return res
         except Exception as e:
             err = str(e).lower()
             is_retryable = "429" in err or "500" in err or "resource_exhausted" in err

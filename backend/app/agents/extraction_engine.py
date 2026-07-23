@@ -400,7 +400,10 @@ def _contains_cadence_signal(text: str) -> bool:
 async def extract_with_llm(
     user_message: str, current_state: dict, current_agent: str = "", recent_messages: list | None = None
 ) -> dict:
-    """Use LLM for comprehensive extraction."""
+    """Use LLM for comprehensive extraction with real-time token observability."""
+    import time
+    start_t = time.perf_counter()
+    session_id = current_state.get("session_id")
     try:
         # PERFORMANCE: Use phase-scoped state summary to cut 200-500 tokens per call
         state_summary = serialize_insights_for_agent(current_state, current_agent)
@@ -438,10 +441,35 @@ async def extract_with_llm(
             config={"callbacks": callbacks}
         )
 
-        if not response:
-            return {}
+        latency_ms = (time.perf_counter() - start_t) * 1000
+        response_json_str = ""
 
-        extracted = cast(ExtractionSchema, response).model_dump(exclude_none=True)
+        if not response:
+            extracted = {}
+        else:
+            extracted = cast(ExtractionSchema, response).model_dump(exclude_none=True)
+            response_json_str = json.dumps(extracted)
+
+        # Record LLM call to token observability
+        prompt_tokens = (len(prompt) + 200) // 4
+        completion_tokens = len(response_json_str) // 4 if response_json_str else 20
+        from app.services.token_observability_service import log_llm_call
+
+        import asyncio
+        asyncio.create_task(
+            log_llm_call(
+                session_id=str(session_id) if session_id else None,
+                agent_name=current_agent or "ExtractionEngine",
+                call_type="extraction",
+                model_name="gemini-2.5-flash",
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+                latency_ms=latency_ms,
+                user_message_snippet=user_message[:200] if user_message else None,
+                prompt_preview=f"Extraction pass for {current_agent}",
+                response_preview=response_json_str[:200] if response_json_str else "No data extracted",
+            )
+        )
 
         return extracted
 

@@ -93,6 +93,7 @@ async def log_llm_call(
 async def get_observability_stats(db, days: int = 7) -> Dict[str, Any]:
     """Aggregate statistics for the Admin Token Evaluation dashboard."""
     try:
+        num_days = int(days)
         async with db.begin_nested():
             # 1. Total tokens and costs overall in period
             res = await db.execute(
@@ -106,9 +107,9 @@ async def get_observability_stats(db, days: int = 7) -> Dict[str, Any]:
                     COUNT(*) as total_calls,
                     COALESCE(AVG(latency_ms), 0.0) as avg_latency
                 FROM llm_token_logs
-                WHERE created_at >= NOW() - (:days || ' days')::INTERVAL
+                WHERE created_at >= NOW() - (:days * INTERVAL '1 day')
             """),
-                {"days": days},
+                {"days": num_days},
             )
             row = res.mappings().first() or {}
 
@@ -130,11 +131,11 @@ async def get_observability_stats(db, days: int = 7) -> Dict[str, Any]:
                 text("""
                 SELECT agent_name, COUNT(*) as call_count, SUM(total_tokens) as tokens, SUM(cost_inr) as cost_inr
                 FROM llm_token_logs
-                WHERE created_at >= NOW() - (:days || ' days')::INTERVAL
+                WHERE created_at >= NOW() - (:days * INTERVAL '1 day')
                 GROUP BY agent_name
                 ORDER BY tokens DESC
             """),
-                {"days": days},
+                {"days": num_days},
             )
             by_agent = [dict(r) for r in res_agent.mappings().all()]
 
@@ -143,11 +144,11 @@ async def get_observability_stats(db, days: int = 7) -> Dict[str, Any]:
                 text("""
                 SELECT call_type, COUNT(*) as call_count, SUM(total_tokens) as tokens, SUM(cost_inr) as cost_inr
                 FROM llm_token_logs
-                WHERE created_at >= NOW() - (:days || ' days')::INTERVAL
+                WHERE created_at >= NOW() - (:days * INTERVAL '1 day')
                 GROUP BY call_type
                 ORDER BY tokens DESC
             """),
-                {"days": days},
+                {"days": num_days},
             )
             by_call_type = [dict(r) for r in res_type.mappings().all()]
 
@@ -156,11 +157,11 @@ async def get_observability_stats(db, days: int = 7) -> Dict[str, Any]:
                 text("""
                 SELECT model_name, COUNT(*) as call_count, SUM(total_tokens) as tokens, SUM(cost_inr) as cost_inr
                 FROM llm_token_logs
-                WHERE created_at >= NOW() - (:days || ' days')::INTERVAL
+                WHERE created_at >= NOW() - (:days * INTERVAL '1 day')
                 GROUP BY model_name
                 ORDER BY tokens DESC
             """),
-                {"days": days},
+                {"days": num_days},
             )
             by_model = [dict(r) for r in res_model.mappings().all()]
 
@@ -169,9 +170,9 @@ async def get_observability_stats(db, days: int = 7) -> Dict[str, Any]:
                 text("""
                 SELECT COUNT(DISTINCT session_id) as total_sessions
                 FROM llm_token_logs
-                WHERE session_id IS NOT NULL AND created_at >= NOW() - (:days || ' days')::INTERVAL
+                WHERE session_id IS NOT NULL AND created_at >= NOW() - (:days * INTERVAL '1 day')
             """),
-                {"days": days},
+                {"days": num_days},
             )
             total_sessions = (res_sess.mappings().first() or {}).get("total_sessions") or 1
             avg_tokens_per_session = round(row.get("total_tokens", 0) / max(total_sessions, 1), 1)

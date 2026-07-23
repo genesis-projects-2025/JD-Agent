@@ -408,13 +408,12 @@ async def extract_with_llm(
         # PERFORMANCE: Use phase-scoped state summary to cut 200-500 tokens per call
         state_summary = serialize_insights_for_agent(current_state, current_agent)
 
-        # For DeepDive: only last 2 agent messages needed (we only care about current task context)
-        # For all other agents: last 3 agent messages
-        history_limit = 2 if current_agent == "DeepDiveAgent" else 3
+        # PERFORMANCE: Only pass the single latest question asked to save 300-500 tokens
         recent_history = ""
         if recent_messages:
-            agent_msgs = [m.get("content", "") for m in recent_messages[-6:] if m.get("role") == "assistant"]
-            recent_history = "\n".join(agent_msgs[-history_limit:])
+            last_q = _extract_latest_assistant_question(recent_messages)
+            if last_q:
+                recent_history = f"Last Question Asked: {last_q[:150]}"
 
         prompt = get_compiled_prompt(
             "extraction-engine-prompt",
@@ -795,17 +794,14 @@ def serialize_insights_for_agent(insights: dict, agent_name: str) -> str:
         "purpose",
         "role",
         "department",
-        "conversation_summary",
     }
 
     # Per-agent whitelisted fields
     AGENT_FIELDS: dict[str, set] = {
         "BasicInfoAgent":           {"tasks", "cadence_probed", "agent_turn_counts"},
         "WorkflowIdentifierAgent":  {"tasks", "priority_tasks"},
-        "DeepDiveAgent":            {"priority_tasks", "visited_tasks",
-                                     "active_deep_dive_task", "workflows",
-                                     "deep_dive_turn_count"},
-        "ToolsAgent":               {"tools", "technologies", "workflows"},
+        "DeepDiveAgent":            {"priority_tasks", "visited_tasks", "active_deep_dive_task"},
+        "ToolsAgent":               {"tools", "technologies"},
         "SkillsAgent":              {"skills", "tools"},
         "QualificationAgent":       {"qualifications"},
         "JDGeneratorAgent":         set(),  # Uses full insights via separate path

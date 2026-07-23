@@ -15,6 +15,8 @@ from app.models.enrichment_model import (
     QueryLog,
 )
 
+from app.models.token_log_model import LLMTokenLog
+
 __all__ = [
     "JDSession",
     "ConversationTurn",
@@ -40,4 +42,5 @@ __all__ = [
     "DepartmentRollupMetric",
     "BottleneckInsight",
     "QueryLog",
+    "LLMTokenLog",
 ]

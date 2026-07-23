@@ -170,12 +170,14 @@ async def run_interview_turn(
     response_json = _build_frontend_response(result, session_memory)
     reply_content = json.dumps(response_json, separators=(",", ":"))
 
-    # Update conversation history
+    # Update conversation history (CRITICAL FIX: store ONLY clean question text, NOT full JSON payload)
+    from app.memory.session_memory import clean_history_content
+    clean_assistant_text = next_q if (next_q and next_q.strip()) else clean_history_content(reply_content)
     session_memory.update_recent("user", user_message)
-    session_memory.update_recent("assistant", reply_content)
+    session_memory.update_recent("assistant", clean_assistant_text)
 
     history.append({"role": "user", "content": user_message})
-    history.append({"role": "assistant", "content": reply_content})
+    history.append({"role": "assistant", "content": clean_assistant_text})
 
     logger.info(f"[Graph] Turn completed — Agent: {session_memory.current_agent}")
 
@@ -328,10 +330,11 @@ async def run_interview_turn_stream(
 
         response_json = _build_frontend_response(result, session_memory)
 
-        # Update conversation history
-        reply_content = json.dumps(response_json, separators=(",", ":"))
+        # Update conversation history (CRITICAL FIX: store ONLY clean question text, NOT full JSON payload)
+        from app.memory.session_memory import clean_history_content
+        clean_assistant_text = full_text if (full_text and full_text.strip()) else clean_history_content(json.dumps(response_json))
         session_memory.update_recent("user", user_message)
-        session_memory.update_recent("assistant", reply_content)
+        session_memory.update_recent("assistant", clean_assistant_text)
 
         yield f"data: {json.dumps({'type': 'done', 'parsed': response_json})}\n\n"
 

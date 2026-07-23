@@ -520,15 +520,22 @@ async def sync_session_to_db(
     await db.flush()
 
     if conversation_history is not None:
+        from app.memory.session_memory import clean_history_content
+
         await db.execute(
             delete(ConversationTurn).where(ConversationTurn.session_id == session_uuid)
         )
         for idx, turn in enumerate(conversation_history):
+            role = turn.get("role", "unknown")
+            raw_content = turn.get("content", "")
+            clean_content = (
+                clean_history_content(raw_content) if role == "assistant" else str(raw_content).strip()
+            )
             new_turn = ConversationTurn(
                 session_id=session_uuid,
                 turn_index=idx,
-                role=turn.get("role", "unknown"),
-                content=turn.get("content", ""),
+                role=role,
+                content=clean_content,
             )
             db.add(new_turn)
 

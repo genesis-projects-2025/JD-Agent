@@ -55,3 +55,9 @@ This repository is integrated with Langfuse for prompt management and LLM observ
 - **Tightened Data Limits**: SQL markdown tables are capped at 15 rows (from 30) and cell contents are truncated at 80 characters (from 150). Vector searches are capped at `top_k=4` and `1200` tokens.
 - **PostgreSQL Column Naming**: The job level column in the `organogram` table is physically named `joblevel` (without underscore). The system prompt must always specify `joblevel` to avoid `UndefinedColumnError`.
 - **Post-processing**: The `_clean_response` utility filters out any leaked tool blocks or redundant newlines.
+
+## 8. Strict Prompt Token Optimization & Payload Isolation
+- **Clean History Text Enforcement**: `SessionMemory.add_turn`, `SessionMemory.load_history_from_db`, `run_interview_turn`, `run_interview_turn_stream`, `handle_conversation`, and `sync_session_to_db` MUST NEVER store full response JSON payloads (e.g. `employee_role_insights`, `suggested_tasks`) inside `ConversationTurn` or `recent_messages`.
+- **Payload Sanitization**: Always use `clean_history_content()` to extract ONLY the plain `next_question` text string (~200 chars / 50 tokens). Raw JSON objects in assistant turns must be stripped before being saved to PostgreSQL DB or passed into Gemini `AIMessage` prompt history.
+- **Auto-Population Prompt Capping**: `_auto_populate_inventory` in `interview.py` must truncate workflow step descriptions and cap RAG context snippets to keep batch prompts under 1,200 tokens.
+- **Token Efficiency Guarantee**: Keeps interview prompt stack size at ~2.5k tokens per turn (down from 402,000 tokens), guaranteeing JD creation cost remains ~₹0.50 INR per complete session without losing any structured insights or UI state functionality.

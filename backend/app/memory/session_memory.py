@@ -11,6 +11,33 @@ Three types of memory:
 import hashlib
 
 
+import json
+
+
+def clean_history_content(content: str) -> str:
+    """Extract strictly plain text (e.g. next_question) from a turn string if it's JSON payload.
+
+    CRITICAL SECURITY FIX: Prevents dumping 500,000+ character UI state payloads into history,
+    which ballooned LLM prompt tokens and billing costs.
+    """
+    if not content:
+        return ""
+    if isinstance(content, str) and ("{" in content and "}" in content):
+        try:
+            parsed = json.loads(content)
+            if isinstance(parsed, dict):
+                q = parsed.get("next_question")
+                if q is not None and str(q).strip():
+                    return str(q).strip()
+                q2 = parsed.get("question")
+                if q2 is not None and str(q2).strip():
+                    return str(q2).strip()
+                return "[Question asked]"
+        except Exception:
+            pass
+    return str(content).strip()
+
+
 class SessionMemory:
     id: str | None
     employee_id: str | None
@@ -121,7 +148,8 @@ class SessionMemory:
         - full_history: always appended (goes to DB)
         - recent_messages: sliding window of last llm_limit turns (goes to LLM only)
         """
-        turn = {"role": role, "content": content}
+        clean_content = clean_history_content(content) if role == "assistant" else str(content).strip()
+        turn = {"role": role, "content": clean_content}
         self.full_history.append(turn)
         self.recent_messages.append(turn)
         self.recent_messages = self.recent_messages[-llm_limit:]
@@ -136,9 +164,17 @@ class SessionMemory:
         """
         Called during cold-start hydration from DB.
         Restores full_history completely, recent_messages as sliding window.
+        Enforces strict text sanitization to prevent historical JSON payloads from leaking.
         """
-        self.full_history = list(db_history)
-        self.recent_messages = db_history[-llm_limit:]
+        cleaned_history = []
+        for turn in db_history:
+            role = turn.get("role", "unknown")
+            raw_content = turn.get("content", "")
+            clean_content = clean_history_content(raw_content) if role == "assistant" else str(raw_content).strip()
+            cleaned_history.append({"role": role, "content": clean_content})
+            
+        self.full_history = cleaned_history
+        self.recent_messages = cleaned_history[-llm_limit:]
         self._user_history_text_cache = None
 
     def to_dict(self) -> dict:

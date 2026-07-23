@@ -675,18 +675,10 @@ def _process_llm_response(
                 list(set(mem_skills + mem_tools))
             )
 
-    # ── Build history entry ───────────────────────────────────────────────
-    assistant_history_entry = json.dumps(
-        {
-            "next_question": assistant_text,
-            "progress": session_memory.progress,
-            "suggested_skills": parsed_json.get("suggested_skills", []),
-            "suggested_tools": parsed_json.get("suggested_tools", []),
-            "employee_role_insights": merged_insights,
-        }
-    )
+    # ── Build history entry (CRITICAL FIX: store ONLY clean question text) ──
+    clean_assistant_text = assistant_text if (assistant_text and assistant_text.strip()) else "[Question asked]"
     session_memory.update_recent("user", user_message)
-    session_memory.update_recent("assistant", assistant_history_entry)
+    session_memory.update_recent("assistant", clean_assistant_text)
     update_summary(session_memory)
 
     # ── Populate response with backend-computed values ────────────────────

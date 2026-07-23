@@ -689,17 +689,20 @@ def build_interview_messages(
         if role == "user":
             messages.append(HumanMessage(content=content))
         else:
-            # Strip tool call JSON if present, keep only the question text
+            # Strip tool call JSON if present, keep ONLY the clean question text
             text = content
             if "{" in content and "}" in content:
                 try:
                     parsed = json.loads(content)
-                    text = (
-                        parsed.get("next_question") or parsed.get("question") or content
-                    )
-                except:
+                    if isinstance(parsed, dict):
+                        q = parsed.get("next_question") or parsed.get("question")
+                        if q and str(q).strip():
+                            text = str(q).strip()
+                        else:
+                            text = "[Question asked]"
+                except Exception:
                     pass
-            # HARDENING: Never append an AIMessage with empty content
+            # HARDENING: Never append an AIMessage with empty content or massive JSON
             if text and text.strip():
                 messages.append(AIMessage(content=text))
 
@@ -796,16 +799,22 @@ class InterviewEngine:
             f"[Auto-Populate] Generating {field} from RAG and collected context..."
         )
 
-        # Build a prompt to extract items from RAG and collected workflows
+        # Build a concise prompt to extract items from RAG and collected workflows (capped for token efficiency)
         workflows = insights.get("workflows") or {}
         workflow_texts = []
         for task, wf in workflows.items():
+            wf_tools = wf.get("tools") or ""
+            wf_steps = wf.get("steps") or ""
+            if isinstance(wf_steps, list):
+                wf_steps = ", ".join([str(s) for s in wf_steps[:3]])
+            elif isinstance(wf_steps, str) and len(wf_steps) > 100:
+                wf_steps = wf_steps[:100] + "..."
             workflow_texts.append(
-                f"Task: {task}\nSteps: {wf.get('steps', '')}\nTools: {wf.get('tools', '')}"
+                f"Task: {task} | Tools: {wf_tools} | Steps: {wf_steps}"
             )
 
         context_text = (
-            "\n\n".join(workflow_texts) + "\n\nRAG CONTEXT:\n" + "\n".join(rag_context)
+            "\n".join(workflow_texts[:5]) + "\n\nRAG CONTEXT:\n" + "\n".join(rag_context[:2])
         )
 
         target_role = (insights.get("identity_context") or {}).get("title", "this role")

@@ -1,11 +1,13 @@
 # app/services/token_observability_service.py
 """
-Token Observability Service — Central real-time tracking of LLM calls, tokens, latency, and costs.
+Enterprise Token Observability Service — Real-time distributed LLM tracing, latency percentiles, anomalies, and cost metrics.
 """
 
 from typing import Dict, Any, List, Optional
 import logging
 import asyncio
+import io
+import csv
 from datetime import datetime, timezone, timedelta
 from sqlalchemy import text, select, func, desc
 from app.core.database import AsyncSessionLocal
@@ -34,55 +36,71 @@ def calculate_cost(model_name: str, prompt_tokens: int, completion_tokens: int) 
 
 async def log_llm_call(
     *,
+    trace_id: Optional[str] = None,
     session_id: Optional[str] = None,
     employee_id: Optional[str] = None,
     employee_name: Optional[str] = None,
     agent_name: str = "InterviewEngine",
+    span_name: str = "question_generation",
     call_type: str = "question_gen",
     model_name: str = "gemini-2.5-flash",
+    status: str = "success",
     prompt_tokens: int = 0,
     completion_tokens: int = 0,
     latency_ms: float = 0.0,
     user_message_snippet: Optional[str] = None,
     prompt_preview: Optional[str] = None,
     response_preview: Optional[str] = None,
+    full_prompt: Optional[str] = None,
+    full_response: Optional[str] = None,
+    error_message: Optional[str] = None,
 ) -> None:
-    """Asynchronously record an LLM call to PostgreSQL for admin observability."""
+    """Asynchronously record an LLM call to PostgreSQL for enterprise token observability."""
     try:
         total_tokens = prompt_tokens + completion_tokens
         cost_usd, cost_inr = calculate_cost(model_name, prompt_tokens, completion_tokens)
+        
+        # Anomaly Detection Flag: True if turn exceeds 4,000 tokens or latency > 2.5s or error
+        is_anomaly = total_tokens > 4000 or latency_ms > 2500 or status != "success"
 
         async with AsyncSessionLocal() as db:
             async with db.begin_nested():
                 sql = text("""
                     INSERT INTO llm_token_logs (
-                        id, session_id, employee_id, employee_name, agent_name, call_type, model_name,
-                        prompt_tokens, completion_tokens, total_tokens, cost_usd, cost_inr, latency_ms,
-                        user_message_snippet, prompt_preview, response_preview, created_at
+                        id, trace_id, session_id, employee_id, employee_name, agent_name, span_name, call_type, model_name,
+                        status, prompt_tokens, completion_tokens, total_tokens, cost_usd, cost_inr, latency_ms,
+                        is_anomaly, user_message_snippet, prompt_preview, response_preview, full_prompt, full_response, error_message, created_at
                     ) VALUES (
-                        gen_random_uuid(), :session_id, :employee_id, :employee_name, :agent_name, :call_type, :model_name,
-                        :prompt_tokens, :completion_tokens, :total_tokens, :cost_usd, :cost_inr, :latency_ms,
-                        :user_message_snippet, :prompt_preview, :response_preview, NOW()
+                        gen_random_uuid(), :trace_id, :session_id, :employee_id, :employee_name, :agent_name, :span_name, :call_type, :model_name,
+                        :status, :prompt_tokens, :completion_tokens, :total_tokens, :cost_usd, :cost_inr, :latency_ms,
+                        :is_anomaly, :user_message_snippet, :prompt_preview, :response_preview, :full_prompt, :full_response, :error_message, NOW()
                     )
                 """)
                 await db.execute(
                     sql,
                     {
+                        "trace_id": str(trace_id) if trace_id else None,
                         "session_id": str(session_id) if session_id else None,
                         "employee_id": str(employee_id) if employee_id else None,
                         "employee_name": employee_name,
                         "agent_name": agent_name,
+                        "span_name": span_name,
                         "call_type": call_type,
                         "model_name": model_name,
+                        "status": status,
                         "prompt_tokens": prompt_tokens,
                         "completion_tokens": completion_tokens,
                         "total_tokens": total_tokens,
                         "cost_usd": cost_usd,
                         "cost_inr": cost_inr,
                         "latency_ms": round(latency_ms, 2),
+                        "is_anomaly": is_anomaly,
                         "user_message_snippet": user_message_snippet[:300] if user_message_snippet else None,
                         "prompt_preview": prompt_preview[:300] if prompt_preview else None,
                         "response_preview": response_preview[:300] if response_preview else None,
+                        "full_prompt": full_prompt,
+                        "full_response": full_response,
+                        "error_message": error_message,
                     },
                 )
             await db.commit()
@@ -105,7 +123,10 @@ async def get_observability_stats(db, days: int = 7) -> Dict[str, Any]:
                     COALESCE(SUM(cost_usd), 0.0) as total_cost_usd,
                     COALESCE(SUM(cost_inr), 0.0) as total_cost_inr,
                     COUNT(*) as total_calls,
-                    COALESCE(AVG(latency_ms), 0.0) as avg_latency
+                    COALESCE(AVG(latency_ms), 0.0) as avg_latency,
+                    PERCENTILE_CONT(0.50) WITHIN GROUP (ORDER BY latency_ms) as p50_latency,
+                    PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY latency_ms) as p95_latency,
+                    COALESCE(SUM(CASE WHEN is_anomaly THEN 1 ELSE 0 END), 0) as anomaly_count
                 FROM llm_token_logs
                 WHERE created_at >= NOW() - (:days * INTERVAL '1 day')
             """),
@@ -119,7 +140,8 @@ async def get_observability_stats(db, days: int = 7) -> Dict[str, Any]:
                 SELECT 
                     COALESCE(SUM(total_tokens), 0) as total_tokens_today,
                     COALESCE(SUM(cost_inr), 0.0) as total_cost_inr_today,
-                    COUNT(*) as total_calls_today
+                    COUNT(*) as total_calls_today,
+                    COALESCE(SUM(CASE WHEN is_anomaly THEN 1 ELSE 0 END), 0) as anomalies_today
                 FROM llm_token_logs
                 WHERE created_at >= CURRENT_DATE
             """)
@@ -129,7 +151,7 @@ async def get_observability_stats(db, days: int = 7) -> Dict[str, Any]:
             # 3. Breakdown by Agent
             res_agent = await db.execute(
                 text("""
-                SELECT agent_name, COUNT(*) as call_count, SUM(total_tokens) as tokens, SUM(cost_inr) as cost_inr
+                SELECT agent_name, COUNT(*) as call_count, SUM(total_tokens) as tokens, SUM(cost_inr) as cost_inr, AVG(latency_ms) as avg_latency
                 FROM llm_token_logs
                 WHERE created_at >= NOW() - (:days * INTERVAL '1 day')
                 GROUP BY agent_name
@@ -178,7 +200,7 @@ async def get_observability_stats(db, days: int = 7) -> Dict[str, Any]:
             avg_tokens_per_session = round(row.get("total_tokens", 0) / max(total_sessions, 1), 1)
 
             return {
-                "period_days": days,
+                "period_days": num_days,
                 "summary": {
                     "total_prompt_tokens": row.get("total_prompt", 0),
                     "total_completion_tokens": row.get("total_completion", 0),
@@ -187,6 +209,9 @@ async def get_observability_stats(db, days: int = 7) -> Dict[str, Any]:
                     "total_cost_inr": round(float(row.get("total_cost_inr", 0.0)), 2),
                     "total_llm_calls": row.get("total_calls", 0),
                     "avg_latency_ms": round(float(row.get("avg_latency", 0.0)), 1),
+                    "p50_latency_ms": round(float(row.get("p50_latency") or 0.0), 1),
+                    "p95_latency_ms": round(float(row.get("p95_latency") or 0.0), 1),
+                    "anomaly_count": row.get("anomaly_count", 0),
                     "total_sessions": total_sessions,
                     "avg_tokens_per_session": avg_tokens_per_session,
                 },
@@ -194,6 +219,7 @@ async def get_observability_stats(db, days: int = 7) -> Dict[str, Any]:
                     "total_tokens": today_row.get("total_tokens_today", 0),
                     "total_cost_inr": round(float(today_row.get("total_cost_inr_today", 0.0)), 2),
                     "total_calls": today_row.get("total_calls_today", 0),
+                    "anomalies_today": today_row.get("anomalies_today", 0),
                 },
                 "breakdown_by_agent": by_agent,
                 "breakdown_by_call_type": by_call_type,
@@ -209,10 +235,13 @@ async def get_observability_logs(
     limit: int = 50,
     offset: int = 0,
     session_id: Optional[str] = None,
+    trace_id: Optional[str] = None,
     agent_name: Optional[str] = None,
     call_type: Optional[str] = None,
+    status: Optional[str] = None,
+    only_anomalies: bool = False,
 ) -> Dict[str, Any]:
-    """Retrieve paginated LLM token logs with filter support."""
+    """Retrieve paginated LLM token logs with enterprise filtering."""
     try:
         async with db.begin_nested():
             conditions = ["1=1"]
@@ -221,12 +250,20 @@ async def get_observability_logs(
             if session_id:
                 conditions.append("session_id = :session_id")
                 params["session_id"] = session_id
+            if trace_id:
+                conditions.append("trace_id = :trace_id")
+                params["trace_id"] = trace_id
             if agent_name:
                 conditions.append("agent_name = :agent_name")
                 params["agent_name"] = agent_name
             if call_type:
                 conditions.append("call_type = :call_type")
                 params["call_type"] = call_type
+            if status:
+                conditions.append("status = :status")
+                params["status"] = status
+            if only_anomalies:
+                conditions.append("is_anomaly = TRUE")
 
             where_clause = " AND ".join(conditions)
 
@@ -240,9 +277,9 @@ async def get_observability_logs(
             # Fetch rows
             res = await db.execute(
                 text(f"""
-                SELECT id, session_id, employee_id, employee_name, agent_name, call_type, model_name,
-                       prompt_tokens, completion_tokens, total_tokens, cost_usd, cost_inr, latency_ms,
-                       user_message_snippet, prompt_preview, response_preview, created_at
+                SELECT id, trace_id, session_id, employee_id, employee_name, agent_name, span_name, call_type, model_name,
+                       status, prompt_tokens, completion_tokens, total_tokens, cost_usd, cost_inr, latency_ms,
+                       is_anomaly, user_message_snippet, prompt_preview, response_preview, full_prompt, full_response, error_message, created_at
                 FROM llm_token_logs
                 WHERE {where_clause}
                 ORDER BY created_at DESC
@@ -268,9 +305,9 @@ async def get_session_evaluation_detail(db, session_id: str) -> Dict[str, Any]:
         async with db.begin_nested():
             res = await db.execute(
                 text("""
-                SELECT id, session_id, employee_id, employee_name, agent_name, call_type, model_name,
-                       prompt_tokens, completion_tokens, total_tokens, cost_usd, cost_inr, latency_ms,
-                       user_message_snippet, prompt_preview, response_preview, created_at
+                SELECT id, trace_id, session_id, employee_id, employee_name, agent_name, span_name, call_type, model_name,
+                       status, prompt_tokens, completion_tokens, total_tokens, cost_usd, cost_inr, latency_ms,
+                       is_anomaly, user_message_snippet, prompt_preview, response_preview, full_prompt, full_response, error_message, created_at
                 FROM llm_token_logs
                 WHERE session_id = :session_id
                 ORDER BY created_at ASC
@@ -283,6 +320,7 @@ async def get_session_evaluation_detail(db, session_id: str) -> Dict[str, Any]:
             total_completion = sum(r["completion_tokens"] for r in rows)
             total_tokens = sum(r["total_tokens"] for r in rows)
             total_cost_inr = sum(r["cost_inr"] for r in rows)
+            anomalies = sum(1 for r in rows if r["is_anomaly"])
 
             for r in rows:
                 r["id"] = str(r["id"])
@@ -295,8 +333,47 @@ async def get_session_evaluation_detail(db, session_id: str) -> Dict[str, Any]:
                 "total_completion_tokens": total_completion,
                 "total_tokens": total_tokens,
                 "total_cost_inr": round(total_cost_inr, 2),
+                "anomaly_count": anomalies,
                 "llm_calls": rows,
             }
     except Exception as e:
         logger.error(f"[Observability] Failed to get session evaluation: {e}")
         return {"session_id": session_id, "llm_calls": []}
+
+
+async def export_observability_csv(db, days: int = 7) -> str:
+    """Generate a CSV string of all LLM token logs in the period for export."""
+    try:
+        num_days = int(days)
+        async with db.begin_nested():
+            res = await db.execute(
+                text("""
+                SELECT id, trace_id, session_id, employee_id, agent_name, span_name, call_type, model_name,
+                       status, prompt_tokens, completion_tokens, total_tokens, cost_usd, cost_inr, latency_ms,
+                       is_anomaly, created_at
+                FROM llm_token_logs
+                WHERE created_at >= NOW() - (:days * INTERVAL '1 day')
+                ORDER BY created_at DESC
+            """),
+                {"days": num_days},
+            )
+            rows = res.mappings().all()
+
+        output = io.StringIO()
+        writer = csv.writer(output)
+        writer.writerow([
+            "Log ID", "Trace ID", "Session ID", "Employee ID", "Agent Name", "Span Name", "Call Type",
+            "Model Name", "Status", "Prompt Tokens", "Completion Tokens", "Total Tokens",
+            "Cost (USD)", "Cost (INR)", "Latency (ms)", "Is Anomaly", "Created At"
+        ])
+        for r in rows:
+            writer.writerow([
+                str(r["id"]), r["trace_id"], r["session_id"], r["employee_id"], r["agent_name"], r["span_name"],
+                r["call_type"], r["model_name"], r["status"], r["prompt_tokens"], r["completion_tokens"],
+                r["total_tokens"], r["cost_usd"], r["cost_inr"], r["latency_ms"], r["is_anomaly"],
+                r["created_at"].isoformat() if r["created_at"] else ""
+            ])
+        return output.getvalue()
+    except Exception as e:
+        logger.error(f"[Observability] Failed to export CSV: {e}")
+        return "Log ID,Error\n1,Export failed"

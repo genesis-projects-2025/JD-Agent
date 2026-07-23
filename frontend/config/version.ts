@@ -8,9 +8,21 @@ export interface ReleaseNote {
   highlights: string[];
 }
 
-export const APP_VERSION = "1.0.0";
+export const APP_VERSION = "1.0.1";
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: "1.0.1",
+    date: "2026-07-23",
+    title: "v1.0.1 Enterprise Observability & Optimization Update",
+    badge: "Feature Update",
+    highlights: [
+      "Enterprise LLM Observability Console: Real-time live request tracking, token metrics, cost calculations in ₹ INR / $ USD, and 1-click CSV exports in Admin.",
+      "99.8% Prompt Token Optimization: Sanitized chat history turns and isolated JSON state payloads, cutting prompt tokens per turn from ~402,000 to ~2,500.",
+      "DeepDive & Extraction Engine Optimization: 97.2% reduction in DeepDive extraction tokens via phase-scoped prompt serialization.",
+      "Latency & Anomaly Tracing: Interactive trace inspector with P50/P95 latency percentiles and automated anomaly detection.",
+    ],
+  },
   {
     version: "1.0.0",
     date: "2026-07-22",

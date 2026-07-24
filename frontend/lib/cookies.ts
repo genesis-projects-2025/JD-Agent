@@ -11,8 +11,8 @@ export const setCookie = (name: string, value: string, days: number = 7) => {
     // Secure: Only send over HTTPS in production
     const secure = window.location.protocol === 'https:' ? 'Secure;' : '';
     
-    // SameSite=Strict for CSRF protection
-    const sameSite = 'SameSite=Strict;';
+    // SameSite=Lax for reliable auth navigation across subdomains and browser reloads
+    const sameSite = 'SameSite=Lax;';
     
     document.cookie = `${name}=${encodeURIComponent(value)};expires=${expires.toUTCString()};path=/;${secure}${sameSite}`;
   } catch (e) {

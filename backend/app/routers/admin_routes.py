@@ -59,10 +59,13 @@ async def get_current_admin(
 
 @router.post("/auth/admin-login", response_model=AdminLoginResponse)
 async def admin_login(request: AdminLoginRequest):
-    # Use config-backed credentials
+    # Use config-backed credentials with space trimming and case insensitivity on code
+    code_input = (request.code or "").strip()
+    pass_input = (request.password or "").strip()
+    
     if (
-        request.code == settings.ADMIN_CODE
-        and request.password == settings.ADMIN_PASSWORD
+        code_input.lower() == settings.ADMIN_CODE.lower()
+        and pass_input == settings.ADMIN_PASSWORD
     ):
         token = create_access_token(subject="ADMIN")
         return AdminLoginResponse(token=token, role="ADMIN")

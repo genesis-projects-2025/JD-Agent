@@ -124,9 +124,12 @@ async def get_observability_stats(db, days: int = 7) -> Dict[str, Any]:
 
     try:
         async with db.begin_nested():
+            where_sql = "created_at >= CURRENT_DATE" if num_days == 1 else "created_at >= NOW() - (:days * INTERVAL '1 day')"
+            params = {} if num_days == 1 else {"days": num_days}
+
             # 1. Total tokens and costs overall in period
             res = await db.execute(
-                text("""
+                text(f"""
                 SELECT 
                     COALESCE(SUM(prompt_tokens), 0) as total_prompt,
                     COALESCE(SUM(completion_tokens), 0) as total_completion,
@@ -139,9 +142,9 @@ async def get_observability_stats(db, days: int = 7) -> Dict[str, Any]:
                     PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY latency_ms) as p95_latency,
                     COALESCE(SUM(CASE WHEN is_anomaly THEN 1 ELSE 0 END), 0) as anomaly_count
                 FROM llm_token_logs
-                WHERE created_at >= NOW() - (:days * INTERVAL '1 day')
+                WHERE {where_sql}
             """),
-                {"days": num_days},
+                params,
             )
             row = res.mappings().first() or {}
 
@@ -161,51 +164,51 @@ async def get_observability_stats(db, days: int = 7) -> Dict[str, Any]:
 
             # 3. Breakdown by Agent
             res_agent = await db.execute(
-                text("""
+                text(f"""
                 SELECT agent_name, COUNT(*) as call_count, SUM(total_tokens) as tokens, SUM(cost_inr) as cost_inr, AVG(latency_ms) as avg_latency
                 FROM llm_token_logs
-                WHERE created_at >= NOW() - (:days * INTERVAL '1 day')
+                WHERE {where_sql}
                 GROUP BY agent_name
                 ORDER BY tokens DESC
             """),
-                {"days": num_days},
+                params,
             )
             by_agent = [dict(r) for r in res_agent.mappings().all()]
 
             # 4. Breakdown by Call Type
             res_type = await db.execute(
-                text("""
+                text(f"""
                 SELECT call_type, COUNT(*) as call_count, SUM(total_tokens) as tokens, SUM(cost_inr) as cost_inr
                 FROM llm_token_logs
-                WHERE created_at >= NOW() - (:days * INTERVAL '1 day')
+                WHERE {where_sql}
                 GROUP BY call_type
                 ORDER BY tokens DESC
             """),
-                {"days": num_days},
+                params,
             )
             by_call_type = [dict(r) for r in res_type.mappings().all()]
 
             # 5. Breakdown by Model
             res_model = await db.execute(
-                text("""
+                text(f"""
                 SELECT model_name, COUNT(*) as call_count, SUM(total_tokens) as tokens, SUM(cost_inr) as cost_inr
                 FROM llm_token_logs
-                WHERE created_at >= NOW() - (:days * INTERVAL '1 day')
+                WHERE {where_sql}
                 GROUP BY model_name
                 ORDER BY tokens DESC
             """),
-                {"days": num_days},
+                params,
             )
             by_model = [dict(r) for r in res_model.mappings().all()]
 
             # 6. Session summary averages
             res_sess = await db.execute(
-                text("""
+                text(f"""
                 SELECT COUNT(DISTINCT session_id) as total_sessions
                 FROM llm_token_logs
-                WHERE session_id IS NOT NULL AND created_at >= NOW() - (:days * INTERVAL '1 day')
+                WHERE session_id IS NOT NULL AND {where_sql}
             """),
-                {"days": num_days},
+                params,
             )
             total_sessions = (res_sess.mappings().first() or {}).get("total_sessions") or 1
             avg_tokens_per_session = round(row.get("total_tokens", 0) / max(total_sessions, 1), 1)

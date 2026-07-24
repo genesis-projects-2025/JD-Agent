@@ -83,6 +83,7 @@ async def synthesize_tools_and_skills_with_llm(
         google_api_key=settings.GEMINI_API_KEY,
         model="gemini-2.5-flash",
         temperature=0.1,
+        max_output_tokens=500,
     )
     
     workflows_summary = []

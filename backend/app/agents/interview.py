@@ -493,6 +493,7 @@ _interview_llm = ChatGoogleGenerativeAI(
     google_api_key=settings.GEMINI_API_KEY,
     model="gemini-2.5-flash",
     temperature=0.4,
+    max_output_tokens=350,
 )
 
 # Dedup retry LLM — used only when a question is detected as repeated.
@@ -500,6 +501,7 @@ _response_llm = ChatGoogleGenerativeAI(
     google_api_key=settings.GEMINI_API_KEY,
     model="gemini-2.5-flash",
     temperature=0.2,
+    max_output_tokens=350,
 )
 
 

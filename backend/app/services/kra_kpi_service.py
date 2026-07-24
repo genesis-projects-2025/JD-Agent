@@ -1287,7 +1287,7 @@ async def infer_jd_from_kras(employee_id: str, employee_name: str, kras: list) -
         google_api_key=settings.GEMINI_API_KEY,
         model="gemini-2.5-flash",
         temperature=0.2,
-        max_output_tokens=4000,
+        max_output_tokens=1500,
         response_mime_type="application/json",
     )
     
@@ -1516,7 +1516,7 @@ async def process_kra_kpi_document(
         google_api_key=settings.GEMINI_API_KEY,
         model="gemini-2.5-flash",
         temperature=0.2,
-        max_output_tokens=8192,
+        max_output_tokens=1500,
         response_mime_type="application/json",
     )
     
@@ -1640,7 +1640,7 @@ async def analyze_kra_kpi_text(
         google_api_key=settings.GEMINI_API_KEY,
         model="gemini-2.5-flash",
         temperature=0.2,
-        max_output_tokens=8192,
+        max_output_tokens=1500,
         response_mime_type="application/json",
     )
     

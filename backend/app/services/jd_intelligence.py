@@ -62,7 +62,7 @@ class JDIntelligenceService:
             google_api_key=settings.GEMINI_API_KEY,
             model="gemini-2.5-flash",
             temperature=0.2,  # Low temperature for consistency
-            max_output_tokens=4096,  # Increased for better completeness
+            max_output_tokens=1500,
         )
         logger.info("JD Intelligence Service initialized with Gemini 2.5 flash")
 

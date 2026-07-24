@@ -279,43 +279,34 @@ export default function AdminDashboard() {
     }
 
     /* ─── Tab / filter logic ─── */
-    const isJDTab = ["Approved", "Rejected", "Pending"].includes(activeTab);
-
     const filteredUsers = users.filter((u) => {
         const q = searchQuery.toLowerCase();
         const matchSearch =
+            !q ||
             u.name?.toLowerCase().includes(q) ||
-            u.employee_id?.toLowerCase().includes(q);
-        if (activeTab === "All Users") return matchSearch;
-        if (activeTab === "Managers") return matchSearch && u.role === "Manager";
-        if (activeTab === "HR") return matchSearch && u.role === "HR";
-        return matchSearch;
+            u.employee_id?.toLowerCase().includes(q) ||
+            u.department?.toLowerCase().includes(q) ||
+            u.role?.toLowerCase().includes(q);
+
+        if (!matchSearch) return false;
+
+        if (activeTab === "All Users") return true;
+        if (activeTab === "Approved") return u.jd_status === "approved";
+        if (activeTab === "Rejected") return ["manager_rejected", "hr_rejected", "rejected"].includes(u.jd_status);
+        if (activeTab === "Pending") return ["sent_to_manager", "sent_to_hr"].includes(u.jd_status);
+        if (activeTab === "Managers") return (u.role || "").toLowerCase().includes("manager") || (u.role || "").toLowerCase().includes("head") || (u.role || "").toLowerCase().includes("lead");
+        if (activeTab === "HR") return (u.role || "").toLowerCase().includes("hr") || (u.department || "").toLowerCase().includes("hr");
+        
+        return true;
     });
 
-    const filteredJDs = jds.filter((jd) => {
-        const q = searchQuery.toLowerCase();
-        const matchSearch = jd.title?.toLowerCase().includes(q);
-        if (activeTab === "Approved")
-            return matchSearch && jd.status === "approved";
-        if (activeTab === "Rejected")
-            return (
-                matchSearch &&
-                ["manager_rejected", "hr_rejected", "rejected"].includes(jd.status)
-            );
-        if (activeTab === "Pending")
-            return (
-                matchSearch && ["sent_to_manager", "sent_to_hr"].includes(jd.status)
-            );
-        return false;
-    });
-
-    const displayData = isJDTab ? filteredJDs : filteredUsers;
+    const displayData = filteredUsers;
 
     const tabs = [
         { id: "All Users", label: "All Users", icon: Users },
         { id: "Approved", label: "Approved JD, KRA & KPI", icon: CheckCircle },
-        { id: "Rejected", label: "Rejected JDs", icon: XCircle },
         { id: "Pending", label: "Pending JDs", icon: Clock },
+        { id: "Rejected", label: "Rejected JDs", icon: XCircle },
         { id: "Managers", label: "Managers", icon: UserCheck },
         { id: "HR", label: "HR", icon: ShieldCheck },
     ];
@@ -518,12 +509,10 @@ export default function AdminDashboard() {
                         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                             <div>
                                 <h2 className="text-lg sm:text-xl font-medium text-slate-900">
-                                    {isJDTab ? (activeTab === "Approved" ? "Approved JD, KRA & KPI" : `${activeTab} JDs`) : "Employee's List"}
+                                    {activeTab === "All Users" ? "Employee Directory" : activeTab === "Approved" ? "Approved JDs, KRAs & KPIs" : `${activeTab} Directory`}
                                 </h2>
                                 <p className="text-xs sm:text-sm text-slate-400 mt-0.5">
-                                    {isJDTab
-                                        ? "Filter and review job descriptions and performance goals"
-                                        : "View and manage all employees"}
+                                    View and manage employee job descriptions, status, and performance frameworks
                                 </p>
                             </div>
 
@@ -532,224 +521,142 @@ export default function AdminDashboard() {
                                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
                                 <input
                                     type="text"
-                                    placeholder={
-                                        isJDTab ? "Search JDs..." : "Search employees..."
-                                    }
+                                    placeholder="Search by name, ID, role or department..."
                                     value={searchQuery}
                                     onChange={(e) => setSearchQuery(e.target.value)}
                                     className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-400 text-sm text-slate-800 placeholder:text-slate-400 transition-all"
-                                  />
-                              </div>
-                          </div>
+                                />
+                            </div>
+                        </div>
 
-                          {/* Tabs */}
-                          <div className="flex items-center gap-1 overflow-x-auto no-scrollbar -mx-1 px-1 pb-0.5">
-                              {tabs.map((tab) => {
-                                  const active = activeTab === tab.id;
-                                  return (
-                                      <button
-                                          key={tab.id}
-                                          onClick={() => {
-                                              setActiveTab(tab.id);
-                                              setSearchQuery("");
-                                          }}
-                                          className={`flex items-center gap-1.5 px-3 sm:px-4 py-2 rounded-lg text-xs sm:text-sm font-semibold transition-all whitespace-nowrap shrink-0 ${active
-                                              ? "bg-slate-900 text-white shadow-md"
-                                              : "text-slate-500 hover:text-slate-700 hover:bg-slate-100"
-                                              }`}
-                                      >
-                                          <tab.icon className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
-                                          {tab.label}
-                                      </button>
-                                  );
-                              })}
-                          </div>
-                      </div>
-                  </div>
+                        {/* Tabs */}
+                        <div className="flex items-center gap-1 overflow-x-auto no-scrollbar -mx-1 px-1 pb-0.5">
+                            {tabs.map((tab) => {
+                                const active = activeTab === tab.id;
+                                return (
+                                    <button
+                                        key={tab.id}
+                                        onClick={() => {
+                                            setActiveTab(tab.id);
+                                            setSearchQuery("");
+                                        }}
+                                        className={`flex items-center gap-1.5 px-3 sm:px-4 py-2 rounded-lg text-xs sm:text-sm font-semibold transition-all whitespace-nowrap shrink-0 ${active
+                                            ? "bg-slate-900 text-white shadow-md"
+                                            : "text-slate-500 hover:text-slate-700 hover:bg-slate-100"
+                                            }`}
+                                    >
+                                        <tab.icon className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                                        {tab.label}
+                                    </button>
+                                );
+                            })}
+                        </div>
+                    </div>
+                </div>
 
-                  {/* Table body */}
-                  <div className="overflow-x-auto">
-                      <table className="w-full text-left min-w-[600px]">
-                          <thead>
-                              <tr className="bg-slate-50/80 border-b border-slate-100">
-                                  {isJDTab
-                                      ? [
-                                          "JD Title",
-                                          "Employee ID",
-                                          "Version",
-                                          "JD Status",
-                                          "KRA / KPI Status",
-                                          "Updated",
-                                          "",
-                                      ].map((h, i) => (
-                                          <th
-                                              key={i}
-                                              className="px-3 sm:px-6 py-3 text-[10px] sm:text-[11px] font-semibold text-slate-500 tracking-wider"
-                                          >
-                                              {h}
-                                          </th>
-                                      ))
-                                      : ["Employee", "Role", "JD Status", "Last Active", ""].map(
-                                          (h, i) => (
-                                              <th
-                                                  key={i}
-                                                  className="px-3 sm:px-6 py-3 text-[10px] sm:text-[11px] font-semibold text-slate-500 tracking-wider"
-                                              >
-                                                  {h}
-                                              </th>
-                                          ),
-                                      )}
-                              </tr>
-                          </thead>
-                          <tbody className="divide-y divide-slate-100">
-                              {displayData.length > 0 ? (
-                                  displayData.map((item, i) => (
-                                      <tr
-                                          key={i}
-                                          className="hover:bg-blue-50/30 transition-colors group"
-                                      >
-                                          {isJDTab ? (
-                                              <>
-                                                  {/* JD Title */}
-                                                  <td className="px-3 sm:px-6 py-4">
-                                                      <div className="flex items-center gap-3">
-                                                          <div className="w-9 h-9 rounded-lg bg-blue-100 flex items-center justify-center text-blue-600 shrink-0">
-                                                              <FileText className="w-4 h-4" />
-                                                          </div>
-                                                          <span className="font-semibold text-sm text-slate-900 line-clamp-1 max-w-[200px] sm:max-w-[280px]">
-                                                              {item.title || "Untitled JD"}
-                                                          </span>
-                                                      </div>
-                                                  </td>
-                                                  {/* Employee ID */}
-                                                  <td className="px-4 sm:px-6 py-4 text-sm text-slate-500 font-medium">
-                                                      {item.employee_id || "—"}
-                                                  </td>
-                                                  {/* Version */}
-                                                  <td className="px-4 sm:px-6 py-4 text-sm text-slate-500 font-medium">
-                                                      v{item.version || "1"}.0
-                                                  </td>
-                                                  {/* JD Status */}
-                                                  <td className="px-3 sm:px-6 py-4">
-                                                      <span
-                                                          className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-semibold border ${statusBadgeClass(item.status)}`}
-                                                      >
-                                                          <span
-                                                              className={`w-1.5 h-1.5 rounded-md ${statusDotColor(item.status)}`}
-                                                          />
-                                                          {formatStatus(item.status)}
-                                                      </span>
-                                                  </td>
-                                                  {/* KRA / KPI Status */}
-                                                  <td className="px-3 sm:px-6 py-4">
-                                                      <span
-                                                          className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-semibold border ${kraKpiBadgeClass(item.kra_kpi_status)}`}
-                                                      >
-                                                          <span
-                                                              className={`w-1.5 h-1.5 rounded-md ${kraKpiDotColor(item.kra_kpi_status)}`}
-                                                          />
-                                                          {formatKraKpiStatus(item.kra_kpi_status)}
-                                                      </span>
-                                                  </td>
-                                                  {/* Updated */}
-                                                  <td className="px-4 sm:px-6 py-4 text-sm text-slate-500 font-medium">
-                                                      {item.updated_at ? formatDate(item.updated_at) : "—"}
-                                                  </td>
-                                                   {/* Action */}
-                                                   <td className="px-3 sm:px-6 py-4">
-                                                       <Link
-                                                           href={`/admin/jd/${item.id}`}
-                                                           className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-md transition-colors"
-                                                       >
-                                                           <Eye className="w-3.5 h-3.5" />
-                                                           View
-                                                       </Link>
-                                                   </td>
-                                              </>
-                                        ) : (
-                                            <>
-                                                {/* Employee */}
-                                                <td className="px-3 sm:px-6 py-4">
-                                                    <div className="flex items-center gap-3">
-                                                        <div className="w-9 h-9 rounded-lg bg-slate-100 flex items-center justify-center font-medium text-sm text-slate-600 border border-slate-200 shrink-0">
-                                                            {item.name?.charAt(0) || "?"}
-                                                        </div>
-                                                        <div>
-                                                            <div className="font-semibold text-sm text-slate-900">
-                                                                {item.name || "Unknown"}
-                                                            </div>
-                                                            <div className="text-[11px] text-slate-400">
-                                                                {item.employee_id}
-                                                            </div>
-                                                        </div>
+                {/* Table body */}
+                <div className="overflow-x-auto">
+                    <table className="w-full text-left min-w-[750px]">
+                        <thead>
+                            <tr className="bg-slate-50/80 border-b border-slate-100">
+                                {["Employee", "Role & Manager", "JD Status", "KRA / KPI Status", "Last Active", "Action"].map(
+                                    (h, i) => (
+                                        <th
+                                            key={i}
+                                            className="px-3 sm:px-6 py-3 text-[10px] sm:text-[11px] font-semibold text-slate-500 uppercase tracking-wider"
+                                        >
+                                            {h}
+                                        </th>
+                                    ),
+                                )}
+                            </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100">
+                            {displayData.length > 0 ? (
+                                displayData.map((item, i) => (
+                                    <tr
+                                        key={i}
+                                        className="hover:bg-blue-50/30 transition-colors group"
+                                    >
+                                        {/* Employee */}
+                                        <td className="px-3 sm:px-6 py-4">
+                                            <div className="flex items-center gap-3">
+                                                <div className="w-9 h-9 rounded-lg bg-slate-100 flex items-center justify-center font-medium text-sm text-slate-600 border border-slate-200 shrink-0">
+                                                    {item.name?.charAt(0) || "?"}
+                                                </div>
+                                                <div>
+                                                    <div className="font-semibold text-sm text-slate-900">
+                                                        {item.name || "Unknown"}
                                                     </div>
-                                                </td>
-                                                {/* Role */}
-                                                <td className="px-3 sm:px-6 py-4">
-                                                    <span
-                                                        className={`px-2.5 py-1 rounded-md text-xs font-semibold border ${item.role === "Manager"
-                                                            ? "bg-indigo-50 text-indigo-700 border-indigo-200"
-                                                            : item.role === "HR"
-                                                                ? "bg-teal-50 text-teal-700 border-teal-200"
-                                                                : "bg-slate-50 text-slate-600 border-slate-200"
-                                                            }`}
-                                                    >
-                                                        {item.role || "Employee"}
+                                                    <div className="text-[11px] text-slate-400 font-mono">
+                                                        {item.employee_id} {item.department ? `• ${item.department}` : ""}
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </td>
+                                        {/* Role & Manager */}
+                                        <td className="px-3 sm:px-6 py-4">
+                                            <div className="flex flex-col">
+                                                <span className="font-medium text-xs text-slate-800">
+                                                    {item.role || "Employee"}
+                                                </span>
+                                                {item.manager_name && (
+                                                    <span className="text-[11px] text-slate-400">
+                                                        Mgr: {item.manager_name}
                                                     </span>
-                                                </td>
-                                                {/* JD Status — uses jd_status from backend */}
-                                                <td className="px-3 sm:px-6 py-4">
-                                                    <span
-                                                        className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-semibold border ${statusBadgeClass(item.jd_status)}`}
-                                                    >
-                                                        <span
-                                                            className={`w-1.5 h-1.5 rounded-md ${statusDotColor(item.jd_status)}`}
-                                                        />
-                                                        {formatStatus(item.jd_status)}
-                                                    </span>
-                                                </td>
-                                                {/* Last Active */}
-                                                <td className="px-4 sm:px-6 py-4 text-sm text-slate-500">
-                                                    {item.last_active ? formatDate(item.last_active) : "—"}
-                                                </td>
-                                                 {/* Action */}
-                                                 <td className="px-3 sm:px-6 py-4">
-                                                     {item.jd_session_id ? (
-                                                         <Link
-                                                             href={`/admin/jd/${item.jd_session_id}`}
-                                                             className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-md transition-colors"
-                                                         >
-                                                             <Eye className="w-3.5 h-3.5" />
-                                                             View JD
-                                                         </Link>
-                                                     ) : (
-                                                         <span className="text-xs text-slate-300 font-medium">
-                                                             —
-                                                         </span>
-                                                     )}
-                                                 </td>
-                                            </>
-                                        )}
+                                                )}
+                                            </div>
+                                        </td>
+                                        {/* JD Status */}
+                                        <td className="px-3 sm:px-6 py-4">
+                                            <span
+                                                className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-semibold border ${statusBadgeClass(item.jd_status)}`}
+                                            >
+                                                <span
+                                                    className={`w-1.5 h-1.5 rounded-md ${statusDotColor(item.jd_status)}`}
+                                                />
+                                                {formatStatus(item.jd_status)}
+                                            </span>
+                                        </td>
+                                        {/* KRA / KPI Status */}
+                                        <td className="px-3 sm:px-6 py-4">
+                                            <span
+                                                className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-semibold border ${kraKpiBadgeClass(item.kra_kpi_status)}`}
+                                            >
+                                                <span
+                                                    className={`w-1.5 h-1.5 rounded-md ${kraKpiDotColor(item.kra_kpi_status)}`}
+                                                />
+                                                {formatKraKpiStatus(item.kra_kpi_status)}
+                                            </span>
+                                        </td>
+                                        {/* Last Active */}
+                                        <td className="px-4 sm:px-6 py-4 text-xs text-slate-500 font-medium whitespace-nowrap">
+                                            {item.last_active ? formatDate(item.last_active) : "—"}
+                                        </td>
+                                        {/* Action */}
+                                        <td className="px-3 sm:px-6 py-4">
+                                            <Link
+                                                href={`/admin/jd/${item.jd_session_id || item.employee_id}`}
+                                                className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-md transition-colors"
+                                            >
+                                                <Eye className="w-3.5 h-3.5" />
+                                                View
+                                            </Link>
+                                        </td>
                                     </tr>
                                 ))
                             ) : (
                                 <tr>
                                     <td
-                                        colSpan={isJDTab ? 6 : 5}
+                                        colSpan={6}
                                         className="px-6 py-16 text-center"
                                     >
                                         <div className="flex flex-col items-center">
                                             <div className="w-14 h-14 bg-slate-100 rounded-md flex items-center justify-center text-slate-300 mb-3">
-                                                {isJDTab ? (
-                                                    <FileText className="w-7 h-7" />
-                                                ) : (
-                                                    <UserCheck className="w-7 h-7" />
-                                                )}
+                                                <UserCheck className="w-7 h-7" />
                                             </div>
                                             <p className="text-sm font-medium text-slate-400">
-                                                {isJDTab
-                                                    ? `No ${activeTab.toLowerCase()} job descriptions found`
-                                                    : "No employees match your search"}
+                                                No employees found matching &quot;{activeTab}&quot; filter
                                             </p>
                                         </div>
                                     </td>

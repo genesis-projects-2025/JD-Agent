@@ -529,6 +529,8 @@ async def _invoke_with_retry(llm, messages, max_retries=2, **kwargs):
             call_type = kwargs.get("call_type", "question_gen")
 
             from app.services.token_observability_service import log_llm_call
+            full_prompt_str = "\n---\n".join(f"{getattr(m, 'type', 'message')}: {m.content}" for m in messages) if messages else ""
+            full_response_str = str(res.content) if res else ""
             asyncio.create_task(
                 log_llm_call(
                     session_id=session_id,
@@ -538,8 +540,11 @@ async def _invoke_with_retry(llm, messages, max_retries=2, **kwargs):
                     prompt_tokens=prompt_tokens,
                     completion_tokens=completion_tokens,
                     latency_ms=latency_ms,
+                    user_message_snippet=str(messages[-1].content)[:300] if messages else "",
                     prompt_preview=str(messages[-1].content)[:200] if messages else "",
-                    response_preview=str(res.content)[:200] if res else "",
+                    response_preview=full_response_str[:200],
+                    full_prompt=full_prompt_str,
+                    full_response=full_response_str,
                 )
             )
             return res
@@ -950,12 +955,12 @@ class InterviewEngine:
                 insights.pop("_completed_task", None)
                 turn_count += 1
 
-        # Pick next non-visited priority task
+        # Pick next non-visited priority task (capped to top 5 strategic tasks max)
         if not active_task:
-            for pt in priority_tasks:
+            for pt in priority_tasks[:5]:
                 if pt not in (insights.get("visited_tasks") or []):
                     active_task = pt
-                    remaining = len(priority_tasks) - len(visited_tasks)
+                    remaining = len(priority_tasks[:5]) - len(visited_tasks)
                     logger.info(
                         f"[DeepDive] Moving to next task: {active_task}. {remaining} remaining."
                     )

@@ -108,10 +108,21 @@ async def log_llm_call(
         logger.error(f"[Observability] Failed to log LLM call: {e}")
 
 
+_STATS_CACHE: Dict[str, Any] = {}
+_STATS_CACHE_TTL = 30.0
+
+
 async def get_observability_stats(db, days: int = 7) -> Dict[str, Any]:
     """Aggregate statistics for the Admin Token Evaluation dashboard."""
+    import time
+    num_days = int(days)
+    cache_key = f"stats_{num_days}"
+    now = time.time()
+    cached = _STATS_CACHE.get(cache_key)
+    if cached and (now - cached["timestamp"]) < _STATS_CACHE_TTL:
+        return cached["data"]
+
     try:
-        num_days = int(days)
         async with db.begin_nested():
             # 1. Total tokens and costs overall in period
             res = await db.execute(
@@ -199,7 +210,7 @@ async def get_observability_stats(db, days: int = 7) -> Dict[str, Any]:
             total_sessions = (res_sess.mappings().first() or {}).get("total_sessions") or 1
             avg_tokens_per_session = round(row.get("total_tokens", 0) / max(total_sessions, 1), 1)
 
-            return {
+            result_obj = {
                 "period_days": num_days,
                 "summary": {
                     "total_prompt_tokens": row.get("total_prompt", 0),
@@ -225,6 +236,8 @@ async def get_observability_stats(db, days: int = 7) -> Dict[str, Any]:
                 "breakdown_by_call_type": by_call_type,
                 "breakdown_by_model": by_model,
             }
+            _STATS_CACHE[cache_key] = {"data": result_obj, "timestamp": time.time()}
+            return result_obj
     except Exception as e:
         logger.error(f"[Observability] Failed to get stats: {e}")
         return {"error": str(e)}
@@ -232,7 +245,7 @@ async def get_observability_stats(db, days: int = 7) -> Dict[str, Any]:
 
 async def get_observability_logs(
     db,
-    limit: int = 50,
+    limit: int = 20,
     offset: int = 0,
     session_id: Optional[str] = None,
     trace_id: Optional[str] = None,

@@ -166,7 +166,7 @@ function KRASuggestionCard({
         </div>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap mb-1">
-            <span className="font-semibold text-surface-900 text-sm">{kra.title}</span>
+            <span className="font-semibold text-surface-900 text-sm">{kra.title || kra.kra_title}</span>
           </div>
           <p className="text-xs text-surface-500 leading-relaxed">{kra.description}</p>
           {kra.source_tasks && kra.source_tasks.length > 0 && (
@@ -683,22 +683,28 @@ function WeightBar({ kras }: { kras: FinalKRA[] }) {
   return (
     <div className="mb-1">
       <div className="flex h-3 rounded-full overflow-hidden gap-0.5">
-        {kras.map((kra, i) => (
-          <div
-            key={kra.kra_id}
-            className={`${PALETTE[i % PALETTE.length].bar} transition-all duration-300`}
-            style={{ width: `${kra.weight}%` }}
-            title={`${kra.title}: ${kra.weight}%`}
-          />
-        ))}
+        {kras.map((kra, i) => {
+          const title = kra.title || kra.kra_title || "KRA";
+          return (
+            <div
+              key={kra.kra_id || i}
+              className={`${PALETTE[i % PALETTE.length].bar} transition-all duration-300`}
+              style={{ width: `${kra.weight}%` }}
+              title={`${title}: ${kra.weight}%`}
+            />
+          );
+        })}
       </div>
       <div className="flex flex-wrap gap-x-3 gap-y-1 mt-2">
-        {kras.map((kra, i) => (
-          <div key={kra.kra_id} className="flex items-center gap-1">
-            <div className={`w-2 h-2 rounded-full ${PALETTE[i % PALETTE.length].bar}`} />
-            <span className="text-[10px] text-surface-500">{kra.title.split(" ").slice(0, 3).join(" ")}: <strong>{kra.weight}%</strong></span>
-          </div>
-        ))}
+        {kras.map((kra, i) => {
+          const title = kra.title || kra.kra_title || "KRA";
+          return (
+            <div key={kra.kra_id || i} className="flex items-center gap-1">
+              <div className={`w-2 h-2 rounded-full ${PALETTE[i % PALETTE.length].bar}`} />
+              <span className="text-[10px] text-surface-500">{title.split(" ").slice(0, 3).join(" ")}: <strong>{kra.weight}%</strong></span>
+            </div>
+          );
+        })}
       </div>
     </div>
   );
@@ -793,7 +799,7 @@ function DraggableKRARow({
 
   // Edit states for KRA
   const [isEditingKra, setIsEditingKra] = useState(false);
-  const [editTitle, setEditTitle] = useState(kra.title);
+  const [editTitle, setEditTitle] = useState(kra.title || kra.kra_title || "");
   const [editDesc, setEditDesc] = useState(kra.description);
 
   // Edit states for KPI
@@ -834,11 +840,11 @@ function DraggableKRARow({
           <div className="flex items-center justify-between gap-4 mb-2">
             {!isEditingKra ? (
               <div className="flex items-center flex-wrap gap-1">
-                <span className="font-semibold text-slate-800 text-sm block sm:inline">{kra.title}</span>
+                <span className="font-semibold text-slate-800 text-sm block sm:inline">{kra.title || kra.kra_title || "KRA"}</span>
                 <span className="text-[11px] text-slate-400 font-medium sm:ml-2">KRA #{index + 1}</span>
                 <button
                   onClick={() => {
-                    setEditTitle(kra.title);
+                    setEditTitle(kra.title || kra.kra_title || "");
                     setEditDesc(kra.description);
                     setIsEditingKra(true);
                   }}
@@ -1611,7 +1617,8 @@ function UploadedView({ record, jdData = null }: { record: KRAKPIRecord; jdData?
       <div className="space-y-2.5">
         {kras.map((kra, i) => {
           const accent = ACCENT_COLORS[i % ACCENT_COLORS.length];
-          const isOpen = openId === kra.title;
+          const kraTitle = kra.title || kra.kra_title || `KRA #${i + 1}`;
+          const isOpen = openId === kraTitle || openId === kra.kra_id;
           const kpis = kra.kpis ?? [];
           const weight = typeof kra.weight === "number" ? kra.weight : null;
 
@@ -1622,7 +1629,7 @@ function UploadedView({ record, jdData = null }: { record: KRAKPIRecord; jdData?
             >
               {/* Header */}
               <button
-                onClick={() => setOpenId(isOpen ? null : kra.title)}
+                onClick={() => setOpenId(isOpen ? null : kraTitle)}
                 className="w-full flex items-center gap-3 p-4 text-left"
               >
                 <div className="flex-1 min-w-0">
@@ -1636,7 +1643,7 @@ function UploadedView({ record, jdData = null }: { record: KRAKPIRecord; jdData?
                       </span>
                     )}
                   </div>
-                  <h4 className="text-sm font-bold text-surface-900 mt-0.5 leading-snug pr-4">{kra.title}</h4>
+                  <h4 className="text-sm font-bold text-surface-900 mt-0.5 leading-snug pr-4">{kraTitle}</h4>
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
                   <span className="text-[10px] text-surface-400 font-medium">{kpis.length} KPI{kpis.length !== 1 ? "s" : ""}</span>
@@ -1824,7 +1831,7 @@ const ConfirmedView = forwardRef<any, {
     if (!isEditing) {
       setEditableKras(kras);
     }
-  }, [kras, isEditing]);
+  }, [record?.id, isEditing]);
 
   const currentKras = isEditing ? editableKras : kras;
 
@@ -2436,13 +2443,13 @@ const ConfirmedView = forwardRef<any, {
                   {isEditing ? (
                     <input
                       type="text"
-                      value={kra.title}
+                      value={kra.title || kra.kra_title || ""}
                       onClick={(e) => e.stopPropagation()}
                       onChange={(e) => handleKraFieldChange(kra.kra_id, "title", e.target.value)}
                       className="w-full bg-white border border-slate-200 rounded px-2 py-0.5 text-sm font-semibold text-slate-800 focus:outline-none focus:border-primary-500"
                     />
                   ) : (
-                    <span className="font-bold text-surface-900 text-sm leading-tight block truncate">{kra.title}</span>
+                    <span className="font-bold text-surface-900 text-sm leading-tight block truncate">{kra.title || kra.kra_title || "KRA"}</span>
                   )}
                 </div>
 
@@ -2933,7 +2940,12 @@ export const KRAKPIPanel = forwardRef<any, KRAKPIPanelProps>(
     }
   }, [jdSessionId, employeeId]);
 
-  useEffect(() => { reload(); }, [reload]);
+  useEffect(() => { 
+    setRecord(null);
+    setPrereqStatus(null);
+    setLocalJd(null);
+    reload(); 
+  }, [jdSessionId, employeeId, reload]);
 
   const hasOnlyManagerMissing =
     prereqStatus &&
@@ -3133,25 +3145,6 @@ export const KRAKPIPanel = forwardRef<any, KRAKPIPanelProps>(
           ) : (
             <div className="space-y-4">
               <MissingBanner status={prereqStatus} />
-              {hasOnlyManagerMissing && (
-                <div className="p-4 bg-primary-50/60 border border-primary-200/50 rounded-xl flex flex-col sm:flex-row items-center justify-between gap-4">
-                  <div className="flex items-start gap-2.5">
-                    <Info className="w-4.5 h-4.5 text-primary-600 shrink-0 mt-0.5" />
-                    <div>
-                      <p className="text-xs text-primary-800 font-semibold mb-0.5">Generate from your JD only</p>
-                      <p className="text-[11px] text-primary-600">
-                        You can continue generating your performance framework based solely on your own approved JD context, bypassing manager alignment references.
-                      </p>
-                    </div>
-                  </div>
-                  <button
-                    onClick={() => setShowBypassModal(true)}
-                    className="w-full sm:w-auto px-4 py-2.5 bg-primary-600 hover:bg-primary-700 text-white text-xs font-semibold rounded-lg transition-colors shadow-sm whitespace-nowrap active:scale-[0.98]"
-                  >
-                    Continue Anyway
-                  </button>
-                </div>
-              )}
             </div>
           )}
         </>
@@ -3167,58 +3160,94 @@ export const KRAKPIPanel = forwardRef<any, KRAKPIPanelProps>(
       )}
 
       {/* Step flow */}
-      {record && !generating && (
-        <>
-          {step !== "confirmed" && <StepBar current={step} />}
+      {record && !generating && (() => {
+        const kraSuggestionsList = (() => {
+          let raw = record.kra_suggestions;
+          if (typeof raw === "string") {
+            try { raw = JSON.parse(raw); } catch { return []; }
+          }
+          if (Array.isArray(raw)) return raw;
+          if (typeof raw === "object" && raw !== null && Array.isArray(raw.kra_suggestions)) {
+            return raw.kra_suggestions;
+          }
+          return [];
+        })();
 
-          {step === "kra_selection" && record.kra_suggestions && (
-            <Step1KRASelection
-              suggestions={record.kra_suggestions.kra_suggestions}
-              initialSelected={record.selected_kra_ids || []}
-              onContinue={handleSelectKRAs}
-              onAddCustomKra={handleAddCustomKra}
-            />
-          )}
+        const kpiSuggestionsObj = (() => {
+          let raw = record.kpi_suggestions;
+          if (typeof raw === "string") {
+            try { raw = JSON.parse(raw); } catch { return {}; }
+          }
+          if (typeof raw === "object" && raw !== null) {
+            return raw.kpi_suggestions && typeof raw.kpi_suggestions === "object" ? raw.kpi_suggestions : raw;
+          }
+          return {};
+        })();
 
-          {step === "kpi_selection" && record.kpi_suggestions && record.selected_kra_ids && (
-            <Step2KPISelection
-              selectedKras={record.selected_kra_ids}
-              kpiSuggestions={record.kpi_suggestions}
-              krasSuggestions={record.kra_suggestions?.kra_suggestions ?? []}
-              initialSelected={record.selected_kpi_ids || {}}
-              onContinue={handleSelectKPIs}
-              onBack={handleGenerate}
-              onAddCustomKpi={handleAddCustomKpi}
-            />
-          )}
+        const finalKrasList = (() => {
+          let raw = record.kras;
+          if (typeof raw === "string") {
+            try { raw = JSON.parse(raw); } catch { return []; }
+          }
+          if (Array.isArray(raw)) return raw;
+          if (typeof raw === "object" && raw !== null && Array.isArray(raw.kras)) {
+            return raw.kras;
+          }
+          return [];
+        })();
 
-          {step === "weight_adjustment" && record.kras && (
-            <Step3WeightAdjustment
-              initialKras={record.kras.kras}
-              onSave={handleSaveWeights}
-              onBack={() => {
-                /* allow going back to KPI selection */
-                setRecord((prev) => prev ? { ...prev, generation_step: "kpi_selection" } : prev);
-              }}
-            />
-          )}
+        return (
+          <>
+            {step !== "confirmed" && <StepBar current={step} />}
 
-          {step === "confirmed" && (
-            <ConfirmedView
-              ref={confirmedViewRef}
-              record={record}
-              onRegenerate={handleRegenerate}
-              onSendForApproval={handleSendForApproval}
-              jdData={localJd}
-              isManager={isManager}
-            />
-          )}
+            {step === "kra_selection" && (
+              <Step1KRASelection
+                suggestions={kraSuggestionsList}
+                initialSelected={record.selected_kra_ids || []}
+                onContinue={handleSelectKRAs}
+                onAddCustomKra={handleAddCustomKra}
+              />
+            )}
 
-          {step === "uploaded" && (
-            <UploadedView record={record} jdData={localJd} />
-          )}
-        </>
-      )}
+            {step === "kpi_selection" && record.kpi_suggestions && record.selected_kra_ids && (
+              <Step2KPISelection
+                selectedKras={record.selected_kra_ids}
+                kpiSuggestions={record.kpi_suggestions}
+                krasSuggestions={kraSuggestionsList}
+                initialSelected={record.selected_kpi_ids || {}}
+                onContinue={handleSelectKPIs}
+                onBack={handleGenerate}
+                onAddCustomKpi={handleAddCustomKpi}
+              />
+            )}
+
+            {step === "weight_adjustment" && (
+              <Step3WeightAdjustment
+                initialKras={finalKrasList}
+                onSave={handleSaveWeights}
+                onBack={() => {
+                  /* allow going back to KPI selection */
+                  setRecord((prev) => prev ? { ...prev, generation_step: "kpi_selection" } : prev);
+                }}
+              />
+            )}
+
+            {step === "confirmed" && (
+              <ConfirmedView
+                ref={confirmedViewRef}
+                record={record}
+                onRegenerate={handleRegenerate}
+                onSendForApproval={handleSendForApproval}
+                jdData={localJd}
+                isManager={isManager}
+              />
+            )}
+            {step === "uploaded" && (
+              <UploadedView record={record} jdData={localJd} />
+            )}
+          </>
+        );
+      })()}
 
       {/* Bypass confirmation modal */}
       {showBypassModal && (

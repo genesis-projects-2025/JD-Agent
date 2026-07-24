@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { getCookie, cookieKeys } from "@/lib/cookies";
+import { getAdminCache, setAdminCache } from "@/lib/admin-cache";
 
 interface FeedbackItem {
  id: string;
@@ -33,11 +34,12 @@ interface FeedbackItem {
 }
 
 export default function AdminFeedbackInbox() {
- const [feedbacks, setFeedbacks] = useState<FeedbackItem[]>([]);
- const [loading, setLoading] = useState(true);
+ const cached = getAdminCache<FeedbackItem[]>("admin_feedback");
+ const [feedbacks, setFeedbacks] = useState<FeedbackItem[]>(cached.data || []);
+ const [loading, setLoading] = useState(!cached.data);
  const [searchQuery, setSearchQuery] = useState("");
  const [statusFilter, setStatusFilter] = useState("all");
- const [selectedId, setSelectedId] = useState<string | null>(null);
+ const [selectedId, setSelectedId] = useState<string | null>(cached.data && cached.data.length > 0 ? cached.data[0].id : null);
 
  useEffect(() => {
  fetchFeedbacks();
@@ -45,7 +47,7 @@ export default function AdminFeedbackInbox() {
 
  const fetchFeedbacks = async () => {
  try {
- setLoading(true);
+ if (!cached.data) setLoading(true);
  const token = getCookie(cookieKeys.ADMIN_TOKEN);
  const res = await fetch(`${API_URL}/admin/feedback`, {
  headers: { Authorization: `Bearer ${token}` },
@@ -53,7 +55,8 @@ export default function AdminFeedbackInbox() {
  if (res.ok) {
  const data = await res.json();
  setFeedbacks(data);
- if (data.length > 0) setSelectedId(data[0].id);
+ setAdminCache("admin_feedback", data);
+ if (data.length > 0 && !selectedId) setSelectedId(data[0].id);
  }
  } catch (err) {
  console.error("Failed to fetch feedback", err);

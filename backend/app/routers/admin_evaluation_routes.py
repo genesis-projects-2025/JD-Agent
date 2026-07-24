@@ -30,7 +30,7 @@ async def get_evaluation_stats(
 
 @router.get("/logs")
 async def get_evaluation_logs(
-    limit: int = Query(50, ge=1, le=200),
+    limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
     session_id: Optional[str] = Query(None),
     trace_id: Optional[str] = Query(None),

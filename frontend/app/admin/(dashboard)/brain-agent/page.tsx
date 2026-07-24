@@ -26,6 +26,7 @@ import {
     Zap
 } from "lucide-react";
 import { getCookie, cookieKeys } from "@/lib/cookies";
+import { getAdminCache, setAdminCache } from "@/lib/admin-cache";
 import {
     fetchBrainAgentSessions,
     fetchBrainAgentSessionTurns,
@@ -279,7 +280,10 @@ function MarkdownRenderer({ content }: { content: string }) {
 
 export default function AdminBrainAgentPage() {
     const router = useRouter();
-    const [sessions, setSessions] = useState<BrainAgentSession[]>([]);
+    const cachedSessions = getAdminCache<BrainAgentSession[]>("pulse_sessions");
+    const cachedInsights = getAdminCache<PulseInsight[]>("pulse_insights");
+
+    const [sessions, setSessions] = useState<BrainAgentSession[]>(cachedSessions.data || []);
     const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
     const [messages, setMessages] = useState<Message[]>([
         {
@@ -294,8 +298,8 @@ export default function AdminBrainAgentPage() {
     const [statusIndicator, setStatusIndicator] = useState<string | null>(null);
     const [anomalies, setAnomalies] = useState<string[]>([]);
     const [anomalyOpen, setAnomalyOpen] = useState(false);
-    const [insights, setInsights] = useState<PulseInsight[]>([]);
-    const [insightsLoading, setInsightsLoading] = useState(true);
+    const [insights, setInsights] = useState<PulseInsight[]>(cachedInsights.data || (FALLBACK_QUERIES as PulseInsight[]));
+    const [insightsLoading, setInsightsLoading] = useState(!cachedInsights.data);
     const messagesEndRef = useRef<HTMLDivElement>(null);
 
     // Fetch session list
@@ -303,6 +307,7 @@ export default function AdminBrainAgentPage() {
         try {
             const list = await fetchBrainAgentSessions();
             setSessions(list);
+            setAdminCache("pulse_sessions", list);
         } catch (err) {
             console.error("Failed to load sessions:", err);
         }
@@ -317,7 +322,9 @@ export default function AdminBrainAgentPage() {
         loadSessionsList();
         // Load dynamic insights
         fetchPulseInsights().then(data => {
-            setInsights(data.length > 0 ? data : FALLBACK_QUERIES as PulseInsight[]);
+            const finalData = data.length > 0 ? data : (FALLBACK_QUERIES as PulseInsight[]);
+            setInsights(finalData);
+            setAdminCache("pulse_insights", finalData);
             setInsightsLoading(false);
         }).catch(() => {
             setInsights(FALLBACK_QUERIES as PulseInsight[]);

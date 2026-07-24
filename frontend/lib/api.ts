@@ -743,6 +743,7 @@ export interface KPISuggestion {
 export interface KRASuggestion {
   kra_id: string;
   title: string;
+  kra_title?: string;
   description: string;
   source_tasks: string[];
   manager_impact?: string;
@@ -753,6 +754,7 @@ export interface KRASuggestion {
 export interface FinalKRA {
   kra_id: string;
   title: string;
+  kra_title?: string;
   description: string;
   source_tasks: string[];
   weight: number | null; // null until employee sets it in Step 3

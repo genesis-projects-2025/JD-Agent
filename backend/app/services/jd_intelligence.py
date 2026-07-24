@@ -397,14 +397,10 @@ class JDIntelligenceService:
         prompt = ChatPromptTemplate.from_template("""
         You are an expert HR analyst and organizational designer. 
         Extract the following information from this job description and return it as structured JSON.
-        
         {context}
-        
         JOB DESCRIPTION:
         {text}
-        
         EXTRACT THE FOLLOWING FIELDS:
-        
         1. role_title: Job title/position (e.g., "Senior Software Engineer", "Marketing Manager")
         2. department: Department or function (e.g., "Engineering", "Marketing", "Sales")
         3. level: Seniority level - choose from: ["Junior", "Mid", "Senior", "Lead", "Head", "Director", "VP","Level 1", "Level 2", "Level 3", "Level 4", "Level 5"]

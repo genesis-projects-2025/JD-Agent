@@ -25,11 +25,19 @@ async def _run_insight_query(db: AsyncSession, sql: str) -> List[Dict]:
         return []
 
 
+_INSIGHTS_CACHE: Dict[str, Any] = {"data": None, "timestamp": 0.0}
+_CACHE_TTL_SECONDS = 30.0
+
+
 async def generate_dynamic_insights(db: AsyncSession) -> List[Dict[str, Any]]:
     """
     Run 6 diagnostic queries concurrently and return up to 4 prioritized
-    suggestion cards for the Pulse dashboard.
+    suggestion cards for the Pulse dashboard. Caches results for 30 seconds.
     """
+    import time
+    now = time.time()
+    if _INSIGHTS_CACHE["data"] is not None and (now - _INSIGHTS_CACHE["timestamp"]) < _CACHE_TTL_SECONDS:
+        return _INSIGHTS_CACHE["data"]
 
     # Define all insight queries
     queries = {
@@ -180,5 +188,8 @@ async def generate_dynamic_insights(db: AsyncSession) -> List[Dict[str, Any]]:
     # Prioritize: critical > warning > insight, return max 4
     severity_order = {"critical": 0, "warning": 1, "insight": 2}
     insights.sort(key=lambda x: severity_order.get(x["severity"], 3))
-
-    return insights[:4]
+    final_result = insights[:4]
+    
+    _INSIGHTS_CACHE["data"] = final_result
+    _INSIGHTS_CACHE["timestamp"] = time.time()
+    return final_result

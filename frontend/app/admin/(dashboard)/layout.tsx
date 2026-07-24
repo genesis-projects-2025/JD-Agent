@@ -26,22 +26,23 @@ export default function AdminLayout({
     const pathname = usePathname();
     const router = useRouter();
     const [isMobileOpen, setIsMobileOpen] = useState(false);
-    const [isAuthenticated, setIsAuthenticated] = useState(false);
+    const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => {
+        if (typeof window === "undefined") return true;
+        const token = getCookie(cookieKeys.ADMIN_TOKEN);
+        const role = getCookie(cookieKeys.USER_ROLE);
+        return Boolean(token && role === "ADMIN");
+    });
 
     useEffect(() => {
-        // Protect routes - defer auth state update
-        const timer = setTimeout(() => {
-            const token = getCookie(cookieKeys.ADMIN_TOKEN);
-            const role = getCookie(cookieKeys.USER_ROLE);
-
-            if (!token || role !== "ADMIN") {
-                router.push("/admin/login");
-            } else {
-                setIsAuthenticated(true);
-            }
-        }, 0);
-        return () => clearTimeout(timer);
-    }, [router]);
+        const token = getCookie(cookieKeys.ADMIN_TOKEN);
+        const role = getCookie(cookieKeys.USER_ROLE);
+        if (!token || role !== "ADMIN") {
+            setIsAuthenticated(false);
+            router.push("/admin/login");
+        } else {
+            setIsAuthenticated(true);
+        }
+    }, [pathname, router]);
 
     const handleLogout = () => {
         deleteCookie(cookieKeys.ADMIN_TOKEN);
@@ -113,6 +114,7 @@ export default function AdminLayout({
                             <Link
                                 key={item.href}
                                 href={item.href}
+                                prefetch={true}
                                 className={`flex items-center gap-4 px-5 py-4 rounded-md transition-all group relative ${isActive
                                         ? "bg-slate-800 text-white"
                                         : "hover:bg-slate-800/50 hover:text-white"

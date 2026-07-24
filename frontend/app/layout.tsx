@@ -30,7 +30,7 @@ export default function RootLayout({
  <head>
  <meta name="viewport" content="width=device-width, initial-scale=1" />
  </head>
- <body className="w-full h-full overflow-hidden bg-white selection:bg-primary-100 selection:text-primary-900 flex">
+ <body className="w-full h-full overflow-hidden bg-white selection:bg-primary-100 selection:text-primary-900 flex" suppressHydrationWarning={true}>
  <ErrorBoundary>
  <Suspense fallback={null}>
  {/* QueryProvider must wrap AuthProvider so auth hooks can use React Query too */}

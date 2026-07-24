@@ -259,11 +259,11 @@ async def check_prerequisites(
                     f"Request your manager (ID: {manager_employee_id}) to complete their JD interview first."
                 )
 
-            # 4. Manager KRA/KPI
+            # 4. Manager KRA/KPI (must be completed/confirmed by manager)
             mgr_kra_result = await db.execute(
                 select(KRAKPISession)
                 .where(KRAKPISession.employee_id == manager_employee_id)
-                .where(KRAKPISession.status.in_(["confirmed", "draft"]))
+                .where(KRAKPISession.status.in_(["confirmed", "sent_to_manager", "sent_to_hr", "approved"]))
                 .order_by(KRAKPISession.updated_at.desc())
             )
             manager_kra_session = mgr_kra_result.scalars().first()
@@ -368,16 +368,29 @@ async def get_kra_kpi_by_jd_session(
             .options(selectinload(KRAKPISession.conversation_turns))
             .order_by(KRAKPISession.updated_at.desc())
         )
-        return result.scalars().first()
+        record = result.scalars().first()
+        if record:
+            return record
 
-    # Fallback if employee_id was not specified: query strictly by jd_session_id
-    result = await db.execute(
+        # Fallback 1: Match by employee_id alone to find the employee's existing framework
+        result_emp = await db.execute(
+            select(KRAKPISession)
+            .where(KRAKPISession.employee_id == employee_id)
+            .options(selectinload(KRAKPISession.conversation_turns))
+            .order_by(KRAKPISession.updated_at.desc())
+        )
+        record_emp = result_emp.scalars().first()
+        if record_emp:
+            return record_emp
+
+    # Fallback 2: Query by jd_session_id
+    result_jd = await db.execute(
         select(KRAKPISession)
         .where(KRAKPISession.jd_session_id == jd_session_id)
         .options(selectinload(KRAKPISession.conversation_turns))
         .order_by(KRAKPISession.updated_at.desc())
     )
-    return result.scalars().first()
+    return result_jd.scalars().first()
 
 
 # Cascade goal alignment filtering helper
@@ -441,17 +454,32 @@ async def filter_manager_kras_semantically(employee_tasks: list[str], manager_kr
 # ── Step 1: Generate KRA Suggestions ─────────────────────────────────────────
 
 async def generate_kra_suggestions_for_employee(
-    db: AsyncSession, jd_session_id: str, employee_id: str, bypass_manager: bool = False,
+    db: AsyncSession, jd_session_id: str, employee_id: str, bypass_manager: bool = False, force_restart: bool = False,
 ) -> KRAKPISession:
     """
     Step 1: Orchestrates the KRA suggestion generation phase.
     
-    1. Runs prerequisite validations (checks for approved JD and manager JDs/KRAs, applying executive bypasses).
-    2. Extracts employee responsibilities and applies semantic filtering to align them with manager's KRAs.
-    3. Calls the Gemini-based agent (`generate_kra_suggestions`) to suggest 6-7 custom KRAs.
-    4. Upserts this data into a `KRAKPISession` record in the database.
-    5. Sets `generation_step` to `"kra_selection"` and status to `"draft"`.
+    1. Checks if an existing KRA/KPI framework or suggestion list already exists. If so, protects it from being overwritten.
+    2. Runs prerequisite validations (checks for approved JD and manager JDs/KRAs, applying executive bypasses).
+    3. Extracts employee responsibilities and applies semantic filtering to align them with manager's KRAs.
+    4. Calls the Gemini-based agent (`generate_kra_suggestions`) to suggest custom KRAs.
+    5. Upserts this data into a `KRAKPISession` record in the database.
     """
+    # Check if an existing session already exists for this employee
+    existing = await get_kra_kpi_by_jd_session(db, jd_session_id, employee_id=employee_id)
+    if existing and not force_restart:
+        # Protect existing confirmed/approved frameworks
+        if existing.status in ("confirmed", "sent_to_manager", "sent_to_hr", "approved") or (
+            existing.kras and isinstance(existing.kras, dict) and len(existing.kras.get("kras", [])) > 0
+        ):
+            logger.info(f"[KRAKPIService] Employee={employee_id} already has a confirmed/approved KRA/KPI framework. Protecting existing framework.")
+            return existing
+
+        # Protect existing generated KRA suggestions if already in progress
+        if existing.kra_suggestions and isinstance(existing.kra_suggestions, dict) and len(existing.kra_suggestions.get("kra_suggestions", [])) > 0:
+            logger.info(f"[KRAKPIService] Employee={employee_id} already has generated KRA suggestions. Returning existing record.")
+            return existing
+
     context = await check_prerequisites(db, jd_session_id, employee_id, bypass_manager=bypass_manager)
 
     employee_session: JDSession = context["employee_session"]
@@ -484,7 +512,6 @@ async def generate_kra_suggestions_for_employee(
     now = datetime.now(timezone.utc)
 
     # Upsert
-    existing = await get_kra_kpi_by_jd_session(db, jd_session_id)
     if existing:
         existing.kra_suggestions = kra_payload
         existing.selected_kra_ids = None
@@ -541,8 +568,11 @@ async def select_kras_and_generate_kpis(
     record = await get_kra_kpi_by_jd_session(db, jd_session_id, employee_id=employee_id)
     if not record:
         raise StepError("No KRA/KPI session found. Generate KRA suggestions first.")
-    if record.generation_step not in ("kra_selection", "kpi_selection"):
+    if record.generation_step not in ("draft", "kra_selection", "kpi_selection"):
         raise StepError(f"Cannot select KRAs in step: {record.generation_step}")
+
+    if len(selected_kra_ids) > 7:
+        raise StepError(f"You can select at most 7 KRAs. (Selected: {len(selected_kra_ids)})")
 
     # Resolve the full KRA objects for selected IDs
     all_suggestions = (record.kra_suggestions or {}).get("kra_suggestions", [])
@@ -642,12 +672,17 @@ async def select_kpis_and_build_final(
     if record.generation_step not in ("kpi_selection", "weight_adjustment"):
         raise StepError(f"Cannot select KPIs in step: {record.generation_step}")
 
-    # Validate KPI counts per KRA — at least 1 KPI must be selected per KRA
+    # Validate KPI counts per KRA — between 1 and 5 KPIs must be selected per KRA
     for kra_id, kpi_ids in selected_kpi_ids.items():
         if len(kpi_ids) < 1:
             raise StepError(
                 f"Select at least 1 KPI for each KRA. "
                 f"KRA '{kra_id}' has no KPIs selected."
+            )
+        if len(kpi_ids) > 5:
+            raise StepError(
+                f"Select at most 5 KPIs for each KRA. "
+                f"KRA '{kra_id}' has {len(kpi_ids)} KPIs selected."
             )
 
     # Resolve full KRA objects

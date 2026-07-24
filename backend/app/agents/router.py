@@ -57,13 +57,18 @@ AGENT_CRITERIA = {
         or (ins.get("agent_turn_counts") or {}).get("WorkflowIdentifierAgent", 0) >= 4
     ),
     "DeepDiveAgent": lambda ins: (
-        # Phase is complete if all priority tasks are visited.
-        all(
-            pt in (ins.get("visited_tasks") or [])
-            for pt in (ins.get("priority_tasks") or [])
+        # GUARDRAIL: Phase is complete if 5+ tasks visited OR turn count >= 10 OR top 5 priority tasks visited
+        len(ins.get("visited_tasks") or []) >= 5
+        or (ins.get("agent_turn_counts") or {}).get("DeepDiveAgent", 0) >= 10
+        or (
+            ins.get("priority_tasks")
+            and all(
+                pt in (ins.get("visited_tasks") or [])
+                for pt in (ins.get("priority_tasks") or [])[:5]
+            )
         )
         if ins.get("priority_tasks")
-        else True  # Skip if no tasks identified
+        else True
     ),
     "ToolsAgent": lambda ins: (
         ins.get("tools_confirmed", False)

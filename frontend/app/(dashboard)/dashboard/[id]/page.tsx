@@ -29,6 +29,7 @@ import {
 import { DeleteModal } from "@/components/ui/delete-modal";
 import { KRAKPIPanel } from "@/components/jd/kra-kpi-panel";
 import { safeAtob, safeBtoa } from "@/lib/base64";
+import { getAdminCache, setAdminCache } from "@/lib/admin-cache";
 
 import {
   AuthUser,
@@ -378,12 +379,13 @@ function EmployeeView({
   employeeId: string;
   user: AuthUser | null;
 }) {
-  const [allJds, setAllJds] = useState<JDListItem[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [roleTemplate, setRoleTemplate] = useState<RoleTemplateResponse | null>(null);
+  const cachedEmp = getAdminCache<any>("emp_dashboard_" + employeeId);
+  const [allJds, setAllJds] = useState<JDListItem[]>(cachedEmp.data?.jds || []);
+  const [loading, setLoading] = useState(!cachedEmp.data);
+  const [roleTemplate, setRoleTemplate] = useState<RoleTemplateResponse | null>(cachedEmp.data?.roleTemplate || null);
   const router = useRouter();
   const [showConfirmModal, setShowConfirmModal] = useState(false);
-  const [improvementPlan, setImprovementPlan] = useState<any>(null);
+  const [improvementPlan, setImprovementPlan] = useState<any>(cachedEmp.data?.improvementPlan || null);
 
   const handleStartInterview = (e: React.MouseEvent) => {
     if (roleTemplate && roleTemplate.exists && allJds.length === 0) {
@@ -428,21 +430,29 @@ function EmployeeView({
     }
   };
 
-
   useEffect(() => {
+    if (!cachedEmp.data) {
+      setLoading(true);
+    }
     Promise.all([
       fetchEmployeeJDs(employeeId),
       fetchEmployeeRoleTemplate(employeeId).catch(() => ({ exists: false })),
       fetchMyImprovements(employeeId).catch(() => null),
     ])
       .then(([jdsData, templateData, improvementsData]) => {
-        setAllJds(jdsData || []);
+        const newJds = jdsData || [];
+        setAllJds(newJds);
         if (templateData && templateData.exists) {
           setRoleTemplate(templateData);
         }
         if (improvementsData && improvementsData.has_improvement_plan) {
           setImprovementPlan(improvementsData);
         }
+        setAdminCache("emp_dashboard_" + employeeId, {
+          jds: newJds,
+          roleTemplate: templateData,
+          improvementPlan: improvementsData,
+        });
       })
       .catch(console.error)
       .finally(() => setLoading(false));

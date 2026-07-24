@@ -26,6 +26,7 @@ import {
     Code,
     Sparkles
 } from "lucide-react";
+import { getAdminCache, setAdminCache } from "@/lib/admin-cache";
 
 interface EvaluationStats {
     period_days: number;
@@ -98,10 +99,13 @@ interface LLMTokenLogRow {
 }
 
 export default function AdminEvaluationPage() {
-    const [stats, setStats] = useState<EvaluationStats | null>(null);
-    const [logs, setLogs] = useState<LLMTokenLogRow[]>([]);
-    const [totalLogs, setTotalLogs] = useState(0);
-    const [isLoading, setIsLoading] = useState(true);
+    const cachedStats = getAdminCache<EvaluationStats | null>("eval_stats");
+    const cachedLogs = getAdminCache<{ logs: LLMTokenLogRow[]; total: number }>("eval_logs");
+
+    const [stats, setStats] = useState<EvaluationStats | null>(cachedStats.data || null);
+    const [logs, setLogs] = useState<LLMTokenLogRow[]>(cachedLogs.data?.logs || []);
+    const [totalLogs, setTotalLogs] = useState<number>(cachedLogs.data?.total || 0);
+    const [isLoading, setIsLoading] = useState(!cachedLogs.data);
     const [daysPeriod, setDaysPeriod] = useState(7);
     const [searchQuery, setSearchQuery] = useState("");
     const [selectedAgentFilter, setSelectedAgentFilter] = useState("ALL");
@@ -122,6 +126,7 @@ export default function AdminEvaluationPage() {
             if (res.ok) {
                 const data = await res.json();
                 setStats(data);
+                setAdminCache("eval_stats", data);
             }
         } catch (err) {
             console.error("Failed to fetch evaluation stats:", err);
@@ -130,8 +135,8 @@ export default function AdminEvaluationPage() {
 
     const fetchLogs = async () => {
         try {
-            setIsLoading(true);
-            let url = `${API_BASE}/api/admin/evaluation/logs?limit=50&offset=0`;
+            if (!cachedLogs.data) setIsLoading(true);
+            let url = `${API_BASE}/api/admin/evaluation/logs?limit=20&offset=0`;
             if (searchQuery.trim()) url += `&session_id=${encodeURIComponent(searchQuery.trim())}`;
             if (selectedAgentFilter !== "ALL") url += `&agent_name=${encodeURIComponent(selectedAgentFilter)}`;
             if (selectedCallTypeFilter !== "ALL") url += `&call_type=${encodeURIComponent(selectedCallTypeFilter)}`;
@@ -140,8 +145,11 @@ export default function AdminEvaluationPage() {
             const res = await fetch(url);
             if (res.ok) {
                 const data = await res.json();
-                setLogs(data.logs || []);
-                setTotalLogs(data.total || 0);
+                const newLogs = data.logs || [];
+                const newTotal = data.total || 0;
+                setLogs(newLogs);
+                setTotalLogs(newTotal);
+                setAdminCache("eval_logs", { logs: newLogs, total: newTotal });
             }
         } catch (err) {
             console.error("Failed to fetch logs:", err);

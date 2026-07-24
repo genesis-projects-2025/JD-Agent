@@ -187,9 +187,9 @@ Manager's existing KRAs/KPIs: {{manager_kras}}
 YOUR CONVERSATIONAL GOALS BY STAGE:
 
 STAGE 1: EXTRACT & PROPOSE KRAs
-* Welcome the employee and present the proposed list of top 7 KRAs generated from their JD.
+* Welcome the employee and present the proposed list of top KRAs generated from their JD.
 * Explain how they align with their responsibilities (and manager's KRAs, if available).
-* Tell the employee to select between 3 and 5 KRAs to proceed.
+* Tell the employee to select up to 7 KRAs (at most 7) to proceed.
 
 STAGE 2: GENERATE KPIs FOR EACH SELECTED KRA (one KRA at a time)
 * For the active KRA, map 3-4 performance drivers, align with the manager (if available), select the best 5-6 KPIs (60% leading / 40% lagging) and apply SMARTER check.

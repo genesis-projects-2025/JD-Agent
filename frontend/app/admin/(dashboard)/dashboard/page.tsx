@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { getCookie, deleteCookie, cookieKeys } from "@/lib/cookies";
+import { getAdminCache, setAdminCache } from "@/lib/admin-cache";
 import {
     BarChart,
     Bar,
@@ -90,17 +91,23 @@ function formatKraKpiStatus(status: string | null | undefined): string {
 
 function kraKpiBadgeClass(status: string | null | undefined): string {
     if (!status) return "bg-slate-50 text-slate-400 border-slate-200";
-    if (status === "approved") return "bg-emerald-50 text-emerald-700 border-emerald-200";
-    if (status === "sent_to_hr") return "bg-purple-50 text-purple-700 border-purple-200";
-    if (status === "hr_rejected") return "bg-rose-50 text-rose-700 border-rose-200";
-    if (status === "sent_to_manager") return "bg-blue-50 text-blue-700 border-blue-200";
-    if (status === "manager_rejected") return "bg-amber-50 text-amber-700 border-amber-200";
-    if (status === "confirmed") return "bg-indigo-50 text-indigo-700 border-indigo-200";
-    return "bg-slate-100 text-slate-600 border-slate-200";
+    if (["manager_rejected", "hr_rejected", "rejected"].includes(status))
+        return "bg-rose-50 text-rose-700 border-rose-200";
+    return "bg-blue-50 text-blue-700 border-blue-200";
+}
+
+function kraKpiStatusBadgeClass(status: string | null | undefined): string {
+    if (!status || status === "Not Started")
+        return "bg-slate-100 text-slate-500 border-slate-200";
+    if (status === "approved" || status === "confirmed")
+        return "bg-emerald-50 text-emerald-700 border-emerald-200";
+    if (["sent_to_manager", "sent_to_hr"].includes(status))
+        return "bg-purple-50 text-purple-700 border-purple-200";
+    return "bg-blue-50 text-blue-700 border-blue-200";
 }
 
 function kraKpiDotColor(status: string | null | undefined): string {
-    if (!status) return "bg-slate-400";
+    if (!status || status === "Not Started") return "bg-slate-400";
     if (status === "approved") return "bg-emerald-500";
     if (status === "sent_to_hr") return "bg-purple-500";
     if (status === "hr_rejected") return "bg-rose-500";
@@ -110,13 +117,25 @@ function kraKpiDotColor(status: string | null | undefined): string {
     return "bg-slate-500";
 }
 
+interface DashboardCachePayload {
+    stats: any;
+    charts: any;
+    users: any[];
+    jds: any[];
+}
+
 export default function AdminDashboard() {
     const router = useRouter();
-    const [stats, setStats] = useState<any>(null);
-    const [charts, setCharts] = useState<any>(null);
-    const [users, setUsers] = useState<any[]>([]);
-    const [jds, setJds] = useState<any[]>([]);
-    const [loading, setLoading] = useState(true);
+    
+    // Check client RAM cache for instant rendering
+    const cached = getAdminCache<DashboardCachePayload>("dashboard");
+    const hasValidCache = Boolean(cached.data && cached.data.stats && cached.data.stats.total_employees !== undefined);
+    
+    const [stats, setStats] = useState<any>(hasValidCache ? cached.data!.stats : null);
+    const [charts, setCharts] = useState<any>(hasValidCache ? cached.data!.charts : null);
+    const [users, setUsers] = useState<any[]>(hasValidCache ? cached.data!.users : []);
+    const [jds, setJds] = useState<any[]>(hasValidCache ? cached.data!.jds : []);
+    const [loading, setLoading] = useState(!hasValidCache);
     const [searchQuery, setSearchQuery] = useState("");
     const [activeTab, setActiveTab] = useState("All Users");
 
@@ -126,30 +145,54 @@ export default function AdminDashboard() {
 
     const fetchDashboardData = async () => {
         try {
-            setLoading(true);
+            if (!hasValidCache) {
+                setLoading(true);
+            }
             const token = getCookie(cookieKeys.ADMIN_TOKEN);
-            const headers = {
+            const headers: Record<string, string> = {
                 "Content-Type": "application/json",
-                Authorization: `Bearer ${token}`,
             };
+            if (token) {
+                headers["Authorization"] = `Bearer ${token}`;
+            }
 
-            const [statsRes, chartsRes, usersRes, jdsRes] = await Promise.all([
-                fetch(`${API_URL}/admin/stats/overview`, { headers }),
-                fetch(`${API_URL}/admin/stats/charts`, { headers }),
-                fetch(`${API_URL}/admin/users`, { headers }),
-                fetch(`${API_URL}/jd/list`, { headers }),
+            const [statsRes, chartsRes, usersRes] = await Promise.all([
+                fetch(`${API_URL}/admin/stats/overview`, { headers }).catch((err) => {
+                    console.warn("stats/overview fetch error:", err);
+                    return null;
+                }),
+                fetch(`${API_URL}/admin/stats/charts`, { headers }).catch((err) => {
+                    console.warn("stats/charts fetch error:", err);
+                    return null;
+                }),
+                fetch(`${API_URL}/admin/users`, { headers }).catch((err) => {
+                    console.warn("admin/users fetch error:", err);
+                    return null;
+                }),
             ]);
 
-            if (statsRes.status === 401 || statsRes.status === 403) {
+            if (statsRes && (statsRes.status === 401 || statsRes.status === 403)) {
                 deleteCookie(cookieKeys.ADMIN_TOKEN);
                 router.push("/admin/login");
                 return;
             }
 
-            if (statsRes.ok) setStats(await statsRes.json());
-            if (chartsRes.ok) setCharts(await chartsRes.json());
-            if (usersRes.ok) setUsers(await usersRes.json());
-            if (jdsRes.ok) setJds(await jdsRes.json());
+            const freshStats = statsRes?.ok ? await statsRes.json().catch(() => null) : null;
+            const freshCharts = chartsRes?.ok ? await chartsRes.json().catch(() => null) : null;
+            const freshUsers = usersRes?.ok ? await usersRes.json().catch(() => []) : [];
+
+            if (freshStats) setStats(freshStats);
+            if (freshCharts) setCharts(freshCharts);
+            if (freshUsers && freshUsers.length > 0) setUsers(freshUsers);
+
+            if (freshStats) {
+                setAdminCache<DashboardCachePayload>("dashboard", {
+                    stats: freshStats,
+                    charts: freshCharts || charts,
+                    users: freshUsers.length > 0 ? freshUsers : users,
+                    jds: [],
+                });
+            }
         } catch (err) {
             console.error("Failed to load admin data", err);
             // Show mock data for demonstration when API is not available
@@ -285,7 +328,13 @@ export default function AdminDashboard() {
             bg: "bg-blue-50 text-blue-600 border-blue-100",
         },
         {
-            label: "Pending JDs",
+            label: "Total Active JDs",
+            value: stats?.total_generated_jds || 0,
+            icon: FileText,
+            bg: "bg-indigo-50 text-indigo-600 border-indigo-100",
+        },
+        {
+            label: "Pending Review JDs",
             value: stats?.pending_jds || 0,
             icon: Clock,
             bg: "bg-amber-50 text-amber-600 border-amber-100",
@@ -307,7 +356,7 @@ export default function AdminDashboard() {
     return (
         <div className="space-y-6 sm:space-y-8">
             {/* ─── Stats Cards ─── */}
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-5">
+            <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 sm:gap-4">
                 {statCards.map((s, i) => (
                     <div
                         key={i}

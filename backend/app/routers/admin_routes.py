@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, File, Form, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
-from sqlalchemy import func
+from sqlalchemy import func, text
 from pydantic import BaseModel
 from typing import Optional
 
@@ -34,6 +34,7 @@ class AdminLoginResponse(BaseModel):
 
 class StatCardData(BaseModel):
     total_employees: int
+    total_generated_jds: int
     pending_jds: int
     approved_jds: int
     rejected_jds: int
@@ -69,48 +70,53 @@ async def admin_login(request: AdminLoginRequest):
     raise HTTPException(status_code=401, detail="Invalid admin credentials")
 
 
+_ADMIN_STATS_CACHE: dict = {}
+_ADMIN_CHARTS_CACHE: dict = {}
+_ADMIN_CACHE_TTL = 30.0
+
+
 @router.get("/admin/stats/overview", response_model=StatCardData)
 async def get_admin_overview(
     db: AsyncSession = Depends(get_db), admin_role: str = Depends(get_current_admin)
 ):
-    # total employees
-    emp_res = await db.execute(select(func.count(Employee.id)))
-    total_employees = emp_res.scalar_one()
+    import time
+    now = time.time()
+    if _ADMIN_STATS_CACHE and (now - _ADMIN_STATS_CACHE.get("ts", 0)) < _ADMIN_CACHE_TTL:
+        return _ADMIN_STATS_CACHE["data"]
 
-    # pending jds (waiting on manager or hr)
-    pending_res = await db.execute(
-        select(func.count(JDSession.id)).where(
-            JDSession.status.in_(["sent_to_manager", "sent_to_hr"])
-        )
+    # Single-pass SQL query for accurate overview stats (counting unique employees with valid generated/submitted/approved JDs)
+    res = await db.execute(
+        text("""
+        SELECT
+            (SELECT COUNT(*) FROM organogram) as total_employees,
+            (SELECT COUNT(DISTINCT employee_id) FROM jd_sessions WHERE status IN ('jd_generated', 'sent_to_manager', 'sent_to_hr', 'approved', 'manager_rejected', 'hr_rejected', 'rejected')) as total_generated_jds,
+            (SELECT COUNT(DISTINCT employee_id) FROM jd_sessions WHERE status IN ('sent_to_manager', 'sent_to_hr')) as pending_jds,
+            (SELECT COUNT(DISTINCT employee_id) FROM jd_sessions WHERE status = 'approved') as approved_jds,
+            (SELECT COUNT(DISTINCT employee_id) FROM jd_sessions WHERE status IN ('manager_rejected', 'hr_rejected', 'rejected')) as rejected_jds
+    """)
     )
-    pending_jds = pending_res.scalar_one()
-
-    # approved
-    approved_res = await db.execute(
-        select(func.count(JDSession.id)).where(JDSession.status == "approved")
+    row = res.mappings().first() or {}
+    result_data = StatCardData(
+        total_employees=row.get("total_employees", 0),
+        total_generated_jds=row.get("total_generated_jds", 0),
+        pending_jds=row.get("pending_jds", 0),
+        approved_jds=row.get("approved_jds", 0),
+        rejected_jds=row.get("rejected_jds", 0),
     )
-    approved_jds = approved_res.scalar_one()
-
-    # rejected (by manager or hr)
-    rejected_res = await db.execute(
-        select(func.count(JDSession.id)).where(
-            JDSession.status.in_(["manager_rejected", "hr_rejected"])
-        )
-    )
-    rejected_jds = rejected_res.scalar_one()
-
-    return StatCardData(
-        total_employees=total_employees,
-        pending_jds=pending_jds,
-        approved_jds=approved_jds,
-        rejected_jds=rejected_jds,
-    )
+    _ADMIN_STATS_CACHE["data"] = result_data
+    _ADMIN_STATS_CACHE["ts"] = now
+    return result_data
 
 
 @router.get("/admin/stats/charts")
 async def get_admin_charts(
     db: AsyncSession = Depends(get_db), admin_active: str = Depends(get_current_admin)
 ):
+    import time
+    now = time.time()
+    if _ADMIN_CHARTS_CACHE and (now - _ADMIN_CHARTS_CACHE.get("ts", 0)) < _ADMIN_CACHE_TTL:
+        return _ADMIN_CHARTS_CACHE["data"]
+
     # 1. Pipeline Chart (Bar Chart)
     pipeline_res = await db.execute(
         select(JDSession.status, func.count(JDSession.id).label("count")).group_by(
@@ -140,27 +146,23 @@ async def get_admin_charts(
     ]
 
     # 2. Manager Response Chart (Doughnut)
-    # JDs that have reached 'sent_to_manager' or further
-    manager_responded_res = await db.execute(
-        select(func.count(JDSession.id)).where(
-            JDSession.status.in_(
-                ["sent_to_hr", "manager_rejected", "hr_rejected", "approved"]
-            )
-        )
+    manager_responded = (
+        pipeline_map.get("sent_to_hr", 0)
+        + pipeline_map.get("manager_rejected", 0)
+        + pipeline_map.get("hr_rejected", 0)
+        + pipeline_map.get("approved", 0)
     )
-    manager_responded = manager_responded_res.scalar_one()
-
-    manager_pending_res = await db.execute(
-        select(func.count(JDSession.id)).where(JDSession.status == "sent_to_manager")
-    )
-    manager_pending = manager_pending_res.scalar_one()
+    manager_pending = pipeline_map.get("sent_to_manager", 0)
 
     response_rate = [
         {"name": "Responded", "value": manager_responded},
         {"name": "Pending", "value": manager_pending},
     ]
 
-    return {"pipeline": normalized_pipeline, "manager_response": response_rate}
+    res_dict = {"pipeline": normalized_pipeline, "manager_response": response_rate}
+    _ADMIN_CHARTS_CACHE["data"] = res_dict
+    _ADMIN_CHARTS_CACHE["ts"] = now
+    return res_dict
 
 
 @router.get("/admin/users")
@@ -171,55 +173,65 @@ async def get_admin_users(
     db: AsyncSession = Depends(get_db),
     admin_active: str = Depends(get_current_admin),
 ):
-    query = select(Employee, JDSession).outerjoin(
-        JDSession, Employee.id == JDSession.employee_id
-    )
-
+    sql = """
+        SELECT 
+            o.code as employee_id,
+            o.employee_name as name,
+            e.email as email,
+            o.department as department,
+            o.designation as role,
+            o.reporting_manager as manager_name,
+            COALESCE(js.status, 'No JD') as jd_status,
+            js.id::text as jd_session_id,
+            js.updated_at as last_active,
+            CASE 
+                WHEN uk.id IS NOT NULL THEN 'approved'
+                ELSE ks.status 
+            END as kra_kpi_status
+        FROM organogram o
+        LEFT JOIN employees e ON e.id = o.code
+        LEFT JOIN jd_sessions js ON js.employee_id = o.code
+        LEFT JOIN kra_kpi_sessions ks ON ks.employee_id = o.code
+        LEFT JOIN uploaded_kra_kpis uk ON uk.employee_id = o.code
+        WHERE 1=1
+    """
+    params = {}
     if role:
-        query = query.where(Employee.role.ilike(f"%{role}%"))
-
+        sql += " AND o.designation ILIKE :role"
+        params["role"] = f"%{role}%"
     if status:
         if status.lower() == "no jd":
-            query = query.where(JDSession.id.is_(None))
+            sql += " AND js.id IS NULL"
         else:
-            query = query.where(JDSession.status == status)
-
+            sql += " AND js.status = :status"
+            params["status"] = status
     if search:
-        search_filter = f"%{search}%"
-        query = query.where(
-            (Employee.name.ilike(search_filter))
-            | (Employee.id.ilike(search_filter))
-            | (Employee.email.ilike(search_filter))
-        )
+        sql += " AND (o.employee_name ILIKE :search OR o.code ILIKE :search OR e.email ILIKE :search)"
+        params["search"] = f"%{search}%"
 
-    query = query.order_by(Employee.name)
-    result = await db.execute(query)
-    # the result has 2 elements per tuple: (Employee instance, JDSession instance)
-    rows = result.all()
+    sql += " ORDER BY o.employee_name ASC"
+    result = await db.execute(text(sql), params)
+    rows = result.mappings().all()
 
     formatted_results = []
-    seen_emps = set()
-
-    for emp, session in rows:
-        if emp.id in seen_emps:
+    seen = set()
+    for r in rows:
+        emp_id = r["employee_id"]
+        if emp_id in seen:
             continue
-
-        seen_emps.add(emp.id)
-        formatted_results.append(
-            {
-                "employee_id": emp.id,
-                "name": emp.name,
-                "email": emp.email,
-                "department": emp.department,
-                "role": emp.role,
-                "manager_name": emp.reporting_manager,
-                "jd_status": session.status if session else "No JD",
-                "jd_session_id": str(session.id) if session else None,
-                "last_active": session.updated_at.isoformat()
-                if session and session.updated_at
-                else None,
-            }
-        )
+        seen.add(emp_id)
+        formatted_results.append({
+            "employee_id": emp_id,
+            "name": r["name"] or "Unknown",
+            "email": r["email"],
+            "department": r["department"],
+            "role": r["role"] or "Employee",
+            "manager_name": r["manager_name"],
+            "jd_status": r["jd_status"],
+            "jd_session_id": r["jd_session_id"],
+            "kra_kpi_status": r["kra_kpi_status"],
+            "last_active": r["last_active"].isoformat() if r.get("last_active") else None,
+        })
 
     return formatted_results
 

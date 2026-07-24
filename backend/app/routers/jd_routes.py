@@ -690,7 +690,6 @@ async def _attach_kra_kpi_status(db: AsyncSession, records: list) -> None:
 
 # ── List all (admin) ──────────────────────────────────────────────────────────
 @router.get("/list")
-@cached_response("jd_list", ttl=300)
 async def list_jds(submitted_only: bool = False, db: AsyncSession = Depends(get_db)):
     status_filter = (
         ["sent_to_manager", "manager_rejected", "sent_to_hr", "hr_rejected", "approved"]

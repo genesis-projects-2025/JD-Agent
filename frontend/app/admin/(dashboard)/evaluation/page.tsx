@@ -303,6 +303,9 @@ export default function AdminEvaluationPage() {
                         <span>Period: ₹{stats?.summary?.total_cost_inr?.toFixed(2) || "0.00"}</span>
                         <span className="text-emerald-400 font-bold">${stats?.summary?.total_cost_usd?.toFixed(4) || "0.00"} USD</span>
                     </div>
+                    <p className="mt-2.5 text-[10px] text-slate-400/80 leading-tight border-t border-slate-800/80 pt-2">
+                        * Real-time LLM token cost. GCP Console billing includes vector embeddings, taxes & delayed batch settlements.
+                    </p>
                 </div>
 
                 {/* Stat 2: Total Prompt vs Output Tokens */}

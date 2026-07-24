@@ -545,17 +545,21 @@ export default function JDLibraryPage() {
     setEditedJdPurpose(struct.purpose || struct.role_summary || "");
     
     // Extract arrays safely
-    const tasks = Array.isArray(struct.responsibilities) ? struct.responsibilities : 
-                  Array.isArray(struct.key_responsibilities) ? struct.key_responsibilities : [];
+    const tasks = (Array.isArray(struct.responsibilities) && struct.responsibilities.length > 0) ? struct.responsibilities : 
+                  (Array.isArray(struct.key_responsibilities) && struct.key_responsibilities.length > 0) ? struct.key_responsibilities :
+                  (Array.isArray(struct.tasks) && struct.tasks.length > 0) ? struct.tasks :
+                  (Array.isArray(struct.duties) && struct.duties.length > 0) ? struct.duties : [];
     setEditedJdTasks([...tasks]);
     
-    const skl = Array.isArray(struct.skills) ? struct.skills : 
-                Array.isArray(struct.technical_skills) ? struct.technical_skills : [];
+    const skl = (Array.isArray(struct.skills) && struct.skills.length > 0) ? struct.skills : 
+                (Array.isArray(struct.technical_skills) && struct.technical_skills.length > 0) ? struct.technical_skills :
+                (Array.isArray(struct.required_skills) && struct.required_skills.length > 0) ? struct.required_skills : [];
     setEditedJdSkills([...skl]);
     
-    const tls = Array.isArray(struct.tools) ? struct.tools : 
-                Array.isArray(struct.tools_used) ? struct.tools_used : 
-                Array.isArray(struct.tools_and_technologies) ? struct.tools_and_technologies : [];
+    const tls = (Array.isArray(struct.tools) && struct.tools.length > 0) ? struct.tools : 
+                (Array.isArray(struct.tools_used) && struct.tools_used.length > 0) ? struct.tools_used : 
+                (Array.isArray(struct.tools_and_technologies) && struct.tools_and_technologies.length > 0) ? struct.tools_and_technologies :
+                (Array.isArray(struct.technologies) && struct.technologies.length > 0) ? struct.technologies : [];
     setEditedJdTools([...tls]);
     
     setEditedJdEducation(struct.qualifications?.education || struct.education || struct.qualifications?.required_education || "");

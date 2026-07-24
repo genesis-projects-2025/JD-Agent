@@ -101,7 +101,7 @@ export function PdfDocumentView({ data, roleTitle, dept }: Props) {
   const internal = getStakeholder(data, "internal") || "—";
   const external = getStakeholder(data, "external") || "Not applicable";
   const purpose = getField(data, "purpose", "role_summary");
-  let responsibilities = getArray(data, "responsibilities", "key_responsibilities", "tasks", "priority_tasks");
+  let responsibilities = getArray(data, "responsibilities", "key_responsibilities", "tasks", "duties", "priority_tasks");
 
   // Fallback: check dynamic_sections if responsibilities array is empty
   if (responsibilities.length === 0 && data?.dynamic_sections && Array.isArray(data.dynamic_sections)) {

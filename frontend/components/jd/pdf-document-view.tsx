@@ -101,13 +101,24 @@ export function PdfDocumentView({ data, roleTitle, dept }: Props) {
   const internal = getStakeholder(data, "internal") || "—";
   const external = getStakeholder(data, "external") || "Not applicable";
   const purpose = getField(data, "purpose", "role_summary");
-  const responsibilities = getArray(data, "responsibilities", "key_responsibilities", "tasks", "priority_tasks");
+  let responsibilities = getArray(data, "responsibilities", "key_responsibilities", "tasks", "priority_tasks");
+
+  // Fallback: check dynamic_sections if responsibilities array is empty
+  if (responsibilities.length === 0 && data?.dynamic_sections && Array.isArray(data.dynamic_sections)) {
+    for (const sec of data.dynamic_sections) {
+      if (sec.heading && sec.heading.toLowerCase().includes("responsib") && Array.isArray(sec.content)) {
+        responsibilities = sec.content;
+        break;
+      }
+    }
+  }
+
   const skills = getArray(data, "skills", "technical_skills", "required_skills");
   const tools = getArray(data, "tools", "tools_used", "tools_and_technologies", "technologies");
 
   // Safe extraction taking into account nested qualifications map
-  const rawEducation = data.qualifications?.education || getField(data, "education") || data?.talent_bar?.education;
-  const rawExperience = data.qualifications?.experience || data.qualifications?.experience_years || getField(data, "experience", "experience_years") || data?.talent_bar?.experience;
+  const rawEducation = data.qualifications?.education || getField(data, "education", "qualification", "educational_qualification") || data?.talent_bar?.education || "As per organizational standards & role requirement.";
+  const rawExperience = data.qualifications?.experience || data.qualifications?.experience_years || getField(data, "experience", "experience_years", "relevant_experience") || data?.talent_bar?.experience || "Relevant domain experience as required by department.";
 
   const eduExp = [rawEducation, rawExperience].filter(Boolean).map((s, i) => (
     <React.Fragment key={i}>

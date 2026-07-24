@@ -918,7 +918,7 @@ async def get_jd(jd_id: str, db: AsyncSession = Depends(get_db)):
     emp_record = emp_result.scalar_one_or_none()
     employee_name = emp_record.name if emp_record else "Unknown Employee"
 
-    # ── Stamp job_level and location if missing (for JDs saved before the fixes) ──
+    # ── Stamp job_level, location, responsibilities, education if missing ──
     jd_structured = dict(record.jd_structured or {})
     needs_level = not jd_structured.get("job_level") and not jd_structured.get("joblevel")
     needs_location = not jd_structured.get("location")
@@ -944,6 +944,33 @@ async def get_jd(jd_id: str, db: AsyncSession = Depends(get_db)):
                     jd_structured["employee_information"]["location"] = lv_row["location"]
         except Exception as _e:
             logger.warning(f"Could not stamp organogram fields in GET /{jd_id}: {_e}")
+
+    # Backfill responsibilities from insights if empty
+    curr_resp = jd_structured.get("responsibilities") or jd_structured.get("key_responsibilities") or []
+    if not curr_resp and record.insights and isinstance(record.insights, dict):
+        extracted_wf = record.insights.get("extracted_workflows") or {}
+        derived_resp = []
+        if isinstance(extracted_wf, dict):
+            for t_name, wf in extracted_wf.items():
+                if isinstance(wf, dict):
+                    steps = wf.get("steps") or []
+                    if steps:
+                        derived_resp.append(f"{t_name}: {', '.join(steps)}")
+                    else:
+                        derived_resp.append(str(t_name))
+        if derived_resp:
+            jd_structured["responsibilities"] = derived_resp
+
+    # Backfill education & experience if missing
+    if not jd_structured.get("education") and record.insights:
+        edu_val = record.insights.get("identity_context", {}).get("education") or record.insights.get("education")
+        if edu_val:
+            jd_structured["education"] = str(edu_val)
+
+    if not jd_structured.get("experience") and record.insights:
+        exp_val = record.insights.get("identity_context", {}).get("experience") or record.insights.get("experience")
+        if exp_val:
+            jd_structured["experience"] = str(exp_val)
 
     history = [
         {"role": t.role, "content": t.content}

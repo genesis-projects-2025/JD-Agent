@@ -207,10 +207,14 @@
 
 
 //______________________________________________________________
-import React from "react";
-import { Wrench, Clock } from "lucide-react";
 
-const HomePage: React.FC = () => {
+import { Wrench } from "lucide-react";
+
+export default function HomePage({
+  params,
+}: {
+  params: Promise<{ id: string }>;
+}) {
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-orange-50 to-orange-100 px-6">
       <div className="max-w-lg w-full bg-white rounded-2xl shadow-xl p-10 text-center">
@@ -224,22 +228,14 @@ const HomePage: React.FC = () => {
           Under Maintenance
         </h1>
 
-        <p className="text-gray-600 text-lg leading-relaxed mb-6">
+        <p className="text-lg text-gray-600 leading-relaxed">
           We're currently performing scheduled maintenance to improve your
           experience.
         </p>
 
-        <div className="flex items-center justify-center gap-2 text-orange-600 font-medium mb-8">
-          <Clock className="w-5 h-5" />
-          <span>Please try again after some time.</span>
-        </div>
-
-        <button
-          onClick={() => window.location.reload()}
-          className="bg-orange-500 hover:bg-orange-600 text-white font-semibold px-6 py-3 rounded-lg transition duration-300"
-        >
-          Refresh Page
-        </button>
+        <p className="mt-4 text-orange-600 font-medium">
+          Please try again after some time.
+        </p>
 
         <p className="mt-8 text-sm text-gray-400">
           Thank you for your patience.
@@ -247,6 +243,4 @@ const HomePage: React.FC = () => {
       </div>
     </div>
   );
-};
-
-export default HomePage;
+}

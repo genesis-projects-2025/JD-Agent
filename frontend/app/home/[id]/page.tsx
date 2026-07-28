@@ -208,6 +208,8 @@
 
 //______________________________________________________________
 
+
+
 import { Wrench } from "lucide-react";
 
 export default function HomePage({
@@ -216,31 +218,32 @@ export default function HomePage({
   params: Promise<{ id: string }>;
 }) {
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-orange-50 to-orange-100 px-6">
-      <div className="max-w-lg w-full bg-white rounded-2xl shadow-xl p-10 text-center">
-        <div className="flex justify-center mb-6">
-          <div className="bg-orange-100 p-5 rounded-full">
-            <Wrench className="w-12 h-12 text-orange-500" />
-          </div>
+    <main className="flex min-h-screen w-full items-center justify-center bg-gradient-to-br from-orange-50 via-white to-orange-100 px-4">
+      <div className="w-full max-w-lg rounded-3xl border border-orange-100 bg-white p-10 text-center shadow-2xl">
+        <div className="mx-auto mb-6 flex h-24 w-24 items-center justify-center rounded-full bg-orange-100">
+          <Wrench className="h-12 w-12 text-orange-500" />
         </div>
 
-        <h1 className="text-4xl font-bold text-gray-800 mb-4">
+        <h1 className="mb-4 text-4xl font-bold text-gray-800">
           Under Maintenance
         </h1>
 
-        <p className="text-lg text-gray-600 leading-relaxed">
+        <p className="text-lg leading-relaxed text-gray-600">
           We're currently performing scheduled maintenance to improve your
           experience.
         </p>
 
-        <p className="mt-4 text-orange-600 font-medium">
+        <p className="mt-4 font-medium text-orange-600">
           Please try again after some time.
         </p>
 
-        <p className="mt-8 text-sm text-gray-400">
+        <div className="my-8 h-px w-full bg-gray-200" />
+
+        <p className="text-sm text-gray-400">
           Thank you for your patience.
         </p>
       </div>
-    </div>
+    </main>
   );
 }
+

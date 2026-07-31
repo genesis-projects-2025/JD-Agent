@@ -66,12 +66,48 @@ from sqlalchemy import text  # noqa: E402
 async def init_db():
     """Create core tables and lightweight compatibility objects on startup."""
     try:
+        # Use a SINGLE connection for all startup DDL to avoid per-connect RTT overhead.
+        # Each engine.begin() on Aiven costs ~2-3s for pool setup — batching saves ~8s.
         async with engine.begin() as conn:
+            # Set a hard lock_timeout so DDL never hangs longer than 20 s
+            if conn.dialect.name == "postgresql":
+                await conn.execute(text("SET LOCAL lock_timeout = '20s'"))
+
+            # --- Kill stale idle connections that may hold table locks ---
+            # Zombie connections from crashed workers can block ALTER TABLE indefinitely.
+            if conn.dialect.name == "postgresql":
+                try:
+                    await conn.execute(text("""
+                        SELECT pg_terminate_backend(pid)
+                        FROM pg_stat_activity
+                        WHERE pid <> pg_backend_pid()
+                          AND state IN ('idle', 'idle in transaction', 'idle in transaction (aborted)')
+                          AND query_start < now() - interval '2 minutes'
+                    """))
+                    logger.info("🧹 Stale idle DB connections terminated before DDL")
+                except Exception as _ce:
+                    logger.warning(f"Could not clean stale connections (non-fatal): {_ce}")
+
             # Enable pgvector if on PostgreSQL
             if conn.dialect.name == "postgresql":
                 await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
-            # Create all registered SQLAlchemy tables if they do not exist
-            await conn.run_sync(Base.metadata.create_all)
+
+            # --- Fast-path: skip create_all if tables already exist ---
+            # Base.metadata.create_all does per-table catalog round-trips (~23s on Aiven).
+            # Instead, check existence with ONE query; only run create_all on first deploy.
+            tables_exist = False
+            if conn.dialect.name == "postgresql":
+                result = await conn.execute(text(
+                    "SELECT EXISTS (SELECT 1 FROM pg_tables WHERE schemaname='public' AND tablename='jd_sessions')"
+                ))
+                tables_exist = result.scalar()
+
+            if not tables_exist:
+                logger.info("🏗️  First deploy detected — running create_all to build schema...")
+                await conn.run_sync(Base.metadata.create_all)
+                logger.info("✅ Schema created")
+            else:
+                logger.info("⚡ Tables already exist — skipping create_all (fast path)")
 
             # If using SQLite (e.g. for local testing/development), return early
             # since SQLite does not support PostgreSQL-specific DDL and PL/pgSQL syntax.
@@ -92,88 +128,57 @@ async def init_db():
                 logger.info("ℹ️ SQLite database detected. Skipping PostgreSQL-specific database migrations.")
                 return
 
-            # Add trigger function for updated_at — Using a DO block to make it safer for concurrent workers
-            # Ensure timestamp columns for RBAC workflow exist
-            await conn.execute(text("ALTER TABLE jd_sessions ADD COLUMN IF NOT EXISTS sent_to_manager_at TIMESTAMP WITH TIME ZONE"))
-            await conn.execute(text("ALTER TABLE jd_sessions ADD COLUMN IF NOT EXISTS sent_to_hr_at TIMESTAMP WITH TIME ZONE"))
-            await conn.execute(text("ALTER TABLE kra_kpi_sessions ADD COLUMN IF NOT EXISTS reviewer_comment TEXT"))
-            await conn.execute(text("ALTER TABLE kra_kpi_sessions ADD COLUMN IF NOT EXISTS reviewed_by VARCHAR(255)"))
-            await conn.execute(text("ALTER TABLE kra_kpi_sessions ADD COLUMN IF NOT EXISTS reviewed_at TIMESTAMP WITH TIME ZONE"))
-            await conn.execute(text("ALTER TABLE kra_kpi_sessions ADD COLUMN IF NOT EXISTS skill_ratings JSONB"))
-            await conn.execute(text("ALTER TABLE kra_kpi_sessions ADD COLUMN IF NOT EXISTS improvement_area TEXT"))
-            await conn.execute(text("ALTER TABLE kra_kpi_sessions ADD COLUMN IF NOT EXISTS improvement_goal TEXT"))
-            await conn.execute(text("ALTER TABLE kra_kpi_sessions ADD COLUMN IF NOT EXISTS improvement_status VARCHAR(50)"))
-            await conn.execute(
-                text("""
+            # --- Single-batch DDL: all ALTERs + triggers + index in ONE round-trip ---
+            # Previously 13 separate awaits × ~1.2s Aiven RTT = ~15s. Now 1 round-trip.
+            await conn.execute(text("""
                 DO $$
                 BEGIN
+                    -- jd_sessions columns
+                    ALTER TABLE jd_sessions ADD COLUMN IF NOT EXISTS sent_to_manager_at TIMESTAMP WITH TIME ZONE;
+                    ALTER TABLE jd_sessions ADD COLUMN IF NOT EXISTS sent_to_hr_at TIMESTAMP WITH TIME ZONE;
+                    ALTER TABLE jd_sessions ADD COLUMN IF NOT EXISTS source_reference_jd_id VARCHAR(36);
+
+                    -- kra_kpi_sessions columns
+                    ALTER TABLE kra_kpi_sessions ADD COLUMN IF NOT EXISTS reviewer_comment TEXT;
+                    ALTER TABLE kra_kpi_sessions ADD COLUMN IF NOT EXISTS reviewed_by VARCHAR(255);
+                    ALTER TABLE kra_kpi_sessions ADD COLUMN IF NOT EXISTS reviewed_at TIMESTAMP WITH TIME ZONE;
+                    ALTER TABLE kra_kpi_sessions ADD COLUMN IF NOT EXISTS skill_ratings JSONB;
+                    ALTER TABLE kra_kpi_sessions ADD COLUMN IF NOT EXISTS improvement_area TEXT;
+                    ALTER TABLE kra_kpi_sessions ADD COLUMN IF NOT EXISTS improvement_goal TEXT;
+                    ALTER TABLE kra_kpi_sessions ADD COLUMN IF NOT EXISTS improvement_status VARCHAR(50);
+                    ALTER TABLE kra_kpi_sessions ADD COLUMN IF NOT EXISTS conversation_state JSONB;
+
+                    -- touch_updated_at trigger function
                     IF NOT EXISTS (SELECT 1 FROM pg_proc WHERE proname = 'touch_updated_at') THEN
                         CREATE FUNCTION touch_updated_at()
                         RETURNS TRIGGER AS $inner$
                         BEGIN NEW.updated_at = now(); RETURN NEW; END;
                         $inner$ LANGUAGE plpgsql;
                     END IF;
-                END
-                $$;
-            """)
-            )
 
-            # Add trigger specifically to jd_sessions
-            await conn.execute(
-                text("""
-                DO $$
-                BEGIN
-                    IF NOT EXISTS (
-                        SELECT 1 FROM pg_trigger 
-                        WHERE tgname = 'trg_jd_sessions_updated'
-                    ) THEN
+                    -- trigger: jd_sessions
+                    IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'trg_jd_sessions_updated') THEN
                         CREATE TRIGGER trg_jd_sessions_updated
                         BEFORE UPDATE ON jd_sessions
                         FOR EACH ROW EXECUTE FUNCTION touch_updated_at();
                     END IF;
-                END
-                $$;
-            """)
-            )
 
-            # Add trigger specifically to brain_agent_sessions
-            await conn.execute(
-                text("""
-                DO $$
-                BEGIN
-                    IF NOT EXISTS (
-                        SELECT 1 FROM pg_trigger 
-                        WHERE tgname = 'trg_brain_agent_sessions_updated'
-                    ) THEN
+                    -- trigger: brain_agent_sessions
+                    IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'trg_brain_agent_sessions_updated') THEN
                         CREATE TRIGGER trg_brain_agent_sessions_updated
                         BEFORE UPDATE ON brain_agent_sessions
                         FOR EACH ROW EXECUTE FUNCTION touch_updated_at();
                     END IF;
                 END
                 $$;
-            """)
-            )
+            """))
 
-            # Bootstrap compatibility for fields that newer code requires.
-            await conn.execute(
-                text("""
-                ALTER TABLE jd_sessions
-                ADD COLUMN IF NOT EXISTS source_reference_jd_id VARCHAR(36);
-            """)
-            )
-            await conn.execute(
-                text("""
-                ALTER TABLE kra_kpi_sessions
-                ADD COLUMN IF NOT EXISTS conversation_state JSONB;
-            """)
-            )
-            await conn.execute(
-                text("""
+            # CREATE INDEX must be outside DO $$ (DDL index creation not allowed inside PL/pgSQL)
+            await conn.execute(text("""
                 CREATE UNIQUE INDEX IF NOT EXISTS uq_jd_sessions_source_reference_jd_id
                 ON jd_sessions (source_reference_jd_id)
                 WHERE source_reference_jd_id IS NOT NULL;
-            """)
-            )
+            """))
         logger.info("✅ Database tables and triggers ready")
     except Exception as e:
         # If another worker is already updating the metadata/triggers, we can skip

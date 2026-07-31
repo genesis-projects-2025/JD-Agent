@@ -38,10 +38,10 @@ async def lifespan(app: FastAPI):
 
     try:
         # Add 30-second timeout to startup initialization
-        await asyncio.wait_for(init_db(), timeout=30.0)
+        await asyncio.wait_for(init_db(), timeout=60.0)
         logger.info("✅ Database initialization completed successfully")
     except asyncio.TimeoutError:
-        logger.error("⏱️ Database initialization timed out after 30s - continuing anyway")
+        logger.error("⏱️ Database initialization timed out after 60s - continuing anyway")
     except Exception as e:
         logger.error(f"❌ Database initialization failed: {e} - continuing anyway")
     

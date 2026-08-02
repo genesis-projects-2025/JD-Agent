@@ -170,7 +170,12 @@ async def check_prerequisites(
         if emp_org:
             emp_desig = (emp_org.get("designation") or "").lower()
             emp_level = str(emp_org.get("joblevel") or "").lower()
-            if any(k in emp_desig for k in ["director", "president", "vp", "vice president", "ceo", "coo", "md", "board", "md & ceo"]) or "exec" in emp_level or "l1" in emp_level or "l2" in emp_level:
+            exec_keywords = [
+                "director", "president", "vp", "vice president", "ceo", "coo", "cfo",
+                "cto", "cmo", "md", "board", "md & ceo", "managing director",
+                "general manager", "chief", "head of", "evp", "svp", "executive"
+            ]
+            if any(k in emp_desig for k in exec_keywords) or any(lvl in emp_level for lvl in ["exec", "l1", "l2", "e1", "e2"]):
                 bypass_manager = True
                 logger.info(f"[ExecutiveBypass] Employee {employee_id} ({emp_desig}, level {emp_level}) bypassed manager prerequisites.")
     except Exception as e:
@@ -178,7 +183,7 @@ async def check_prerequisites(
 
     # 1. Employee JD
     emp_result = await db.execute(
-        select(JDSession).where(JDSession.id == uuid.UUID(jd_session_id))
+        select(JDSession).where(JDSession.id == uuid.UUID(str(jd_session_id)))
     )
     employee_session = emp_result.scalar_one_or_none()
 
@@ -231,7 +236,7 @@ async def check_prerequisites(
                 if mgr_org:
                     mgr_desig = (mgr_org.get("designation") or "").lower()
                     mgr_code = (mgr_org.get("code") or "").upper()
-                    if any(k in mgr_desig for k in ["director", "president", "vp", "vice president", "ceo", "coo", "md", "board", "md & ceo"]) or mgr_code.startswith("DIR") or mgr_code.startswith("MD"):
+                    if any(k in mgr_desig for k in exec_keywords) or mgr_code.startswith("DIR") or mgr_code.startswith("MD"):
                         bypass_manager = True
             except Exception as e:
                 logger.error(f"Error checking manager designation in organogram: {e}")

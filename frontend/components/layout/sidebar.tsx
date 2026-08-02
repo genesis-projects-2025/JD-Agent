@@ -79,7 +79,7 @@ export default function Sidebar() {
     const [isMobileOpen, setIsMobileOpen] = useState(false);
 
     const user = isMounted ? getCurrentUser() : null;
-    const role = user?.role || "employee";
+    const role = (user?.role || "employee").toLowerCase();
     const currentView = searchParams.get("view");
 
     // ── React Query — cached, deduplicated ───────────────────────────────────
@@ -138,36 +138,40 @@ export default function Sidebar() {
         },
     ];
 
-    if (role === "employee") {
-        links.push({
-            name: "Feedback",
-            href: employeeId ? `/feedback/${safeBtoa(employeeId)}` : "/",
-            icon: MessageSquare,
-            description: "Review comments",
-        });
-    } else if (role === "manager" || role === "head") {
+    if (role === "manager" || role === "head") {
         links.push({
             name: "Approvals",
             href: employeeId ? `/feedback/${safeBtoa(employeeId)}` : "/",
             icon: AlertTriangle,
             description: "Pending reviews",
         });
-    } else if (role === "hr" || role === "admin") {
+    } else if (role === "hr") {
         links.push({
             name: "Reviews",
             href: employeeId ? `/feedback/${safeBtoa(employeeId)}` : "/",
             icon: ShieldCheck,
             description: "Final approvals",
         });
-    }
-
-    // Admin-only: JD Library
-    if (role === "admin") {
+    } else if (role === "admin") {
+        links.push({
+            name: "Reviews",
+            href: employeeId ? `/feedback/${safeBtoa(employeeId)}` : "/",
+            icon: ShieldCheck,
+            description: "Final approvals",
+        });
         links.push({
             name: "Reference Library",
             href: "/admin/jd-library",
             icon: FileText,
             description: "Upload & manage JDs",
+        });
+    } else {
+        // Regular employee
+        links.push({
+            name: "Feedback",
+            href: employeeId ? `/feedback/${safeBtoa(employeeId)}` : "/",
+            icon: MessageSquare,
+            description: "Review comments",
         });
     }
 

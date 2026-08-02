@@ -173,6 +173,8 @@ async def get_admin_users(
     role: Optional[str] = None,
     status: Optional[str] = None,
     search: Optional[str] = None,
+    skip: int = 0,
+    limit: int = 50,
     db: AsyncSession = Depends(get_db),
     admin_active: str = Depends(get_current_admin),
 ):
@@ -213,6 +215,15 @@ async def get_admin_users(
         params["search"] = f"%{search}%"
 
     sql += " ORDER BY o.employee_name ASC"
+    
+    # Cap limit to prevent OOM
+    safe_limit = max(1, min(limit, 200))
+    safe_skip = max(0, skip)
+    
+    sql += " LIMIT :limit OFFSET :skip"
+    params["limit"] = safe_limit
+    params["skip"] = safe_skip
+
     result = await db.execute(text(sql), params)
     rows = result.mappings().all()
 
@@ -236,7 +247,12 @@ async def get_admin_users(
             "last_active": r["last_active"].isoformat() if r.get("last_active") else None,
         })
 
-    return formatted_results
+    return {
+        "items": formatted_results,
+        "skip": safe_skip,
+        "limit": safe_limit,
+        "count": len(formatted_results),
+    }
 
 
 @router.post("/admin/kra-kpi/upload")

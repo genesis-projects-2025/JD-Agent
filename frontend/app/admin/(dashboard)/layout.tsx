@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { getCookie, deleteCookie, cookieKeys } from "@/lib/cookies";
+import { ErrorBoundary } from "@/components/error-boundary";
 
 export default function AdminLayout({
     children,
@@ -187,7 +188,9 @@ export default function AdminLayout({
                 </header>
 
                 <div className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8 bg-slate-50/50 scroll-smooth custom-scrollbar">
-                    <div className="w-full pb-10">{children}</div>
+                    <div className="w-full pb-10">
+                        <ErrorBoundary>{children}</ErrorBoundary>
+                    </div>
                 </div>
             </main>
         </div>

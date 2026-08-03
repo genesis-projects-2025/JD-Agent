@@ -87,15 +87,25 @@ async def get_admin_overview(
     if _ADMIN_STATS_CACHE and (now - _ADMIN_STATS_CACHE.get("ts", 0)) < _ADMIN_CACHE_TTL:
         return _ADMIN_STATS_CACHE["data"]
 
-    # Single-pass SQL query for accurate overview stats (counting unique employees with valid generated/submitted/approved JDs)
+    # Single-pass SQL query for accurate overview stats using latest per-employee JD session
     res = await db.execute(
         text("""
+        WITH RankedJDs AS (
+            SELECT 
+                employee_id, status,
+                ROW_NUMBER() OVER(PARTITION BY employee_id ORDER BY updated_at DESC) as rn
+            FROM jd_sessions
+        ),
+        LatestJDs AS (
+            SELECT employee_id, status
+            FROM RankedJDs WHERE rn = 1
+        )
         SELECT
             (SELECT COUNT(*) FROM organogram) as total_employees,
-            (SELECT COUNT(DISTINCT employee_id) FROM jd_sessions WHERE status IN ('jd_generated', 'sent_to_manager', 'sent_to_hr', 'approved', 'manager_rejected', 'hr_rejected', 'rejected')) as total_generated_jds,
-            (SELECT COUNT(DISTINCT employee_id) FROM jd_sessions WHERE status IN ('sent_to_manager', 'sent_to_hr')) as pending_jds,
-            (SELECT COUNT(DISTINCT employee_id) FROM jd_sessions WHERE status = 'approved') as approved_jds,
-            (SELECT COUNT(DISTINCT employee_id) FROM jd_sessions WHERE status IN ('manager_rejected', 'hr_rejected', 'rejected')) as rejected_jds
+            (SELECT COUNT(DISTINCT employee_id) FROM LatestJDs WHERE status IN ('jd_generated', 'ready_for_generation', 'sent_to_manager', 'sent_to_hr', 'approved', 'manager_rejected', 'hr_rejected', 'rejected')) as total_generated_jds,
+            (SELECT COUNT(DISTINCT employee_id) FROM LatestJDs WHERE status IN ('sent_to_manager', 'sent_to_hr')) as pending_jds,
+            (SELECT COUNT(DISTINCT employee_id) FROM LatestJDs WHERE status = 'approved') as approved_jds,
+            (SELECT COUNT(DISTINCT employee_id) FROM LatestJDs WHERE status IN ('manager_rejected', 'hr_rejected', 'rejected')) as rejected_jds
     """)
     )
     row = res.mappings().first() or {}
@@ -120,13 +130,21 @@ async def get_admin_charts(
     if _ADMIN_CHARTS_CACHE and (now - _ADMIN_CHARTS_CACHE.get("ts", 0)) < _ADMIN_CACHE_TTL:
         return _ADMIN_CHARTS_CACHE["data"]
 
-    # 1. Pipeline Chart (Bar Chart)
+    # 1. Pipeline Chart (Bar Chart) - based on latest JD status per employee
     pipeline_res = await db.execute(
-        select(JDSession.status, func.count(JDSession.id).label("count")).group_by(
-            JDSession.status
-        )
+        text("""
+            WITH RankedJDs AS (
+                SELECT 
+                    status,
+                    ROW_NUMBER() OVER(PARTITION BY employee_id ORDER BY updated_at DESC) as rn
+                FROM jd_sessions
+            )
+            SELECT status, COUNT(*) as count
+            FROM RankedJDs WHERE rn = 1
+            GROUP BY status
+        """)
     )
-    status_counts = pipeline_res.all()
+    status_counts = pipeline_res.fetchall()
 
     pipeline_data = [{"status": row[0], "count": row[1]} for row in status_counts]
 
@@ -136,7 +154,8 @@ async def get_admin_charts(
             "status": "Drafting",
             "count": pipeline_map.get("collecting", 0)
             + pipeline_map.get("draft", 0)
-            + pipeline_map.get("jd_generated", 0),
+            + pipeline_map.get("jd_generated", 0)
+            + pipeline_map.get("ready_for_generation", 0),
         },
         {"status": "Pending Manager", "count": pipeline_map.get("sent_to_manager", 0)},
         {"status": "Pending HR", "count": pipeline_map.get("sent_to_hr", 0)},
@@ -144,7 +163,8 @@ async def get_admin_charts(
         {
             "status": "Rejected",
             "count": pipeline_map.get("manager_rejected", 0)
-            + pipeline_map.get("hr_rejected", 0),
+            + pipeline_map.get("hr_rejected", 0)
+            + pipeline_map.get("rejected", 0),
         },
     ]
 
@@ -172,13 +192,34 @@ async def get_admin_charts(
 async def get_admin_users(
     role: Optional[str] = None,
     status: Optional[str] = None,
+    department: Optional[str] = None,
     search: Optional[str] = None,
     skip: int = 0,
-    limit: int = 50,
+    limit: int = 1000,
     db: AsyncSession = Depends(get_db),
     admin_active: str = Depends(get_current_admin),
 ):
     sql = """
+        WITH RankedJDs AS (
+            SELECT 
+                id, employee_id, status, updated_at,
+                ROW_NUMBER() OVER(PARTITION BY employee_id ORDER BY updated_at DESC) as rn
+            FROM jd_sessions
+        ),
+        LatestJDs AS (
+            SELECT id, employee_id, status, updated_at
+            FROM RankedJDs WHERE rn = 1
+        ),
+        RankedKRAs AS (
+            SELECT 
+                id, employee_id, status, updated_at,
+                ROW_NUMBER() OVER(PARTITION BY employee_id ORDER BY updated_at DESC) as rn
+            FROM kra_kpi_sessions
+        ),
+        LatestKRAs AS (
+            SELECT id, employee_id, status, updated_at
+            FROM RankedKRAs WHERE rn = 1
+        )
         SELECT 
             o.code as employee_id,
             o.employee_name as name,
@@ -191,12 +232,12 @@ async def get_admin_users(
             js.updated_at as last_active,
             CASE 
                 WHEN uk.id IS NOT NULL THEN 'approved'
-                ELSE ks.status 
+                ELSE COALESCE(ks.status, 'Not Started')
             END as kra_kpi_status
         FROM organogram o
         LEFT JOIN employees e ON e.id = o.code
-        LEFT JOIN jd_sessions js ON js.employee_id = o.code
-        LEFT JOIN kra_kpi_sessions ks ON ks.employee_id = o.code
+        LEFT JOIN LatestJDs js ON js.employee_id = o.code
+        LEFT JOIN LatestKRAs ks ON ks.employee_id = o.code
         LEFT JOIN uploaded_kra_kpis uk ON uk.employee_id = o.code
         WHERE 1=1
     """
@@ -204,6 +245,9 @@ async def get_admin_users(
     if role:
         sql += " AND o.designation ILIKE :role"
         params["role"] = f"%{role}%"
+    if department and department.strip() and department.lower() != "all":
+        sql += " AND LOWER(TRIM(o.department)) = LOWER(:department)"
+        params["department"] = department.strip()
     if status:
         if status.lower() == "no jd":
             sql += " AND js.id IS NULL"
@@ -211,13 +255,13 @@ async def get_admin_users(
             sql += " AND js.status = :status"
             params["status"] = status
     if search:
-        sql += " AND (o.employee_name ILIKE :search OR o.code ILIKE :search OR e.email ILIKE :search)"
+        sql += " AND (o.employee_name ILIKE :search OR o.code ILIKE :search OR e.email ILIKE :search OR o.department ILIKE :search)"
         params["search"] = f"%{search}%"
 
     sql += " ORDER BY o.employee_name ASC"
     
-    # Cap limit to prevent OOM
-    safe_limit = max(1, min(limit, 200))
+    # Cap limit to prevent OOM while allowing full company list
+    safe_limit = max(1, min(limit, 2000))
     safe_skip = max(0, skip)
     
     sql += " LIMIT :limit OFFSET :skip"
@@ -253,6 +297,327 @@ async def get_admin_users(
         "limit": safe_limit,
         "count": len(formatted_results),
     }
+
+
+@router.get("/admin/departments/summary")
+async def get_department_summary(
+    db: AsyncSession = Depends(get_db),
+    admin_active: str = Depends(get_current_admin),
+):
+    """
+    Returns department-wise JD & KRA/KPI completion summary across the company using latest sessions per employee.
+    """
+    sql = """
+        WITH RankedJDs AS (
+            SELECT 
+                id, employee_id, status, updated_at,
+                ROW_NUMBER() OVER(PARTITION BY employee_id ORDER BY updated_at DESC) as rn
+            FROM jd_sessions
+        ),
+        LatestJDs AS (
+            SELECT id, employee_id, status, updated_at
+            FROM RankedJDs WHERE rn = 1
+        ),
+        RankedKRAs AS (
+            SELECT 
+                id, employee_id, status, updated_at,
+                ROW_NUMBER() OVER(PARTITION BY employee_id ORDER BY updated_at DESC) as rn
+            FROM kra_kpi_sessions
+        ),
+        LatestKRAs AS (
+            SELECT id, employee_id, status, updated_at
+            FROM RankedKRAs WHERE rn = 1
+        )
+        SELECT 
+            COALESCE(NULLIF(TRIM(o.department), ''), 'Unassigned') as department,
+            COUNT(DISTINCT o.code) as total_employees,
+            COUNT(DISTINCT CASE WHEN js.status = 'approved' THEN o.code END) as jd_completed,
+            COUNT(DISTINCT CASE WHEN js.status = 'sent_to_manager' THEN o.code END) as pending_manager,
+            COUNT(DISTINCT CASE WHEN js.status = 'sent_to_hr' THEN o.code END) as pending_hr,
+            COUNT(DISTINCT CASE WHEN js.status IN ('collecting', 'draft', 'jd_generated', 'ready_for_generation', 'manager_rejected', 'hr_rejected') THEN o.code END) as in_progress,
+            COUNT(DISTINCT CASE WHEN js.id IS NULL THEN o.code END) as not_started,
+            COUNT(DISTINCT CASE WHEN uk.id IS NOT NULL OR ks.status IN ('confirmed', 'approved') THEN o.code END) as kra_completed
+        FROM organogram o
+        LEFT JOIN LatestJDs js ON js.employee_id = o.code
+        LEFT JOIN LatestKRAs ks ON ks.employee_id = o.code
+        LEFT JOIN uploaded_kra_kpis uk ON uk.employee_id = o.code
+        GROUP BY COALESCE(NULLIF(TRIM(o.department), ''), 'Unassigned')
+        ORDER BY total_employees DESC, department ASC
+    """
+    result = await db.execute(text(sql))
+    rows = result.mappings().all()
+
+    summary = []
+    for r in rows:
+        total = r["total_employees"] or 0
+        completed = r["jd_completed"] or 0
+        completion_rate = round((completed / total) * 100, 1) if total > 0 else 0.0
+        summary.append({
+            "department": r["department"],
+            "total_employees": total,
+            "jd_completed": completed,
+            "jd_pending": total - completed,
+            "pending_manager": r["pending_manager"] or 0,
+            "pending_hr": r["pending_hr"] or 0,
+            "in_progress": r["in_progress"] or 0,
+            "not_started": r["not_started"] or 0,
+            "kra_completed": r["kra_completed"] or 0,
+            "completion_rate": completion_rate,
+        })
+
+    return summary
+
+
+@router.get("/admin/reports/export")
+async def export_admin_report(
+    format: str = "excel",
+    department: Optional[str] = None,
+    status: Optional[str] = None,
+    db: AsyncSession = Depends(get_db),
+    admin_active: str = Depends(get_current_admin),
+):
+    """
+    Export department-wise or company-wide employee JD/KRA status report as Excel or CSV using latest sessions per employee.
+    """
+    from fastapi.responses import Response
+    import io
+    import csv
+
+    sql = """
+        WITH RankedJDs AS (
+            SELECT 
+                id, employee_id, status, updated_at,
+                ROW_NUMBER() OVER(PARTITION BY employee_id ORDER BY updated_at DESC) as rn
+            FROM jd_sessions
+        ),
+        LatestJDs AS (
+            SELECT id, employee_id, status, updated_at
+            FROM RankedJDs WHERE rn = 1
+        ),
+        RankedKRAs AS (
+            SELECT 
+                id, employee_id, status, updated_at,
+                ROW_NUMBER() OVER(PARTITION BY employee_id ORDER BY updated_at DESC) as rn
+            FROM kra_kpi_sessions
+        ),
+        LatestKRAs AS (
+            SELECT id, employee_id, status, updated_at
+            FROM RankedKRAs WHERE rn = 1
+        )
+        SELECT 
+            o.code as employee_id,
+            o.employee_name as name,
+            e.email as email,
+            o.department as department,
+            o.designation as role,
+            o.reporting_manager as manager_name,
+            o.reporting_manager_code as manager_code,
+            COALESCE(js.status, 'No JD') as jd_status,
+            js.updated_at as last_active,
+            CASE 
+                WHEN uk.id IS NOT NULL THEN 'approved'
+                ELSE COALESCE(ks.status, 'Not Started')
+            END as kra_kpi_status
+        FROM organogram o
+        LEFT JOIN employees e ON e.id = o.code
+        LEFT JOIN LatestJDs js ON js.employee_id = o.code
+        LEFT JOIN LatestKRAs ks ON ks.employee_id = o.code
+        LEFT JOIN uploaded_kra_kpis uk ON uk.employee_id = o.code
+        WHERE 1=1
+    """
+    params = {}
+    if department and department.strip() and department.lower() != "all":
+        sql += " AND LOWER(TRIM(o.department)) = LOWER(:department)"
+        params["department"] = department.strip()
+    if status and status.strip() and status.lower() != "all":
+        if status.lower() == "no jd":
+            sql += " AND js.id IS NULL"
+        else:
+            sql += " AND js.status = :status"
+            params["status"] = status.strip()
+
+    sql += " ORDER BY o.department ASC, o.employee_name ASC"
+
+    result = await db.execute(text(sql), params)
+    rows = result.mappings().all()
+
+    formatted_rows = []
+    seen = set()
+    for r in rows:
+        emp_id = r["employee_id"]
+        if emp_id in seen:
+            continue
+        seen.add(emp_id)
+
+        jd_st = r["jd_status"]
+        if jd_st == "approved":
+            overall = "Completed"
+            action_req = "None (Fully Approved)"
+        elif jd_st == "sent_to_manager":
+            overall = "Pending Manager Review"
+            action_req = f"Pending Manager ({r['manager_name'] or r['manager_code'] or 'Manager'})"
+        elif jd_st == "sent_to_hr":
+            overall = "Pending HR Review"
+            action_req = "Pending HR Approval"
+        elif jd_st in ["collecting", "draft", "jd_generated"]:
+            overall = "In Progress"
+            action_req = "Employee working on draft"
+        elif jd_st in ["manager_rejected", "hr_rejected"]:
+            overall = "Revision Required"
+            action_req = "Employee revising JD"
+        else:
+            overall = "Not Started"
+            action_req = "Employee needs to initiate JD"
+
+        formatted_rows.append({
+            "Employee Code": emp_id,
+            "Employee Name": r["name"] or "Unknown",
+            "Email": r["email"] or "",
+            "Department": r["department"] or "Unassigned",
+            "Designation / Role": r["role"] or "Employee",
+            "Reporting Manager Name": r["manager_name"] or "",
+            "Reporting Manager Code": r["manager_code"] or "",
+            "JD Status": jd_st,
+            "KRA/KPI Status": r["kra_kpi_status"],
+            "Overall Status": overall,
+            "Action Required": action_req,
+            "Last Active": r["last_active"].strftime("%Y-%m-%d %H:%M") if r.get("last_active") else "N/A"
+        })
+
+    dept_label = (department or "Company_Wide").replace(" ", "_").replace("/", "_")
+
+    if format.lower() == "csv":
+        output = io.StringIO()
+        if formatted_rows:
+            writer = csv.DictWriter(output, fieldnames=list(formatted_rows[0].keys()))
+            writer.writeheader()
+            writer.writerows(formatted_rows)
+        else:
+            output.write("Employee Code,Employee Name,Email,Department,Designation / Role,Reporting Manager Name,Reporting Manager Code,JD Status,KRA/KPI Status,Overall Status,Action Required,Last Active\n")
+        
+        csv_bytes = output.getvalue().encode("utf-8")
+        return Response(
+            content=csv_bytes,
+            media_type="text/csv",
+            headers={"Content-Disposition": f'attachment; filename="JD_Status_Report_{dept_label}.csv"'},
+        )
+
+    # Default to Excel export (.xlsx)
+    try:
+        import pandas as pd
+        df_master = pd.DataFrame(formatted_rows)
+        
+        # Build Department Summary DataFrame
+        if not df_master.empty:
+            summary_records = []
+            for dept_name, group_df in df_master.groupby("Department"):
+                total_emp = len(group_df)
+                completed = len(group_df[group_df["JD Status"] == "approved"])
+                pending_mgr = len(group_df[group_df["JD Status"] == "sent_to_manager"])
+                pending_hr = len(group_df[group_df["JD Status"] == "sent_to_hr"])
+                in_prog = len(group_df[group_df["JD Status"].isin(["collecting", "draft", "jd_generated", "manager_rejected", "hr_rejected"])])
+                not_start = len(group_df[group_df["JD Status"] == "No JD"])
+                rate = round((completed / total_emp) * 100, 1) if total_emp > 0 else 0.0
+
+                summary_records.append({
+                    "Department": dept_name,
+                    "Total Employees": total_emp,
+                    "JD Completed": completed,
+                    "JD Pending": total_emp - completed,
+                    "Pending Manager": pending_mgr,
+                    "Pending HR": pending_hr,
+                    "In Progress / Draft": in_prog,
+                    "Not Started": not_start,
+                    "Completion Rate %": f"{rate}%"
+                })
+            df_summary = pd.DataFrame(summary_records)
+        else:
+            df_summary = pd.DataFrame()
+
+        output_buf = io.BytesIO()
+        with pd.ExcelWriter(output_buf, engine="openpyxl") as writer:
+            if not df_summary.empty:
+                df_summary.to_excel(writer, sheet_name="Department Summary", index=False)
+            df_master.to_excel(writer, sheet_name="Employee Status Report", index=False)
+
+            wb = writer.book
+            from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+            from openpyxl.utils import get_column_letter
+
+            header_font = Font(name="Segoe UI", size=11, bold=True, color="FFFFFF")
+            header_fill = PatternFill(start_color="1F497D", end_color="1F497D", fill_type="solid")
+            header_align = Alignment(horizontal="center", vertical="center", wrap_text=True)
+
+            thin_border = Border(
+                left=Side(style="thin", color="D9D9D9"),
+                right=Side(style="thin", color="D9D9D9"),
+                top=Side(style="thin", color="D9D9D9"),
+                bottom=Side(style="thin", color="D9D9D9")
+            )
+
+            fill_working = PatternFill(start_color="E2EFDA", end_color="E2EFDA", fill_type="solid")
+            font_working = Font(name="Segoe UI", size=10, bold=True, color="276A3C")
+
+            fill_review = PatternFill(start_color="FCE4D6", end_color="FCE4D6", fill_type="solid")
+            font_review = Font(name="Segoe UI", size=10, bold=True, color="C65911")
+
+            fill_progress = PatternFill(start_color="FFF2CC", end_color="FFF2CC", fill_type="solid")
+            font_progress = Font(name="Segoe UI", size=10, bold=True, color="8A6D3B")
+
+            for sheet_name in wb.sheetnames:
+                ws = wb[sheet_name]
+                ws.views.sheetView[0].showGridLines = True
+
+                for col_idx in range(1, ws.max_column + 1):
+                    cell = ws.cell(row=1, column=col_idx)
+                    cell.font = header_font
+                    cell.fill = header_fill
+                    cell.alignment = header_align
+                    cell.border = thin_border
+                ws.row_dimensions[1].height = 28
+
+                for row_idx in range(2, ws.max_row + 1):
+                    ws.row_dimensions[row_idx].height = 22
+                    for col_idx in range(1, ws.max_column + 1):
+                        cell = ws.cell(row=row_idx, column=col_idx)
+                        cell.border = thin_border
+                        cell.font = Font(name="Segoe UI", size=10)
+                        cell.alignment = Alignment(vertical="center")
+
+                        val_str = str(cell.value or "")
+                        if val_str in ["approved", "Completed", "Approved", "Yes"]:
+                            cell.fill = fill_working
+                            cell.font = font_working
+                        elif "Pending" in val_str or "sent_to_" in val_str or "Review" in val_str:
+                            cell.fill = fill_review
+                            cell.font = font_review
+                        elif "Progress" in val_str or "collecting" in val_str or "draft" in val_str:
+                            cell.fill = fill_progress
+                            cell.font = font_progress
+
+                for col in ws.columns:
+                    col_letter = get_column_letter(col[0].column)
+                    max_len = max(len(str(cell.value or "")) for cell in col)
+                    ws.column_dimensions[col_letter].width = min(max(max_len + 4, 12), 45)
+
+        return Response(
+            content=output_buf.getvalue(),
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": f'attachment; filename="JD_Status_Report_{dept_label}.xlsx"'},
+        )
+    except Exception as e:
+        logger.error(f"[EXPORT REPORT] Excel export failed: {e}")
+        output = io.StringIO()
+        if formatted_rows:
+            writer = csv.DictWriter(output, fieldnames=list(formatted_rows[0].keys()))
+            writer.writeheader()
+            writer.writerows(formatted_rows)
+        csv_bytes = output.getvalue().encode("utf-8")
+        return Response(
+            content=csv_bytes,
+            media_type="text/csv",
+            headers={"Content-Disposition": f'attachment; filename="JD_Status_Report_{dept_label}.csv"'},
+        )
 
 
 @router.post("/admin/kra-kpi/upload")

@@ -17,6 +17,7 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from app.core.config import settings
 from app.core.langfuse_client import get_compiled_prompt
 from app.agents.prompts import GAP_DETECTOR_PROMPT
+from app.core.llm_throttle import throttled_ainvoke
 
 from app.agents.state import AgentState
 from app.agents.validators import (
@@ -110,7 +111,7 @@ async def synthesize_tools_and_skills_with_llm(
         from app.core.langfuse_client import get_langfuse_callback_handler
         handler = get_langfuse_callback_handler(trace_name="gap-detector")
         callbacks = [handler] if handler else []
-        response = await llm.ainvoke(prompt, config={"callbacks": callbacks})
+        response = await throttled_ainvoke(llm, prompt, config={"callbacks": callbacks})
         text = str(response.content).strip()
         if "```" in text:
             # Try to extract content between ```json ... ``` or ``` ... ```

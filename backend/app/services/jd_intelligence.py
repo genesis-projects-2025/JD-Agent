@@ -9,6 +9,7 @@ from app.services.pdf_processor import PDFProcessor
 from app.services.docx_processor import DOCXProcessor
 from app.services.vector_service import index_jd_document, find_similar_jds
 from app.core.config import settings
+from app.core.llm_throttle import throttled_ainvoke
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.prompts import ChatPromptTemplate
 
@@ -450,7 +451,7 @@ class JDIntelligenceService:
         }}
         """)
 
-        messages = await self.llm.ainvoke(
+        messages = await throttled_ainvoke(self.llm, 
             prompt.format_messages(context=context, text=text)
         )
 

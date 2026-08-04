@@ -26,6 +26,7 @@ from sqlalchemy.future import select
 from app.models.jd_session_model import JDSession
 from app.models.kra_kpi_model import KRAKPISession
 from app.models.user_model import Employee
+from app.core.llm_throttle import throttled_ainvoke
 from app.agents.kra_kpi_agent import (
     generate_kra_suggestions,
     generate_kpi_suggestions_for_kra,
@@ -637,11 +638,16 @@ async def select_kras_and_generate_kpis(
         f"[KRAKPIService] Step 2: Generating KPI suggestions for {len(selected_kras)} KRAs in parallel"
     )
 
-    # Generate KPI suggestions for all selected KRAs in parallel
-    kpi_tasks = [
-        generate_kpi_suggestions_for_kra(kra=kra, employee_data=employee_data, skill_gaps=skill_gaps)
-        for kra in selected_kras
-    ]
+    # Generate KPI suggestions for selected KRAs with backpressure
+    # Limit to 3 concurrent LLM calls per user to prevent API rate exhaustion
+    # when many employees select KRAs simultaneously
+    _kpi_gen_semaphore = asyncio.Semaphore(3)
+
+    async def _throttled_kpi_gen(kra):
+        async with _kpi_gen_semaphore:
+            return await generate_kpi_suggestions_for_kra(kra=kra, employee_data=employee_data, skill_gaps=skill_gaps)
+
+    kpi_tasks = [_throttled_kpi_gen(kra) for kra in selected_kras]
     results = await asyncio.gather(*kpi_tasks)
 
     # Index by kra_id
@@ -1342,7 +1348,7 @@ async def infer_jd_from_kras(employee_id: str, employee_name: str, kras: list) -
     """)
     
     chain = prompt | llm
-    response = await chain.ainvoke({
+    response = await throttled_ainvoke(chain, {
         "employee_name": employee_name,
         "employee_id": employee_id,
         "kras_text": kras_text
@@ -1594,7 +1600,7 @@ async def process_kra_kpi_document(
 
     # Format prompt and call
     chain = prompt | llm
-    response = await chain.ainvoke({"context": context, "text": text})
+    response = await throttled_ainvoke(chain, {"context": context, "text": text})
     
     # Parse JSON
     raw_content = response.content.strip()
@@ -1714,7 +1720,7 @@ async def analyze_kra_kpi_text(
     """)
 
     chain = prompt | llm
-    response = await chain.ainvoke({"context": context, "text": content})
+    response = await throttled_ainvoke(chain, {"context": context, "text": content})
     
     raw_content = response.content.strip()
     if raw_content.startswith("```json"):

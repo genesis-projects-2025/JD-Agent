@@ -16,6 +16,7 @@ from app.agents.kra_kpi_agent import _get_llm
 logger = logging.getLogger(__name__)
 from app.core.langfuse_client import get_compiled_prompt
 from app.agents.prompts import KRA_KPI_SYSTEM_PROMPT
+from app.core.llm_throttle import throttled_astream
 
 # KRA_KPI_SYSTEM_PROMPT has been moved to app/agents/prompts.py
 
@@ -188,7 +189,7 @@ class KRAKPIInterviewEngine:
         yield {"type": "status", "content": "Developing your performance metrics..."}
         
         try:
-            async for chunk in self.llm.astream(langchain_history):
+            async for chunk in throttled_astream(self.llm, langchain_history):
                 content = str(chunk.content)
                 if content:
                     full_response += content

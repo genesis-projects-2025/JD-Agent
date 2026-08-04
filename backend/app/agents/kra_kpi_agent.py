@@ -21,6 +21,7 @@ from typing import Any
 
 from langchain_google_genai import ChatGoogleGenerativeAI
 from app.core.config import settings
+from app.core.llm_throttle import throttled_ainvoke
 
 logger = logging.getLogger(__name__)
 
@@ -319,7 +320,7 @@ async def generate_kra_suggestions(
     from app.core.langfuse_client import get_langfuse_callback_handler
     handler = get_langfuse_callback_handler(trace_name="kra-suggestion")
     callbacks = [handler] if handler else []
-    response = await llm.ainvoke(prompt, config={"callbacks": callbacks})
+    response = await throttled_ainvoke(llm, prompt, config={"callbacks": callbacks})
     payload = _parse_llm_json(str(response.content))
 
     suggestions = payload.get("kra_suggestions", [])
@@ -380,7 +381,7 @@ async def generate_kpi_suggestions_for_kra(
     from app.core.langfuse_client import get_langfuse_callback_handler
     handler = get_langfuse_callback_handler(trace_name="kpi-suggestion")
     callbacks = [handler] if handler else []
-    response = await llm.ainvoke(prompt, config={"callbacks": callbacks})
+    response = await throttled_ainvoke(llm, prompt, config={"callbacks": callbacks})
     payload = _parse_llm_json(str(response.content))
 
     suggestions = payload.get("kpi_suggestions") or payload.get("kpis") or payload.get("items") or payload.get("data") or []
@@ -470,7 +471,7 @@ async def consolidate_skills_for_review(jd_skills: list[str], kras: list[dict]) 
     callbacks = [handler] if handler else []
     
     logger.info(f"[KRAKPIAgent] Consolidating skills for manager review from {len(jd_skills)} JD skills and {len(kras)} KRAs.")
-    response = await llm.ainvoke(prompt, config={"callbacks": callbacks})
+    response = await throttled_ainvoke(llm, prompt, config={"callbacks": callbacks})
     
     try:
         payload = _parse_llm_json(str(response.content))

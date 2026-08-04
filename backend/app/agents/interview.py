@@ -38,6 +38,7 @@ from app.agents.dynamic_prompts import (
 )
 from app.agents.prompts import JD_GENERATION_PROMPT
 from app.core.langfuse_client import get_compiled_prompt
+from app.core.llm_throttle import throttled_ainvoke, throttled_astream
 
 logger = logging.getLogger(__name__)
 
@@ -510,7 +511,7 @@ async def _invoke_with_retry(llm, messages, max_retries=2, **kwargs):
     start_t = time.perf_counter()
     for attempt in range(max_retries + 1):
         try:
-            res = await llm.ainvoke(messages)
+            res = await throttled_ainvoke(llm, messages)
             latency_ms = (time.perf_counter() - start_t) * 1000
 
             prompt_tokens = 0
@@ -1578,7 +1579,7 @@ Keep it professional and brief."""
             config = {"callbacks": callbacks} if callbacks else None
 
             try:
-                async for chunk in _interview_llm.astream(messages, config=config):
+                async for chunk in throttled_astream(_interview_llm, messages, config=config):
                     if chunk.content:
                         if is_first_chunk:
                             ttfb = time.perf_counter() - llm_start_time

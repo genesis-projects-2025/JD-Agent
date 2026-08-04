@@ -7,6 +7,7 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.messages import SystemMessage, HumanMessage
 
 from app.core.config import settings
+from app.core.llm_throttle import throttled_ainvoke
 
 logger = logging.getLogger(__name__)
 
@@ -89,7 +90,7 @@ async def deduplicate_and_professionalize(
             role_title=role_title,
             department=dept_str,
         )
-        response = await cleaner_llm.ainvoke(
+        response = await throttled_ainvoke(cleaner_llm,
             [
                 SystemMessage(content=system_content),
                 HumanMessage(

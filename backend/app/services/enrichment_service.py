@@ -20,6 +20,7 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.messages import SystemMessage, HumanMessage
 
 from app.core.config import settings
+from app.core.llm_throttle import throttled_ainvoke
 from app.models.jd_session_model import JDSession
 from app.models.kra_kpi_model import KRAKPISession
 from app.models.enrichment_model import (
@@ -99,7 +100,7 @@ Output Schema:
 }}
 """
         llm = _get_enrichment_llm()
-        response = await llm.ainvoke([
+        response = await throttled_ainvoke(llm, [
             SystemMessage(content="You are a strict JSON parser. Output only valid raw JSON. No markdown blocks."),
             HumanMessage(content=prompt)
         ])
@@ -211,7 +212,7 @@ Output Schema:
 }}
 """
         llm = _get_enrichment_llm()
-        response = await llm.ainvoke([
+        response = await throttled_ainvoke(llm, [
             SystemMessage(content="You are a strict JSON parser. Output only valid raw JSON. No markdown blocks."),
             HumanMessage(content=prompt)
         ])
@@ -299,7 +300,7 @@ Output Schema:
 }}
 """
         llm = _get_enrichment_llm()
-        response = await llm.ainvoke([
+        response = await throttled_ainvoke(llm, [
             SystemMessage(content="You are a strict JSON parser. Output only valid raw JSON. No markdown blocks."),
             HumanMessage(content=prompt)
         ])
@@ -493,7 +494,7 @@ Output Schema:
   ]
 }}
 """
-            response = await llm.ainvoke([
+            response = await throttled_ainvoke(llm, [
                 SystemMessage(content="You are a strict JSON parser. Output only valid raw JSON. No markdown blocks."),
                 HumanMessage(content=prompt)
             ])

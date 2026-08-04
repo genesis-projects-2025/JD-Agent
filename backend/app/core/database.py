@@ -32,8 +32,8 @@ _engine_kwargs: dict = dict(
 )
 if _is_postgres:
     _engine_kwargs.update(
-        pool_size=3,        # 3 per worker — keeps total well under Aiven free tier limit
-        max_overflow=2,     # Burst to 5 per worker max
+        pool_size=10,       # 10 per worker — supports 50+ concurrent users
+        max_overflow=5,     # Burst to 15 per worker max
         pool_recycle=300,   # Recycle every 5 min — matches Aiven idle timeout
         pool_timeout=30,    # Wait max 30s for a connection
     )
@@ -147,6 +147,18 @@ async def init_db():
                     ALTER TABLE kra_kpi_sessions ADD COLUMN IF NOT EXISTS improvement_goal TEXT;
                     ALTER TABLE kra_kpi_sessions ADD COLUMN IF NOT EXISTS improvement_status VARCHAR(50);
                     ALTER TABLE kra_kpi_sessions ADD COLUMN IF NOT EXISTS conversation_state JSONB;
+
+                    -- Unique constraint: prevent duplicate KRA/KPI sessions per employee per JD
+                    IF NOT EXISTS (
+                        SELECT 1 FROM pg_constraint WHERE conname = 'uq_krakpi_jd_employee'
+                    ) THEN
+                        BEGIN
+                            ALTER TABLE kra_kpi_sessions
+                            ADD CONSTRAINT uq_krakpi_jd_employee UNIQUE (jd_session_id, employee_id);
+                        EXCEPTION WHEN duplicate_table THEN
+                            NULL;
+                        END;
+                    END IF;
 
                     -- touch_updated_at trigger function
                     IF NOT EXISTS (SELECT 1 FROM pg_proc WHERE proname = 'touch_updated_at') THEN

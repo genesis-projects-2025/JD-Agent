@@ -29,6 +29,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.agents.admin_brain_state import BaseAgentState
 from app.agents.prompts import BRAIN_AGENT_SYSTEM_PROMPT
 from app.core.config import settings
+from app.core.llm_throttle import throttled_ainvoke
 from app.core.langfuse_client import get_compiled_prompt, get_langfuse_callback_handler
 from app.models.brain_agent_model import BrainAgentConversationTurn, BrainAgentSession
 from app.services.brain_agent_anomaly_service import run_diagnostics, format_anomaly_context
@@ -390,7 +391,7 @@ Return ONLY a raw JSON object matching this schema, without any markdown formatt
 }}
 """
     try:
-        response = await llm.ainvoke([
+        response = await throttled_ainvoke(llm, [
             SystemMessage(content="You are a strict JSON parser. Output only valid raw JSON. No markdown blocks."),
             HumanMessage(content=intent_prompt)
         ])
@@ -1172,7 +1173,7 @@ No verified corporate records found matching this query in the vector store. Cal
             while current_iteration < max_iterations:
                 current_iteration += 1
                 try:
-                    response = await llm.ainvoke(messages, config={"callbacks": callbacks})
+                    response = await throttled_ainvoke(llm, messages, config={"callbacks": callbacks})
                 except Exception as e:
                     err_str = str(e)
                     logger.error(f"LLM invocation error: {err_str}")

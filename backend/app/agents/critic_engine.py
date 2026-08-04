@@ -12,6 +12,7 @@ import logging
 from typing import Dict
 from langchain_google_genai import ChatGoogleGenerativeAI
 from app.core.config import settings
+from app.core.llm_throttle import throttled_ainvoke
 from app.core.langfuse_client import get_compiled_prompt
 from app.agents.prompts import CRITIC_PROMPT
 
@@ -56,7 +57,7 @@ async def run_critic_pass(insights: dict) -> dict:
         handler = get_langfuse_callback_handler(trace_name="critic-engine")
         callbacks = [handler] if handler else []
 
-        response = await critic_llm.ainvoke(
+        response = await throttled_ainvoke(critic_llm, 
             [
                 SystemMessage(
                     content="You are a Senior HR Solutions Architect. Clean and synthesize the raw session data. Return ONLY valid JSON."

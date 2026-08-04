@@ -21,6 +21,7 @@ from langchain_core.messages import SystemMessage, HumanMessage
 
 from app.core.config import settings
 from app.core.langfuse_client import get_compiled_prompt
+from app.core.llm_throttle import throttled_ainvoke
 from app.agents.prompts import EXTRACTION_PROMPT
 
 # ── LLM for Extraction ──────────────────────────────────────────────────────
@@ -431,7 +432,7 @@ async def extract_with_llm(
         handler = get_langfuse_callback_handler(trace_name="extraction-engine")
         callbacks = [handler] if handler else []
 
-        response = await structured_llm.ainvoke(
+        response = await throttled_ainvoke(structured_llm,
             [
                 SystemMessage(
                     content="Extract structured data from the user's message using the strict schema."

@@ -18,6 +18,7 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from app.core.config import settings
+from app.core.llm_throttle import throttled_ainvoke
 from app.agents.prompts import JD_GENERATION_PROMPT
 from app.schemas.jd_schema import (
     ChatResponse,
@@ -60,7 +61,7 @@ async def _invoke_with_retry(llm, messages, max_retries=2, callbacks=None, sessi
     config = {"callbacks": callbacks} if callbacks else None
     for attempt in range(max_retries + 1):
         try:
-            res = await llm.ainvoke(messages, config=config)
+            res = await throttled_ainvoke(llm, messages, config=config)
             latency_ms = (time.perf_counter() - start_t) * 1000
 
             prompt_tokens = 0

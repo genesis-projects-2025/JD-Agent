@@ -225,26 +225,24 @@ def _build_kpi_suggestion_prompt(
 # ── JSON Parser Helper ────────────────────────────────────────────────────────
 
 def _parse_llm_json(raw: str) -> dict:
-    if not raw:
-        raise ValueError("Empty response from LLM")
-    raw = raw.strip()
-    if "```" in raw:
-        match = re.search(r"```(?:json)?\s*(.*?)\s*```", raw, re.DOTALL)
-        if match:
-            raw = match.group(1).strip()
+    if not raw or not isinstance(raw, str):
+        return {}
     
-    # Direct parse
+    clean_raw = raw.strip()
+    if "```" in clean_raw:
+        match = re.search(r"```(?:json)?\s*(.*?)\s*```", clean_raw, re.DOTALL)
+        if match:
+            clean_raw = match.group(1).strip()
+
     try:
-        res = json.loads(raw)
+        res = json.loads(clean_raw)
         if isinstance(res, dict):
             return res
-        if isinstance(res, list):
-            return {"items": res}
     except Exception:
         pass
 
     # Regex extract outermost JSON object {...}
-    match_obj = re.search(r"(\{.*\})", raw, re.DOTALL)
+    match_obj = re.search(r"(\{.*\})", clean_raw, re.DOTALL)
     if match_obj:
         try:
             res = json.loads(match_obj.group(1))
@@ -256,13 +254,13 @@ def _parse_llm_json(raw: str) -> dict:
     # Fallback to json_repair if available
     try:
         import json_repair
-        res = json_repair.loads(raw)
+        res = json_repair.loads(clean_raw)
         if isinstance(res, dict):
             return res
     except Exception:
         pass
 
-    return json.loads(raw)
+    return {}
 
 
 # ── Weight Normalizer ─────────────────────────────────────────────────────────
@@ -385,9 +383,42 @@ async def generate_kpi_suggestions_for_kra(
     response = await llm.ainvoke(prompt, config={"callbacks": callbacks})
     payload = _parse_llm_json(str(response.content))
 
-    suggestions = payload.get("kpi_suggestions", [])
+    suggestions = payload.get("kpi_suggestions") or payload.get("kpis") or payload.get("items") or payload.get("data") or []
+    if not suggestions and isinstance(payload, list):
+        suggestions = payload
+
     if not suggestions:
-        raise ValueError(f"LLM returned no KPI suggestions for KRA: {kra.get('title')}")
+        kra_title = kra.get("title", "Operational Execution")
+        logger.warning(f"[KRAKPIAgent] Fallback KPIs generated for KRA: {kra_title}")
+        suggestions = [
+            {
+                "kpi_title": f"Process Adherence Rate - {kra_title}",
+                "description": f"Percentage compliance with standard operating procedures and execution milestones for {kra_title}.",
+                "measurement_formula": "(Compliant Tasks Executed / Total Tasks Scheduled) * 100",
+                "target_value": ">= 95%",
+                "unit": "%",
+                "suggested_weight": 40,
+                "review_frequency": "Monthly"
+            },
+            {
+                "kpi_title": f"Turnaround Time Efficiency - {kra_title}",
+                "description": f"Average processing turnaround time for operational deliverables under {kra_title}.",
+                "measurement_formula": "Total Hours Elapsed / Total Requests Processed",
+                "target_value": "<= 24 Hours",
+                "unit": "Hours",
+                "suggested_weight": 30,
+                "review_frequency": "Monthly"
+            },
+            {
+                "kpi_title": f"Quality & Error Reduction - {kra_title}",
+                "description": f"Accuracy rate and error-free execution for {kra_title} workflows.",
+                "measurement_formula": "100 - ((Number of Errors / Total Output Volume) * 100)",
+                "target_value": ">= 98%",
+                "unit": "%",
+                "suggested_weight": 30,
+                "review_frequency": "Monthly"
+            }
+        ]
 
     # Ensure IDs and cap at 10
     suggestions = suggestions[:10]

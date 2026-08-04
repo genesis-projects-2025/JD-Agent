@@ -1320,10 +1320,10 @@ function JDPageContent() {
           <Clock className="w-8 h-8 text-amber-500 animate-pulse" />
         </div>
         <h3 className="text-xl font-bold text-slate-900 mb-3 relative z-10">
-          KRA & KPI Under Review
+          KRA & KPI Not Initiated Yet
         </h3>
         <p className="text-sm text-slate-500 max-w-md mx-auto leading-relaxed relative z-10">
-          The KRA & KPI performance goals for <strong className="text-slate-800 font-semibold">{jd.employee_name || "this employee"}</strong> are currently under review or have not been finalized yet. You cannot view or modify their goals at this stage.
+          The KRA & KPI performance goals for <strong className="text-slate-800 font-semibold">{jd.employee_name || "this employee"}</strong> have not been initiated or generated yet.
         </p>
       </div>
      ) : (

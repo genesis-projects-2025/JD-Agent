@@ -3216,7 +3216,9 @@ export const KRAKPIPanel = forwardRef<any, KRAKPIPanelProps>(
                 krasSuggestions={kraSuggestionsList}
                 initialSelected={record.selected_kpi_ids || {}}
                 onContinue={handleSelectKPIs}
-                onBack={handleGenerate}
+                onBack={() => {
+                  setRecord((prev) => prev ? { ...prev, generation_step: "kra_selection" } : prev);
+                }}
                 onAddCustomKpi={handleAddCustomKpi}
               />
             )}

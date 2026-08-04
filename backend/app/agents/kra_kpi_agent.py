@@ -31,8 +31,8 @@ def _get_llm() -> ChatGoogleGenerativeAI:
     return ChatGoogleGenerativeAI(
         google_api_key=settings.GEMINI_API_KEY,
         model="gemini-2.5-flash",
-        temperature=0.25,
-        max_output_tokens=1500,
+        temperature=0.2,
+        max_output_tokens=4096,
     )
 
 
@@ -225,11 +225,43 @@ def _build_kpi_suggestion_prompt(
 # ── JSON Parser Helper ────────────────────────────────────────────────────────
 
 def _parse_llm_json(raw: str) -> dict:
+    if not raw:
+        raise ValueError("Empty response from LLM")
     raw = raw.strip()
     if "```" in raw:
         match = re.search(r"```(?:json)?\s*(.*?)\s*```", raw, re.DOTALL)
         if match:
             raw = match.group(1).strip()
+    
+    # Direct parse
+    try:
+        res = json.loads(raw)
+        if isinstance(res, dict):
+            return res
+        if isinstance(res, list):
+            return {"items": res}
+    except Exception:
+        pass
+
+    # Regex extract outermost JSON object {...}
+    match_obj = re.search(r"(\{.*\})", raw, re.DOTALL)
+    if match_obj:
+        try:
+            res = json.loads(match_obj.group(1))
+            if isinstance(res, dict):
+                return res
+        except Exception:
+            pass
+
+    # Fallback to json_repair if available
+    try:
+        import json_repair
+        res = json_repair.loads(raw)
+        if isinstance(res, dict):
+            return res
+    except Exception:
+        pass
+
     return json.loads(raw)
 
 

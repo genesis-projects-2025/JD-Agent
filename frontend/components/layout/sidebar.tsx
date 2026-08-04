@@ -7,13 +7,13 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname, useSearchParams, useRouter } from "next/navigation";
-import { useEffect, useState, useLayoutEffect } from "react";
+import { usePathname, useSearchParams, useRouter, useParams } from "next/navigation";
+import { useEffect, useState, useLayoutEffect, useMemo } from "react";
 import { createPortal } from "react-dom";
 import { getCurrentUser } from "@/lib/api";
 import { useAuth } from "@/components/providers/auth-provider";
 import { useEmployeeJDs, useUnreadFeedback } from "@/hooks/useJDQueries";
-import { safeBtoa } from "@/lib/base64";
+import { safeBtoa, safeAtob } from "@/lib/base64";
 import type { SessionListItem } from "@/types/session";
 
 interface JDSession extends SessionListItem {
@@ -70,6 +70,7 @@ function formatDate(dateStr: string | null): string {
 export default function Sidebar() {
     const pathname = usePathname();
     const searchParams = useSearchParams();
+    const params = useParams();
     const router = useRouter();
     const { employeeId, isAuthenticated, logout } = useAuth();
     const [showPrereqPopup, setShowPrereqPopup] = useState(false);
@@ -81,20 +82,44 @@ export default function Sidebar() {
     const user = isMounted ? getCurrentUser() : null;
     const role = (user?.role || "employee").toLowerCase();
     const currentView = searchParams.get("view");
+    const routeIdParam = params?.id as string | undefined;
+
+    // Determine active employeeId from route context first, fallback to auth employeeId
+    const activeEmployeeId = useMemo(() => {
+        if (routeIdParam) {
+            if (pathname.startsWith("/dashboard/") || pathname.startsWith("/feedback/")) {
+                const decoded = safeAtob(routeIdParam);
+                if (decoded) return decoded;
+            }
+            if (pathname.startsWith("/home/")) {
+                return routeIdParam;
+            }
+        }
+        return employeeId || null;
+    }, [pathname, routeIdParam, employeeId]);
 
     // ── React Query — cached, deduplicated ───────────────────────────────────
     const { data: jds = [], isLoading: loadingJds } = useEmployeeJDs(
-        isAuthenticated && employeeId ? employeeId : null,
+        isAuthenticated && activeEmployeeId ? activeEmployeeId : null,
     );
 
     const { data: unreadFeedback = [] } = useUnreadFeedback(
-        isMounted && employeeId ? employeeId : null,
+        isMounted && activeEmployeeId ? activeEmployeeId : null,
         role,
     );
 
     const unreadFeedbackCount = Array.isArray(unreadFeedback)
         ? unreadFeedback.length
         : 0;
+
+    // Determine target JD ID from active route or employee JDs
+    const targetJdId = useMemo(() => {
+        if (pathname.startsWith("/jd/") && routeIdParam) {
+            return routeIdParam;
+        }
+        const approvedJd = jds.find((j: any) => j.status === "approved");
+        return approvedJd?.id || jds[0]?.id;
+    }, [pathname, routeIdParam, jds]);
 
     // ── Nav links ─────────────────────────────────────────────────────────────
     type NavItem = {
@@ -104,19 +129,16 @@ export default function Sidebar() {
         description: string;
     };
 
-    const approvedJd = jds.find((j: any) => j.status === "approved");
-    const targetJdId = approvedJd?.id || jds[0]?.id;
-
     const links: NavItem[] = [
         {
             name: "Dashboard",
-            href: employeeId ? `/dashboard/${safeBtoa(employeeId)}` : "/",
+            href: activeEmployeeId ? `/dashboard/${safeBtoa(activeEmployeeId)}` : "/",
             icon: LayoutDashboard,
             description: "My job descriptions",
         },
         {
             name: "Create JD",
-            href: "/questionnaire",
+            href: activeEmployeeId ? `/questionnaire?emp_id=${activeEmployeeId}` : "/questionnaire",
             icon: FilePlus,
             description: "Start AI interview",
         },
@@ -129,7 +151,7 @@ export default function Sidebar() {
         {
             name: "Skill Assessment",
             href: (role === "manager" || role === "head" || role === "hr" || role === "admin")
-                ? (employeeId ? `/dashboard/${safeBtoa(employeeId)}?view=skill_assessment` : "#")
+                ? (activeEmployeeId ? `/dashboard/${safeBtoa(activeEmployeeId)}?view=skill_assessment` : "#")
                 : (targetJdId ? `/jd/${targetJdId}?tab=kra-kpi&section=skill-assessment` : "#"),
             icon: Award,
             description: (role === "manager" || role === "head" || role === "hr" || role === "admin")
@@ -141,21 +163,21 @@ export default function Sidebar() {
     if (role === "manager" || role === "head") {
         links.push({
             name: "Approvals",
-            href: employeeId ? `/feedback/${safeBtoa(employeeId)}` : "/",
+            href: activeEmployeeId ? `/feedback/${safeBtoa(activeEmployeeId)}` : "/",
             icon: AlertTriangle,
             description: "Pending reviews",
         });
     } else if (role === "hr") {
         links.push({
             name: "Reviews",
-            href: employeeId ? `/feedback/${safeBtoa(employeeId)}` : "/",
+            href: activeEmployeeId ? `/feedback/${safeBtoa(activeEmployeeId)}` : "/",
             icon: ShieldCheck,
             description: "Final approvals",
         });
     } else if (role === "admin") {
         links.push({
             name: "Reviews",
-            href: employeeId ? `/feedback/${safeBtoa(employeeId)}` : "/",
+            href: activeEmployeeId ? `/feedback/${safeBtoa(activeEmployeeId)}` : "/",
             icon: ShieldCheck,
             description: "Final approvals",
         });
@@ -169,7 +191,7 @@ export default function Sidebar() {
         // Regular employee
         links.push({
             name: "Feedback",
-            href: employeeId ? `/feedback/${safeBtoa(employeeId)}` : "/",
+            href: activeEmployeeId ? `/feedback/${safeBtoa(activeEmployeeId)}` : "/",
             icon: MessageSquare,
             description: "Review comments",
         });

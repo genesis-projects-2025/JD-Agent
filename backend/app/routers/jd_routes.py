@@ -676,16 +676,30 @@ async def _attach_kra_kpi_status(db: AsyncSession, records: list) -> None:
     session_ids = [str(r.id) for r in records if not isinstance(r, dict)]
     if not session_ids:
         return
-    from app.models.kra_kpi_model import KRAKPISession
+    from app.models.kra_kpi_model import KRAKPISession, UploadedKRAKPI
     from sqlalchemy import select
     result = await db.execute(
         select(KRAKPISession.jd_session_id, KRAKPISession.status)
         .where(KRAKPISession.jd_session_id.in_(session_ids))
     )
     kra_statuses = {row[0]: row[1] for row in result.all()}
+
+    # Also check uploaded_kra_kpis for employee IDs
+    emp_ids = [r.employee_id for r in records if not isinstance(r, dict) and getattr(r, "employee_id", None)]
+    uploaded_emp_ids = set()
+    if emp_ids:
+        up_res = await db.execute(
+            select(UploadedKRAKPI.employee_id)
+            .where(UploadedKRAKPI.employee_id.in_(emp_ids))
+        )
+        uploaded_emp_ids = {row[0] for row in up_res.all()}
+
     for r in records:
         if not isinstance(r, dict):
-            r.kra_kpi_status = kra_statuses.get(str(r.id))
+            status_val = kra_statuses.get(str(r.id))
+            if not status_val and getattr(r, "employee_id", None) in uploaded_emp_ids:
+                status_val = "approved"
+            r.kra_kpi_status = status_val
 
 
 # ── List all (admin) ──────────────────────────────────────────────────────────

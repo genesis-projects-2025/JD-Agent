@@ -810,16 +810,28 @@ async def list_questionnaires_by_employee(
     records = list(result.scalars().all())
 
     # Get KRA/KPI statuses
+    has_uploaded_kra = False
     if records:
-        from app.models.kra_kpi_model import KRAKPISession
+        from app.models.kra_kpi_model import KRAKPISession, UploadedKRAKPI
         jd_ids = [str(r.id) for r in records]
         kra_res = await db.execute(
             select(KRAKPISession.jd_session_id, KRAKPISession.status)
             .where(KRAKPISession.jd_session_id.in_(jd_ids))
         )
         kra_statuses = {row[0]: row[1] for row in kra_res.all()}
+
+        # Check uploaded_kra_kpis for employee_id
+        up_res = await db.execute(
+            select(UploadedKRAKPI.employee_id)
+            .where(UploadedKRAKPI.employee_id == employee_id)
+        )
+        has_uploaded_kra = bool(up_res.scalars().first())
+
         for r in records:
-            r.kra_kpi_status = kra_statuses.get(str(r.id))
+            status_val = kra_statuses.get(str(r.id))
+            if not status_val and has_uploaded_kra:
+                status_val = "approved"
+            r.kra_kpi_status = status_val
 
     # Serialise for cache (only lightweight list fields)
     serialised = [
@@ -836,17 +848,16 @@ async def list_questionnaires_by_employee(
         for r in records
     ]
 
-    # Also include Admin-uploaded JDs from reference_jds table for this employee
-    try:
-        from app.models.reference_jd_model import ReferenceJD
-        ref_res = await db.execute(
-            select(ReferenceJD).where(ReferenceJD.employee_id == employee_id)
-        )
-        ref_records = list(ref_res.scalars().all())
-        existing_ids = {item["id"] for item in serialised}
-        for ref in ref_records:
-            ref_id = str(ref.id)
-            if ref_id not in existing_ids:
+    # Also include Admin-uploaded JDs from reference_jds table IF employee has no JDSession
+    if not serialised:
+        try:
+            from app.models.reference_jd_model import ReferenceJD
+            ref_res = await db.execute(
+                select(ReferenceJD).where(ReferenceJD.employee_id == employee_id)
+            )
+            ref_records = list(ref_res.scalars().all())
+            for ref in ref_records:
+                ref_id = str(ref.id)
                 serialised.append({
                     "id": ref_id,
                     "employee_id": ref.employee_id,
@@ -857,8 +868,8 @@ async def list_questionnaires_by_employee(
                     "created_at": ref.uploaded_at.isoformat() if ref.uploaded_at else None,
                     "updated_at": ref.uploaded_at.isoformat() if ref.uploaded_at else None,
                 })
-    except Exception as e:
-        logger.warning(f"Error fetching reference_jds for employee {employee_id}: {e}")
+        except Exception as e:
+            logger.warning(f"Error fetching reference_jds for employee {employee_id}: {e}")
 
     await set_cache(cache_key, serialised, ttl=60)
     return serialised

@@ -834,11 +834,12 @@ async def list_questionnaires_by_employee(
             r.kra_kpi_status = status_val
 
     # Serialise for cache (only lightweight list fields)
+    from app.routers.jd_routes import _resolve_session_title
     serialised = [
         {
             "id": str(r.id),
             "employee_id": r.employee_id,
-            "title": r.title,
+            "title": _resolve_session_title(r),
             "status": r.status,
             "kra_kpi_status": getattr(r, "kra_kpi_status", None),
             "version": r.version,

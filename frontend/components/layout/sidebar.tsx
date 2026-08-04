@@ -12,7 +12,7 @@ import { useEffect, useState, useLayoutEffect, useMemo } from "react";
 import { createPortal } from "react-dom";
 import { getCurrentUser } from "@/lib/api";
 import { useAuth } from "@/components/providers/auth-provider";
-import { useEmployeeJDs, useUnreadFeedback } from "@/hooks/useJDQueries";
+import { useEmployeeJDs, useUnreadFeedback, useJD } from "@/hooks/useJDQueries";
 import { safeBtoa, safeAtob } from "@/lib/base64";
 import type { SessionListItem } from "@/types/session";
 
@@ -84,6 +84,10 @@ export default function Sidebar() {
     const currentView = searchParams.get("view");
     const routeIdParam = params?.id as string | undefined;
 
+    // Fetch active JD details if currently on /jd/[id] page
+    const isJdPage = pathname.startsWith("/jd/");
+    const { data: currentJd } = useJD(isJdPage && routeIdParam ? routeIdParam : null);
+
     // Determine active employeeId from route context first, fallback to auth employeeId
     const activeEmployeeId = useMemo(() => {
         if (routeIdParam) {
@@ -94,9 +98,12 @@ export default function Sidebar() {
             if (pathname.startsWith("/home/")) {
                 return routeIdParam;
             }
+            if (pathname.startsWith("/jd/") && currentJd?.employee_id) {
+                return currentJd.employee_id;
+            }
         }
         return employeeId || null;
-    }, [pathname, routeIdParam, employeeId]);
+    }, [pathname, routeIdParam, employeeId, currentJd]);
 
     // ── React Query — cached, deduplicated ───────────────────────────────────
     const { data: jds = [], isLoading: loadingJds } = useEmployeeJDs(

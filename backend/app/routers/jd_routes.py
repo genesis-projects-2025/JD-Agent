@@ -1286,6 +1286,31 @@ async def get_reviews(jd_id: str, db: AsyncSession = Depends(get_db)):
 
 
 # ── Serializer ────────────────────────────────────────────────────────────────
+def _resolve_session_title(r) -> str:
+    if getattr(r, "title", None) and str(r.title).strip():
+        return str(r.title).strip()
+    struct = getattr(r, "jd_structured", None)
+    if struct and isinstance(struct, dict):
+        emp_info = struct.get("employee_information") or {}
+        t = emp_info.get("title") or struct.get("title") or struct.get("job_title") or struct.get("role_title")
+        if t and str(t).strip():
+            return str(t).strip()
+    text = getattr(r, "jd_text", None)
+    if text:
+        try:
+            import json
+            parsed = json.loads(text)
+            if isinstance(parsed, dict):
+                p_struct = parsed.get("jd_structured_data") or parsed
+                emp_info = p_struct.get("employee_information") or {}
+                t = emp_info.get("title") or p_struct.get("title") or p_struct.get("job_title") or p_struct.get("role_title")
+                if t and str(t).strip():
+                    return str(t).strip()
+        except Exception:
+            pass
+    return "Job Description"
+
+
 def _serialize_list_item(r) -> dict:
     if isinstance(r, dict):
         return r
@@ -1295,7 +1320,7 @@ def _serialize_list_item(r) -> dict:
         "employee_id": r.employee_id,
         "employee_name": employee.name if employee else None,
         "department": r.department or (employee.department if employee else None),
-        "title": r.title,
+        "title": _resolve_session_title(r),
         "status": r.status,
         "kra_kpi_status": getattr(r, "kra_kpi_status", None),
         "version": r.version,

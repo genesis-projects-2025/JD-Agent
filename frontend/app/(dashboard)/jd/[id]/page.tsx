@@ -88,14 +88,15 @@ function JDPageContent() {
  }, []);
 
  useEffect(() => {
-   if (tabParam === "kra-kpi") {
-     if (jd && !jd.generated_jd) {
-       setPrereqMissing(["employee_jd"]);
-       setIsPrereqModalOpen(true);
-       setActiveTab("structured");
-       router.replace(`/jd/${jdId}`);
-       return;
-     }
+    if (tabParam === "kra-kpi") {
+      const isJdComplete = jd && (jd.status === "approved" || !!jd.generated_jd || !!jd.jd_text || (jd.jd_structured && Object.keys(jd.jd_structured).length > 0));
+      if (jd && !isJdComplete) {
+        setPrereqMissing(["employee_jd"]);
+        setIsPrereqModalOpen(true);
+        setActiveTab("structured");
+        router.replace(`/jd/${jdId}`);
+        return;
+      }
       if (prereqStatus && !prereqStatus.ready && prereqStatus.current_step !== "confirmed") {
         setPrereqMissing(prereqStatus.missing || []);
         setIsPrereqModalOpen(true);
@@ -103,11 +104,11 @@ function JDPageContent() {
         router.replace(`/jd/${jdId}`);
         return;
       }
-     setActiveTab("kra-kpi");
-   } else {
-     setActiveTab("structured");
-   }
- }, [tabParam, jd, prereqStatus, router, jdId]);
+      setActiveTab("kra-kpi");
+    } else {
+      setActiveTab("structured");
+    }
+  }, [tabParam, jd, prereqStatus, router, jdId]);
 
  // Helper to deep unwrap double-stringified JSON objects from the LLM core
  const safeParseObject = (obj: any): any => {
@@ -1275,7 +1276,8 @@ function JDPageContent() {
     </button>
     <button
      onClick={async () => {
-       if (!jd?.generated_jd) {
+       const isJdComplete = jd && (jd.status === "approved" || !!jd.generated_jd || !!jd.jd_text || (jd.jd_structured && Object.keys(jd.jd_structured).length > 0));
+       if (!isJdComplete) {
          setPrereqMissing(["employee_jd"]);
          setIsPrereqModalOpen(true);
          return;

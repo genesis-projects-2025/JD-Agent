@@ -29,6 +29,15 @@ export const setCookie = (name: string, value: string, days: number = 7) => {
 };
 
 export const getCookie = (name: string): string | null => {
+  // 1. Tab-Isolated Storage check FIRST (Prevents cross-tab authentication overwrites)
+  if (typeof window !== "undefined") {
+    try {
+      const sessionVal = window.sessionStorage.getItem(name);
+      if (sessionVal) return sessionVal;
+    } catch (e) {}
+  }
+
+  // 2. Cookie storage check
   try {
     const nameEQ = name + "=";
     const ca = document.cookie.split(';');
@@ -41,13 +50,11 @@ export const getCookie = (name: string): string | null => {
     console.warn("Failed to read cookie:", e);
   }
 
-  // Fallback storage for incognito/strict cookie environments
+  // 3. LocalStorage fallback check
   if (typeof window !== "undefined") {
     try {
       const localVal = window.localStorage.getItem(name);
       if (localVal) return localVal;
-      const sessionVal = window.sessionStorage.getItem(name);
-      if (sessionVal) return sessionVal;
     } catch (e) {}
   }
   return null;

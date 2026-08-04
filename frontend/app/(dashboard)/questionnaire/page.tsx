@@ -1,18 +1,54 @@
 // app/(dashboard)/questionnaire/page.tsx
 "use client";
 
-import { useRouter } from "next/navigation";
-import { initQuestionnaire, getCurrentUser, fetchEmployeeRoleTemplate } from "@/lib/api";
+import { useRouter, useSearchParams } from "next/navigation";
+import { initQuestionnaire, getCurrentUser, fetchEmployeeRoleTemplate, API_URL } from "@/lib/api";
 import { getOrCreateEmployeeId } from "@/lib/auth";
+import { setCookie, cookieKeys } from "@/lib/cookies";
+import { safeAtob } from "@/lib/base64";
 import { useState, useEffect } from "react";
 import ContinueSessionBanner from "@/components/session/ContinuesessionBanner";
 
 export default function QuestionnaireStart() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [loading, setLoading] = useState(false);
   const [roleTemplate, setRoleTemplate] = useState<any>(null);
 
   useEffect(() => {
+    const rawEmpId = searchParams.get("emp_id");
+    if (rawEmpId) {
+      let current = rawEmpId;
+      let depth = 0;
+      while (depth < 5) {
+        try {
+          const decoded = safeAtob(decodeURIComponent(current));
+          if (decoded && decoded !== current && /^[a-zA-Z0-9_=\-\+\/%]+$/.test(decoded)) {
+            current = decoded;
+            depth++;
+          } else {
+            break;
+          }
+        } catch (e) {
+          break;
+        }
+      }
+      if (current) {
+        // Bind this tab's sessionStorage to the employee specified in the URL!
+        setCookie(cookieKeys.EMPLOYEE_ID, current);
+        fetch(`${API_URL}/auth/sso-sync`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ emp_code: current }),
+        }).then(async (res) => {
+          if (res.ok) {
+            const data = await res.json();
+            setCookie(cookieKeys.AUTH_USER, JSON.stringify(data.employee));
+          }
+        }).catch(console.warn);
+      }
+    }
+
     const eid = getOrCreateEmployeeId();
     fetchEmployeeRoleTemplate(eid)
       .then((data) => {
@@ -21,7 +57,7 @@ export default function QuestionnaireStart() {
         }
       })
       .catch(console.error);
-  }, []);
+  }, [searchParams]);
 
   const handleUseTemplate = async () => {
     setLoading(true);

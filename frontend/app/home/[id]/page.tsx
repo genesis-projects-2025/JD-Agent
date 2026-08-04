@@ -176,7 +176,7 @@ export default function HomePage({ params }: { params: Promise<{ id: string }> }
             <ArrowRight className="w-4 h-4 text-slate-400" />
           </Link>
           <Link
-            href="/questionnaire"
+            href={`/questionnaire?emp_id=${safeBtoa(employeeId)}`}
             className="w-full sm:w-auto px-8 py-4 bg-blue-600 hover:bg-blue-700 text-white rounded-md shadow-md shadow-blue-600/20 hover:shadow-lg hover:shadow-blue-600/30 transition-all font-medium flex items-center justify-center gap-2"
           >
             <FilePlus className="w-4 h-4" />

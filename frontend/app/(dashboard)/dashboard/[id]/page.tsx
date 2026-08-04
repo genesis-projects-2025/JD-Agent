@@ -33,6 +33,7 @@ import { getAdminCache, setAdminCache } from "@/lib/admin-cache";
 
 import {
   AuthUser,
+  getCurrentUser,
   fetchEmployeeJDs,
   fetchEmployeeRoleTemplate,
   RoleTemplateResponse,
@@ -2721,19 +2722,9 @@ function DashboardContent() {
   const [ready, setReady] = useState(false);
 
   useLayoutEffect(() => {
-    // Get raw session from cookies (client-side only)
-    const cookieStr = document.cookie || '';
-    const sessionMatch = cookieStr.match(/(?:^|; )jd_auth_user=([^;]*)/);
-    if (!sessionMatch) {
-      router.replace("/");
-      return;
-    }
-
-    const sessionStr = decodeURIComponent(sessionMatch[1]);
-    let sessionUser: AuthUser;
-    try {
-      sessionUser = JSON.parse(sessionStr);
-    } catch {
+    // Read session from tab-isolated storage
+    const sessionUser = getCurrentUser();
+    if (!sessionUser) {
       router.replace("/");
       return;
     }

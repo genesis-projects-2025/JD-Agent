@@ -835,6 +835,31 @@ async def list_questionnaires_by_employee(
         }
         for r in records
     ]
+
+    # Also include Admin-uploaded JDs from reference_jds table for this employee
+    try:
+        from app.models.reference_jd_model import ReferenceJD
+        ref_res = await db.execute(
+            select(ReferenceJD).where(ReferenceJD.employee_id == employee_id)
+        )
+        ref_records = list(ref_res.scalars().all())
+        existing_ids = {item["id"] for item in serialised}
+        for ref in ref_records:
+            ref_id = str(ref.id)
+            if ref_id not in existing_ids:
+                serialised.append({
+                    "id": ref_id,
+                    "employee_id": ref.employee_id,
+                    "title": ref.role_title or "Approved Role JD",
+                    "status": "approved",
+                    "kra_kpi_status": "approved",
+                    "version": 1,
+                    "created_at": ref.uploaded_at.isoformat() if ref.uploaded_at else None,
+                    "updated_at": ref.uploaded_at.isoformat() if ref.uploaded_at else None,
+                })
+    except Exception as e:
+        logger.warning(f"Error fetching reference_jds for employee {employee_id}: {e}")
+
     await set_cache(cache_key, serialised, ttl=60)
     return serialised
 

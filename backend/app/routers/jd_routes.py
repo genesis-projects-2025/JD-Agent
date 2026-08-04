@@ -747,32 +747,90 @@ async def get_employee_role_template(
             "message": "Employee lacks department or designation details",
         }
 
-    # 3. Look for any APPROVED JDSession belonging to the SAME (department, designation)
-    approved_query = (
+    # 3. Multi-stage lookup for approved JD
+    from app.models.reference_jd_model import ReferenceJD
+
+    # Step A: Check if this specific employee has an approved JDSession
+    emp_session_query = (
         select(JDSession)
         .where(
-            JDSession.department == department,
-            JDSession.title == designation,
+            JDSession.employee_id == employee_id,
             JDSession.status == "approved",
         )
         .order_by(JDSession.updated_at.desc())
     )
-    res = await db.execute(approved_query)
-    approved_session = res.scalars().first()
-
-    if approved_session:
+    res_emp = await db.execute(emp_session_query)
+    emp_approved = res_emp.scalars().first()
+    if emp_approved:
         return {
             "exists": True,
-            "id": str(approved_session.id),
-            "title": approved_session.title,
-            "department": approved_session.department,
-            "jd_text": approved_session.jd_text,
-            "jd_structured": approved_session.jd_structured,
-            "version": approved_session.version,
-            "updated_at": approved_session.updated_at.isoformat()
-            if approved_session.updated_at
-            else None,
+            "id": str(emp_approved.id),
+            "title": emp_approved.title,
+            "department": emp_approved.department,
+            "jd_text": emp_approved.jd_text,
+            "jd_structured": emp_approved.jd_structured,
+            "version": emp_approved.version,
+            "updated_at": emp_approved.updated_at.isoformat() if emp_approved.updated_at else None,
         }
+
+    # Step B: Check if ReferenceJD exists for this specific employee_id (Admin Uploaded)
+    ref_emp_query = select(ReferenceJD).where(ReferenceJD.employee_id == employee_id)
+    res_ref_emp = await db.execute(ref_emp_query)
+    ref_emp = res_ref_emp.scalars().first()
+    if ref_emp:
+        struct_data = dict(ref_emp.structured_data or {})
+        return {
+            "exists": True,
+            "id": str(ref_emp.id),
+            "title": ref_emp.role_title or "Approved Role JD",
+            "department": ref_emp.department or department,
+            "jd_text": struct_data.get("purpose", "") or struct_data.get("role_summary", ""),
+            "jd_structured": struct_data,
+            "version": 1,
+            "updated_at": ref_emp.uploaded_at.isoformat() if ref_emp.uploaded_at else None,
+        }
+
+    # Step C: Fallback to department & role template matching
+    if department:
+        # Check approved JDSession by department
+        dept_session_query = (
+            select(JDSession)
+            .where(
+                JDSession.department == department,
+                JDSession.status == "approved",
+            )
+            .order_by(JDSession.updated_at.desc())
+        )
+        res_dept = await db.execute(dept_session_query)
+        dept_approved = res_dept.scalars().first()
+        if dept_approved:
+            return {
+                "exists": True,
+                "id": str(dept_approved.id),
+                "title": dept_approved.title,
+                "department": dept_approved.department,
+                "jd_text": dept_approved.jd_text,
+                "jd_structured": dept_approved.jd_structured,
+                "version": dept_approved.version,
+                "updated_at": dept_approved.updated_at.isoformat() if dept_approved.updated_at else None,
+            }
+
+        # Check ReferenceJD by department
+        ref_dept_query = select(ReferenceJD).where(ReferenceJD.department == department)
+        res_ref_dept = await db.execute(ref_dept_query)
+        ref_dept = res_ref_dept.scalars().first()
+        if ref_dept:
+            struct_data = dict(ref_dept.structured_data or {})
+            return {
+                "exists": True,
+                "id": str(ref_dept.id),
+                "title": ref_dept.role_title or "Approved Role JD",
+                "department": ref_dept.department,
+                "jd_text": struct_data.get("purpose", "") or struct_data.get("role_summary", ""),
+                "jd_structured": struct_data,
+                "version": 1,
+                "updated_at": ref_dept.uploaded_at.isoformat() if ref_dept.uploaded_at else None,
+            }
 
     return {
         "exists": False,
@@ -910,6 +968,30 @@ async def download_jd_docx(
 async def get_jd(jd_id: str, db: AsyncSession = Depends(get_db)):
     record = await get_questionnaire(db, jd_id)
     if not record:
+        # Fallback to checking reference_jds table for Admin-uploaded JDs
+        try:
+            from app.models.reference_jd_model import ReferenceJD
+            from sqlalchemy.future import select as _select
+            ref_res = await db.execute(_select(ReferenceJD).where(ReferenceJD.id == jd_id))
+            ref_rec = ref_res.scalar_one_or_none()
+            if ref_rec:
+                struct_data = dict(ref_rec.structured_data or {})
+                return {
+                    "id": str(ref_rec.id),
+                    "employee_id": ref_rec.employee_id or "",
+                    "employee_name": ref_rec.employee_name or "Employee",
+                    "title": ref_rec.role_title or "Approved Role JD",
+                    "status": "approved",
+                    "kra_kpi_status": "approved",
+                    "version": 1,
+                    "jd_text": struct_data.get("purpose", "") or struct_data.get("role_summary", ""),
+                    "jd_structured": struct_data,
+                    "created_at": ref_rec.uploaded_at.isoformat() if ref_rec.uploaded_at else None,
+                    "updated_at": ref_rec.uploaded_at.isoformat() if ref_rec.uploaded_at else None,
+                    "history": [],
+                }
+        except Exception as _e:
+            logger.warning(f"Failed reference_jds fallback lookup for {jd_id}: {_e}")
         raise HTTPException(status_code=404, detail="JD not found")
     
     from app.models.user_model import Employee

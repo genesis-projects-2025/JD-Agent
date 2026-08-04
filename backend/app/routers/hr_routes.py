@@ -28,13 +28,14 @@ async def get_department_stats(db: AsyncSession = Depends(get_db)):
         emp_res = await db.execute(emp_query)
         employees = emp_res.fetchall()
 
-        # Step 2: Get all approved canonical JDs from jd_sessions
+        # Step 2: Get all approved canonical JDs from jd_sessions and reference_jds
         approved_jds_query = text("""
             SELECT department, title
-            FROM jd_sessions
-            WHERE status = 'approved'
-              AND department IS NOT NULL
-              AND title IS NOT NULL
+            FROM (
+                SELECT department, title FROM jd_sessions WHERE status = 'approved' AND department IS NOT NULL AND title IS NOT NULL
+                UNION ALL
+                SELECT department, role_title as title FROM reference_jds WHERE department IS NOT NULL AND role_title IS NOT NULL
+            ) sub
         """)
         approved_res = await db.execute(approved_jds_query)
         approved_set = {
@@ -44,12 +45,29 @@ async def get_department_stats(db: AsyncSession = Depends(get_db)):
 
         # Step 3: Get latest personal JD and KRA/KPI statuses for all employees
         personal_query = text("""
-            WITH LatestJDs AS (
+            WITH CombinedJDs AS (
                 SELECT 
+                    id::text as jd_id,
+                    employee_id, 
+                    status,
+                    updated_at
+                FROM jd_sessions
+                UNION ALL
+                SELECT 
+                    id::text as jd_id,
+                    employee_id, 
+                    'approved' as status,
+                    uploaded_at as updated_at
+                FROM reference_jds
+                WHERE employee_id IS NOT NULL AND employee_id != ''
+            ),
+            LatestJDs AS (
+                SELECT 
+                    jd_id,
                     employee_id, 
                     status as jd_status,
                     ROW_NUMBER() OVER(PARTITION BY employee_id ORDER BY updated_at DESC) as rn
-                FROM jd_sessions
+                FROM CombinedJDs
             ),
             LatestKRAKPIs AS (
                 SELECT 
@@ -179,13 +197,15 @@ async def get_department_employees(
                 'PCT - Microbiology'
             ])
 
-        # 1. Fetch approved templates map for department(s)
+        # 1. Fetch approved templates map for department(s) from jd_sessions and reference_jds
         approved_query = text("""
-            SELECT id, department, title
-            FROM jd_sessions
+            SELECT id::text as id, department, title
+            FROM (
+                SELECT id::text, department, title FROM jd_sessions WHERE status = 'approved' AND department IS NOT NULL AND title IS NOT NULL
+                UNION ALL
+                SELECT id::text, department, role_title as title FROM reference_jds WHERE department IS NOT NULL AND role_title IS NOT NULL
+            ) sub
             WHERE department = ANY(:depts)
-              AND status = 'approved'
-              AND title IS NOT NULL
         """)
         approved_res = await db.execute(approved_query, {"depts": list(depts)})
         approved_map = {(row.department, row.title): str(row.id) for row in approved_res.fetchall()}
@@ -200,14 +220,30 @@ async def get_department_employees(
         params = {"depts": list(depts), "limit": limit, "offset": offset}
 
         query = text(f"""
-            WITH LatestJDs AS (
+            WITH CombinedJDs AS (
                 SELECT 
-                    id as jd_id,
+                    id::text as jd_id,
+                    employee_id, 
+                    status,
+                    updated_at
+                FROM jd_sessions
+                UNION ALL
+                SELECT 
+                    id::text as jd_id,
+                    employee_id, 
+                    'approved' as status,
+                    uploaded_at as updated_at
+                FROM reference_jds
+                WHERE employee_id IS NOT NULL AND employee_id != ''
+            ),
+            LatestJDs AS (
+                SELECT 
+                    jd_id,
                     employee_id, 
                     status,
                     updated_at,
                     ROW_NUMBER() OVER(PARTITION BY employee_id ORDER BY updated_at DESC) as rn
-                FROM jd_sessions
+                FROM CombinedJDs
             ),
             LatestKRAs AS (
                 SELECT 
@@ -305,11 +341,12 @@ async def get_my_team_employees(
         
         # Fetch all approved templates map
         approved_query = text("""
-            SELECT id, department, title
-            FROM jd_sessions
-            WHERE status = 'approved'
-              AND department IS NOT NULL
-              AND title IS NOT NULL
+            SELECT id::text as id, department, title
+            FROM (
+                SELECT id::text, department, title FROM jd_sessions WHERE status = 'approved' AND department IS NOT NULL AND title IS NOT NULL
+                UNION ALL
+                SELECT id::text, department, role_title as title FROM reference_jds WHERE department IS NOT NULL AND role_title IS NOT NULL
+            ) sub
         """)
         approved_res = await db.execute(approved_query)
         approved_map = {
@@ -319,14 +356,30 @@ async def get_my_team_employees(
 
         offset = (page - 1) * limit
         query = text("""
-            WITH LatestJDs AS (
+            WITH CombinedJDs AS (
                 SELECT 
-                    id as jd_id,
+                    id::text as jd_id,
+                    employee_id, 
+                    status,
+                    updated_at
+                FROM jd_sessions
+                UNION ALL
+                SELECT 
+                    id::text as jd_id,
+                    employee_id, 
+                    'approved' as status,
+                    uploaded_at as updated_at
+                FROM reference_jds
+                WHERE employee_id IS NOT NULL AND employee_id != ''
+            ),
+            LatestJDs AS (
+                SELECT 
+                    jd_id,
                     employee_id, 
                     status,
                     updated_at,
                     ROW_NUMBER() OVER(PARTITION BY employee_id ORDER BY updated_at DESC) as rn
-                FROM jd_sessions
+                FROM CombinedJDs
             ),
             LatestKRAs AS (
                 SELECT 

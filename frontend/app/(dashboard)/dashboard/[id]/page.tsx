@@ -902,14 +902,16 @@ function ManagerView({ user }: { user: AuthUser }) {
         (j) =>
           j.status === "sent_to_manager" ||
           j.status === "hr_rejected" ||
-          j.kra_kpi_status === "sent_to_manager",
+          j.kra_kpi_status === "sent_to_manager" ||
+          j.kra_kpi_status === "hr_rejected",
       );
     }
     if (filter === "approved") {
       return allJds.filter(
         (j) =>
           (j.status === "approved" || j.status === "sent_to_hr") &&
-          j.kra_kpi_status !== "sent_to_manager",
+          j.kra_kpi_status !== "sent_to_manager" &&
+          j.kra_kpi_status !== "hr_rejected",
       );
     }
     // "feedback" or "my_team" or other: return empty or allJds as fallback

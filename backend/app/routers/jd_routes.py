@@ -1287,14 +1287,19 @@ async def get_reviews(jd_id: str, db: AsyncSession = Depends(get_db)):
 
 # ── Serializer ────────────────────────────────────────────────────────────────
 def _resolve_session_title(r) -> str:
-    if getattr(r, "title", None) and str(r.title).strip():
-        return str(r.title).strip()
+    title_str = getattr(r, "title", None)
+    if title_str and str(title_str).strip():
+        t = str(title_str).strip()
+        if t.lower() not in ("head", "executive", "none", "job description", "untitled role") and not t.startswith("Untitled"):
+            return t
+
     struct = getattr(r, "jd_structured", None)
     if struct and isinstance(struct, dict):
         emp_info = struct.get("employee_information") or {}
         t = emp_info.get("title") or struct.get("title") or struct.get("job_title") or struct.get("role_title")
-        if t and str(t).strip():
+        if t and str(t).strip() and str(t).strip().lower() not in ("head", "executive", "none", "job description"):
             return str(t).strip()
+
     text = getattr(r, "jd_text", None)
     if text:
         try:
@@ -1304,10 +1309,14 @@ def _resolve_session_title(r) -> str:
                 p_struct = parsed.get("jd_structured_data") or parsed
                 emp_info = p_struct.get("employee_information") or {}
                 t = emp_info.get("title") or p_struct.get("title") or p_struct.get("job_title") or p_struct.get("role_title")
-                if t and str(t).strip():
+                if t and str(t).strip() and str(t).strip().lower() not in ("head", "executive", "none", "job description"):
                     return str(t).strip()
         except Exception:
             pass
+
+    if title_str and str(title_str).strip():
+        return str(title_str).strip()
+
     return "Job Description"
 
 

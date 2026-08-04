@@ -880,68 +880,94 @@ async def list_manager_pending_jds(
     db: AsyncSession, manager_id: str
 ) -> list[JDSession]:
     from app.models.user_model import Employee
+    from app.models.kra_kpi_model import KRAKPISession
     from app.services.dashboard_service import DashboardService
+    from sqlalchemy import select, or_
 
-    # Fetch manager/head role
-    mgr_res = await db.execute(select(Employee).where(Employee.id == manager_id))
-    mgr = mgr_res.scalar_one_or_none()
+    # Collect all direct & indirect reporting employees
+    direct_reports = await DashboardService.get_direct_reports(db, manager_id)
+    recursive_reports = await DashboardService.get_recursive_reports(db, manager_id)
+    all_reports = direct_reports.union(recursive_reports)
 
-    if mgr and mgr.role == "head":
-        # Get recursive reports
-        recursive_reports = await DashboardService.get_recursive_reports(db, manager_id)
-        direct_reports = await DashboardService.get_direct_reports(db, manager_id)
-        indirect_reports = recursive_reports - direct_reports
+    emp_res = await db.execute(select(Employee.id).where(Employee.reporting_manager_code == manager_id))
+    all_reports.update([row[0] for row in emp_res.all()])
 
-        cond_list = []
-        if direct_reports:
-            cond_list.append(
-                Employee.id.in_(list(direct_reports)) & JDSession.status.in_(["sent_to_manager", "manager_rejected", "sent_to_hr", "hr_rejected", "approved"])
-            )
-        if indirect_reports:
-            cond_list.append(
-                Employee.id.in_(list(indirect_reports)) & JDSession.status.in_(["sent_to_hr"])
-            )
+    kra_res = await db.execute(select(KRAKPISession.employee_id).where(KRAKPISession.manager_employee_id == manager_id))
+    all_reports.update([row[0] for row in kra_res.all()])
 
-        if cond_list:
-            from sqlalchemy import or_
-            conditions = or_(*cond_list)
-        else:
-            conditions = Employee.reporting_manager_code == manager_id
-    else:
-        # Only direct reports
-        conditions = (
-            (Employee.reporting_manager_code == manager_id)
-            & (
-                JDSession.status.in_(
-                    [
-                        "sent_to_manager",
-                        "manager_rejected",
-                        "sent_to_hr",
-                        "hr_rejected",
-                        "approved",
-                    ]
-                )
-            )
-        )
+    if not all_reports:
+        return []
 
     result = await db.execute(
         select(JDSession)
-        .join(Employee, JDSession.employee_id == Employee.id)
         .options(selectinload(JDSession.employee))
-        .where(conditions)
+        .where(JDSession.employee_id.in_(list(all_reports)))
         .order_by(JDSession.updated_at.desc())
     )
-    return list(result.scalars().all())
+    records = list(result.scalars().all())
+
+    # Build map of JDSessions by employee_id to check missing employee JDs
+    existing_emp_ids = {r.employee_id for r in records}
+
+    # Also check if any report employee submitted KRA/KPI but has no JDSession in DB
+    missing_emp_ids = all_reports - existing_emp_ids
+    if missing_emp_ids:
+        try:
+            from app.models.reference_jd_model import ReferenceJD
+            ref_res = await db.execute(
+                select(ReferenceJD).where(ReferenceJD.employee_id.in_(list(missing_emp_ids)))
+            )
+            for ref in ref_res.scalars().all():
+                records.append({
+                    "id": str(ref.id),
+                    "employee_id": ref.employee_id,
+                    "title": ref.role_title or "Approved Role JD",
+                    "status": "approved",
+                    "kra_kpi_status": "sent_to_manager",
+                    "version": 1,
+                    "created_at": ref.uploaded_at.isoformat() if ref.uploaded_at else None,
+                    "updated_at": ref.uploaded_at.isoformat() if ref.uploaded_at else None,
+                })
+        except Exception as e:
+            logger.warning(f"Error building missing report JDs: {e}")
+
+    # Attach KRA/KPI statuses
+    from app.routers.jd_routes import _attach_kra_kpi_status
+    await _attach_kra_kpi_status(db, records)
+
+    # Filter to ONLY items requiring Manager action
+    pending_records = []
+    for r in records:
+        jd_status = r.get("status") if isinstance(r, dict) else getattr(r, "status", None)
+        kra_status = r.get("kra_kpi_status") if isinstance(r, dict) else getattr(r, "kra_kpi_status", None)
+        if (
+            jd_status in ("sent_to_manager", "hr_rejected")
+            or kra_status in ("sent_to_manager", "hr_rejected")
+        ):
+            pending_records.append(r)
+
+    return pending_records
 
 
 async def list_hr_pending_jds(db: AsyncSession) -> list[JDSession]:
     result = await db.execute(
         select(JDSession)
         .options(selectinload(JDSession.employee))
-        .where(JDSession.status.in_(["sent_to_hr", "hr_rejected", "approved"]))
         .order_by(JDSession.updated_at.desc())
     )
-    return list(result.scalars().all())
+    records = list(result.scalars().all())
+
+    from app.routers.jd_routes import _attach_kra_kpi_status
+    await _attach_kra_kpi_status(db, records)
+
+    pending_records = []
+    for r in records:
+        jd_status = getattr(r, "status", None)
+        kra_status = getattr(r, "kra_kpi_status", None)
+        if jd_status == "sent_to_hr" or kra_status == "sent_to_hr":
+            pending_records.append(r)
+
+    return pending_records
 
 
 async def delete_questionnaire(

@@ -44,6 +44,7 @@ import {
   getCurrentUser,
   addCustomKRA,
   addCustomKPI,
+  API_URL,
   type KRASuggestion,
   type KPISuggestion,
   type FinalKRA,
@@ -1731,6 +1732,28 @@ const ConfirmedView = forwardRef<any, {
   const [lockedIds, setLockedIds] = useState<Set<string>>(new Set());
   const [lockedKpiIds, setLockedKpiIds] = useState<Set<string>>(new Set());
   const [showLockErrorModal, setShowLockErrorModal] = useState(false);
+  const [showDarwinboxDropdown, setShowDarwinboxDropdown] = useState(false);
+  const [exporting, setExporting] = useState(false);
+
+  const handleExport = async (type: 'zip' | 'goals' | 'subgoals') => {
+    setExporting(true);
+    try {
+      const response = await fetch(`${API_URL}/kra-kpi/${record.jd_session_id}/darwinbox-export?type=${type}`);
+      if (!response.ok) throw new Error('Export failed');
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = response.headers.get('content-disposition')?.split('filename=')[1]?.replace(/"/g, '') || `darwinbox_export.${type === 'zip' ? 'zip' : 'csv'}`;
+      a.click();
+      window.URL.revokeObjectURL(url);
+    } catch (err: any) {
+      alert(err.message || 'Export failed');
+    } finally {
+      setExporting(false);
+      setShowDarwinboxDropdown(false);
+    }
+  };
 
   useImperativeHandle(ref, () => ({
     save: async () => {
@@ -2356,57 +2379,129 @@ const ConfirmedView = forwardRef<any, {
             <p className="text-xs text-surface-500 mt-0.5">Export this finalized performance framework as a branded goal sheet PDF or Excel spreadsheet.</p>
           </div>
 
-          <div className="relative inline-block text-left">
-            <button
-              onClick={() => setShowDownloadDropdown(!showDownloadDropdown)}
-              className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-5 py-2.5 bg-gradient-to-r from-primary-600 to-primary-700 text-white rounded-xl text-xs font-bold shadow-md hover:shadow-lg hover:-translate-y-0.5 transition-all group"
-            >
-              <Download className="w-3.5 h-3.5 group-hover:scale-110 transition-transform" />
-              Download Framework
-              <ChevronDown className={`w-3.5 h-3.5 transition-transform duration-200 ${showDownloadDropdown ? 'rotate-180' : ''}`} />
-            </button>
+          <div className="flex items-center gap-3">
+            {/* Existing Download Framework Dropdown */}
+            <div className="relative inline-block text-left">
+              <button
+                onClick={() => setShowDownloadDropdown(!showDownloadDropdown)}
+                className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-5 py-2.5 bg-gradient-to-r from-primary-600 to-primary-700 text-white rounded-xl text-xs font-bold shadow-md hover:shadow-lg hover:-translate-y-0.5 transition-all group"
+              >
+                <Download className="w-3.5 h-3.5 group-hover:scale-110 transition-transform" />
+                Download Framework
+                <ChevronDown className={`w-3.5 h-3.5 transition-transform duration-200 ${showDownloadDropdown ? 'rotate-180' : ''}`} />
+              </button>
 
-            {showDownloadDropdown && (
-              <>
-                <div 
-                  className="fixed inset-0 z-40" 
-                  onClick={() => setShowDownloadDropdown(false)}
-                />
-                <div className="absolute right-0 mt-2 w-64 bg-white border border-surface-200 rounded-2xl shadow-xl z-50 overflow-hidden animate-in fade-in slide-in-from-top-2 duration-200">
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setShowDownloadDropdown(false);
-                      downloadKRAPdfClient(currentKras as any, jdData, jdData?.title, jdData?.department);
-                    }}
-                    className="w-full flex items-center gap-3.5 px-4 py-3.5 text-xs font-semibold text-surface-700 hover:bg-primary-50 hover:text-primary-700 transition-colors text-left"
-                  >
-                    <div className="w-8 h-8 rounded-lg bg-red-50 flex items-center justify-center shrink-0">
-                      <FileText className="w-4 h-4 text-red-600" />
+              {showDownloadDropdown && (
+                <>
+                  <div 
+                    className="fixed inset-0 z-40" 
+                    onClick={() => setShowDownloadDropdown(false)}
+                  />
+                  <div className="absolute right-0 mt-2 w-64 bg-white border border-surface-200 rounded-2xl shadow-xl z-50 overflow-hidden animate-in fade-in slide-in-from-top-2 duration-200">
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setShowDownloadDropdown(false);
+                        downloadKRAPdfClient(currentKras as any, jdData, jdData?.title, jdData?.department);
+                      }}
+                      className="w-full flex items-center gap-3.5 px-4 py-3.5 text-xs font-semibold text-surface-700 hover:bg-primary-50 hover:text-primary-700 transition-colors text-left"
+                    >
+                      <div className="w-8 h-8 rounded-lg bg-red-50 flex items-center justify-center shrink-0">
+                        <FileText className="w-4 h-4 text-red-600" />
+                      </div>
+                      <div>
+                        <span className="block font-bold">Printable Goal Sheet PDF</span>
+                        <span className="text-[10px] text-surface-400 font-normal">Branded Pulse Pharma template</span>
+                      </div>
+                    </button>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setShowDownloadDropdown(false);
+                        downloadKRACSVClient(currentKras as any, jdData);
+                      }}
+                      className="w-full flex items-center gap-3.5 px-4 py-3.5 text-xs font-semibold text-surface-700 hover:bg-primary-50 hover:text-primary-700 transition-colors text-left border-t border-surface-100"
+                    >
+                      <div className="w-8 h-8 rounded-lg bg-emerald-50 flex items-center justify-center shrink-0">
+                        <FileText className="w-4 h-4 text-emerald-600" />
+                      </div>
+                      <div>
+                        <span className="block font-bold">Spreadsheet (Excel/CSV)</span>
+                        <span className="text-[10px] text-surface-400 font-normal font-sans">HRMS-ready table format</span>
+                      </div>
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+
+            {/* Darwinbox Export Dropdown — visible only for approved/confirmed/sent_to_hr */}
+            {(status === "approved" || status === "confirmed" || status === "sent_to_hr") && (
+              <div className="relative inline-block text-left">
+                <button
+                  onClick={() => setShowDarwinboxDropdown(!showDarwinboxDropdown)}
+                  disabled={exporting}
+                  className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-5 py-2.5 bg-gradient-to-r from-amber-500 to-orange-600 text-white rounded-xl text-xs font-bold shadow-md hover:shadow-lg hover:-translate-y-0.5 transition-all group disabled:opacity-60 disabled:cursor-not-allowed"
+                >
+                  {exporting ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <Download className="w-3.5 h-3.5 group-hover:scale-110 transition-transform" />
+                  )}
+                  Export for Darwinbox
+                  <ChevronDown className={`w-3.5 h-3.5 transition-transform duration-200 ${showDarwinboxDropdown ? 'rotate-180' : ''}`} />
+                </button>
+
+                {showDarwinboxDropdown && (
+                  <>
+                    <div
+                      className="fixed inset-0 z-40"
+                      onClick={() => setShowDarwinboxDropdown(false)}
+                    />
+                    <div className="absolute right-0 mt-2 w-72 bg-white border border-surface-200 rounded-2xl shadow-xl z-50 overflow-hidden animate-in fade-in slide-in-from-top-2 duration-200">
+                      <button
+                        onClick={(e) => { e.stopPropagation(); handleExport('zip'); }}
+                        disabled={exporting}
+                        className="w-full flex items-center gap-3.5 px-4 py-3.5 text-xs font-semibold text-surface-700 hover:bg-amber-50 hover:text-amber-700 transition-colors text-left disabled:opacity-50"
+                      >
+                        <div className="w-8 h-8 rounded-lg bg-amber-50 flex items-center justify-center shrink-0">
+                          <Download className="w-4 h-4 text-amber-600" />
+                        </div>
+                        <div>
+                          <span className="block font-bold">Download ZIP Bundle</span>
+                          <span className="text-[10px] text-surface-400 font-normal">Goals + Sub Goals CSVs together</span>
+                        </div>
+                      </button>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); handleExport('goals'); }}
+                        disabled={exporting}
+                        className="w-full flex items-center gap-3.5 px-4 py-3.5 text-xs font-semibold text-surface-700 hover:bg-amber-50 hover:text-amber-700 transition-colors text-left border-t border-surface-100 disabled:opacity-50"
+                      >
+                        <div className="w-8 h-8 rounded-lg bg-blue-50 flex items-center justify-center shrink-0">
+                          <FileText className="w-4 h-4 text-blue-600" />
+                        </div>
+                        <div>
+                          <span className="block font-bold">Bulk Goals CSV Only</span>
+                          <span className="text-[10px] text-surface-400 font-normal">Parent KRA goals for Darwinbox</span>
+                        </div>
+                      </button>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); handleExport('subgoals'); }}
+                        disabled={exporting}
+                        className="w-full flex items-center gap-3.5 px-4 py-3.5 text-xs font-semibold text-surface-700 hover:bg-amber-50 hover:text-amber-700 transition-colors text-left border-t border-surface-100 disabled:opacity-50"
+                      >
+                        <div className="w-8 h-8 rounded-lg bg-purple-50 flex items-center justify-center shrink-0">
+                          <FileText className="w-4 h-4 text-purple-600" />
+                        </div>
+                        <div>
+                          <span className="block font-bold">Bulk Sub Goals CSV Only</span>
+                          <span className="text-[10px] text-surface-400 font-normal">Child KPI sub-goals for Darwinbox</span>
+                        </div>
+                      </button>
                     </div>
-                    <div>
-                      <span className="block font-bold">Printable Goal Sheet PDF</span>
-                      <span className="text-[10px] text-surface-400 font-normal">Branded Pulse Pharma template</span>
-                    </div>
-                  </button>
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setShowDownloadDropdown(false);
-                      downloadKRACSVClient(currentKras as any, jdData);
-                    }}
-                    className="w-full flex items-center gap-3.5 px-4 py-3.5 text-xs font-semibold text-surface-700 hover:bg-primary-50 hover:text-primary-700 transition-colors text-left border-t border-surface-100"
-                  >
-                    <div className="w-8 h-8 rounded-lg bg-emerald-50 flex items-center justify-center shrink-0">
-                      <FileText className="w-4 h-4 text-emerald-600" />
-                    </div>
-                    <div>
-                      <span className="block font-bold">Spreadsheet (Excel/CSV)</span>
-                      <span className="text-[10px] text-surface-400 font-normal font-sans">HRMS-ready table format</span>
-                    </div>
-                  </button>
-                </div>
-              </>
+                  </>
+                )}
+              </div>
             )}
           </div>
         </div>

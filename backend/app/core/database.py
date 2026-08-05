@@ -15,6 +15,7 @@ if _is_postgres:
     connect_args = {
         "server_settings": {"jit": "off"},  # Disable JIT for short queries
         "command_timeout": 60,
+        "timeout": 30,  # 30s connection timeout for TLS/TCP establishment
     }
     # SSL configuration for asyncpg (Aiven requires SSL)
     if settings.DATABASE_SSL and settings.DATABASE_SSL != "disable":
@@ -32,10 +33,10 @@ _engine_kwargs: dict = dict(
 )
 if _is_postgres:
     _engine_kwargs.update(
-        pool_size=10,       # 10 per worker — supports 50+ concurrent users
-        max_overflow=5,     # Burst to 15 per worker max
-        pool_recycle=300,   # Recycle every 5 min — matches Aiven idle timeout
-        pool_timeout=30,    # Wait max 30s for a connection
+        pool_size=5,       # 5 per worker — prevents hitting Aiven max_connections limit
+        max_overflow=2,     # Burst to 7 per worker max
+        pool_recycle=180,   # Recycle every 3 min — frees idle Aiven connections quickly
+        pool_timeout=15,    # Wait max 15s for a connection
     )
 
 engine = create_async_engine(settings.DATABASE_URL, **_engine_kwargs)
@@ -180,6 +181,90 @@ async def init_db():
                         CREATE TRIGGER trg_brain_agent_sessions_updated
                         BEFORE UPDATE ON brain_agent_sessions
                         FOR EACH ROW EXECUTE FUNCTION touch_updated_at();
+                    END IF;
+
+                    -- function & trigger: bi-directional sync (jd_sessions -> reference_jds)
+                    IF NOT EXISTS (SELECT 1 FROM pg_proc WHERE proname = 'sync_jd_session_to_reference') THEN
+                        CREATE FUNCTION sync_jd_session_to_reference()
+                        RETURNS TRIGGER AS $inner$
+                        DECLARE
+                            v_emp_name VARCHAR(100);
+                            v_level VARCHAR(50);
+                            v_ref_id VARCHAR(36);
+                        BEGIN
+                            IF pg_trigger_depth() > 1 THEN RETURN NEW; END IF;
+                            IF NEW.employee_id IS NULL OR NEW.jd_structured IS NULL OR NEW.jd_structured = '{}'::jsonb THEN RETURN NEW; END IF;
+
+                            SELECT employee_name INTO v_emp_name FROM organogram WHERE code = NEW.employee_id LIMIT 1;
+                            IF v_emp_name IS NULL THEN v_emp_name := 'Employee'; END IF;
+
+                            v_level := COALESCE(NEW.jd_structured->>'job_level', NEW.jd_structured->>'level', NEW.jd_structured->>'joblevel', 'Level 1');
+
+                            SELECT id INTO v_ref_id FROM reference_jds WHERE employee_id = NEW.employee_id ORDER BY uploaded_at DESC LIMIT 1;
+
+                            IF v_ref_id IS NOT NULL THEN
+                                UPDATE reference_jds
+                                SET structured_data = NEW.jd_structured,
+                                    role_title = COALESCE(NEW.title, role_title),
+                                    department = COALESCE(NEW.department, department),
+                                    employee_name = COALESCE(v_emp_name, employee_name),
+                                    level = COALESCE(v_level, level),
+                                    uploaded_at = NOW()
+                                WHERE id = v_ref_id;
+                                
+                                IF NOT EXISTS (SELECT 1 FROM jd_sessions WHERE source_reference_jd_id = v_ref_id AND id <> NEW.id) THEN
+                                    NEW.source_reference_jd_id := v_ref_id;
+                                END IF;
+                            ELSE
+                                v_ref_id := gen_random_uuid()::text;
+                                INSERT INTO reference_jds (
+                                    id, employee_id, employee_name, department, role_title, level,
+                                    structured_data, processing_status, uploaded_at, is_active, version
+                                ) VALUES (
+                                    v_ref_id, NEW.employee_id, v_emp_name, COALESCE(NEW.department, 'General'),
+                                    COALESCE(NEW.title, 'Approved Role JD'), v_level,
+                                    NEW.jd_structured, 'published', NOW(), true, 1
+                                );
+                                NEW.source_reference_jd_id := v_ref_id;
+                            END IF;
+                            RETURN NEW;
+                        END;
+                        $inner$ LANGUAGE plpgsql;
+                    END IF;
+
+                    IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'trg_sync_jd_session_to_ref') THEN
+                        CREATE TRIGGER trg_sync_jd_session_to_ref
+                        BEFORE INSERT OR UPDATE ON jd_sessions
+                        FOR EACH ROW EXECUTE FUNCTION sync_jd_session_to_reference();
+                    END IF;
+
+                    -- function & trigger: bi-directional sync (reference_jds -> jd_sessions)
+                    IF NOT EXISTS (SELECT 1 FROM pg_proc WHERE proname = 'sync_reference_to_jd_session') THEN
+                        CREATE FUNCTION sync_reference_to_jd_session()
+                        RETURNS TRIGGER AS $inner$
+                        DECLARE
+                            v_session_id UUID;
+                        BEGIN
+                            IF pg_trigger_depth() > 1 THEN RETURN NEW; END IF;
+                            IF NEW.employee_id IS NULL OR NEW.structured_data IS NULL OR NEW.structured_data = '{}'::jsonb THEN RETURN NEW; END IF;
+
+                            SELECT id INTO v_session_id FROM jd_sessions WHERE employee_id = NEW.employee_id ORDER BY updated_at DESC LIMIT 1;
+                            IF v_session_id IS NOT NULL THEN
+                                UPDATE jd_sessions
+                                SET jd_structured = NEW.structured_data,
+                                    source_reference_jd_id = NEW.id,
+                                    updated_at = NOW()
+                                WHERE id = v_session_id;
+                            END IF;
+                            RETURN NEW;
+                        END;
+                        $inner$ LANGUAGE plpgsql;
+                    END IF;
+
+                    IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'trg_sync_ref_to_jd_session') THEN
+                        CREATE TRIGGER trg_sync_ref_to_jd_session
+                        AFTER UPDATE ON reference_jds
+                        FOR EACH ROW EXECUTE FUNCTION sync_reference_to_jd_session();
                     END IF;
                 END
                 $$;

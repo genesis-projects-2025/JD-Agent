@@ -244,26 +244,21 @@ async def check_prerequisites(
 
         if not bypass_manager:
             if not manager_employee_id:
-                missing += ["manager_jd", "manager_kra_kpi"]
-                details["manager_jd"] = "Could not identify your reporting manager. Please contact HR to update your reporting structure."
+                missing += ["manager_kra_kpi"]
                 details["manager_kra_kpi"] = "Manager not identified — cannot check manager KRA/KPI."
                 raise MissingPrerequisiteError(missing, _build_missing_message(details))
 
-            # 3. Manager JD
-            mgr_jd_result = await db.execute(
-                select(JDSession)
-                .where(JDSession.employee_id == manager_employee_id)
-                .where(JDSession.status.in_(list(COMPLETED_JD_STATUSES)))
-                .order_by(JDSession.updated_at.desc())
-            )
-            manager_jd_session = mgr_jd_result.scalars().first()
-
-            if not manager_jd_session:
-                missing.append("manager_jd")
-                details["manager_jd"] = (
-                    f"Your manager's Job Description has not been generated yet. "
-                    f"Request your manager (ID: {manager_employee_id}) to complete their JD interview first."
+            # Manager JD is optional (not required for employee KRA/KPI generation)
+            try:
+                mgr_jd_result = await db.execute(
+                    select(JDSession)
+                    .where(JDSession.employee_id == manager_employee_id)
+                    .where(JDSession.status.in_(list(COMPLETED_JD_STATUSES)))
+                    .order_by(JDSession.updated_at.desc())
                 )
+                manager_jd_session = mgr_jd_result.scalars().first()
+            except Exception:
+                manager_jd_session = None
 
             # 4. Manager KRA/KPI (must be completed/confirmed by manager)
             mgr_kra_result = await db.execute(
@@ -348,11 +343,9 @@ def _build_missing_message(details: dict) -> str:
     lines = ["❌ KRA/KPI generation requires the following missing information:\n"]
     if "employee_jd" in details:
         lines.append(f"📄 Employee JD: {details['employee_jd']}")
-    if "manager_jd" in details:
-        lines.append(f"👔 Manager JD: {details['manager_jd']}")
     if "manager_kra_kpi" in details:
         lines.append(f"🎯 Manager KRA/KPI: {details['manager_kra_kpi']}")
-    lines.append("\nOnce all three are available, KRA/KPI generation will proceed automatically.")
+    lines.append("\nOnce all prerequisites are available, KRA/KPI generation will proceed automatically.")
     return "\n".join(lines)
 
 

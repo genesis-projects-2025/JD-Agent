@@ -24,12 +24,15 @@ import {
   Sparkles,
   Award,
   Search,
+  ChevronDown,
+  Download,
 } from "lucide-react";
 
 import { DeleteModal } from "@/components/ui/delete-modal";
 import { KRAKPIPanel } from "@/components/jd/kra-kpi-panel";
 import { safeAtob, safeBtoa } from "@/lib/base64";
 import { getAdminCache, setAdminCache } from "@/lib/admin-cache";
+import { getCookie, cookieKeys } from "@/lib/cookies";
 
 import {
   AuthUser,
@@ -52,6 +55,7 @@ import {
   fetchMyImprovements,
   initQuestionnaire,
   searchEmployees,
+  API_URL,
 } from "@/lib/api";
 
 
@@ -1519,6 +1523,33 @@ function HRView({ user }: { user: AuthUser }) {
   const [allJds, setAllJds] = useState<JDListItem[]>([]);
   const [myJds, setMyJds] = useState<JDListItem[]>([]);
 
+  const [showDarwinboxBulkDropdown, setShowDarwinboxBulkDropdown] = useState(false);
+  const [bulkExporting, setBulkExporting] = useState(false);
+
+  const handleBulkExport = async (type: 'zip' | 'goals' | 'subgoals') => {
+    setBulkExporting(true);
+    try {
+      const token = getCookie(cookieKeys.ADMIN_TOKEN);
+      const urlParams = type === 'zip' ? '?type=zip' : `?type=${type}`;
+      const response = await fetch(`${API_URL}/admin/darwinbox/export${urlParams}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (!response.ok) throw new Error('Bulk export failed');
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = response.headers.get('content-disposition')?.split('filename=')[1]?.replace(/"/g, '') || `darwinbox_bulk_export.${type === 'zip' ? 'zip' : 'csv'}`;
+      a.click();
+      window.URL.revokeObjectURL(url);
+    } catch (err: any) {
+      alert(err.message || 'Bulk export failed');
+    } finally {
+      setBulkExporting(false);
+      setShowDarwinboxBulkDropdown(false);
+    }
+  };
+
   // Types for HR data
   interface DepartmentStat {
     department: string;
@@ -1838,22 +1869,63 @@ function HRView({ user }: { user: AuthUser }) {
             </div>
 
             {/* Quick Metrics right in the header */}
-            <div className="flex bg-black/20 p-4 rounded-md border border-white/10 backdrop-blur-md w-full sm:w-auto divide-x divide-white/10">
-              <div className="text-center px-2 sm:px-4 flex-1">
-                <p className="text-2xl sm:text-3xl font-medium text-white">
-                  {counts.all}
-                </p>
-                <p className="text-[10px] font-medium text-indigo-300 line-clamp-1">
-                  Total JD's
-                </p>
+            <div className="flex flex-col items-end gap-3 w-full sm:w-auto">
+              <div className="flex bg-black/20 p-4 rounded-md border border-white/10 backdrop-blur-md w-full sm:w-auto divide-x divide-white/10">
+                <div className="text-center px-2 sm:px-4 flex-1">
+                  <p className="text-2xl sm:text-3xl font-medium text-white">
+                    {counts.all}
+                  </p>
+                  <p className="text-[10px] font-medium text-indigo-300 line-clamp-1">
+                    Total JD's
+                  </p>
+                </div>
+                <div className="text-center px-2 sm:px-4 flex-1">
+                  <p className="text-2xl sm:text-3xl font-medium text-emerald-400">
+                    {counts.approved}
+                  </p>
+                  <p className="text-[10px] font-medium text-indigo-300 line-clamp-1">
+                    Total Approved
+                  </p>
+                </div>
               </div>
-              <div className="text-center px-2 sm:px-4 flex-1">
-                <p className="text-2xl sm:text-3xl font-medium text-emerald-400">
-                  {counts.approved}
-                </p>
-                <p className="text-[10px] font-medium text-indigo-300 line-clamp-1">
-                  Total Approved
-                </p>
+              <div className="relative inline-block text-left w-full sm:w-auto mt-2">
+                <button
+                  onClick={() => setShowDarwinboxBulkDropdown(!showDarwinboxBulkDropdown)}
+                  disabled={bulkExporting}
+                  className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-5 py-2.5 bg-white/10 hover:bg-white/20 border border-white/20 text-white rounded-xl text-xs font-bold shadow-sm transition-all"
+                >
+                  {bulkExporting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
+                  Darwinbox Bulk Export
+                  <ChevronDown className={`w-3.5 h-3.5 transition-transform duration-200 ${showDarwinboxBulkDropdown ? 'rotate-180' : ''}`} />
+                </button>
+                {showDarwinboxBulkDropdown && (
+                  <>
+                    <div className="fixed inset-0 z-40" onClick={() => setShowDarwinboxBulkDropdown(false)} />
+                    <div className="absolute right-0 mt-2 w-64 bg-white border border-surface-200 rounded-2xl shadow-xl z-50 overflow-hidden animate-in fade-in slide-in-from-top-2 duration-200 text-surface-700">
+                      <button
+                        onClick={() => handleBulkExport('zip')}
+                        className="w-full flex items-center gap-3.5 px-4 py-3.5 text-xs font-semibold hover:bg-primary-50 hover:text-primary-700 transition-colors text-left"
+                      >
+                        <FileText className="w-4 h-4 text-blue-600" />
+                        Export All Employees (ZIP)
+                      </button>
+                      <button
+                        onClick={() => handleBulkExport('goals')}
+                        className="w-full flex items-center gap-3.5 px-4 py-3.5 text-xs font-semibold hover:bg-primary-50 hover:text-primary-700 transition-colors text-left border-t border-surface-100"
+                      >
+                        <FileText className="w-4 h-4 text-emerald-600" />
+                        Export Goals Only (CSV)
+                      </button>
+                      <button
+                        onClick={() => handleBulkExport('subgoals')}
+                        className="w-full flex items-center gap-3.5 px-4 py-3.5 text-xs font-semibold hover:bg-primary-50 hover:text-primary-700 transition-colors text-left border-t border-surface-100"
+                      >
+                        <FileText className="w-4 h-4 text-emerald-600" />
+                        Export Sub Goals Only (CSV)
+                      </button>
+                    </div>
+                  </>
+                )}
               </div>
             </div>
           </div>

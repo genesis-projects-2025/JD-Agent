@@ -959,7 +959,15 @@ async def download_jd_docx(
 
     title = record.title or "Job Description"
     dept = record.department or ""
-    safe_filename = f"{title} - {dept}.docx" if dept else f"{title}.docx"
+    emp_name = record.employee_name or (record.jd_structured.get("employee_information", {}).get("employee_name") if record.jd_structured else None)
+    
+    if emp_name and str(emp_name).strip() and str(emp_name).strip().lower() != "employee":
+        safe_filename = f"{emp_name.strip()} - {title} - JD.docx"
+    elif dept and str(dept).strip():
+        safe_filename = f"{title} - {dept} - JD.docx"
+    else:
+        safe_filename = f"{title} - JD.docx"
+
     safe_filename = re.sub(r'[<>:"/\\|?*]', "", safe_filename)
 
     # Use a plain Response with explicit Content-Length.

@@ -52,7 +52,8 @@ async def login_organogram(request: LoginRequest, db: AsyncSession = Depends(get
         FROM organogram
         WHERE code = :emp_code
     """)
-    user_result = await db.execute(user_query, {"emp_code": request.emp_code})
+    async with db.begin_nested():
+        user_result = await db.execute(user_query, {"emp_code": request.emp_code})
     row = user_result.mappings().first()
 
     if not row:
@@ -72,7 +73,8 @@ async def login_organogram(request: LoginRequest, db: AsyncSession = Depends(get
         FROM organogram
         WHERE reporting_manager_code = :emp_code
     """)
-    reports_res = await db.execute(reports_query, {"emp_code": request.emp_code})
+    async with db.begin_nested():
+        reports_res = await db.execute(reports_query, {"emp_code": request.emp_code})
     child_count = reports_res.scalar() or 0
     has_reports = child_count > 0
 

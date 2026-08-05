@@ -868,3 +868,48 @@ async def review_kra_kpi(
         "message": f"KRA/KPI framework successfully {request.action} by {reviewer_role}.",
         "kra_kpi_status": record.status,
     }
+
+
+@router.get("/{jd_session_id}/darwinbox-export")
+async def export_darwinbox_employee(
+    jd_session_id: str,
+    type: str = "zip",
+    cycle_start: str = "01-04-2025",
+    cycle_end: str = "31-03-2026",
+    db: AsyncSession = Depends(get_db),
+):
+    """Export Darwinbox-compatible Goals/Sub-Goals CSVs for an individual employee."""
+    from fastapi.responses import Response
+    from app.services.darwinbox_exporter_service import export_goals_csv, export_sub_goals_csv, export_zip_bundle
+    
+    # Resolve employee_id from jd_session_id
+    record = await get_kra_kpi_by_jd_session(db, jd_session_id)
+    if not record:
+        raise HTTPException(status_code=404, detail="No KRA/KPI session found.")
+    employee_id = record.employee_id
+
+    try:
+        if type == "goals":
+            csv_content, filename = await export_goals_csv(db, employee_id=employee_id, cycle_start=cycle_start, cycle_end=cycle_end)
+            return Response(
+                content=csv_content.encode("utf-8"),
+                media_type="text/csv",
+                headers={"Content-Disposition": f'attachment; filename="{filename}"'}
+            )
+        elif type == "subgoals":
+            csv_content, filename = await export_sub_goals_csv(db, employee_id=employee_id, cycle_start=cycle_start, cycle_end=cycle_end)
+            return Response(
+                content=csv_content.encode("utf-8"),
+                media_type="text/csv",
+                headers={"Content-Disposition": f'attachment; filename="{filename}"'}
+            )
+        else:
+            zip_content, filename = await export_zip_bundle(db, employee_id=employee_id, cycle_start=cycle_start, cycle_end=cycle_end)
+            return Response(
+                content=zip_content,
+                media_type="application/zip",
+                headers={"Content-Disposition": f'attachment; filename="{filename}"'}
+            )
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+

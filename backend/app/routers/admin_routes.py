@@ -620,6 +620,60 @@ async def export_admin_report(
         )
 
 
+@router.get("/admin/darwinbox/export")
+async def export_darwinbox_admin(
+    employee_id: Optional[str] = None,
+    department: Optional[str] = None,
+    type: str = "zip",
+    cycle_start: str = "01-04-2025",
+    cycle_end: str = "31-03-2026",
+    db: AsyncSession = Depends(get_db),
+    admin_active: str = Depends(get_current_admin),
+):
+    from fastapi.responses import Response
+    from app.services.darwinbox_exporter_service import export_goals_csv, export_sub_goals_csv, export_zip_bundle
+    
+    try:
+        if type == "goals":
+            csv_content, filename = await export_goals_csv(db, employee_id=employee_id, department=department, cycle_start=cycle_start, cycle_end=cycle_end)
+            return Response(
+                content=csv_content.encode("utf-8"),
+                media_type="text/csv",
+                headers={"Content-Disposition": f'attachment; filename="{filename}"'}
+            )
+        elif type == "subgoals":
+            csv_content, filename = await export_sub_goals_csv(db, employee_id=employee_id, department=department, cycle_start=cycle_start, cycle_end=cycle_end)
+            return Response(
+                content=csv_content.encode("utf-8"),
+                media_type="text/csv",
+                headers={"Content-Disposition": f'attachment; filename="{filename}"'}
+            )
+        else:
+            zip_content, filename = await export_zip_bundle(db, employee_id=employee_id, department=department, cycle_start=cycle_start, cycle_end=cycle_end)
+            return Response(
+                content=zip_content,
+                media_type="application/zip",
+                headers={"Content-Disposition": f'attachment; filename="{filename}"'}
+            )
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@router.get("/admin/darwinbox/export/summary")
+async def get_darwinbox_export_summary(
+    employee_id: Optional[str] = None,
+    department: Optional[str] = None,
+    db: AsyncSession = Depends(get_db),
+    admin_active: str = Depends(get_current_admin),
+):
+    """Return a preview/summary of what the Darwinbox export would contain."""
+    from app.services.darwinbox_exporter_service import get_export_summary
+    try:
+        return await get_export_summary(db, employee_id=employee_id, department=department)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
 @router.post("/admin/kra-kpi/upload")
 async def upload_kra_kpi_document(
     file: UploadFile = File(...),

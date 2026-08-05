@@ -1,7 +1,7 @@
 # backend/app/services/docx_generator.py
-# Pulse Pharma branded DOCX — matches the official company JD template exactly.
-# 4-section table layout, grey section headers (#BFBFBF), company logo in header,
-# footer disclaimer. Replaces the old multi-colour enterprise format entirely.
+# Pulse Pharma branded DOCX — matches the official company PDF/JD template exactly.
+# Compact 2-page layout, grey section headers (#BFBFBF), small Pulse logo + brand title in header,
+# "About Pulse" section, exact table structure, and footer disclaimer.
 
 from io import BytesIO
 import logging
@@ -9,37 +9,40 @@ import os
 from urllib.request import urlopen
 
 from docx import Document
-from docx.shared import Pt, Inches, Emu
+from docx.shared import Pt, Inches, Emu, RGBColor
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.enum.table import WD_TABLE_ALIGNMENT
 from docx.oxml.ns import qn
 from docx.oxml import OxmlElement
 
-# Logo path — moved to static assets directory
 logger = logging.getLogger(__name__)
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
-# Default to static/images/pulse_logo.jpeg relative to the backend root (one level up from app/)
 _PROJECT_ROOT = os.path.dirname(os.path.dirname(_HERE))
-DEFAULT_LOGO_PATH = os.path.join(_PROJECT_ROOT, "static", "images", "pulse_logo.jpeg")
+
+DEFAULT_LOCAL_LOGO = os.path.join(_HERE, "..", "static", "images", "logo.png")
 DEFAULT_LOGO_URL = "https://company-logo-wtn.s3.ap-southeast-2.amazonaws.com/logo.png"
-LOGO_PATH = os.getenv("COMPANY_LOGO_PATH", DEFAULT_LOGO_PATH)
-LOGO_URL = os.getenv("COMPANY_LOGO_URL", DEFAULT_LOGO_URL)
 
 HEADER_COLOR = "BFBFBF"  # exact grey from company template
 BORDER_COLOR = "999999"
+BRAND_PURPLE = RGBColor(0x5B, 0x20, 0x53)  # Pulse brand color #5B2053
 
+ABOUT_PULSE_TEXT = (
+    "Pulse is a fast-growing Pharmaceutical company with a vertically & diagonally integrated business model, "
+    "focused on providing innovative product solutions to a large number of people around the world, to help them "
+    "manage their health better & lead a quality life. We are passionate for Innovation and compassionate for people. "
+    "We go by the philosophy, solving the unsolved, reaching the unreached and serving the unserved.\n\n"
+    "We believe that health and wellbeing are the main sources of happiness for humankind. Our goal is to preserve "
+    "that happiness by developing and producing patient friendly medicines."
+)
 
-# ── Low-level helpers ─────────────────────────────────────────────────────────
-
+# ── Low-level OOXML helpers ───────────────────────────────────────────────────
 
 def _set_cell_properties(cell, bg_color: str | None = None, borders: bool = True, valign: str | None = None) -> None:
     """Sets cell properties ensuring correct OOXML element order in tcPr."""
     tc = cell._tc
     tcPr = tc.get_or_add_tcPr()
 
-    # Elements must appear in this order: tcW, gridSpan, vMerge, tcBorders, shd, ... vAlign
-    
     # 1. Borders
     if borders:
         tcBorders = tcPr.find(qn("w:tcBorders"))
@@ -55,7 +58,7 @@ def _set_cell_properties(cell, bg_color: str | None = None, borders: bool = True
             tcBorders.append(b)
         tcPr.append(tcBorders)
 
-    # 2. Shading (Background)
+    # 2. Background Shading
     if bg_color:
         shd = tcPr.find(qn("w:shd"))
         if shd is not None:
@@ -76,42 +79,56 @@ def _set_cell_properties(cell, bg_color: str | None = None, borders: bool = True
         tcPr.append(va)
 
 
-def _para_spacing(para, before: float = 0, after: float = 0) -> None:
+def _para_spacing(para, before: float = 0, after: float = 2, line_spacing: float = 1.15) -> None:
     para.paragraph_format.space_before = Pt(before)
     para.paragraph_format.space_after = Pt(after)
+    para.paragraph_format.line_spacing = line_spacing
 
 
 def _load_logo_stream() -> BytesIO | None:
-    """Load the company logo from URL first, then fall back to local file."""
-    if LOGO_URL:
+    """Load company logo image: local static file first, then URL fallback."""
+    local_path = os.path.abspath(DEFAULT_LOCAL_LOGO)
+    if os.path.exists(local_path):
         try:
-            with urlopen(LOGO_URL, timeout=10) as response:
+            with open(local_path, "rb") as f:
+                return BytesIO(f.read())
+        except Exception as exc:
+            logger.warning("Failed loading local logo from %s: %s", local_path, exc)
+
+    if DEFAULT_LOGO_URL:
+        try:
+            with urlopen(DEFAULT_LOGO_URL, timeout=8) as response:
                 return BytesIO(response.read())
         except Exception as exc:
-            logger.warning("Could not load company logo from URL %s: %s", LOGO_URL, exc)
-
-    if os.path.exists(LOGO_PATH):
-        try:
-            with open(LOGO_PATH, "rb") as logo_file:
-                return BytesIO(logo_file.read())
-        except Exception as exc:
-            logger.warning("Could not load company logo from file %s: %s", LOGO_PATH, exc)
+            logger.warning("Failed loading logo from URL %s: %s", DEFAULT_LOGO_URL, exc)
 
     return None
 
-
 # ── Row builders ──────────────────────────────────────────────────────────────
 
-
 def _section_header_row(table, row_idx: int, text: str) -> None:
-    """Merge cols, grey background, bold centred text."""
+    """Merge cols, grey background (#BFBFBF), 12pt bold centred text."""
     row = table.rows[row_idx]
     row.cells[0].merge(row.cells[1])
     cell = row.cells[0]
     _set_cell_properties(cell, bg_color=HEADER_COLOR, borders=True)
     para = cell.paragraphs[0]
     para.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    _para_spacing(para)
+    _para_spacing(para, before=4, after=4)
+    run = para.add_run(text)
+    run.bold = True
+    run.font.size = Pt(12)
+
+
+def _sub_header_row(table, row_idx: int, text: str) -> None:
+    """Merge cols, grey background (#BFBFBF), 11pt bold centred text."""
+    row = table.rows[row_idx]
+    row.cells[0].merge(row.cells[1])
+    cell = row.cells[0]
+    _set_cell_properties(cell, bg_color=HEADER_COLOR, borders=True)
+    para = cell.paragraphs[0]
+    para.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    _para_spacing(para, before=3, after=3)
     run = para.add_run(text)
     run.bold = True
     run.font.size = Pt(11)
@@ -127,74 +144,39 @@ def _data_row(table, row_idx: int, label: str, value) -> None:
 
     # Label
     lp = lc.paragraphs[0]
-    _para_spacing(lp)
+    _para_spacing(lp, before=2, after=2)
     lr = lp.add_run(label)
     lr.bold = True
     lr.font.size = Pt(11)
 
-    # Value — list → bulleted paragraphs, string → single paragraph
+    # Value
     if isinstance(value, list):
-        for i, item in enumerate(value):
-            p = vc.paragraphs[0] if i == 0 else vc.add_paragraph()
-            _para_spacing(p, after=2)
-            p.paragraph_format.left_indent = Inches(0.15)
-            r = p.add_run(f"\u2022 {item}")
-            r.font.size = Pt(11)
+        if not value:
+            vp = vc.paragraphs[0]
+            _para_spacing(vp, before=2, after=2)
+            vr = vp.add_run("To be confirmed with line manager.")
+            vr.font.size = Pt(11)
+        else:
+            for i, item in enumerate(value):
+                p = vc.paragraphs[0] if i == 0 else vc.add_paragraph()
+                _para_spacing(p, before=1, after=2)
+                p.paragraph_format.left_indent = Inches(0.15)
+                r = p.add_run(f"\u2022 {item}")
+                r.font.size = Pt(11)
     else:
         vp = vc.paragraphs[0]
-        _para_spacing(vp)
-        vr = vp.add_run(str(value) if value else "")
+        _para_spacing(vp, before=2, after=2)
+        vr = vp.add_run(str(value) if value else "—")
         vr.font.size = Pt(11)
 
-
-def _job_desc_content_row(
-    table, row_idx: int, purpose: str, responsibilities: list
-) -> None:
-    """Full-width merged cell: Purpose paragraph + Responsibilities list."""
-    row = table.rows[row_idx]
-    row.cells[0].merge(row.cells[1])
-    cell = row.cells[0]
-    _set_cell_properties(cell, borders=True, valign="top")
-
-    # Purpose
-    if purpose:
-        pp = cell.paragraphs[0]
-        _para_spacing(pp, before=4)
-        r1 = pp.add_run("Purpose of the Job / Role :  ")
-        r1.bold = True
-        r1.font.size = Pt(11)
-        r2 = pp.add_run(purpose)
-        r2.font.size = Pt(11)
-    else:
-        cell.paragraphs[0].clear()
-
-    # Blank separator
-    blank = cell.add_paragraph()
-    _para_spacing(blank, before=0, after=4)
-
-    # Responsibilities header
-    rh = cell.add_paragraph()
-    _para_spacing(rh, before=0, after=4)
-    rhr = rh.add_run("Job Responsibilities")
-    rhr.bold = True
-    rhr.font.size = Pt(11)
-
-    # Responsibility bullets
-    for resp in responsibilities:
-        rp = cell.add_paragraph()
-        _para_spacing(rp, after=2)
-        rp.paragraph_format.left_indent = Inches(0.2)
-        rr = rp.add_run(f"\u2022 {resp}")
-        rr.font.size = Pt(11)
-
-
 # ── Data extraction helpers ───────────────────────────────────────────────────
-
 
 def _get(data: dict, *keys) -> str:
     emp = data.get("employee_information") or {}
     for k in keys:
         v = data.get(k) or emp.get(k)
+        if not v and data.get("qualifications"):
+            v = data["qualifications"].get(k)
         if v and isinstance(v, str) and v.strip():
             return v.strip()
     return ""
@@ -203,27 +185,15 @@ def _get(data: dict, *keys) -> str:
 def _get_list(data: dict, *keys) -> list:
     for k in keys:
         v = data.get(k)
+        if not v and data.get("qualifications"):
+            v = data["qualifications"].get(k)
         if isinstance(v, list) and v:
-            return [str(x) for x in v if x]
+            return [str(x).strip() for x in v if x and str(x).strip()]
+        if isinstance(v, str) and v.strip():
+            return [s.replace("-", "").replace("*", "").replace("•", "").strip() for s in v.split("\n") if s.strip()]
     return []
 
-
-def _get_stakeholder(data: dict, itype: str) -> str:
-    s = (
-        data.get("stakeholder_interactions")
-        or data.get("stakeholders")
-        or data.get("working_relationships")
-        or {}
-    )
-    if itype == "internal":
-        v = s.get("internal") or s.get("internal_stakeholders") or ""
-    else:
-        v = s.get("external") or s.get("external_stakeholders") or ""
-    return ", ".join(v) if isinstance(v, list) else str(v)
-
-
-# ── Public API ────────────────────────────────────────────────────────────────
-
+# ── Main Generator ─────────────────────────────────────────────────────────────
 
 def generate_jd_docx(
     jd_data: dict,
@@ -232,157 +202,177 @@ def generate_jd_docx(
     kra_kpi_data: dict | None = None,
 ) -> BytesIO:
     """
-    Generate a Pulse Pharma branded DOCX from structured JD data.
-
-    Args:
-        jd_data:    jd_structured dict from the database.
-        title:      Fallback job title if not in jd_data.
-        department: Fallback department if not in jd_data.
-
-    Returns:
-        BytesIO stream of the .docx file, seeked to 0.
+    Generate a compact, Pulse Pharma branded DOCX matching the official PDF template.
+    Fits comfortably within ~2 pages.
     """
-    # ── Extract fields ────────────────────────────────────────────────────────
     designation = _get(jd_data, "job_title", "title", "designation") or title or "—"
-    job_level = _get(jd_data, "job_level", "joblevel", "grade")
+    job_level = _get(jd_data, "job_level", "joblevel", "grade") or "—"
     func = _get(jd_data, "department", "function") or department or "—"
-    location = _get(jd_data, "location")
-
-    wr = jd_data.get("working_relationships") or {}
-    ts = jd_data.get("team_structure") or {}
+    location = _get(jd_data, "location") or "Head Office"
     reporting_to = (
         _get(jd_data, "reports_to", "reporting_to")
-        or wr.get("reporting_to")
-        or ts.get("reports_to")
+        or (jd_data.get("working_relationships") or {}).get("reporting_to")
+        or (jd_data.get("team_structure") or {}).get("reports_to")
         or "—"
     )
-    team_size = str(ts.get("team_size") or wr.get("team_size") or "—")
-    internal = _get_stakeholder(jd_data, "internal") or "—"
-    external = _get_stakeholder(jd_data, "external") or "Not applicable"
 
     purpose = _get(jd_data, "purpose", "role_summary")
-    responsibilities = _get_list(jd_data, "responsibilities", "key_responsibilities")
+    responsibilities = _get_list(jd_data, "responsibilities", "key_responsibilities", "tasks", "priority_tasks")
     skills = _get_list(jd_data, "skills", "technical_skills", "required_skills")
-    tools = _get_list(jd_data, "tools", "tools_and_technologies", "tools_used")
+    tools = _get_list(jd_data, "tools", "tools_used", "tools_and_technologies")
 
-    education = _get(jd_data, "education")
-    experience = _get(jd_data, "experience")
-    edu_exp = (
-        "\n\n".join(filter(None, [education, experience]))
-        or "To be confirmed with line manager."
-    )
+    education = _get(jd_data, "education", "educational_qualification")
+    experience = _get(jd_data, "experience", "relevant_experience")
+    edu_exp = "\n\n".join(filter(None, [education, experience])) or "To be confirmed with line manager."
 
-    # ── Document setup ────────────────────────────────────────────────────────
+    # ── Document Setup ────────────────────────────────────────────────────────
     doc = Document()
-
     section = doc.sections[0]
-    section.page_width = Emu(7556500)  # A4
+    section.page_width = Emu(7556500)   # A4
     section.page_height = Emu(10680700)
-    section.top_margin = Emu(914400)  # 1 inch
-    section.bottom_margin = Emu(914400)
-    section.left_margin = Emu(914400)
-    section.right_margin = Emu(914400)
+    section.top_margin = Emu(457200)    # 0.5 inch margins for 2-page fit
+    section.bottom_margin = Emu(457200)
+    section.left_margin = Emu(548640)   # 0.6 inch margins
+    section.right_margin = Emu(548640)
 
     normal_style = doc.styles["Normal"]
     if hasattr(normal_style, "font"):
         normal_style.font.name = "Calibri"
         normal_style.font.size = Pt(11)
 
-    # ── Logo in header ────────────────────────────────────────────────────────
+    # ── Header Logo & Title (Small height, exact PDF branding) ─────────────────
     header = section.header
     header.is_linked_to_previous = False
     hp = header.paragraphs[0]
-    hp.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    _para_spacing(hp, after=6)
+    hp.alignment = WD_ALIGN_PARAGRAPH.LEFT
+    _para_spacing(hp, before=0, after=4)
+
     logo_stream = _load_logo_stream()
     if logo_stream:
-        hp.add_run().add_picture(logo_stream, width=Inches(2.5))
+        # Small neat logo height (0.45 inches / 32pt)
+        run_logo = hp.add_run()
+        run_logo.add_picture(logo_stream, height=Inches(0.45))
+        
+        # Add brand text "Pulse" next to logo in brand color
+        run_text = hp.add_run("  Pulse")
+        run_text.font.name = "Arial"
+        run_text.font.size = Pt(24)
+        run_text.font.bold = True
+        run_text.font.color.rgb = BRAND_PURPLE
     else:
-        # Fallback text if logo file missing
-        lr = hp.add_run("PULSE PHARMA")
-        lr.bold = True
-        lr.font.size = Pt(16)
+        run_text = hp.add_run("Pulse Pharma")
+        run_text.font.name = "Arial"
+        run_text.font.size = Pt(20)
+        run_text.font.bold = True
+        run_text.font.color.rgb = BRAND_PURPLE
 
-    # ── TABLE 1: Job / Role Information ──────────────────────────────────────
-    t1 = doc.add_table(rows=7, cols=2)
+    # ── TABLE 1: Job / Role Information & Job Description ──────────────────────
+    t1 = doc.add_table(rows=8, cols=2)
     t1.alignment = WD_TABLE_ALIGNMENT.CENTER
 
     _section_header_row(t1, 0, "Job / Role Information")
     _data_row(t1, 1, "Designation", designation)
     _data_row(t1, 2, "Job Level", job_level)
-    _data_row(t1, 3, "Function", func)
+    _data_row(t1, 3, "Department", func)
     _data_row(t1, 4, "Location", location)
-    _section_header_row(t1, 5, "Job Description")
-    _job_desc_content_row(t1, 6, purpose, responsibilities)
+    _data_row(t1, 5, "Reporting Manager", reporting_to)
 
-    doc.add_paragraph().paragraph_format.space_after = Pt(6)
+    # About Pulse Subheader & Content
+    _sub_header_row(t1, 6, "About Pulse")
+    row_about = t1.rows[7]
+    row_about.cells[0].merge(row_about.cells[1])
+    cell_about = row_about.cells[0]
+    _set_cell_properties(cell_about, borders=True, valign="top")
+    p_about = cell_about.paragraphs[0]
+    _para_spacing(p_about, before=4, after=4)
+    p_about.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
+    r_about = p_about.add_run(ABOUT_PULSE_TEXT)
+    r_about.font.size = Pt(10.5)
 
-    # ── TABLE 2: Working Relationships ────────────────────────────────────────
-    t2 = doc.add_table(rows=3, cols=2)
-    t2.alignment = WD_TABLE_ALIGNMENT.CENTER
+    doc.add_paragraph().paragraph_format.space_after = Pt(4)
 
-    _section_header_row(t2, 0, "Working Relationships")
-    _data_row(t2, 1, "Reporting to", reporting_to)
-    _data_row(t2, 2, "External Stakeholders", external)
+    # ── TABLE 2: Job Description ──────────────────────────────────────────────
+    t_jd = doc.add_table(rows=2, cols=2)
+    t_jd.alignment = WD_TABLE_ALIGNMENT.CENTER
+    _sub_header_row(t_jd, 0, "Job Description")
 
-    doc.add_paragraph().paragraph_format.space_after = Pt(6)
+    row_jd = t_jd.rows[1]
+    row_jd.cells[0].merge(row_jd.cells[1])
+    cell_jd = row_jd.cells[0]
+    _set_cell_properties(cell_jd, borders=True, valign="top")
 
-    # ── TABLE 3: Skills / Competencies ────────────────────────────────────────
+    # Purpose
+    if purpose:
+        pp = cell_jd.paragraphs[0]
+        _para_spacing(pp, before=3, after=3)
+        r_pur_lbl = pp.add_run("Purpose of the Job / Role :\n")
+        r_pur_lbl.bold = True
+        r_pur_lbl.font.size = Pt(11)
+        r_pur_val = pp.add_run(purpose)
+        r_pur_val.font.size = Pt(11)
+    else:
+        cell_jd.paragraphs[0].clear()
+
+    # Responsibilities
+    if responsibilities:
+        pr = cell_jd.add_paragraph()
+        _para_spacing(pr, before=4, after=3)
+        r_resp_lbl = pr.add_run("Job Responsibilities")
+        r_resp_lbl.bold = True
+        r_resp_lbl.font.size = Pt(11)
+
+        for resp in responsibilities:
+            rp = cell_jd.add_paragraph()
+            _para_spacing(rp, before=1, after=2)
+            rp.paragraph_format.left_indent = Inches(0.18)
+            r_item = rp.add_run(f"\u2022 {resp}")
+            r_item.font.size = Pt(10.5)
+
+    doc.add_paragraph().paragraph_format.space_after = Pt(4)
+
+    # ── TABLE 3: Skills / Competencies Required ──────────────────────────────
     t3 = doc.add_table(rows=3, cols=2)
     t3.alignment = WD_TABLE_ALIGNMENT.CENTER
 
     _section_header_row(t3, 0, "Skills/ Competencies Required")
-    _data_row(
-        t3,
-        1,
-        "Skills",
-        skills if skills else ["To be confirmed with line manager."],
-    )
-    _data_row(
-        t3,
-        2,
-        "Tools / Platforms",
-        tools if tools else ["To be confirmed with line manager."],
-    )
+    _data_row(t3, 1, "Skills", skills if skills else ["To be confirmed with line manager."])
+    _data_row(t3, 2, "Tools / Platforms", tools if tools else ["To be confirmed with line manager."])
 
-    doc.add_paragraph().paragraph_format.space_after = Pt(6)
+    doc.add_paragraph().paragraph_format.space_after = Pt(4)
 
-    # ── TABLE 4: Academic Qualifications & Experience ─────────────────────────
+    # ── TABLE 4: Academic Qualifications & Experience Required ──────────────
     t4 = doc.add_table(rows=2, cols=2)
     t4.alignment = WD_TABLE_ALIGNMENT.CENTER
 
     _section_header_row(t4, 0, "Academic Qualifications & Experience Required")
-
-    # Custom label (two lines) + value
     row4 = t4.rows[1]
     lc4, vc4 = row4.cells[0], row4.cells[1]
     for cell in (lc4, vc4):
         _set_cell_properties(cell, borders=True, valign="top")
 
     lp4 = lc4.paragraphs[0]
-    _para_spacing(lp4)
-    lr4 = lp4.add_run("Required Educational Qualification & \nRelevant experience")
+    _para_spacing(lp4, before=2, after=2)
+    lr4 = lp4.add_run("Required Educational Qualification &\nRelevant experience")
     lr4.bold = True
     lr4.font.size = Pt(11)
 
     vp4 = vc4.paragraphs[0]
-    _para_spacing(vp4)
+    _para_spacing(vp4, before=2, after=2)
     vr4 = vp4.add_run(edu_exp)
-    vr4.font.size = Pt(11)
+    vr4.font.size = Pt(10.5)
 
-    # ── KRA / KPI Framework ───────────────────────────────────────────────────
+    # ── Optional KRA / KPI Framework Section ──────────────────────────────────
     if kra_kpi_data and kra_kpi_data.get("kras"):
-        # Add a page break
         doc.add_page_break()
 
         kp_title_para = doc.add_paragraph()
         kp_title_para.alignment = WD_ALIGN_PARAGRAPH.LEFT
-        _para_spacing(kp_title_para, before=12, after=6)
+        _para_spacing(kp_title_para, before=8, after=4)
         kp_title_run = kp_title_para.add_run(
             "Key Result Areas (KRAs) & Key Performance Indicators (KPIs)"
         )
         kp_title_run.bold = True
-        kp_title_run.font.size = Pt(14)
+        kp_title_run.font.size = Pt(13)
 
         kras = kra_kpi_data["kras"]
         for kra in kras:
@@ -392,39 +382,37 @@ def generate_jd_docx(
             t_kra = doc.add_table(rows=total_rows, cols=2)
             t_kra.alignment = WD_TABLE_ALIGNMENT.CENTER
 
-            # Row 0: KRA Header (merged)
+            # KRA Header
             r0 = t_kra.rows[0]
             r0.cells[0].merge(r0.cells[1])
             _set_cell_properties(r0.cells[0], bg_color=HEADER_COLOR, borders=True)
             p0 = r0.cells[0].paragraphs[0]
-            _para_spacing(p0)
-            run0 = p0.add_run(
-                f"KRA: {kra.get('title')} (Weight: {kra.get('weight', 0)}%)"
-            )
+            _para_spacing(p0, before=2, after=2)
+            run0 = p0.add_run(f"KRA: {kra.get('title')} (Weight: {kra.get('weight', 0)}%)")
             run0.bold = True
             run0.font.size = Pt(11)
 
-            # Row 1: KRA Description (merged)
+            # KRA Description
             r1 = t_kra.rows[1]
             r1.cells[0].merge(r1.cells[1])
             _set_cell_properties(r1.cells[0], borders=True, valign="top")
             p1 = r1.cells[0].paragraphs[0]
-            _para_spacing(p1)
+            _para_spacing(p1, before=2, after=2)
             p1.add_run("Description: ").bold = True
             run1 = p1.add_run(kra.get("description", ""))
-            run1.font.size = Pt(11)
+            run1.font.size = Pt(10.5)
 
-            # Row 2: KPI Section Header (merged)
+            # KPI Section Subheader
             r2 = t_kra.rows[2]
             r2.cells[0].merge(r2.cells[1])
             _set_cell_properties(r2.cells[0], bg_color="E6E6E6", borders=True)
             p2 = r2.cells[0].paragraphs[0]
-            _para_spacing(p2)
+            _para_spacing(p2, before=2, after=2)
             run2 = p2.add_run("Key Performance Indicators (KPIs)")
             run2.bold = True
-            run2.font.size = Pt(11)
+            run2.font.size = Pt(10.5)
 
-            # Row 3+: KPIs details
+            # KPIs details
             for idx, kpi in enumerate(kra.get("kpis", [])):
                 row_idx = 3 + idx
                 row = t_kra.rows[row_idx]
@@ -432,62 +420,48 @@ def generate_jd_docx(
                 for cell in (lc, rc):
                     _set_cell_properties(cell, borders=True, valign="top")
 
-                # Left cell: Metric & Description
                 lp = lc.paragraphs[0]
-                _para_spacing(lp)
+                _para_spacing(lp, before=2, after=2)
                 lmr = lp.add_run(f"{kpi.get('metric')}\n")
                 lmr.bold = True
-                lmr.font.size = Pt(11)
+                lmr.font.size = Pt(10.5)
 
                 if kpi.get("description"):
                     ldr = lp.add_run(kpi.get("description"))
-                    ldr.font.size = Pt(10)
+                    ldr.font.size = Pt(9.5)
                     ldr.italic = True
 
-                # Right cell: Target, Measured Via, Frequency, Thresholds
                 rp = rc.paragraphs[0]
-                _para_spacing(rp)
-
+                _para_spacing(rp, before=2, after=2)
                 rp.add_run("Target: ").bold = True
-                rp.add_run(f"{kpi.get('target')}\n").font.size = Pt(11)
+                rp.add_run(f"{kpi.get('target')}\n").font.size = Pt(10)
 
                 rp.add_run("Measured Via: ").bold = True
-                rp.add_run(f"{kpi.get('measurement_method')}\n").font.size = Pt(11)
+                rp.add_run(f"{kpi.get('measurement_method')}\n").font.size = Pt(10)
 
                 rp.add_run("Frequency: ").bold = True
-                rp.add_run(f"{kpi.get('frequency')}\n").font.size = Pt(11)
+                rp.add_run(f"{kpi.get('frequency')}\n").font.size = Pt(10)
 
-                # Thresholds
                 thresh = kpi.get("threshold", {})
                 if thresh:
                     rp.add_run("Thresholds:\n").bold = True
+                    rp.add_run(f"  • Below: {thresh.get('below_expectation', '')}\n").font.size = Pt(9.5)
+                    rp.add_run(f"  • Meets: {thresh.get('meets_expectation', '')}\n").font.size = Pt(9.5)
+                    rp.add_run(f"  • Excellent: {thresh.get('excellent', '')}").font.size = Pt(9.5)
 
-                    rp.add_run("  • Below Expectation: ").font.size = Pt(10)
-                    rp.add_run(f"{thresh.get('below_expectation', '')}\n").font.size = Pt(10)
+            doc.add_paragraph().paragraph_format.space_after = Pt(4)
 
-                    rp.add_run("  • Meets Expectation: ").font.size = Pt(10)
-                    rp.add_run(f"{thresh.get('meets_expectation', '')}\n").font.size = Pt(10)
-
-                    rp.add_run("  • Excellent: ").font.size = Pt(10)
-                    rp.add_run(f"{thresh.get('excellent', '')}").font.size = Pt(10)
-
-            # Spacer between KRAs
-            doc.add_paragraph().paragraph_format.space_after = Pt(6)
-
-        # Space before disclaimer
-        doc.add_paragraph().paragraph_format.space_after = Pt(12)
-
-    # ── Footer disclaimer ──────────────────────────────────────────────────────
+    # ── Footer Disclaimer ─────────────────────────────────────────────────────
     fp = doc.add_paragraph()
-    fp.paragraph_format.space_before = Pt(10)
-    fp.paragraph_format.space_after = Pt(0)
+    _para_spacing(fp, before=6, after=0)
     fr = fp.add_run(
         "Pulse Pharma is an equal opportunity employer - we never differentiate candidates "
         "on the basis of religion, caste, gender, language, disabilities or ethnic group. "
         "Pulse reserves the right to place/move any candidate to any company location, "
         "partner location or customer location globally, in the best interest of Pulse business."
     )
-    fr.font.size = Pt(10)
+    fr.font.size = Pt(9)
+    fr.font.italic = True
 
     buf = BytesIO()
     doc.save(buf)

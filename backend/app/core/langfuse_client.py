@@ -3,14 +3,12 @@ import logging
 import os
 import re
 from contextlib import contextmanager
-from typing import Generator, List, Optional
-from langfuse import get_client, propagate_attributes
-from langfuse.langchain import CallbackHandler
+from typing import Generator, List, Optional, Any
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
-# Synchronize settings to os.environ for Langfuse v4 OTEL / SDK auto-configuration
+# Synchronize settings to os.environ for Langfuse SDK auto-configuration
 if settings.LANGFUSE_PUBLIC_KEY and settings.LANGFUSE_SECRET_KEY:
     os.environ["LANGFUSE_PUBLIC_KEY"] = settings.LANGFUSE_PUBLIC_KEY
     os.environ["LANGFUSE_SECRET_KEY"] = settings.LANGFUSE_SECRET_KEY
@@ -18,12 +16,42 @@ if settings.LANGFUSE_PUBLIC_KEY and settings.LANGFUSE_SECRET_KEY:
         os.environ["LANGFUSE_BASE_URL"] = settings.LANGFUSE_BASE_URL
         os.environ["LANGFUSE_HOST"] = settings.LANGFUSE_BASE_URL
 
+# Safe Langfuse Imports (supports v2, v3, v4 and missing package gracefully)
+_has_get_client = False
+_has_langfuse_v2 = False
+_has_callback_handler = False
+
+try:
+    from langfuse import get_client, propagate_attributes
+    _has_get_client = True
+except ImportError:
+    try:
+        from langfuse import Langfuse
+        _has_langfuse_v2 = True
+    except ImportError:
+        logger.warning("Langfuse package not installed or incompatible version.")
+
+try:
+    from langfuse.langchain import CallbackHandler
+    _has_callback_handler = True
+except ImportError:
+    CallbackHandler = None
+
+
 # Initialize client if keys are present
 langfuse_client = None
 if settings.LANGFUSE_PUBLIC_KEY and settings.LANGFUSE_SECRET_KEY:
     try:
-        langfuse_client = get_client()
-        logger.info("Langfuse v4 client initialized successfully.")
+        if _has_get_client:
+            langfuse_client = get_client()
+            logger.info("Langfuse client (v3+) initialized successfully.")
+        elif _has_langfuse_v2:
+            langfuse_client = Langfuse(
+                public_key=settings.LANGFUSE_PUBLIC_KEY,
+                secret_key=settings.LANGFUSE_SECRET_KEY,
+                host=settings.LANGFUSE_BASE_URL,
+            )
+            logger.info("Langfuse client (v2) initialized successfully.")
     except Exception as e:
         logger.warning(f"Failed to initialize Langfuse client: {e}")
 else:
@@ -44,7 +72,20 @@ def get_compiled_prompt(prompt_name: str, fallback_template: str, **kwargs) -> s
     """Fetch prompt from Langfuse (production label) and compile it.
     Falls back to compiling the local fallback template if Langfuse is unavailable.
     """
-    client = langfuse_client or (get_client() if settings.LANGFUSE_PUBLIC_KEY and settings.LANGFUSE_SECRET_KEY else None)
+    client = langfuse_client
+    if not client and settings.LANGFUSE_PUBLIC_KEY and settings.LANGFUSE_SECRET_KEY:
+        try:
+            if _has_get_client:
+                client = get_client()
+            elif _has_langfuse_v2:
+                client = Langfuse(
+                    public_key=settings.LANGFUSE_PUBLIC_KEY,
+                    secret_key=settings.LANGFUSE_SECRET_KEY,
+                    host=settings.LANGFUSE_BASE_URL,
+                )
+        except Exception:
+            client = None
+
     if client:
         try:
             # Fetch prompt from Langfuse
@@ -67,22 +108,30 @@ def langfuse_tracing_context(
     user_id: Optional[str] = None,
     tags: Optional[List[str]] = None,
     metadata: Optional[dict] = None,
-) -> Generator[List[CallbackHandler], None, None]:
-    """Context manager for Langfuse v4 tracing with LangChain.
-    
-    Propagates trace attributes (trace_name, session_id, user_id, tags, metadata)
-    via OpenTelemetry baggage and yields a callbacks list containing LangChain CallbackHandler.
-    """
-    if settings.LANGFUSE_PUBLIC_KEY and settings.LANGFUSE_SECRET_KEY:
+) -> Generator[List[Any], None, None]:
+    """Context manager for Langfuse tracing with LangChain."""
+    if _has_callback_handler and settings.LANGFUSE_PUBLIC_KEY and settings.LANGFUSE_SECRET_KEY:
         try:
-            with propagate_attributes(
-                trace_name=trace_name,
-                session_id=str(session_id) if session_id else None,
-                user_id=str(user_id) if user_id else None,
-                tags=tags,
-                metadata=metadata,
-            ):
-                handler = CallbackHandler()
+            if _has_get_client:
+                with propagate_attributes(
+                    trace_name=trace_name,
+                    session_id=str(session_id) if session_id else None,
+                    user_id=str(user_id) if user_id else None,
+                    tags=tags,
+                    metadata=metadata,
+                ):
+                    handler = CallbackHandler()
+                    yield [handler]
+                    return
+            elif _has_langfuse_v2:
+                handler = CallbackHandler(
+                    public_key=settings.LANGFUSE_PUBLIC_KEY,
+                    secret_key=settings.LANGFUSE_SECRET_KEY,
+                    host=settings.LANGFUSE_BASE_URL,
+                    session_id=str(session_id) if session_id else None,
+                    user_id=str(user_id) if user_id else None,
+                    tags=tags,
+                )
                 yield [handler]
                 return
         except Exception as e:
@@ -95,41 +144,44 @@ def get_langfuse_callback_handler(
     session_id: Optional[str] = None,
     user_id: Optional[str] = None,
     tags: Optional[List[str]] = None,
-) -> Optional[CallbackHandler]:
-    """Retrieve a Langfuse callback handler for LangChain if credentials are set.
-    
-    In Langfuse v4, attribute correlation (trace_name, session_id, user_id, tags)
-    is managed via `propagate_attributes`. This class activates `propagate_attributes`
-    for the handler's lifecycle.
-    """
-    if settings.LANGFUSE_PUBLIC_KEY and settings.LANGFUSE_SECRET_KEY:
+) -> Optional[Any]:
+    """Retrieve a Langfuse callback handler for LangChain if credentials are set."""
+    if _has_callback_handler and settings.LANGFUSE_PUBLIC_KEY and settings.LANGFUSE_SECRET_KEY:
         try:
-            class CustomV4CallbackHandler(CallbackHandler):
-                def __init__(self, trace_name_val=None, session_id_val=None, user_id_val=None, tags_val=None):
-                    self._cm = propagate_attributes(
-                        trace_name=trace_name_val,
-                        session_id=str(session_id_val) if session_id_val else None,
-                        user_id=str(user_id_val) if user_id_val else None,
-                        tags=tags_val,
-                    )
-                    self._cm.__enter__()
-                    super().__init__()
+            if _has_get_client:
+                class CustomV4CallbackHandler(CallbackHandler):
+                    def __init__(self, trace_name_val=None, session_id_val=None, user_id_val=None, tags_val=None):
+                        self._cm = propagate_attributes(
+                            trace_name=trace_name_val,
+                            session_id=str(session_id_val) if session_id_val else None,
+                            user_id=str(user_id_val) if user_id_val else None,
+                            tags=tags_val,
+                        )
+                        self._cm.__enter__()
+                        super().__init__()
 
-                def __del__(self):
-                    try:
-                        if hasattr(self, "_cm") and self._cm:
-                            self._cm.__exit__(None, None, None)
-                    except Exception:
-                        pass
+                    def __del__(self):
+                        try:
+                            if hasattr(self, "_cm") and self._cm:
+                                self._cm.__exit__(None, None, None)
+                        except Exception:
+                            pass
 
-            return CustomV4CallbackHandler(
-                trace_name_val=trace_name,
-                session_id_val=session_id,
-                user_id_val=user_id,
-                tags_val=tags,
-            )
+                return CustomV4CallbackHandler(
+                    trace_name_val=trace_name,
+                    session_id_val=session_id,
+                    user_id_val=user_id,
+                    tags_val=tags,
+                )
+            elif _has_langfuse_v2:
+                return CallbackHandler(
+                    public_key=settings.LANGFUSE_PUBLIC_KEY,
+                    secret_key=settings.LANGFUSE_SECRET_KEY,
+                    host=settings.LANGFUSE_BASE_URL,
+                    session_id=str(session_id) if session_id else None,
+                    user_id=str(user_id) if user_id else None,
+                    tags=tags,
+                )
         except Exception as e:
             logger.warning(f"Failed to initialize Langfuse CallbackHandler: {e}")
     return None
-
-

@@ -473,6 +473,150 @@ def build_markdown_from_structured(structured: dict) -> str:
     return "\n".join(lines)
 
 
+def _clean_jd_element(val):
+    """Clean bullet points, leading/trailing spaces, and capitalize the first letter."""
+    if not val or not isinstance(val, str):
+        return ""
+    val = val.strip()
+    prefixes = ["•", "*", "-", "1.", "2.", "3.", "4.", "5.", "6.", "7.", "8.", "9.", "10."]
+    cleaned = True
+    while cleaned:
+        cleaned = False
+        val = val.strip()
+        for prefix in prefixes:
+            if val.startswith(prefix):
+                val = val[len(prefix):].strip()
+                cleaned = True
+                break
+    if val:
+        val = val[0].upper() + val[1:]
+    return val
+
+
+def _clean_jd_array(arr):
+    """Normalize and clean lists of strings."""
+    if not arr or not isinstance(arr, list):
+        return []
+    cleaned = []
+    for item in arr:
+        if isinstance(item, str):
+            cleaned_item = _clean_jd_element(item)
+            if cleaned_item:
+                cleaned.append(cleaned_item)
+        elif isinstance(item, dict):
+            cleaned.append(item)
+    return cleaned
+
+
+def standardize_jd_json(raw_data):
+    """Transforms raw structured LLM outputs into the unified strict target schema."""
+    if not isinstance(raw_data, dict):
+        raw_data = {}
+        
+    raw_emp_info = raw_data.get("employee_information") or {}
+    if not isinstance(raw_emp_info, dict):
+        raw_emp_info = {}
+        
+    def extract_string(data, keys, default=""):
+        for k in keys:
+            v = data.get(k)
+            if v and isinstance(v, str) and v.strip():
+                return _clean_jd_element(v)
+        return default
+
+    def extract_list(data, keys):
+        for k in keys:
+            v = data.get(k)
+            if v:
+                if isinstance(v, list) and len(v) > 0:
+                    return _clean_jd_array(v)
+                elif isinstance(v, str) and v.strip():
+                    sep = "\n" if "\n" in v else ","
+                    parts = [p.strip() for p in v.split(sep) if p.strip()]
+                    return _clean_jd_array(parts)
+        return []
+
+    job_title = extract_string(raw_emp_info, ["job_title", "title", "role_title"], 
+                  default=extract_string(raw_data, ["job_title", "title", "role_title"], "To be confirmed"))
+    department = extract_string(raw_emp_info, ["department"], 
+                  default=extract_string(raw_data, ["department"], "To be confirmed"))
+    location = extract_string(raw_emp_info, ["location"], 
+                  default=extract_string(raw_data, ["location"], "To be confirmed"))
+    reports_to = extract_string(raw_emp_info, ["reports_to", "reporting_manager"], 
+                  default=extract_string(raw_data, ["reports_to", "reporting_manager"], "To be confirmed"))
+    job_level = extract_string(raw_emp_info, ["job_level", "level"], 
+                  default=extract_string(raw_data, ["job_level", "level", "joblevel"], "To be confirmed"))
+    
+    employee_info = {
+        "title": job_title,
+        "job_title": job_title,
+        "job_level": job_level,
+        "department": department,
+        "location": location,
+        "reports_to": reports_to
+    }
+    
+    purpose = extract_string(raw_data, ["purpose", "role_summary", "role_objective"], "No purpose statement provided.")
+    responsibilities = extract_list(raw_data, ["responsibilities", "key_responsibilities", "tasks", "priority_tasks"])
+    skills = extract_list(raw_data, ["skills", "required_skills", "technical_skills"])
+    tools = extract_list(raw_data, ["tools", "tools_and_technologies", "tools_used"])
+    
+    raw_qual = raw_data.get("qualifications") or {}
+    if not isinstance(raw_qual, dict):
+        raw_qual = {}
+    raw_talent = raw_data.get("talent_bar") or {}
+    if not isinstance(raw_talent, dict):
+        raw_talent = {}
+        
+    education = extract_string(raw_data, ["education"], default="")
+    if not education:
+        education = extract_string(raw_qual, ["education"], default="")
+    if not education:
+        education = extract_string(raw_talent, ["education"], default="Bachelor's degree in relevant field or equivalent experience.")
+        
+    experience = extract_string(raw_data, ["experience"], default="")
+    if not experience:
+        experience = extract_string(raw_qual, ["experience"], default="")
+    if not experience:
+        experience = extract_string(raw_talent, ["experience"], default="3+ years of relevant professional experience.")
+
+    raw_rel = raw_data.get("working_relationships") or {}
+    if not isinstance(raw_rel, dict):
+        raw_rel = {}
+    internal_rel = _clean_jd_array(raw_rel.get("internal") or [])
+    external_rel = _clean_jd_array(raw_rel.get("external") or [])
+    working_relationships = {
+        "internal": internal_rel,
+        "external": external_rel
+    }
+    
+    dynamic_sections = []
+    raw_dyn = raw_data.get("dynamic_sections") or []
+    if isinstance(raw_dyn, list):
+        for section in raw_dyn:
+            if isinstance(section, dict):
+                heading = section.get("heading") or section.get("title") or "Additional Section"
+                content_raw = section.get("content") or []
+                content_cleaned = _clean_jd_array(content_raw if isinstance(content_raw, list) else [content_raw])
+                dynamic_sections.append({
+                    "heading": heading,
+                    "content": content_cleaned
+                })
+                
+    return {
+        "employee_information": employee_info,
+        "purpose": purpose,
+        "role_summary": purpose,
+        "responsibilities": responsibilities,
+        "skills": skills,
+        "tools": tools,
+        "education": education,
+        "experience": experience,
+        "working_relationships": working_relationships,
+        "dynamic_sections": dynamic_sections
+    }
+
+
 async def handle_jd_generation(session_memory: SessionMemory) -> dict:
     """Dedicated JD generation — called ONLY from POST /jd/generate endpoint."""
     logger.info("[JD Generation] STARTED")
@@ -589,7 +733,7 @@ async def handle_jd_generation(session_memory: SessionMemory) -> dict:
     if jd_text:
         session_memory.generated_jd = jd_text
     if structured:
-        session_memory.jd_structured = structured
+        session_memory.jd_structured = standardize_jd_json(structured)
 
     session_memory.progress["status"] = "jd_generated"
     logger.info("[JD Generation] Completed")

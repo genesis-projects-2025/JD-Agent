@@ -246,7 +246,7 @@ async def init_db():
                             v_session_id UUID;
                         BEGIN
                             IF pg_trigger_depth() > 1 THEN RETURN NEW; END IF;
-                            IF NEW.employee_id IS NULL OR NEW.structured_data IS NULL OR NEW.structured_data = '{}'::jsonb THEN RETURN NEW; END IF;
+                            IF NEW.employee_id IS NULL OR NEW.structured_data IS NULL OR NEW.structured_data::jsonb = '{}'::jsonb THEN RETURN NEW; END IF;
 
                             SELECT id INTO v_session_id FROM jd_sessions WHERE employee_id = NEW.employee_id ORDER BY updated_at DESC LIMIT 1;
                             IF v_session_id IS NOT NULL THEN

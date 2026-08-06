@@ -2290,9 +2290,37 @@ function HRView({ user }: { user: AuthUser }) {
                   </thead>
                   <tbody className="divide-y divide-surface-100">
                     {deptEmployees.map((emp) => {
-                      const config =
-                        STATUS_CONFIG[emp.jd_status as keyof typeof STATUS_CONFIG] ||
-                        STATUS_CONFIG["Not Submitted"];
+                      const status = emp.jd_status;
+                      const kra_kpi_status = (emp as any).kra_kpi_status;
+                      let label = STATUS_CONFIG[status as keyof typeof STATUS_CONFIG]?.label || status || "Not Submitted";
+                      let bg = STATUS_CONFIG[status as keyof typeof STATUS_CONFIG]?.bg || 'bg-surface-100 border-surface-200 text-surface-500';
+                      let color = STATUS_CONFIG[status as keyof typeof STATUS_CONFIG]?.color || '';
+                      
+                      if (status === "approved" && kra_kpi_status === "sent_to_manager") {
+                        label = "KRA/KPI Review";
+                        bg = "bg-blue-50 border-blue-200 text-blue-700";
+                        color = "text-blue-700";
+                      } else if (status === "approved" && kra_kpi_status === "sent_to_hr") {
+                        label = "KRA/KPI HR Review";
+                        bg = "bg-purple-50 border-purple-200 text-purple-700";
+                        color = "text-purple-700";
+                      } else if (status === "approved" && kra_kpi_status === "manager_rejected") {
+                        label = "KRA/KPI Rejected";
+                        bg = "bg-red-50 border-red-200 text-red-700";
+                        color = "text-red-700";
+                      } else if (status === "approved" && kra_kpi_status === "hr_rejected") {
+                        label = "KRA/KPI HR Rejected";
+                        bg = "bg-red-50 border-red-200 text-red-700";
+                        color = "text-red-700";
+                      } else if (status === "approved" && (kra_kpi_status === "draft" || kra_kpi_status === "confirmed")) {
+                        label = "KRA/KPI Under Process";
+                        bg = "bg-amber-50 border-amber-200 text-amber-700";
+                        color = "text-amber-700";
+                      } else if (status === "approved" && kra_kpi_status === "approved") {
+                        label = "KRA & KPI Approved";
+                        bg = "bg-emerald-50 border-emerald-200 text-emerald-700";
+                        color = "text-emerald-700";
+                      }
                       return (
                         <tr
                           key={emp.employee_id}
@@ -2322,10 +2350,10 @@ function HRView({ user }: { user: AuthUser }) {
                             <div className="flex items-center justify-between">
                               <div>
                                 <span
-                                  className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-medium border ${config.bg} ${config.color}`}
+                                  className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-medium border ${bg} ${color}`}
                                 >
                                   <span className="w-1.5 h-1.5 rounded-md bg-current" />
-                                  {config.label}
+                                  {label}
                                 </span>
                                 {emp.last_updated &&
                                   emp.jd_status !== "Not Submitted" && (

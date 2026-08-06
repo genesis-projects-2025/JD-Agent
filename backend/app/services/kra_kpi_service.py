@@ -585,8 +585,8 @@ async def select_kras_and_generate_kpis(
     if record.generation_step not in ("draft", "kra_selection", "kpi_selection"):
         raise StepError(f"Cannot select KRAs in step: {record.generation_step}")
 
-    if len(selected_kra_ids) > 7:
-        raise StepError(f"You can select at most 7 KRAs. (Selected: {len(selected_kra_ids)})")
+    if len(selected_kra_ids) > 10:
+        raise StepError(f"You can select at most 10 KRAs. (Selected: {len(selected_kra_ids)})")
 
     # Resolve the full KRA objects for selected IDs
     all_suggestions = (record.kra_suggestions or {}).get("kra_suggestions", [])
@@ -735,12 +735,12 @@ async def select_kpis_and_build_final(
     if record.generation_step not in ("kpi_selection", "weight_adjustment"):
         raise StepError(f"Cannot select KPIs in step: {record.generation_step}")
 
-    # Validate KPI counts per KRA — between 3 and 5 KPIs must be selected per KRA
+    # Validate KPI counts per KRA — between 1 and 5 KPIs must be selected per KRA
     for kra_id, kpi_ids in selected_kpi_ids.items():
-        if len(kpi_ids) < 3:
+        if len(kpi_ids) < 1:
             raise StepError(
-                f"Select at least 3 KPIs for each KRA. "
-                f"KRA '{kra_id}' has {len(kpi_ids)} KPIs selected."
+                f"Select at least 1 KPI for each KRA. "
+                f"KRA '{kra_id}' has no KPIs selected."
             )
         if len(kpi_ids) > 5:
             raise StepError(

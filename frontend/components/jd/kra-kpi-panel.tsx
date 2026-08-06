@@ -458,7 +458,7 @@ function Step2KPISelection({
   }, [initialSelected]);
 
   const MAX_KPIS_PER_KRA = 5;
-  const MIN_KPIS_PER_KRA = 3;
+  const MIN_KPIS_PER_KRA = 1;
 
   const toggleKpi = (kraId: string, kpiId: string) => {
     setSelectedKpis((prev) => {

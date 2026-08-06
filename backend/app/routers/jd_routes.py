@@ -944,7 +944,7 @@ async def download_jd_docx(
     from app.services.kra_kpi_service import get_kra_kpi_by_jd_session
     kra_kpi_rec = await get_kra_kpi_by_jd_session(db, jd_id)
     kra_kpi_data = None
-    if kra_kpi_rec and kra_kpi_rec.status == "confirmed":
+    if kra_kpi_rec and (kra_kpi_rec.generation_step == "confirmed" or kra_kpi_rec.status in ("confirmed", "sent_to_manager", "sent_to_hr", "approved")):
         kra_kpi_data = kra_kpi_rec.kras
 
     docx_buffer = generate_jd_docx(
@@ -959,7 +959,15 @@ async def download_jd_docx(
 
     title = record.title or "Job Description"
     dept = record.department or ""
-    emp_name = record.employee_name or (record.jd_structured.get("employee_information", {}).get("employee_name") if record.jd_structured else None)
+    
+    from sqlalchemy.future import select
+    from app.models.user_model import Employee
+    emp_res = await db.execute(select(Employee).where(Employee.id == record.employee_id))
+    employee_obj = emp_res.scalar_one_or_none()
+    emp_name = employee_obj.name if employee_obj else None
+    
+    if not emp_name and record.jd_structured:
+        emp_name = record.jd_structured.get("employee_information", {}).get("employee_name")
     
     if emp_name and str(emp_name).strip() and str(emp_name).strip().lower() != "employee":
         safe_filename = f"{emp_name.strip()} - {title} - JD.docx"

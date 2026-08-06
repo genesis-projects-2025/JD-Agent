@@ -107,9 +107,10 @@ def _load_logo_stream() -> BytesIO | None:
 # ── Row builders ──────────────────────────────────────────────────────────────
 
 def _section_header_row(table, row_idx: int, text: str) -> None:
-    """Merge cols, grey background (#BFBFBF), 12pt bold centred text."""
+    """Merge cols if multi-column, grey background (#BFBFBF), 12pt bold centred text."""
     row = table.rows[row_idx]
-    row.cells[0].merge(row.cells[1])
+    if len(row.cells) > 1:
+        row.cells[0].merge(row.cells[1])
     cell = row.cells[0]
     _set_cell_properties(cell, bg_color=HEADER_COLOR, borders=True)
     para = cell.paragraphs[0]
@@ -121,9 +122,10 @@ def _section_header_row(table, row_idx: int, text: str) -> None:
 
 
 def _sub_header_row(table, row_idx: int, text: str) -> None:
-    """Merge cols, grey background (#BFBFBF), 11pt bold centred text."""
+    """Merge cols if multi-column, grey background (#BFBFBF), 11pt bold centred text."""
     row = table.rows[row_idx]
-    row.cells[0].merge(row.cells[1])
+    if len(row.cells) > 1:
+        row.cells[0].merge(row.cells[1])
     cell = row.cells[0]
     _set_cell_properties(cell, bg_color=HEADER_COLOR, borders=True)
     para = cell.paragraphs[0]
@@ -292,12 +294,11 @@ def generate_jd_docx(
     doc.add_paragraph().paragraph_format.space_after = Pt(4)
 
     # ── TABLE 2: Job Description ──────────────────────────────────────────────
-    t_jd = doc.add_table(rows=2, cols=2)
+    t_jd = doc.add_table(rows=2, cols=1)
     t_jd.alignment = WD_TABLE_ALIGNMENT.CENTER
     _sub_header_row(t_jd, 0, "Job Description")
 
     row_jd = t_jd.rows[1]
-    row_jd.cells[0].merge(row_jd.cells[1])
     cell_jd = row_jd.cells[0]
     _set_cell_properties(cell_jd, borders=True, valign="top")
 

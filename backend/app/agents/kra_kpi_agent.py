@@ -292,7 +292,7 @@ async def generate_kra_suggestions(
     manager_kras_data: list[dict],
 ) -> dict:
     """
-    Phase 1: Generate 6–7 KRA suggestions.
+    Phase 1: Generate 10 KRA suggestions.
 
     Employee JD is the primary source.
     Manager JD + KRAs are reference context for weight calibration.
@@ -398,7 +398,7 @@ async def generate_kpi_suggestions_for_kra(
                 "measurement_method": "(Compliant Tasks Executed / Total Tasks Scheduled) * 100",
                 "target": ">= 95%",
                 "frequency": "Monthly",
-                "suggested_weight": 40,
+                "suggested_weight": 25,
             },
             {
                 "metric": f"Turnaround Time Efficiency - {kra_title}",
@@ -406,7 +406,7 @@ async def generate_kpi_suggestions_for_kra(
                 "measurement_method": "Total Hours Elapsed / Total Requests Processed",
                 "target": "<= 24 Hours",
                 "frequency": "Monthly",
-                "suggested_weight": 30,
+                "suggested_weight": 20,
             },
             {
                 "metric": f"Quality & Error Reduction - {kra_title}",
@@ -414,7 +414,23 @@ async def generate_kpi_suggestions_for_kra(
                 "measurement_method": "100 - ((Number of Errors / Total Output Volume) * 100)",
                 "target": ">= 98%",
                 "frequency": "Monthly",
-                "suggested_weight": 30,
+                "suggested_weight": 20,
+            },
+            {
+                "metric": f"SOP & Compliance Training - {kra_title}",
+                "description": f"Completion and scorecard results in standard operating procedures (SOPs) and compliance training modules relevant to {kra_title}.",
+                "measurement_method": "HRMS Training Portal Completion Records & Assessment Scores",
+                "target": "100% Completion & >= 90% Quiz Score",
+                "frequency": "Quarterly",
+                "suggested_weight": 15,
+            },
+            {
+                "metric": f"Stakeholder Satisfaction Index - {kra_title}",
+                "description": f"Average satisfaction scorecard rating received from internal or external stakeholders on {kra_title} deliverables.",
+                "measurement_method": "Bi-annual Stakeholder Feedback Survey / CSAT Dashboard",
+                "target": ">= 4.2 / 5.0",
+                "frequency": "Quarterly",
+                "suggested_weight": 20,
             },
         ]
 

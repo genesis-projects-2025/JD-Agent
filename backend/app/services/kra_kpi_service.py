@@ -161,24 +161,39 @@ async def check_prerequisites(
 
     # ── Executive Bypass Check (Employee Level) ──
     # Check if the employee holding the session is high-level/executive
+    # Also defined at module scope so the manager bypass check can reference it
+    exec_keywords = [
+        "director", "president", "vp", "vice president", "ceo", "coo", "cfo",
+        "cto", "cmo", "md", "board", "md & ceo", "managing director",
+        "general manager", "chief", "head", "evp", "svp", "executive"
+    ]
     try:
         from sqlalchemy import text
         res = await db.execute(
-            text("SELECT designation, joblevel FROM organogram WHERE code = :code"),
+            text("SELECT designation, joblevel, reporting_manager_code FROM organogram WHERE code = :code"),
             {"code": employee_id}
         )
         emp_org = res.mappings().first()
         if emp_org:
             emp_desig = (emp_org.get("designation") or "").lower()
             emp_level = str(emp_org.get("joblevel") or "").lower()
-            exec_keywords = [
-                "director", "president", "vp", "vice president", "ceo", "coo", "cfo",
-                "cto", "cmo", "md", "board", "md & ceo", "managing director",
-                "general manager", "chief", "head of", "evp", "svp", "executive"
-            ]
-            if any(k in emp_desig for k in exec_keywords) or any(lvl in emp_level for lvl in ["exec", "l1", "l2", "e1", "e2"]):
+            emp_mgr_code = (emp_org.get("reporting_manager_code") or "").upper()
+
+            # Check 1: Designation matches executive keywords (e.g. Head, Director, VP)
+            desig_match = any(k in emp_desig for k in exec_keywords)
+            # Check 2: Job level is executive-tier (Level 1, Level 2, or legacy codes)
+            level_match = any(lvl in emp_level for lvl in [
+                "exec", "l1", "l2", "e1", "e2", "level 1", "level 2"
+            ])
+            # Check 3: Employee reports directly to a Director/MD code
+            reports_to_exec = emp_mgr_code.startswith("DIR") or emp_mgr_code.startswith("MD")
+
+            if desig_match or level_match or reports_to_exec:
                 bypass_manager = True
-                logger.info(f"[ExecutiveBypass] Employee {employee_id} ({emp_desig}, level {emp_level}) bypassed manager prerequisites.")
+                logger.info(
+                    f"[ExecutiveBypass] Employee {employee_id} (designation={emp_desig}, "
+                    f"level={emp_level}, reports_to={emp_mgr_code}) bypassed manager prerequisites."
+                )
     except Exception as e:
         logger.error(f"Error checking employee designation in organogram: {e}")
 

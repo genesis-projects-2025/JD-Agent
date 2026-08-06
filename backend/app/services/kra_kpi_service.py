@@ -646,20 +646,64 @@ async def select_kras_and_generate_kpis(
         f"[KRAKPIService] Step 2: Generating KPI suggestions for {len(selected_kras)} KRAs in parallel"
     )
 
-    # Generate KPI suggestions for selected KRAs with backpressure
-    # Limit to 3 concurrent LLM calls per user to prevent API rate exhaustion
-    # when many employees select KRAs simultaneously
+    # Generate KPI suggestions for selected KRAs with backpressure.
+    # Each KRA gets its own retry loop so one failed Gemini call (429/timeout/etc.)
+    # can never blank out the OTHER KRAs' KPIs — this is the fix for the bug where
+    # only 2 of 5 selected KRAs were getting KPIs generated.
     _kpi_gen_semaphore = asyncio.Semaphore(3)
+    MAX_KPI_RETRIES = 3
+    KPI_RETRY_BACKOFF_SECONDS = 2
 
-    async def _throttled_kpi_gen(kra):
-        async with _kpi_gen_semaphore:
-            return await generate_kpi_suggestions_for_kra(kra=kra, employee_data=employee_data, skill_gaps=skill_gaps)
+    async def _generate_with_retry(kra: dict) -> dict:
+        kra_id = kra.get("kra_id", "unknown")
+        last_exc: Exception | None = None
+        for attempt in range(1, MAX_KPI_RETRIES + 1):
+            try:
+                async with _kpi_gen_semaphore:
+                    result = await generate_kpi_suggestions_for_kra(
+                        kra=kra, employee_data=employee_data, skill_gaps=skill_gaps
+                    )
+                if not result or not result.get("kpi_suggestions"):
+                    raise ValueError(f"No kpi_suggestions returned for kra_id={kra_id}")
+                result["kra_id"] = kra_id
+                result["generation_failed"] = False
+                return result
+            except Exception as e:
+                last_exc = e
+                logger.warning(
+                    f"[KRAKPIService] KPI gen attempt {attempt}/{MAX_KPI_RETRIES} "
+                    f"failed for kra_id={kra_id}: {e}"
+                )
+                if attempt < MAX_KPI_RETRIES:
+                    await asyncio.sleep(KPI_RETRY_BACKOFF_SECONDS * attempt)
 
-    kpi_tasks = [_throttled_kpi_gen(kra) for kra in selected_kras]
-    results = await asyncio.gather(*kpi_tasks)
+        logger.error(
+            f"[KRAKPIService] KPI generation permanently failed for kra_id={kra_id} "
+            f"after {MAX_KPI_RETRIES} attempts: {last_exc}"
+        )
+        return {
+            "kra_id": kra_id,
+            "kpi_suggestions": [],
+            "generation_failed": True,
+            "error": str(last_exc) if last_exc else "Unknown error",
+        }
+
+    kpi_tasks = [_generate_with_retry(kra) for kra in selected_kras]
+    results = await asyncio.gather(
+        *kpi_tasks
+    )  # never raises now — each task self-recovers
 
     # Index by kra_id
     kpi_suggestions = {r["kra_id"]: r for r in results}
+
+    failed_kra_ids = [
+        kid for kid, r in kpi_suggestions.items() if r.get("generation_failed")
+    ]
+    if failed_kra_ids:
+        logger.warning(
+            f"[KRAKPIService] {len(failed_kra_ids)}/{len(selected_kras)} KRAs failed "
+            f"KPI generation: {failed_kra_ids}"
+        )
 
     now = datetime.now(timezone.utc)
     record.selected_kra_ids = selected_kra_ids
@@ -795,7 +839,6 @@ async def save_weights_and_confirm(
     await db.refresh(record)
 
     return record
-
 
 
 def _is_structured_template(rows: list) -> tuple[bool, dict]:
@@ -1027,7 +1070,6 @@ def split_all_kpis_in_kras(kras: list[dict]) -> list[dict]:
         updated_kras.append(kra_copy)
         
     return updated_kras
-
 
 
 def parse_kra_kpi_excel(file_bytes: bytes, file_type_lower: str) -> list[dict]:
@@ -1289,7 +1331,6 @@ def parse_kra_kpi_excel(file_bytes: bytes, file_type_lower: str) -> list[dict]:
     # Remove any KRAs that ended up with no KPIs (stray rows)
     kras = [k for k in kras if k["kpis"]]
     return kras
-
 
 
 async def infer_jd_from_kras(employee_id: str, employee_name: str, kras: list) -> dict:
@@ -1904,4 +1945,3 @@ async def sync_kra_kpi_session_to_db(
         await db.commit()
         await db.refresh(record, ["conversation_turns"])
     return record
-

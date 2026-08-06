@@ -393,32 +393,29 @@ async def generate_kpi_suggestions_for_kra(
         logger.warning(f"[KRAKPIAgent] Fallback KPIs generated for KRA: {kra_title}")
         suggestions = [
             {
-                "kpi_title": f"Process Adherence Rate - {kra_title}",
+                "metric": f"Process Adherence Rate - {kra_title}",
                 "description": f"Percentage compliance with standard operating procedures and execution milestones for {kra_title}.",
-                "measurement_formula": "(Compliant Tasks Executed / Total Tasks Scheduled) * 100",
-                "target_value": ">= 95%",
-                "unit": "%",
+                "measurement_method": "(Compliant Tasks Executed / Total Tasks Scheduled) * 100",
+                "target": ">= 95%",
+                "frequency": "Monthly",
                 "suggested_weight": 40,
-                "review_frequency": "Monthly"
             },
             {
-                "kpi_title": f"Turnaround Time Efficiency - {kra_title}",
+                "metric": f"Turnaround Time Efficiency - {kra_title}",
                 "description": f"Average processing turnaround time for operational deliverables under {kra_title}.",
-                "measurement_formula": "Total Hours Elapsed / Total Requests Processed",
-                "target_value": "<= 24 Hours",
-                "unit": "Hours",
+                "measurement_method": "Total Hours Elapsed / Total Requests Processed",
+                "target": "<= 24 Hours",
+                "frequency": "Monthly",
                 "suggested_weight": 30,
-                "review_frequency": "Monthly"
             },
             {
-                "kpi_title": f"Quality & Error Reduction - {kra_title}",
+                "metric": f"Quality & Error Reduction - {kra_title}",
                 "description": f"Accuracy rate and error-free execution for {kra_title} workflows.",
-                "measurement_formula": "100 - ((Number of Errors / Total Output Volume) * 100)",
-                "target_value": ">= 98%",
-                "unit": "%",
+                "measurement_method": "100 - ((Number of Errors / Total Output Volume) * 100)",
+                "target": ">= 98%",
+                "frequency": "Monthly",
                 "suggested_weight": 30,
-                "review_frequency": "Monthly"
-            }
+            },
         ]
 
     # Ensure IDs and cap at 10

@@ -362,17 +362,22 @@ function Step1KRASelection({
 // ── Step 2: KPI Selection per KRA ─────────────────────────────────────────────
 
 function KPISuggestionCard({
-  kpi, selected, onToggle, colorIndex,
-}: { kpi: KPISuggestion; selected: boolean; onToggle: () => void; colorIndex: number }) {
+  kpi, selected, isLocked = false, onToggle, colorIndex,
+}: { kpi: KPISuggestion; selected: boolean; isLocked?: boolean; onToggle: () => void; colorIndex: number }) {
   const [open, setOpen] = useState(false);
   const c = PALETTE[colorIndex % PALETTE.length];
   return (
-    <div className={`rounded-lg border-2 transition-all ${selected ? `${c.border} ${c.bg}` : "border-surface-100 bg-white"}`}>
+    <div className={`rounded-lg border-2 transition-all ${
+      selected ? `${c.border} ${c.bg}` : isLocked ? "border-surface-100 bg-surface-50 opacity-50" : "border-surface-100 bg-white"
+    }`}>
       <div className="flex items-start gap-3 p-3">
         <button
           onClick={onToggle}
+          disabled={isLocked}
           className={`mt-0.5 w-5 h-5 rounded flex-shrink-0 border-2 flex items-center justify-center transition-all ${
-            selected ? `${c.border.replace("border-", "bg-").replace("-200", "-500")} border-transparent` : "border-surface-200 bg-white"
+            selected
+              ? `${c.border.replace("border-", "bg-").replace("-200", "-500")} border-transparent`
+              : isLocked ? "border-surface-200 bg-surface-100 cursor-not-allowed" : "border-surface-200 bg-white"
           }`}
         >
           {selected && <CheckCircle2 className="w-3 h-3 text-white" />}
@@ -452,12 +457,16 @@ function Step2KPISelection({
     }
   }, [initialSelected]);
 
+  const MAX_KPIS_PER_KRA = 5;
+  const MIN_KPIS_PER_KRA = 3;
+
   const toggleKpi = (kraId: string, kpiId: string) => {
     setSelectedKpis((prev) => {
       const kraSet = new Set(prev[kraId] || []);
       if (kraSet.has(kpiId)) {
         kraSet.delete(kpiId);
       } else {
+        if (kraSet.size >= MAX_KPIS_PER_KRA) return prev; // block adding a 6th
         kraSet.add(kpiId);
       }
       return { ...prev, [kraId]: kraSet };
@@ -504,7 +513,7 @@ function Step2KPISelection({
   const kraCount = (id: string) => selectedKpis[id]?.size ?? 0;
   const allValid = selectedKras.every((id) => {
     const c = kraCount(id);
-    return c >= 1;
+    return c >= MIN_KPIS_PER_KRA && c <= MAX_KPIS_PER_KRA;
   });
 
   const handleContinue = async () => {
@@ -557,17 +566,24 @@ function Step2KPISelection({
       </div>
 
       {/* KPI list for active KRA */}
+      {/* KPI list for active KRA */}
       {activeKra && kpiSuggestions[activeKra] && (
         <div className="space-y-2">
-          {kpiSuggestions[activeKra].kpi_suggestions.map((kpi) => (
-            <KPISuggestionCard
-              key={kpi.kpi_id}
-              kpi={kpi}
-              selected={(selectedKpis[activeKra] || new Set()).has(kpi.kpi_id)}
-              onToggle={() => toggleKpi(activeKra, kpi.kpi_id)}
-              colorIndex={selectedKras.indexOf(activeKra)}
-            />
-          ))}
+          {kpiSuggestions[activeKra].kpi_suggestions.map((kpi) => {
+            const kraSet = selectedKpis[activeKra] || new Set();
+            const isSelected = kraSet.has(kpi.kpi_id);
+            const isLocked = !isSelected && kraSet.size >= MAX_KPIS_PER_KRA;
+            return (
+              <KPISuggestionCard
+                key={kpi.kpi_id}
+                kpi={kpi}
+                selected={isSelected}
+                isLocked={isLocked}
+                onToggle={() => toggleKpi(activeKra, kpi.kpi_id)}
+                colorIndex={selectedKras.indexOf(activeKra)}
+              />
+            );
+          })}
         </div>
       )}
 

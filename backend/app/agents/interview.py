@@ -509,9 +509,10 @@ _response_llm = ChatGoogleGenerativeAI(
 async def _invoke_with_retry(llm, messages, max_retries=2, **kwargs):
     """Invoke LLM with exponential backoff on transient failures and real-time observability logging."""
     start_t = time.perf_counter()
+    config = kwargs.get("config") or ({"callbacks": kwargs["callbacks"]} if "callbacks" in kwargs and kwargs["callbacks"] else None)
     for attempt in range(max_retries + 1):
         try:
-            res = await throttled_ainvoke(llm, messages)
+            res = await throttled_ainvoke(llm, messages, config=config)
             latency_ms = (time.perf_counter() - start_t) * 1000
 
             prompt_tokens = 0

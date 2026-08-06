@@ -1,21 +1,29 @@
 # backend/app/core/langfuse_client.py
 import logging
+import os
 import re
-from langfuse import Langfuse
+from contextlib import contextmanager
+from typing import Generator, List, Optional
+from langfuse import get_client, propagate_attributes
+from langfuse.langchain import CallbackHandler
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
+
+# Synchronize settings to os.environ for Langfuse v4 OTEL / SDK auto-configuration
+if settings.LANGFUSE_PUBLIC_KEY and settings.LANGFUSE_SECRET_KEY:
+    os.environ["LANGFUSE_PUBLIC_KEY"] = settings.LANGFUSE_PUBLIC_KEY
+    os.environ["LANGFUSE_SECRET_KEY"] = settings.LANGFUSE_SECRET_KEY
+    if settings.LANGFUSE_BASE_URL:
+        os.environ["LANGFUSE_BASE_URL"] = settings.LANGFUSE_BASE_URL
+        os.environ["LANGFUSE_HOST"] = settings.LANGFUSE_BASE_URL
 
 # Initialize client if keys are present
 langfuse_client = None
 if settings.LANGFUSE_PUBLIC_KEY and settings.LANGFUSE_SECRET_KEY:
     try:
-        langfuse_client = Langfuse(
-            public_key=settings.LANGFUSE_PUBLIC_KEY,
-            secret_key=settings.LANGFUSE_SECRET_KEY,
-            host=settings.LANGFUSE_BASE_URL
-        )
-        logger.info("Langfuse client initialized successfully.")
+        langfuse_client = get_client()
+        logger.info("Langfuse v4 client initialized successfully.")
     except Exception as e:
         logger.warning(f"Failed to initialize Langfuse client: {e}")
 else:
@@ -32,63 +40,96 @@ def compile_local_template(template: str, **kwargs) -> str:
     return re.sub(r'\{\{([^{}]+)\}\}', replace, template)
 
 
-def get_compiled_prompt(name: str, fallback_template: str, **kwargs) -> str:
+def get_compiled_prompt(prompt_name: str, fallback_template: str, **kwargs) -> str:
     """Fetch prompt from Langfuse (production label) and compile it.
     Falls back to compiling the local fallback template if Langfuse is unavailable.
     """
-    if langfuse_client:
+    client = langfuse_client or (get_client() if settings.LANGFUSE_PUBLIC_KEY and settings.LANGFUSE_SECRET_KEY else None)
+    if client:
         try:
             # Fetch prompt from Langfuse
-            prompt_obj = langfuse_client.get_prompt(name, label="production")
+            prompt_obj = client.get_prompt(prompt_name, label="production")
             # Langfuse compile substitutes variables and returns the string
             compiled = prompt_obj.compile(**kwargs)
-            logger.info(f"Fetched and compiled prompt '{name}' from Langfuse.")
+            logger.info(f"Fetched and compiled prompt '{prompt_name}' from Langfuse.")
             return compiled
         except Exception as e:
-            logger.warning(f"Error fetching prompt '{name}' from Langfuse: {e}. Falling back to local template.")
+            logger.warning(f"Error fetching prompt '{prompt_name}' from Langfuse: {e}. Falling back to local template.")
     
     # Fallback compilation
     return compile_local_template(fallback_template, **kwargs)
 
 
-def get_langfuse_callback_handler(trace_name: str = None, session_id: str = None, user_id: str = None, tags: list[str] = None):
-    """Retrieve a Langfuse callback handler for LangChain if credentials are set."""
+@contextmanager
+def langfuse_tracing_context(
+    trace_name: Optional[str] = None,
+    session_id: Optional[str] = None,
+    user_id: Optional[str] = None,
+    tags: Optional[List[str]] = None,
+    metadata: Optional[dict] = None,
+) -> Generator[List[CallbackHandler], None, None]:
+    """Context manager for Langfuse v4 tracing with LangChain.
+    
+    Propagates trace attributes (trace_name, session_id, user_id, tags, metadata)
+    via OpenTelemetry baggage and yields a callbacks list containing LangChain CallbackHandler.
+    """
     if settings.LANGFUSE_PUBLIC_KEY and settings.LANGFUSE_SECRET_KEY:
         try:
-            from langfuse.langchain import CallbackHandler
-            
-            class CustomCallbackHandler(CallbackHandler):
-                def __init__(self, trace_name_val=None, session_id_val=None, user_id_val=None, tags_val=None, **kwargs):
-                    super().__init__(**kwargs)
-                    self._default_trace_name = trace_name_val
-                    self._default_session_id = session_id_val
-                    self._default_user_id = user_id_val
-                    self._default_tags = tags_val
+            with propagate_attributes(
+                trace_name=trace_name,
+                session_id=str(session_id) if session_id else None,
+                user_id=str(user_id) if user_id else None,
+                tags=tags,
+                metadata=metadata,
+            ):
+                handler = CallbackHandler()
+                yield [handler]
+                return
+        except Exception as e:
+            logger.warning(f"Failed to initialize Langfuse tracing context: {e}")
+    yield []
 
-                def _parse_langfuse_trace_attributes(self, *, metadata=None, tags=None):
-                    meta_to_use = dict(metadata) if metadata is not None else {}
-                    if self._default_trace_name and "langfuse_trace_name" not in meta_to_use:
-                        meta_to_use["langfuse_trace_name"] = self._default_trace_name
-                    if self._default_session_id and "langfuse_session_id" not in meta_to_use:
-                        meta_to_use["langfuse_session_id"] = self._default_session_id
-                    if self._default_user_id and "langfuse_user_id" not in meta_to_use:
-                        meta_to_use["langfuse_user_id"] = self._default_user_id
-                    if self._default_tags and "langfuse_tags" not in meta_to_use:
-                        meta_to_use["langfuse_tags"] = self._default_tags
-                        
-                    tags_to_use = list(tags) if tags is not None else []
-                    if self._default_tags and not tags:
-                        tags_to_use = self._default_tags
-                        
-                    return super()._parse_langfuse_trace_attributes(metadata=meta_to_use, tags=tags_to_use)
-            
-            return CustomCallbackHandler(
+
+def get_langfuse_callback_handler(
+    trace_name: Optional[str] = None,
+    session_id: Optional[str] = None,
+    user_id: Optional[str] = None,
+    tags: Optional[List[str]] = None,
+) -> Optional[CallbackHandler]:
+    """Retrieve a Langfuse callback handler for LangChain if credentials are set.
+    
+    In Langfuse v4, attribute correlation (trace_name, session_id, user_id, tags)
+    is managed via `propagate_attributes`. This class activates `propagate_attributes`
+    for the handler's lifecycle.
+    """
+    if settings.LANGFUSE_PUBLIC_KEY and settings.LANGFUSE_SECRET_KEY:
+        try:
+            class CustomV4CallbackHandler(CallbackHandler):
+                def __init__(self, trace_name_val=None, session_id_val=None, user_id_val=None, tags_val=None):
+                    self._cm = propagate_attributes(
+                        trace_name=trace_name_val,
+                        session_id=str(session_id_val) if session_id_val else None,
+                        user_id=str(user_id_val) if user_id_val else None,
+                        tags=tags_val,
+                    )
+                    self._cm.__enter__()
+                    super().__init__()
+
+                def __del__(self):
+                    try:
+                        if hasattr(self, "_cm") and self._cm:
+                            self._cm.__exit__(None, None, None)
+                    except Exception:
+                        pass
+
+            return CustomV4CallbackHandler(
                 trace_name_val=trace_name,
                 session_id_val=session_id,
                 user_id_val=user_id,
-                tags_val=tags
+                tags_val=tags,
             )
         except Exception as e:
             logger.warning(f"Failed to initialize Langfuse CallbackHandler: {e}")
     return None
+
 

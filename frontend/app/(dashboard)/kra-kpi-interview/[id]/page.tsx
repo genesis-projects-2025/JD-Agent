@@ -385,6 +385,7 @@ function InlineKPISelection({
       if (next.has(id)) {
         next.delete(id);
       } else {
+        if (next.size >= 5) return prev; // Cap at max 5 KPIs per KRA
         next.add(id);
       }
       return next;
@@ -392,7 +393,8 @@ function InlineKPISelection({
   };
 
   const count = selectedIds.size;
-  const isValid = count >= 1;
+  const isValid = count >= 3 && count <= 5;
+  const isMaxReached = count >= 5;
 
   const handleSubmit = () => {
     if (!isValid || !isInteractable || !record) return;
@@ -423,36 +425,68 @@ function InlineKPISelection({
   return (
     <div className="mt-4 space-y-3 border-t border-surface-100 pt-4">
       <div className="flex justify-between items-center text-xs font-semibold text-surface-500">
-        <span>Select KPIs for <strong>{activeKraTitle}</strong>:</span>
-        <span className={isValid ? "text-emerald-600 font-bold" : "text-surface-400"}>
-          {count} Selected
+        <span>Select <strong>3 to 5 KPIs</strong> for <strong>{activeKraTitle}</strong>:</span>
+        <span
+          className={`px-2 py-0.5 rounded-full text-[11px] font-bold border transition-all ${
+            isValid
+              ? isMaxReached
+                ? "text-purple-700 bg-purple-50 border-purple-200"
+                : "text-emerald-700 bg-emerald-50 border-emerald-200"
+              : "text-amber-700 bg-amber-50 border-amber-200"
+          }`}
+        >
+          {count < 3
+            ? `${count}/3 Selected (Min 3)`
+            : isMaxReached
+            ? `5/5 Selected (Max Frozen 🔒)`
+            : `${count} Selected (Max 5)`}
         </span>
       </div>
 
+      {isInteractable && isMaxReached && (
+        <div className="p-2.5 rounded-xl bg-purple-50 border border-purple-200 text-purple-700 text-[11px] flex items-center gap-2 font-medium">
+          <Lock className="w-3.5 h-3.5 shrink-0 text-purple-600" />
+          <span>Maximum 5 KPIs selected for this KRA. Deselect any metric to unlock remaining options.</span>
+        </div>
+      )}
+
       <div className="space-y-2 max-h-[300px] overflow-y-auto pr-1">
-        {suggestions.map((kpi, idx) => {
+        {suggestions.map((kpi) => {
           const isSelected = selectedIds.has(kpi.kpi_id);
+          const isLocked = !isSelected && isMaxReached;
           const isExpanded = expandedId === kpi.kpi_id;
           return (
             <div
               key={kpi.kpi_id}
               className={`rounded-xl border-2 transition-all ${
-                isSelected ? "border-primary-200 bg-primary-50/50" : "border-surface-150 bg-surface-50"
+                isSelected
+                  ? "border-primary-200 bg-primary-50/50"
+                  : isLocked
+                  ? "border-surface-200 bg-surface-100/50 opacity-50 cursor-not-allowed"
+                  : "border-surface-150 bg-surface-50 hover:bg-white hover:border-surface-300"
               }`}
             >
               <div className="flex gap-2.5 items-start p-3">
                 <button
-                  disabled={!isInteractable}
+                  disabled={!isInteractable || isLocked}
                   onClick={() => toggle(kpi.kpi_id)}
                   className={`w-4.5 h-4.5 shrink-0 rounded border flex items-center justify-center mt-0.5 transition-all ${
-                    isSelected ? "bg-primary-600 border-primary-600 text-white" : "border-surface-300 bg-white"
+                    isSelected
+                      ? "bg-primary-600 border-primary-600 text-white"
+                      : isLocked
+                      ? "border-surface-300 bg-surface-200 text-surface-400 cursor-not-allowed"
+                      : "border-surface-300 bg-white"
                   }`}
                 >
                   {isSelected && <CheckCircle2 className="w-3 h-3 text-white" />}
+                  {isLocked && <Lock className="w-2.5 h-2.5 text-surface-400" />}
                 </button>
-                <div className="flex-1 min-w-0" onClick={() => toggle(kpi.kpi_id)}>
+                <div
+                  className={`flex-1 min-w-0 ${isLocked ? "cursor-not-allowed" : "cursor-pointer"}`}
+                  onClick={() => !isLocked && toggle(kpi.kpi_id)}
+                >
                   <div className="flex items-center gap-2">
-                    <span className="font-semibold text-xs text-surface-900 leading-tight block truncate">
+                    <span className={`font-semibold text-xs leading-tight block truncate ${isLocked ? "text-surface-500" : "text-surface-900"}`}>
                       {kpi.metric}
                     </span>
                     <span className="text-[9px] bg-surface-100 text-surface-500 px-1.5 py-0.5 rounded uppercase font-bold shrink-0">
@@ -500,7 +534,7 @@ function InlineKPISelection({
           disabled={!isValid}
           className="w-full py-2.5 bg-primary-600 text-white text-xs font-semibold rounded-xl hover:bg-primary-700 transition-colors disabled:opacity-40 disabled:cursor-not-allowed mt-2"
         >
-          Confirm KPIs for this KRA
+          {count < 3 ? `Select at least ${3 - count} more KPI${3 - count > 1 ? "s" : ""}` : "Confirm KPIs for this KRA"}
         </button>
       )}
     </div>

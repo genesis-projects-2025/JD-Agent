@@ -142,8 +142,19 @@ async def run_interview_turn(
         agent_turn_counts=dict(getattr(session_memory, "agent_turn_counts", {}) or {}),
     )
 
-    # Run the graph
-    result = await _compiled_graph.ainvoke(initial_state)
+    # Run the graph with Langfuse tracing
+    from app.core.langfuse_client import langfuse_tracing_context
+    session_id_str = str(getattr(session_memory, "id", "") or "")
+    user_id_str = str(getattr(session_memory, "employee_id", "") or "")
+    
+    with langfuse_tracing_context(
+        trace_name=f"jd-agent-graph-{session_memory.current_agent or 'orchestrator'}",
+        session_id=session_id_str,
+        user_id=user_id_str,
+        tags=["langgraph", "agent-orchestrator", session_memory.current_agent or "default"],
+    ) as callbacks:
+        config = {"callbacks": callbacks} if callbacks else {}
+        result = await _compiled_graph.ainvoke(initial_state, config=config)
 
     # Detect and log agent transitions
     old_agent = session_memory.current_agent

@@ -700,10 +700,11 @@ async def select_kras_and_generate_kpis(
         kid for kid, r in kpi_suggestions.items() if r.get("generation_failed")
     ]
     if failed_kra_ids:
-        logger.warning(
+        logger.error(
             f"[KRAKPIService] {len(failed_kra_ids)}/{len(selected_kras)} KRAs failed "
             f"KPI generation: {failed_kra_ids}"
         )
+        raise StepError("There is an issue generating the KPIs. Can you please regenerate the KPIs?")
 
     now = datetime.now(timezone.utc)
     record.selected_kra_ids = selected_kra_ids

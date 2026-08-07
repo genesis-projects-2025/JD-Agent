@@ -250,9 +250,9 @@ RULES (STRICT — violations break the system)
 3. KRAs must align with the employee's actual responsibilities and tasks.
 4. Do NOT include weights — the employee will assign weights manually after selection.
 5. KRA titles MUST be phrased as achievable outcomes or results rather than simple category headings (e.g. use "Improved system performance" instead of "Quality Assurance", and "Enhanced customer satisfaction" instead of "Customer Service"). They should directly describe what is achieved.
-6. The description field MUST be returned as an empty string ("").
-7. The source_tasks field MUST be returned as an empty array ([]).
-8. The manager_impact field MUST be returned as an empty string ("").
+6. The description field MUST be a concise 1-sentence description of what this KRA achieves for the employee's role.
+7. The source_tasks field MUST contain 1 to 3 specific task names from the employee's Priority Tasks list above that directly relate to and support this KRA.
+8. The manager_impact field MUST contain a brief statement on how achieving this KRA supports the manager's responsibilities or KRAs.
 9. DO NOT generate KPIs in this step — only KRA suggestions.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -263,9 +263,9 @@ OUTPUT — RETURN ONLY THIS JSON (no markdown, no extra text)
     {
       "kra_id": "kra_001",
       "title": "Achievable Outcome Title",
-      "description": "",
-      "source_tasks": [],
-      "manager_impact": ""
+      "description": "Concise description of the KRA outcome and scope.",
+      "source_tasks": ["Exact priority task name 1", "Exact priority task name 2"],
+      "manager_impact": "How this supports the manager's goals."
     }
   ]
 }"""

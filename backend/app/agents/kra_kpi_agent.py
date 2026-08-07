@@ -34,6 +34,7 @@ def _get_llm() -> ChatGoogleGenerativeAI:
         model="gemini-2.5-flash",
         temperature=0.2,
         max_output_tokens=4096,
+        response_mime_type="application/json",
     )
 
 
@@ -332,10 +333,13 @@ async def generate_kra_suggestions(
     for i, kra in enumerate(suggestions):
         if not kra.get("kra_id"):
             kra["kra_id"] = f"kra_{i+1:03d}"
-        # Ensure description, source_tasks and manager_impact are empty/null to remove reference KRAs
-        kra["description"] = ""
-        kra["source_tasks"] = []
-        kra["manager_impact"] = ""
+        # Preserve or initialize description, source_tasks, and manager_impact
+        if not kra.get("description"):
+            kra["description"] = ""
+        if not kra.get("source_tasks"):
+            kra["source_tasks"] = []
+        if not kra.get("manager_impact"):
+            kra["manager_impact"] = ""
         # Remove any weight fields — weights are set by the employee, not the agent
         kra.pop("suggested_weight", None)
         kra.pop("weight", None)
@@ -390,49 +394,7 @@ async def generate_kpi_suggestions_for_kra(
 
     if not suggestions:
         kra_title = kra.get("title", "Operational Execution")
-        logger.warning(f"[KRAKPIAgent] Fallback KPIs generated for KRA: {kra_title}")
-        suggestions = [
-            {
-                "metric": f"Process Adherence Rate - {kra_title}",
-                "description": f"Percentage compliance with standard operating procedures and execution milestones for {kra_title}.",
-                "measurement_method": "(Compliant Tasks Executed / Total Tasks Scheduled) * 100",
-                "target": ">= 95%",
-                "frequency": "Monthly",
-                "suggested_weight": 25,
-            },
-            {
-                "metric": f"Turnaround Time Efficiency - {kra_title}",
-                "description": f"Average processing turnaround time for operational deliverables under {kra_title}.",
-                "measurement_method": "Total Hours Elapsed / Total Requests Processed",
-                "target": "<= 24 Hours",
-                "frequency": "Monthly",
-                "suggested_weight": 20,
-            },
-            {
-                "metric": f"Quality & Error Reduction - {kra_title}",
-                "description": f"Accuracy rate and error-free execution for {kra_title} workflows.",
-                "measurement_method": "100 - ((Number of Errors / Total Output Volume) * 100)",
-                "target": ">= 98%",
-                "frequency": "Monthly",
-                "suggested_weight": 20,
-            },
-            {
-                "metric": f"SOP & Compliance Training - {kra_title}",
-                "description": f"Completion and scorecard results in standard operating procedures (SOPs) and compliance training modules relevant to {kra_title}.",
-                "measurement_method": "HRMS Training Portal Completion Records & Assessment Scores",
-                "target": "100% Completion & >= 90% Quiz Score",
-                "frequency": "Quarterly",
-                "suggested_weight": 15,
-            },
-            {
-                "metric": f"Stakeholder Satisfaction Index - {kra_title}",
-                "description": f"Average satisfaction scorecard rating received from internal or external stakeholders on {kra_title} deliverables.",
-                "measurement_method": "Bi-annual Stakeholder Feedback Survey / CSAT Dashboard",
-                "target": ">= 4.2 / 5.0",
-                "frequency": "Quarterly",
-                "suggested_weight": 20,
-            },
-        ]
+        raise ValueError(f"No custom KPI suggestions could be generated for KRA: {kra_title}")
 
     # Ensure IDs and cap at 10
     suggestions = suggestions[:10]

@@ -323,8 +323,10 @@ async def generate_kra_suggestions(
     callbacks = [handler] if handler else []
     response = await throttled_ainvoke(llm, prompt, config={"callbacks": callbacks})
     payload = _parse_llm_json(str(response.content))
+    suggestions = payload.get("kra_suggestions") or payload.get("kras") or payload.get("items") or payload.get("data") or []
+    if not suggestions and isinstance(payload, list):
+        suggestions = payload
 
-    suggestions = payload.get("kra_suggestions", [])
     if not suggestions:
         raise ValueError("LLM returned no KRA suggestions")
 

@@ -4,7 +4,7 @@ import os
 
 def check_live_gunicorn_env():
     print("="*60)
-    print("🔍 LIVE GUNICORN/UVICORN ENVIRONMENT DIAGNOSTIC")
+    print("🔍 UPGRADED LIVE GUNICORN/UVICORN ENVIRONMENT DIAGNOSTIC")
     print("="*60)
     
     try:
@@ -14,7 +14,6 @@ def check_live_gunicorn_env():
         pids = [p for p in output.split("\n") if p]
     except subprocess.CalledProcessError:
         print("❌ No active Gunicorn or Uvicorn processes found running in background.")
-        print("👉 Run: sudo systemctl start gunicorn")
         return
 
     print(f"Found {len(pids)} running Gunicorn/Uvicorn processes: PIDs = {pids}\n")
@@ -23,15 +22,40 @@ def check_live_gunicorn_env():
     
     for pid in pids:
         environ_file = f"/proc/{pid}/environ"
+        cmdline_file = f"/proc/{pid}/cmdline"
+        status_file = f"/proc/{pid}/status"
+        
         if not os.path.exists(environ_file):
-            print(f"⚠️ PID {pid}: Cannot access /proc/{pid}/environ (process may have recycled or permission denied). Try running as sudo.")
             continue
             
         try:
+            # 1. Read command line
+            cmdline = ""
+            if os.path.exists(cmdline_file):
+                with open(cmdline_file, "rb") as f:
+                    cmdline_raw = f.read()
+                cmdline = cmdline_raw.replace(b"\x00", b" ").decode('utf-8', errors='ignore').strip()
+            
+            # 2. Read Parent PID (PPID)
+            ppid = "Unknown"
+            if os.path.exists(status_file):
+                with open(status_file, "r") as f:
+                    for line in f:
+                        if line.startswith("PPid:"):
+                            ppid = line.split()[1].strip()
+                            break
+                            
+            # 3. Read parent command line if possible
+            parent_cmdline = "Unknown"
+            parent_cmdline_file = f"/proc/{ppid}/cmdline"
+            if ppid != "Unknown" and os.path.exists(parent_cmdline_file):
+                with open(parent_cmdline_file, "rb") as f:
+                    p_cmdline_raw = f.read()
+                parent_cmdline = p_cmdline_raw.replace(b"\x00", b" ").decode('utf-8', errors='ignore').strip()
+
             with open(environ_file, "rb") as f:
                 raw_env = f.read()
                 
-            # Environ file has null-byte separated variables (VAR=VAL\x00)
             env_pairs = raw_env.split(b"\x00")
             env_dict = {}
             for pair in env_pairs:
@@ -42,14 +66,16 @@ def check_live_gunicorn_env():
                     except Exception:
                         pass
             
-            print(f"--- Checking Process PID: {pid} ---")
+            print(f"--- Process PID: {pid} (Parent PPID: {ppid}) ---")
+            print(f"  Command: {cmdline}")
+            print(f"  Parent:  {parent_cmdline}")
+            
             has_keys = True
             for var in env_vars_to_check:
                 val = env_dict.get(var)
                 if val:
-                    # Obfuscate key for security
                     masked = val[:8] + "..." + val[-6:] if len(val) > 14 else "set but too short"
-                    print(f"  ✅ {var}: Loaded ({masked}) (Len: {len(val)})")
+                    print(f"  ✅ {var}: Loaded ({masked})")
                 else:
                     print(f"  ❌ {var}: MISSING / NOT LOADED!")
                     has_keys = False
@@ -60,11 +86,10 @@ def check_live_gunicorn_env():
                 print(f"  ⚠️ PID {pid} is running without Langfuse active.")
                 
         except PermissionError:
-            print(f"❌ Permission Denied reading environment for PID {pid}. Please run with sudo:")
-            print(f"   👉 sudo python check_gunicorn_env.py")
+            print(f"❌ Permission Denied reading details for PID {pid}. Please run with sudo.")
         except Exception as e:
             print(f"❌ Error inspecting PID {pid}: {e}")
-        print("-" * 50)
+        print("-" * 60)
 
 if __name__ == "__main__":
     check_live_gunicorn_env()

@@ -21,6 +21,7 @@ import {
  Download,
  ChevronDown,
  FileDown,
+ FileSpreadsheet,
  Target,
  Clock,
 } from "lucide-react";
@@ -34,6 +35,7 @@ import {
  createReviewComment,
  fetchReviewComments,
  downloadJDDocx,
+ downloadJDDarwinboxCSV,
  fetchKRAKPIStatus,
 } from "@/lib/api";
 
@@ -760,6 +762,22 @@ function JDPageContent() {
  <div className="flex flex-col items-start px-1">
  <span>Word Document</span>
  <span className="text-[10px] text-surface-400 font-medium">Editable .docx file</span>
+ </div>
+ </button>
+ <button
+ onClick={(e) => {
+ e.stopPropagation();
+ setShowDownloadDropdown(false);
+ downloadJDDarwinboxCSV(jdId);
+ }}
+ className="w-full flex items-center gap-3 px-4 py-3.5 text-[13px] font-medium text-surface-700 hover:bg-emerald-50 hover:text-emerald-700 transition-colors group/item"
+ >
+ <div className="w-8 h-8 rounded-lg bg-emerald-50 flex items-center justify-center group-hover/item:bg-emerald-100 transition-colors">
+ <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
+ </div>
+ <div className="flex flex-col items-start px-1">
+ <span>Darwinbox Format</span>
+ <span className="text-[10px] text-surface-400 font-medium">Ready-to-upload CSV</span>
  </div>
  </button>
  </div>

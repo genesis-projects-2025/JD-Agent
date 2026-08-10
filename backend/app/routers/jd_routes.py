@@ -993,6 +993,47 @@ async def download_jd_docx(
     )
 
 
+@router.get("/{jd_id}/download/darwinbox")
+async def download_jd_darwinbox_csv(jd_id: str, db: AsyncSession = Depends(get_db)):
+    """Generate and stream a Darwinbox-compatible CSV file for the employee's JD."""
+    import io
+    from fastapi import Response
+    from app.services.darwinbox_jd_exporter_service import generate_darwinbox_jd_csv
+    try:
+        csv_content = await generate_darwinbox_jd_csv(db, jd_id)
+        
+        # Query employee name to create a safe, recognizable filename
+        record = await get_questionnaire(db, jd_id)
+        emp_name = None
+        if record:
+            from sqlalchemy.future import select
+            from app.models.user_model import Employee
+            emp_res = await db.execute(select(Employee).where(Employee.id == record.employee_id))
+            employee_obj = emp_res.scalar_one_or_none()
+            emp_name = employee_obj.name if employee_obj else None
+            if not emp_name and record.jd_structured:
+                emp_name = record.jd_structured.get("employee_information", {}).get("employee_name")
+        
+        title = record.title or "Job Description" if record else "Job Description"
+        prefix = f"{emp_name.strip()} - {title}" if emp_name else title
+        prefix = re.sub(r'[<>:"/\\|?*]', "", prefix)
+        filename = f"{prefix} - Darwinbox JD.csv"
+        
+        return Response(
+            content=csv_content,
+            media_type="text/csv",
+            headers={
+                "Content-Disposition": f'attachment; filename="{filename}"',
+                "Access-Control-Expose-Headers": "Content-Disposition",
+            }
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        logger.error(f"Failed to generate Darwinbox JD CSV: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error while exporting CSV.")
+
+
 @router.get("/{jd_id}")
 @cached_response("jd_detail", ttl=600)
 async def get_jd(jd_id: str, db: AsyncSession = Depends(get_db)):

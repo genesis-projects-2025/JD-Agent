@@ -322,6 +322,7 @@ async def generate_kra_suggestions(
     handler = get_langfuse_callback_handler(trace_name="kra-suggestion")
     callbacks = [handler] if handler else []
     response = await throttled_ainvoke(llm, prompt, config={"callbacks": callbacks})
+    # print(response.content)
     payload = _parse_llm_json(str(response.content))
     suggestions = payload.get("kra_suggestions") or payload.get("kras") or payload.get("items") or payload.get("data") or []
     if not suggestions and isinstance(payload, list):

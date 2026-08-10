@@ -4,7 +4,6 @@ from urllib.parse import quote_plus
 from pydantic_settings import BaseSettings
 
 
-
 class Settings(BaseSettings):
     DATABASE_NAME: str
     DATABASE_USER_NAME: str
@@ -21,8 +20,10 @@ class Settings(BaseSettings):
     # Simple Admin Credentials (In real enterprise, move to DB)
     ADMIN_CODE: str
     ADMIN_PASSWORD: str
-    
-    PINECONE_API_KEY: str = ""
+
+    PINECONE_API_KEY: str = (
+        "pcsk_5qSkLt_UpjNWnSh5nu9mvn6DWMNsFNjrJaTdFRWmnTGKQi2bzLzkbraemK7vPM8CC186fv"
+    )
     PINECONE_INDEX_NAME: str = "jd-agent"
 
     # Redis configuration
@@ -33,8 +34,8 @@ class Settings(BaseSettings):
     STORAGE_DIR_NAME: str = "storage"
 
     # Langfuse configuration
-    LANGFUSE_PUBLIC_KEY: str = ""
-    LANGFUSE_SECRET_KEY: str = ""
+    LANGFUSE_PUBLIC_KEY: str = "pk-lf-2811dcb9-3b08-4871-8017-9622ecb33ed4"
+    LANGFUSE_SECRET_KEY: str = "sk-lf-dd6ca862-10b2-4081-abe3-273875bbf344"
     LANGFUSE_BASE_URL: str = "https://cloud.langfuse.com"
 
     @property

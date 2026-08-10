@@ -22,10 +22,11 @@ import {
     Edit,
     ChevronDown,
     FileDown,
+    FileSpreadsheet,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { downloadJDPdfClient } from "@/lib/download-jd-pdf";
-import { downloadJDDocx } from "@/lib/api";
+import { downloadJDDocx, downloadJDDarwinboxCSV } from "@/lib/api";
 
 type Props = {
     jd: string | null;
@@ -612,6 +613,24 @@ export default function JDPreviewPanel({
                                                 <span>Word Document</span>
                                                 <span className="text-[9px] text-surface-400 font-medium">
                                                     Editable file
+                                                </span>
+                                            </div>
+                                        </button>
+                                        <button
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                setShowDownloadDropdown(false);
+                                                downloadJDDarwinboxCSV(sessionId);
+                                            }}
+                                            className="w-full flex items-center gap-3 px-4 py-3.5 text-[12px] font-medium text-surface-700 hover:bg-emerald-50 hover:text-emerald-700 transition-colors group/item"
+                                        >
+                                            <div className="w-8 h-8 rounded-lg bg-emerald-50 flex items-center justify-center group-hover/item:bg-emerald-100 transition-colors">
+                                                <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
+                                            </div>
+                                            <div className="flex flex-col items-start text-left">
+                                                <span>Darwinbox Format</span>
+                                                <span className="text-[9px] text-surface-400 font-medium">
+                                                    Ready-to-upload CSV
                                                 </span>
                                             </div>
                                         </button>

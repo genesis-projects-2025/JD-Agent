@@ -684,6 +684,11 @@ export function downloadJDPdf(sessionId: string): void {
   window.location.assign(downloadUrl);
 }
 
+export function downloadJDDarwinboxCSV(sessionId: string): void {
+  const downloadUrl = `${API_URL}/jd/${sessionId}/download/darwinbox`;
+  window.location.assign(downloadUrl);
+}
+
 export async function fetchAdminReferenceJDs(): Promise<ReferenceJDListResponse> {
   const res = await fetch(`${API_URL}/admin/jds/`, {
     headers: { Authorization: `Bearer ${getCookie(cookieKeys.ADMIN_TOKEN)}` },

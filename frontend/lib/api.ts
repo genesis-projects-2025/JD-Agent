@@ -832,10 +832,11 @@ export async function generateKRASuggestions(
   jdSessionId: string,
   employeeId: string,
   bypassManager: boolean = false,
+  forceRestart: boolean = false,
 ): Promise<{ status: string; generation_step: GenerationStep; kra_suggestions: KRAKPIRecord["kra_suggestions"] }> {
   const url = `${API_URL}/kra-kpi/generate/${jdSessionId}?employee_id=${encodeURIComponent(employeeId)}${
     bypassManager ? "&bypass_manager=true" : ""
-  }`;
+  }${forceRestart ? "&force_restart=true" : ""}`;
   const res = await fetch(url, { method: "POST" });
   const data = await res.json();
   if (!res.ok) {

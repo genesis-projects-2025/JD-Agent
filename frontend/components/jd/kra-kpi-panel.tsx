@@ -3064,14 +3064,14 @@ export const KRAKPIPanel = forwardRef<any, KRAKPIPanelProps>(
     prereqStatus.missing.length > 0 &&
     !prereqStatus.missing.includes("employee_jd");
 
-  const handleGenerate = async (bypassManager: boolean = false) => {
+  const handleGenerate = async (bypassManager: boolean = false, forceRestart: boolean = false) => {
     setGenerating(true);
     setError(null);
     setShowBypassModal(false);
     try {
       // Auto-bypass if manager is missing
       const actualBypass = bypassManager || (hasOnlyManagerMissing ? true : false);
-      await generateKRASuggestions(jdSessionId, employeeId, actualBypass);
+      await generateKRASuggestions(jdSessionId, employeeId, actualBypass, forceRestart);
       await reload();
     } catch (e: any) {
       setError(e.message || "Generation failed");
@@ -3221,7 +3221,7 @@ export const KRAKPIPanel = forwardRef<any, KRAKPIPanelProps>(
         </div>
         {record && step !== "confirmed" && (
           <button
-            onClick={() => handleGenerate(false)}
+            onClick={() => handleGenerate(false, true)}
             disabled={generating}
             className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-surface-500 border border-surface-200 rounded-lg hover:bg-surface-50 disabled:opacity-50 transition-colors"
           >

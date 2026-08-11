@@ -168,12 +168,13 @@ async def generate_kra_suggestions_endpoint(
     jd_session_id: str,
     employee_id: str = Query(...),
     bypass_manager: bool = Query(False),
+    force_restart: bool = Query(False),
     db: AsyncSession = Depends(get_db),
 ):
     """Step 1: Generate 6–7 KRA suggestions (employee JD as primary source)."""
     try:
         record = await generate_kra_suggestions_for_employee(
-            db, jd_session_id, employee_id, bypass_manager=bypass_manager
+            db, jd_session_id, employee_id, bypass_manager=bypass_manager, force_restart=force_restart
         )
         return {
             "status": "success",

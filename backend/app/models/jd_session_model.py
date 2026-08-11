@@ -30,8 +30,8 @@ class JDSession(Base):
         String(36), nullable=True, index=True
     )
 
-    title: Mapped[str | None] = mapped_column(Text, nullable=True)
-    department: Mapped[str | None] = mapped_column(Text, nullable=True)
+    _title: Mapped[str | None] = mapped_column("title", Text, nullable=True)
+    _department: Mapped[str | None] = mapped_column("department", Text, nullable=True)
     status: Mapped[str] = mapped_column(Text, nullable=False, default="collecting", index=True)
     version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
 
@@ -51,6 +51,34 @@ class JDSession(Base):
 
     # Relationships
     employee = relationship("Employee", back_populates="jd_sessions")
+    organogram_record = relationship(
+        "Organogram",
+        primaryjoin="foreign(JDSession.employee_id) == remote(Organogram.code)",
+        uselist=False,
+        lazy="joined",
+        viewonly=True,
+        overlaps="employee",
+    )
+
+    @property
+    def title(self) -> str | None:
+        if self.organogram_record and self.organogram_record.designation:
+            return self.organogram_record.designation
+        return self._title
+
+    @title.setter
+    def title(self, value):
+        self._title = value
+
+    @property
+    def department(self) -> str | None:
+        if self.organogram_record and self.organogram_record.department:
+            return self.organogram_record.department
+        return self._department
+
+    @department.setter
+    def department(self, value):
+        self._department = value
     conversation_turns = relationship(
         "ConversationTurn",
         back_populates="session",

@@ -32,9 +32,10 @@ def _get_llm() -> ChatGoogleGenerativeAI:
     return ChatGoogleGenerativeAI(
         google_api_key=settings.GEMINI_API_KEY,
         model="gemini-2.5-flash",
-        temperature=0.2,
+        temperature=0.1,
         max_output_tokens=4096,
         response_mime_type="application/json",
+        thinking_budget=0,
     )
 
 
@@ -109,8 +110,6 @@ def _build_kra_suggestion_prompt(
     employee_department: str,
     employee_purpose: str,
     employee_responsibilities: list[str],
-    employee_priority_tasks: list[str],
-    employee_workflows: dict,
     employee_skills: list[str],
     employee_tools: list[str],
     manager_title: str,
@@ -120,18 +119,6 @@ def _build_kra_suggestion_prompt(
     domain_rules = _get_domain_rules(employee_title, employee_department)
 
     # Build task detail block
-    task_lines = []
-    for task in employee_priority_tasks[:7]:
-        wf = employee_workflows.get(task, {})
-        output = wf.get("output", "")
-        tools_wf = ", ".join(wf.get("tools", [])[:3]) if wf.get("tools") else ""
-        line = f"  • {task}"
-        if output:
-            line += f" → Deliverable: {output}"
-        if tools_wf:
-            line += f" (Tools: {tools_wf})"
-        task_lines.append(line)
-    tasks_block = "\n".join(task_lines) if task_lines else "  (Priority tasks not specified)"
 
     resp_block = "; ".join(employee_responsibilities[:8]) if employee_responsibilities else "N/A"
     tools_str = ", ".join(employee_tools[:10]) if employee_tools else "N/A"
@@ -156,7 +143,6 @@ def _build_kra_suggestion_prompt(
         employee_department=employee_department,
         employee_purpose=employee_purpose,
         resp_block=resp_block,
-        tasks_block=tasks_block,
         skills_str=skills_str,
         tools_str=tools_str,
         manager_title=manager_title,
@@ -306,8 +292,6 @@ async def generate_kra_suggestions(
         employee_department=employee_data.get("department", ""),
         employee_purpose=employee_data.get("purpose", ""),
         employee_responsibilities=employee_data.get("responsibilities", []),
-        employee_priority_tasks=employee_data.get("priority_tasks", []),
-        employee_workflows=employee_data.get("workflows", {}),
         employee_skills=employee_data.get("skills", []),
         employee_tools=employee_data.get("tools", []),
         manager_title=manager_jd_data.get("title", ""),
@@ -322,7 +306,7 @@ async def generate_kra_suggestions(
     handler = get_langfuse_callback_handler(trace_name="kra-suggestion")
     callbacks = [handler] if handler else []
     response = await throttled_ainvoke(llm, prompt, config={"callbacks": callbacks})
-    # print(response.content)
+    print(response)
     payload = _parse_llm_json(str(response.content))
     suggestions = payload.get("kra_suggestions") or payload.get("kras") or payload.get("items") or payload.get("data") or []
     if not suggestions and isinstance(payload, list):

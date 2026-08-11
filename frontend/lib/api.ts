@@ -94,11 +94,11 @@ export function getCurrentUser(): AuthUser | null {
 
 // ── Role helpers ──────────────────────────────────────────────────────────────
 
-export const isEmployee = (u: AuthUser | null) => !u || u.role === "employee";
-export const isManager = (u: AuthUser | null) => u?.role === "manager" || u?.role === "head";
-export const isHead = (u: AuthUser | null) => u?.role === "head";
+export const isEmployee = (u: AuthUser | null) => !u || u.role === "Employee";
+export const isManager = (u: AuthUser | null) => u?.role === "Manager" || u?.role === "manager" || u?.role === "AGM";
+export const isHead = (u: AuthUser | null) => u?.role === "Head" || u?.role==="head";
 export const isHR = (u: AuthUser | null) =>
-  u?.role === "hr" || u?.role === "admin";
+  u?.role === "HR" || u?.role === "admin";
 export const canApprove = (u: AuthUser | null) => isManager(u) || isHR(u);
 
 

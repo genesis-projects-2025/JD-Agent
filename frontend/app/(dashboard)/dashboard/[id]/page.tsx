@@ -385,6 +385,7 @@ function EmployeeView({
   user: AuthUser | null;
 }) {
   const cachedEmp = getAdminCache<any>("emp_dashboard_" + employeeId);
+
   const [allJds, setAllJds] = useState<JDListItem[]>(cachedEmp.data?.jds || []);
   const [loading, setLoading] = useState(!cachedEmp.data);
   const [roleTemplate, setRoleTemplate] = useState<RoleTemplateResponse | null>(cachedEmp.data?.roleTemplate || null);

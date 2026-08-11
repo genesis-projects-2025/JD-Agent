@@ -95,7 +95,8 @@ export function getCurrentUser(): AuthUser | null {
 // ── Role helpers ──────────────────────────────────────────────────────────────
 
 export const isEmployee = (u: AuthUser | null) => !u || u.role === "Employee";
-export const isManager = (u: AuthUser | null) => u?.role === "Manager" || u?.role === "manager" || u?.role === "AGM" || u?.role==="DGM" || u?.role==="Assistant Manager" || u?.role==="Senior Manager";
+export const isManager = (u: AuthUser | null) => u?.role === "Manager" || u?.role === "manager" || u?.role === "AGM" || u?.role==="DGM" || u?.role==="Assistant Manager" || u?.role==="Senior Manager" || u?.role==="Head of Department" || u?.role==="Department Head" || u?.role===
+"Deputy Manager";
 export const isHead = (u: AuthUser | null) => u?.role === "Head" || u?.role==="head";
 export const isHR = (u: AuthUser | null) =>
   u?.role === "HR" || u?.role === "admin";

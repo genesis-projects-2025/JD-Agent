@@ -96,8 +96,8 @@ export function getCurrentUser(): AuthUser | null {
 
 export const isEmployee = (u: AuthUser | null) => !u || u.role === "Employee";
 export const isManager = (u: AuthUser | null) => u?.role === "Manager" || u?.role === "manager" || u?.role === "AGM" || u?.role==="DGM" || u?.role==="Assistant Manager" || u?.role==="Senior Manager" || u?.role==="Head of Department" || u?.role==="Department Head" || u?.role===
-"Deputy Manager";
-export const isHead = (u: AuthUser | null) => u?.role === "Head" || u?.role==="head";
+"Deputy Manager" || u?.role==="Director" || u?.role==="head";
+export const isHead = (u: AuthUser | null) => u?.role === "Head" || u?.role==="head" || u?.role === "Director";
 export const isHR = (u: AuthUser | null) =>
   u?.role === "HR" || u?.role === "admin";
 export const canApprove = (u: AuthUser | null) => isManager(u) || isHR(u);

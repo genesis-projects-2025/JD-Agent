@@ -806,12 +806,29 @@ async def review_kra_kpi(
             detail="Invalid action. Must be 'approved' or 'rejected'."
         )
 
-    # 1. Fetch reviewer role
+    # 1. Fetch reviewer role and verify authority
     reviewer_res = await db.execute(
         select(Employee).where(Employee.id == request.reviewer_id)
     )
     reviewer = reviewer_res.scalar_one_or_none()
-    reviewer_role = reviewer.role if reviewer else "manager"
+    reviewer_role = (reviewer.role or "").lower() if reviewer else "manager"
+
+    emp_res = await db.execute(
+        select(Employee).where(Employee.id == record.employee_id)
+    )
+    emp = emp_res.scalar_one_or_none()
+
+    is_hr = reviewer_role in ["hr", "admin"]
+    is_direct_mgr = emp and emp.reporting_manager_code and emp.reporting_manager_code.strip().upper() == request.reviewer_id.strip().upper()
+
+    if not is_hr and not is_direct_mgr:
+        from app.services.dashboard_service import DashboardService
+        recursive_reports = await DashboardService.get_recursive_reports(db, request.reviewer_id)
+        if not emp or emp.id not in recursive_reports:
+            raise HTTPException(
+                status_code=403,
+                detail="You are not authorized to review this employee's KRA/KPI framework."
+            )
 
     # 2. Update status based on reviewer role and action
     now = datetime.now(timezone.utc)
@@ -820,19 +837,18 @@ async def review_kra_kpi(
     record.reviewed_at = now
 
     if request.action == "rejected":
-        if reviewer_role in ["hr", "admin"]:
+        if is_hr:
             record.status = "hr_rejected"
         else:
             record.status = "manager_rejected"
     elif request.action == "approved":
-        if reviewer_role in ["hr", "admin"]:
+        if is_hr or reviewer_role in ["head", "director", "vp", "president", "ceo"]:
             record.status = "approved"
         else:
             record.status = "sent_to_hr"
             # Set improvements only when manager approves
             if request.skill_ratings is not None:
                 record.skill_ratings = request.skill_ratings
-            # We clear/ignore the improvement areas/goals since we only use ratings now
             record.improvement_area = None
             record.improvement_goal = None
             record.improvement_status = "sent_to_employee"
@@ -887,6 +903,13 @@ async def export_darwinbox_employee(
     record = await get_kra_kpi_by_jd_session(db, jd_session_id)
     if not record:
         raise HTTPException(status_code=404, detail="No KRA/KPI session found.")
+
+    if record.status not in ("approved", "confirmed"):
+        raise HTTPException(
+            status_code=400,
+            detail="Cannot export Darwinbox CSV for a KRA/KPI framework that has not been approved."
+        )
+
     employee_id = record.employee_id
 
     try:

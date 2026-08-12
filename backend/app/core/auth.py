@@ -28,14 +28,43 @@ async def get_current_user(
     
     return user
 
-async def hr_required(user: Employee = Depends(get_current_user)):
+async def hr_required(
+    user: Employee = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
     """Ensures the user has HR or Department Head privileges."""
-    if user.role not in ["hr", "head", "admin"]:
-        raise HTTPException(status_code=403, detail="HR permissions required")
-    return user
+    if user.role in ["hr", "head", "admin"]:
+        return user
+    
+    user_role_lower = (user.role or "").lower()
+    if any(kw in user_role_lower for kw in ["hr", "human resource", "admin"]):
+        return user
 
-async def manager_required(user: Employee = Depends(get_current_user)):
+    raise HTTPException(status_code=403, detail="HR permissions required")
+
+async def manager_required(
+    user: Employee = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
     """Ensures the user has Managerial privileges."""
-    if user.role not in ["manager", "head", "hr", "admin"]:
-        raise HTTPException(status_code=403, detail="Manager permissions required")
-    return user
+    if user.role in ["manager", "head", "hr", "admin"]:
+        return user
+    
+    from app.services.dashboard_service import DashboardService
+    has_reports = await DashboardService.has_direct_reports(db, user.id)
+    if has_reports:
+        if user.role not in ["manager", "head", "hr", "admin"]:
+            user.role = "manager"
+            await db.commit()
+            await db.refresh(user)
+        return user
+    
+    manager_keywords = [
+        "manager", "head", "director", "vp", "vice president", "avp", "agm", "dgm",
+        "lead", "chief", "president", "officer", "supervisor"
+    ]
+    user_role_lower = (user.role or "").lower()
+    if any(kw in user_role_lower for kw in manager_keywords):
+        return user
+
+    raise HTTPException(status_code=403, detail="Manager permissions required")

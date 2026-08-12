@@ -129,6 +129,12 @@ async def login_organogram(request: LoginRequest, db: AsyncSession = Depends(get
     await db.commit()
     await db.refresh(emp)
 
+    # Fetch designation from organogram if available
+    desig_query = text("SELECT designation FROM organogram WHERE code = :emp_code")
+    desig_res = await db.execute(desig_query, {"emp_code": request.emp_code})
+    desig_row = desig_res.fetchone()
+    designation = desig_row[0] if desig_row else None
+
     return {
         "status": "success",
         "employee": {
@@ -136,9 +142,12 @@ async def login_organogram(request: LoginRequest, db: AsyncSession = Depends(get
             "name": emp.name,
             "email": emp.email,
             "department": emp.department,
+            "designation": designation,
             "reporting_manager": emp.reporting_manager,
             "reporting_manager_code": emp.reporting_manager_code,
             "role": emp.role,
+            "is_manager": has_reports or emp.role in ["manager", "head", "hr", "admin"],
+            "has_reports": has_reports,
             "phone_mobile": emp.phone_mobile,
         },
     }
@@ -166,14 +175,37 @@ async def get_my_profile(emp_code: str, db: AsyncSession = Depends(get_db)):
                 status_code=404, detail="Employee profile not found in directory"
             )
 
+    # Fetch organogram info for direct reports and designation
+    org_query = text("""
+        SELECT designation, department, reporting_manager, reporting_manager_code
+        FROM organogram
+        WHERE code = :emp_code
+    """)
+    org_res = await db.execute(org_query, {"emp_code": emp_code})
+    org_row = org_res.mappings().first()
+
+    has_reports = await DashboardService.has_direct_reports(db, emp_code)
+    designation = org_row.get("designation") if org_row else None
+
+    # Auto-heal role if user has direct reports or manager designation but role in DB is 'employee'
+    is_manager_role = emp.role in ["manager", "head", "hr", "admin"]
+    if has_reports and not is_manager_role:
+        emp.role = "manager"
+        await db.commit()
+        await db.refresh(emp)
+        is_manager_role = True
+
     return {
         "employee_id": emp.id,
         "name": emp.name,
         "email": emp.email,
-        "department": emp.department,
+        "department": emp.department or (org_row.get("department") if org_row else None),
+        "designation": designation,
         "reporting_manager": emp.reporting_manager,
         "reporting_manager_code": emp.reporting_manager_code,
         "role": emp.role,
+        "is_manager": has_reports or is_manager_role,
+        "has_reports": has_reports,
         "phone_mobile": emp.phone_mobile,
     }
 

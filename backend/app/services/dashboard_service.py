@@ -4,6 +4,17 @@ from typing import List, Dict, Any, Set
 
 class DashboardService:
     @staticmethod
+    async def has_direct_reports(db: AsyncSession, emp_code: str) -> bool:
+        """
+        Determines if an employee has direct reports in the organogram.
+        """
+        query = text("""
+            SELECT 1 FROM organogram WHERE reporting_manager_code = :code LIMIT 1
+        """)
+        result = await db.execute(query, {"code": emp_code})
+        return bool(result.fetchone())
+
+    @staticmethod
     async def get_recursive_reports(db: AsyncSession, manager_code: str) -> Set[str]:
         """
         Builds a set of all recursive report employee codes (direct and indirect).

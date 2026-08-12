@@ -1725,6 +1725,8 @@ const ConfirmedView = forwardRef<any, {
   onRegenerate: () => void;
   onSendForApproval: () => Promise<void>;
   isManager?: boolean;
+  isDirectManager?: boolean;
+  isHRUser?: boolean;
   onSave?: (kras: FinalKRA[], confirm: boolean) => Promise<void>;
   jdData?: any;
 }>(function ConfirmedView({
@@ -1732,6 +1734,8 @@ const ConfirmedView = forwardRef<any, {
   onRegenerate,
   onSendForApproval,
   isManager = false,
+  isDirectManager = false,
+  isHRUser = false,
   onSave,
   jdData = null,
 }, ref) {
@@ -1798,7 +1802,7 @@ const ConfirmedView = forwardRef<any, {
   // Fetch unique skills for manager review
   useEffect(() => {
     const loadReviewSkills = async () => {
-      if (isManager && status === "sent_to_manager" && (!record.skill_ratings || record.skill_ratings.length === 0)) {
+      if (isDirectManager && status === "sent_to_manager" && (!record.skill_ratings || record.skill_ratings.length === 0)) {
         setLoadingSkills(true);
         try {
           const data = await fetchKRAKPIReviewSkills(record.jd_session_id);
@@ -1812,7 +1816,7 @@ const ConfirmedView = forwardRef<any, {
       }
     };
     loadReviewSkills();
-  }, [isManager, status, record.jd_session_id, record.skill_ratings]);
+  }, [isDirectManager, status, record.jd_session_id, record.skill_ratings]);
 
   const handleManagerReviewSubmit = async (action: "approved" | "rejected") => {
     const reviewer = getCurrentUser();
@@ -2263,8 +2267,10 @@ const ConfirmedView = forwardRef<any, {
         </div>
       )}
 
-      {/* Manager Action Panel — rendered at the top for easy access */}
-      {isManager && (status === "sent_to_manager" || status === "sent_to_hr") && (
+      {/* Manager Action Panel — rendered at the top for easy access.
+          Gated by review stage: the direct manager acts while it's
+          sent_to_manager, HR acts while it's sent_to_hr. */}
+      {((isDirectManager && status === "sent_to_manager") || (isHRUser && status === "sent_to_hr")) && (
         <div className="bg-white border border-primary-100 rounded-2xl p-5 shadow-sm space-y-4">
           <div className="flex items-center justify-between">
             <div>
@@ -2982,12 +2988,14 @@ interface KRAKPIPanelProps {
   jdSessionId: string;
   employeeId: string;
   isManager?: boolean;
+  isDirectManager?: boolean;
+  isHRUser?: boolean;
   externalEditActive?: boolean;
   jdData?: any;
 }
 
 export const KRAKPIPanel = forwardRef<any, KRAKPIPanelProps>(
-  function KRAKPIPanel({ jdSessionId, employeeId, isManager = false, externalEditActive = false, jdData = null }, ref) {
+  function KRAKPIPanel({ jdSessionId, employeeId, isManager = false, isDirectManager = false, isHRUser = false, externalEditActive = false, jdData = null }, ref) {
   const [record, setRecord] = useState<KRAKPIRecord | null>(null);
   const [prereqStatus, setPrereqStatus] = useState<PrerequisiteStatus | null>(null);
   const [loading, setLoading] = useState(true);
@@ -3353,6 +3361,8 @@ export const KRAKPIPanel = forwardRef<any, KRAKPIPanelProps>(
                 onSendForApproval={handleSendForApproval}
                 jdData={localJd}
                 isManager={isManager}
+                isDirectManager={isDirectManager}
+                isHRUser={isHRUser}
               />
             )}
             {step === "uploaded" && (

@@ -650,39 +650,48 @@ async def update_questionnaire_status(
     record = result.scalar_one_or_none()
     if not record:
         return None
-    if record.employee_id != employee_id:
-        from app.models.user_model import Employee
 
-        editor_res = await db.execute(
-            select(Employee).where(Employee.id == employee_id)
+    from app.models.user_model import Employee
+
+    editor_res = await db.execute(
+        select(Employee).where(Employee.id == employee_id)
+    )
+    editor = editor_res.scalar_one_or_none()
+    creator_res = await db.execute(
+        select(Employee).where(Employee.id == record.employee_id)
+    )
+    creator = creator_res.scalar_one_or_none()
+
+    is_owner = record.employee_id == employee_id
+    is_hr = (editor and editor.role in ["hr", "admin"]) or (
+        currentUserRole := (editor.role if editor else "")
+    ) in ["hr", "admin"]
+    is_manager = (
+        editor
+        and creator
+        and (
+            editor.role in ["manager", "head"]
+            or (editor.has_reports if hasattr(editor, "has_reports") else False)
         )
-        editor = editor_res.scalar_one_or_none()
-        creator_res = await db.execute(
-            select(Employee).where(Employee.id == record.employee_id)
+        and creator.reporting_manager_code == editor.id
+    )
+
+    # Check indirect recursive reports if role is manager/head
+    if not is_manager and editor and creator:
+        from app.services.dashboard_service import DashboardService
+        recursive_reports = await DashboardService.get_recursive_reports(db, editor.id)
+        if creator.id in recursive_reports:
+            is_manager = True
+
+    # Security Guard: Employees cannot self-approve or reject their own JDs
+    if is_owner and not is_hr and not is_manager:
+        if new_status in ["approved", "manager_rejected", "hr_rejected"]:
+            raise PermissionError(f"Employees cannot perform '{new_status}' status transition on their own JD.")
+
+    if not is_owner and not is_manager and not is_hr:
+        raise PermissionError(
+            "You can only update status of your own JDs, or JDs submitted to you."
         )
-        creator = creator_res.scalar_one_or_none()
-
-        is_manager = (
-            editor
-            and creator
-            and editor.role in ["manager", "head"]
-            and creator.reporting_manager_code == editor.id
-        )
-
-        # Check indirect recursive reports if role is manager/head
-        if not is_manager and editor and creator and editor.role in ["manager", "head"]:
-            from app.services.dashboard_service import DashboardService
-            recursive_reports = await DashboardService.get_recursive_reports(db, editor.id)
-            if creator.id in recursive_reports:
-                is_manager = True
-
-        is_hr = editor and editor.role in ["hr", "admin"]
-        is_owner_submitting = record.employee_id == employee_id
-
-        if not is_manager and not is_hr and not is_owner_submitting:
-            raise PermissionError(
-                "You can only update status of your own JDs, or JDs submitted to you."
-            )
 
     record.status = new_status
     # Also update status inside conversation_state JSONB if it exists
@@ -715,6 +724,7 @@ async def update_questionnaire_status(
         _trigger_rag_indexing(record)
 
     await invalidate_pattern(f"jds:employee:{record.employee_id}")
+    await invalidate_pattern(f"cache:kra_kpi:*{record.id}*")
 
     logger.info(f"✅ JD status updated — id={record.id}, status={record.status}")
     return record
@@ -884,10 +894,9 @@ async def list_manager_pending_jds(
     from app.services.dashboard_service import DashboardService
     from sqlalchemy import select, or_
 
-    # Collect all direct & indirect reporting employees
+    # Collect direct reporting employees for action required items
     direct_reports = await DashboardService.get_direct_reports(db, manager_id)
-    recursive_reports = await DashboardService.get_recursive_reports(db, manager_id)
-    all_reports = direct_reports.union(recursive_reports)
+    all_reports = set(direct_reports)
 
     emp_res = await db.execute(select(Employee.id).where(Employee.reporting_manager_code == manager_id))
     all_reports.update([row[0] for row in emp_res.all()])
@@ -935,7 +944,7 @@ async def list_manager_pending_jds(
     from app.routers.jd_routes import _attach_kra_kpi_status
     await _attach_kra_kpi_status(db, records)
 
-    # Filter to ONLY items requiring Manager action
+    # Filter to ONLY items requiring Manager action and serialize to dicts
     pending_records = []
     for r in records:
         jd_status = r.get("status") if isinstance(r, dict) else getattr(r, "status", None)
@@ -944,12 +953,30 @@ async def list_manager_pending_jds(
             jd_status in ("sent_to_manager", "hr_rejected")
             or kra_status in ("sent_to_manager", "hr_rejected")
         ):
-            pending_records.append(r)
+            if isinstance(r, dict):
+                pending_records.append(r)
+            else:
+                emp = getattr(r, "employee", None)
+                emp_name = emp.name if emp else None
+                if not emp_name and getattr(r, "organogram_record", None):
+                    emp_name = r.organogram_record.employee_name
+                pending_records.append({
+                    "id": str(r.id),
+                    "employee_id": r.employee_id,
+                    "title": getattr(r, "title", "Job Description"),
+                    "department": getattr(r, "department", None) or (emp.department if emp else None),
+                    "status": r.status,
+                    "version": r.version,
+                    "created_at": r.created_at.isoformat() if getattr(r, "created_at", None) else None,
+                    "updated_at": r.updated_at.isoformat() if getattr(r, "updated_at", None) else None,
+                    "employee_name": emp_name or "Employee",
+                    "kra_kpi_status": getattr(r, "kra_kpi_status", None),
+                })
 
     return pending_records
 
 
-async def list_hr_pending_jds(db: AsyncSession) -> list[JDSession]:
+async def list_hr_pending_jds(db: AsyncSession) -> list[dict]:
     result = await db.execute(
         select(JDSession)
         .options(selectinload(JDSession.employee))
@@ -965,7 +992,22 @@ async def list_hr_pending_jds(db: AsyncSession) -> list[JDSession]:
         jd_status = getattr(r, "status", None)
         kra_status = getattr(r, "kra_kpi_status", None)
         if jd_status == "sent_to_hr" or kra_status == "sent_to_hr":
-            pending_records.append(r)
+            emp = getattr(r, "employee", None)
+            emp_name = emp.name if emp else None
+            if not emp_name and getattr(r, "organogram_record", None):
+                emp_name = r.organogram_record.employee_name
+            pending_records.append({
+                "id": str(r.id),
+                "employee_id": r.employee_id,
+                "title": getattr(r, "title", "Job Description"),
+                "department": getattr(r, "department", None) or (emp.department if emp else None),
+                "status": r.status,
+                "version": r.version,
+                "created_at": r.created_at.isoformat() if getattr(r, "created_at", None) else None,
+                "updated_at": r.updated_at.isoformat() if getattr(r, "updated_at", None) else None,
+                "employee_name": emp_name or "Employee",
+                "kra_kpi_status": getattr(r, "kra_kpi_status", None),
+            })
 
     return pending_records
 

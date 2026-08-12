@@ -11,7 +11,6 @@ from app.core.auth import hr_required, manager_required
 router = APIRouter()
 
 @router.get("/department-stats", dependencies=[Depends(hr_required)])
-@cached_response("dept_stats", ttl=300)
 async def get_department_stats(db: AsyncSession = Depends(get_db)):
     """
     Fetches the total number of employees per department directly from the organogram table,
@@ -158,7 +157,6 @@ async def get_department_stats(db: AsyncSession = Depends(get_db)):
 
 
 @router.get("/departments/{department_name}/employees")
-@cached_response("dept_employees", ttl=300)
 async def get_department_employees(
     department_name: str, 
     page: int = 1, 

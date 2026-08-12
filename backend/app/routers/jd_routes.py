@@ -531,6 +531,12 @@ async def save_jd(request: SaveJDRequest, db: AsyncSession = Depends(get_db)):
         except Exception as _e:
             logger.warning(f"Could not stamp organogram fields into jd_structured: {_e}")
 
+    # Preserve status if document is already submitted or approved
+    target_status = "jd_generated"
+    existing_record = await get_questionnaire(db, session_id)
+    if existing_record and existing_record.status in ("sent_to_manager", "sent_to_hr", "approved", "manager_rejected", "hr_rejected"):
+        target_status = existing_record.status
+
     try:
         record = await save_questionnaire_jd(
             db=db,
@@ -541,7 +547,7 @@ async def save_jd(request: SaveJDRequest, db: AsyncSession = Depends(get_db)):
             progress=session_memory.to_dict(),
             employee_id=request.employee_id or session_memory.employee_id or "",
             conversation_history=db_history,
-            status="jd_generated",
+            status=target_status,
         )
 
         await invalidate_pattern("cache:jd_list:*")
@@ -856,7 +862,7 @@ async def get_employee_role_template(
 @router.get("/employee/{employee_id}")
 async def get_employee_jds(employee_id: str, db: AsyncSession = Depends(get_db)):
     records = await list_questionnaires_by_employee(db, employee_id)
-    # records might be already serialised (from cache) or raw objects
+    # records might be already serialised or raw objects
     if records and isinstance(records[0], dict):
         return records
     return [_serialize_list_item(r) for r in records]
@@ -864,7 +870,6 @@ async def get_employee_jds(employee_id: str, db: AsyncSession = Depends(get_db))
 
 # ── List pending for Manager ──────────────────────────────────────────────────
 @router.get("/manager/{manager_id}/pending")
-@cached_response("manager_pending", ttl=300)
 async def get_manager_pending_jds(manager_id: str, db: AsyncSession = Depends(get_db)):
     records = await list_manager_pending_jds(db, manager_id)
     await _attach_kra_kpi_status(db, records)
@@ -873,7 +878,6 @@ async def get_manager_pending_jds(manager_id: str, db: AsyncSession = Depends(ge
 
 # ── List pending for HR ───────────────────────────────────────────────────────
 @router.get("/hr/pending")
-@cached_response("hr_pending", ttl=300)
 async def get_hr_pending_jds(db: AsyncSession = Depends(get_db)):
     records = await list_hr_pending_jds(db)
     await _attach_kra_kpi_status(db, records)
@@ -1035,7 +1039,6 @@ async def download_jd_darwinbox_csv(jd_id: str, db: AsyncSession = Depends(get_d
 
 
 @router.get("/{jd_id}")
-@cached_response("jd_detail", ttl=600)
 async def get_jd(jd_id: str, db: AsyncSession = Depends(get_db)):
     record = await get_questionnaire(db, jd_id)
     if not record:
@@ -1239,6 +1242,8 @@ async def update_jd_status(
         await invalidate_pattern("cache:manager_pending:*")
         await invalidate_pattern("cache:hr_pending:*")
         await invalidate_pattern("cache:dept_stats:*")
+        await invalidate_pattern("cache:dept_employees:*")
+        await invalidate_pattern(f"jds:employee:{request.employee_id}")
         await invalidate_pattern(f"cache:jd_detail:*{jd_id}*")
         await invalidate_pattern(f"session:{jd_id}")
 
@@ -1356,20 +1361,6 @@ def _resolve_session_title(r) -> str:
         t = emp_info.get("title") or struct.get("title") or struct.get("job_title") or struct.get("role_title")
         if t and str(t).strip() and str(t).strip().lower() not in ("head", "executive", "none", "job description"):
             return str(t).strip()
-
-    text = getattr(r, "jd_text", None)
-    if text:
-        try:
-            import json
-            parsed = json.loads(text)
-            if isinstance(parsed, dict):
-                p_struct = parsed.get("jd_structured_data") or parsed
-                emp_info = p_struct.get("employee_information") or {}
-                t = emp_info.get("title") or p_struct.get("title") or p_struct.get("job_title") or p_struct.get("role_title")
-                if t and str(t).strip() and str(t).strip().lower() not in ("head", "executive", "none", "job description"):
-                    return str(t).strip()
-        except Exception:
-            pass
 
     if title_str and str(title_str).strip():
         return str(title_str).strip()

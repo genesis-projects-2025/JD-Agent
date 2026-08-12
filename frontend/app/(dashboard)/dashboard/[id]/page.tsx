@@ -948,15 +948,15 @@ function ManagerView({ user }: { user: AuthUser }) {
     async function load() {
       try {
         const [teamData, personalData, statsData, employeesData] = await Promise.all([
-          fetchManagerPendingJDs(user.employee_id),
-          fetchEmployeeJDs(user.employee_id),
+          fetchManagerPendingJDs(user.employee_id).catch(() => []),
+          fetchEmployeeJDs(user.employee_id).catch(() => []),
           fetchMyTeamStats(user.employee_id).catch(() => null),
           fetchMyTeamEmployees(user.employee_id).catch(() => []),
         ]);
-        setAllJds(teamData || []);
-        setMyJds(personalData || []);
+        setAllJds(Array.isArray(teamData) ? teamData : []);
+        setMyJds(Array.isArray(personalData) ? personalData : []);
         setTeamStats(statsData);
-        setMyTeamEmployees(employeesData || []);
+        setMyTeamEmployees(Array.isArray(employeesData) ? employeesData : []);
       } catch (err) {
         console.error(err);
       } finally {
@@ -1699,8 +1699,8 @@ function HRView({ user }: { user: AuthUser }) {
     async function load() {
       try {
         const [allData, personalData, statsData, teamEmps, tStats, mJds] = await Promise.all([
-          getJDs({ submitted_only: true }),
-          fetchEmployeeJDs(user.employee_id),
+          getJDs({ submitted_only: true }).catch(() => []),
+          fetchEmployeeJDs(user.employee_id).catch(() => []),
           fetchHRDepartmentStats().catch(() => []),
           fetchMyTeamEmployees(user.employee_id).catch(() => []),
           fetchMyTeamStats(user.employee_id).catch(() => null),

@@ -680,7 +680,7 @@ async def fetch_employee_export_records(
         List of EmployeeExportRecord ready for CSV generation.
     """
     if status_filter is None:
-        status_filter = ["approved", "confirmed", "sent_to_hr"]
+        status_filter = ["approved", "confirmed"]
 
     records_map: dict[str, EmployeeExportRecord] = {}
 

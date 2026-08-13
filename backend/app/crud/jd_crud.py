@@ -585,7 +585,7 @@ async def update_questionnaire_jd(
             editor
             and creator
             and editor.role in ["manager", "head"]
-            and creator.reporting_manager_code == editor.id
+            and (creator.reporting_manager_code or "").strip().upper() == (editor.id or "").strip().upper()
         )
         is_hr = editor and editor.role in ["hr", "admin"]
 
@@ -673,7 +673,7 @@ async def update_questionnaire_status(
             editor.role in ["manager", "head"]
             or (editor.has_reports if hasattr(editor, "has_reports") else False)
         )
-        and creator.reporting_manager_code == editor.id
+        and (creator.reporting_manager_code or "").strip().upper() == (editor.id or "").strip().upper()
     )
 
     # Check indirect recursive reports if role is manager/head

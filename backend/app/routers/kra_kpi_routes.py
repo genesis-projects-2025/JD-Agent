@@ -85,6 +85,7 @@ class SaveWeightsRequest(BaseModel):
 
 class PrerequisiteStatusResponse(BaseModel):
     ready: bool
+    exists: bool = False
     missing: list[str]
     message: str
     current_step: str | None = None
@@ -139,6 +140,7 @@ async def get_status(
     if current_step == "confirmed" or status_val in ("confirmed", "sent_to_manager", "sent_to_hr", "approved", "manager_rejected", "hr_rejected"):
         return PrerequisiteStatusResponse(
             ready=True,
+            exists=True,
             missing=[],
             message="KRA/KPI framework is confirmed or active in workflow.",
             current_step=current_step,
@@ -148,6 +150,7 @@ async def get_status(
         await check_prerequisites(db, jd_session_id, employee_id)
         return PrerequisiteStatusResponse(
             ready=True,
+            exists=False,
             missing=[],
             message="All prerequisites are available.",
             current_step=current_step,
@@ -936,4 +939,3 @@ async def export_darwinbox_employee(
             )
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
-

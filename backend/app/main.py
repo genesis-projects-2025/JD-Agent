@@ -51,7 +51,7 @@ async def lifespan(app: FastAPI):
     # Runs on shutdown (add cleanup here if needed)
 
 
-app = FastAPI(title="JD Agent API", version=VERSION, lifespan=lifespan)
+app = FastAPI(title="JD Agent", version=VERSION, lifespan=lifespan)
 
 
 app.add_middleware(

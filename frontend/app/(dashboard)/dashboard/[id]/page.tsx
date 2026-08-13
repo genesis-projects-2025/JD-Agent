@@ -376,7 +376,6 @@ function JDGrid({
 }
 
 // ── Employee view — your original design ─────────────────────────────────────
-
 function EmployeeView({
   employeeId,
   user,
@@ -2820,55 +2819,77 @@ function DashboardContent() {
 
   const currentView = searchParams.get("view");
 
-  const [user, setUser] = useState<AuthUser | null>(null);
+  // `sessionUser` = the person actually logged in (drives auth + which shell renders).
+  // `viewedUser`  = the profile being *displayed* (equals sessionUser on your own
+  //                 dashboard, or a report's profile when a manager/HR/admin drills in).
+  // These must never be collapsed into one, or a visitor can end up rendered inside
+  // someone else's Manager/HR shell, pulling that other person's team/department data.
+  const [sessionUser, setSessionUser] = useState<AuthUser | null>(null);
+  const [viewedUser, setViewedUser] = useState<AuthUser | null>(null);
   const [empId, setEmpId] = useState<string>("");
   const [ready, setReady] = useState(false);
 
   useLayoutEffect(() => {
     // Read session from tab-isolated storage
-    const sessionUser = getCurrentUser();
-    if (!sessionUser) {
+    const currentSessionUser = getCurrentUser();
+    if (!currentSessionUser) {
       router.replace("/");
       return;
     }
 
-    const currentEmpId = urlId || sessionUser.employee_id;
+    const currentEmpId = urlId || currentSessionUser.employee_id;
 
     // Security check: standard employees can ONLY view their own dashboard
-    const isOwner = currentEmpId === sessionUser.employee_id;
-    const canViewOthers = ["manager", "head", "hr", "admin"].includes(sessionUser.role);
+    const isOwner = currentEmpId === currentSessionUser.employee_id;
+    const canViewOthers = ["manager", "head", "hr", "admin"].includes(currentSessionUser.role);
     if (!isOwner && !canViewOthers) {
-      router.replace(`/dashboard/${safeBtoa(sessionUser.employee_id)}`);
+      router.replace(`/dashboard/${safeBtoa(currentSessionUser.employee_id)}`);
       return;
     }
 
     // Defer state updates to avoid cascading renders
     const timer = setTimeout(() => {
       setEmpId(currentEmpId);
+      setSessionUser(currentSessionUser);
+
       fetchEmployeeProfile(currentEmpId)
         .then((freshUser) => {
-          setUser(freshUser);
+          setViewedUser(freshUser);
           setReady(true);
         })
         .catch((err) => {
           console.error("Failed to load live profile", err);
-          setUser(sessionUser); // Fallback to cached session
-          setReady(true);
+          // Fallback: if we were viewing our own dashboard, the session copy is a fine
+          // stand-in. If we were drilling into someone else and their profile failed to
+          // load, bounce back to our own dashboard instead of silently mis-rendering.
+          if (isOwner) {
+            setViewedUser(currentSessionUser);
+            setReady(true);
+          } else {
+            router.replace(`/dashboard/${safeBtoa(currentSessionUser.employee_id)}`);
+          }
         });
     }, 0);
     return () => clearTimeout(timer);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [urlId]);
 
-  if (!ready) return <LoadingScreen />;
+  if (!ready || !sessionUser) return <LoadingScreen />;
 
-  // Render correct dashboard based on role regardless of URL parameter.
-  // The internal components use that URL parameter to set their active filter.
-  if (user && isHR(user)) return <HRView user={user} />;
-  if (user && isManager(user)) return <ManagerView user={user} />;
+  const isOwnDashboard = empId === sessionUser.employee_id;
 
-  // Default to EmployeeView
-  return <EmployeeView employeeId={empId} user={user} />;
+  // The SHELL (Employee/Manager/HR) is decided ONLY by the logged-in session user's
+  // real role — never by the profile of whatever employee_id happens to be in the URL.
+  if (isOwnDashboard) {
+    if (isHR(sessionUser)) return <HRView user={sessionUser} />;
+    if (isManager(sessionUser)) return <ManagerView user={sessionUser} />;
+    return <EmployeeView employeeId={empId} user={viewedUser ?? sessionUser} />;
+  }
+
+  // Drilling into someone else's dashboard (manager/HR/admin viewing a report) always
+  // renders the read-only Employee shell, scoped to THEIR employeeId for data fetching,
+  // but never swaps the visitor's own Manager/HR view into the target's identity.
+  return <EmployeeView employeeId={empId} user={viewedUser ?? sessionUser} />;
 }
 
 export default function DynamicDashboardPage() {

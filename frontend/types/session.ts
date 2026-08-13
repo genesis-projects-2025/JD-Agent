@@ -8,6 +8,7 @@ export interface SessionListItem {
   version: number;
   created_at: string | null;
   updated_at: string | null;
+  kra_kpi_status?: string | null;
 }
 
 export interface SessionConversationTurn {

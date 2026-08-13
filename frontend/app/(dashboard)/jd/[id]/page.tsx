@@ -42,6 +42,7 @@ import {
  fetchKRAKPIStatus,
  submitKRAKPIReview,
 } from "@/lib/api";
+import { getCookie, cookieKeys } from "@/lib/cookies";
 
 import FeedbackModal from "@/components/feedback/FeedbackModal";
 import { ReviewRejectModal } from "@/components/ui/review-reject-modal";
@@ -103,7 +104,7 @@ function JDPageContent() {
         router.replace(`/jd/${jdId}`);
         return;
       }
-      if (prereqStatus && !prereqStatus.ready && prereqStatus.current_step !== "confirmed") {
+      if (prereqStatus && !prereqStatus.exists) {
         setPrereqMissing(prereqStatus.missing || []);
         setIsPrereqModalOpen(true);
         setActiveTab("structured");
@@ -166,25 +167,28 @@ function JDPageContent() {
  // localStorage, which is shared across every tab of the same browser — if you
  // test as a different employee in another tab, that write silently overwrites
  // this tab's identity too, which is why role checks below can intermittently
- // fail (e.g. the manager's Approve button disappearing).
+ // fail (e.g. the manager's Approve button disappearing)
  const syncIdentityFromDB = async (): Promise<any> => {
-  const cached = getCurrentUser();
-  if (!cached?.employee_id) return null;
-  try {
-   const res = await fetch(`${API_URL}/me/${cached.employee_id}`);
-   if (res.ok) {
-    const fresh = await res.json();
-    setRole(fresh.role || cached.role);
-    setCurrentUser(fresh);
-    return fresh;
+   const cached = getCurrentUser();
+   const empId = cached?.employee_id || getCookie(cookieKeys.EMPLOYEE_ID) || (typeof window !== "undefined" ? localStorage.getItem("employee_id") : null);
+   if (!empId) return cached || null;
+   try {
+    const res = await fetch(`${API_URL}/auth/me/${empId}`);
+    if (res.ok) {
+     const fresh = await res.json();
+     setRole(fresh.role || cached?.role || "manager");
+     setCurrentUser(fresh);
+     return fresh;
+    }
+   } catch (e) {
+    // DB lookup failed (offline etc) — fall back to cache below
    }
-  } catch (e) {
-   // DB lookup failed (offline etc) — fall back to cache below
-  }
-  setRole(cached.role);
-  setCurrentUser(cached);
-  return cached;
- };
+   if (cached) {
+     setRole(cached.role);
+     setCurrentUser(cached);
+   }
+   return cached;
+  };
 
  useEffect(() => {
   const handleFocus = () => { syncIdentityFromDB(); };
@@ -1278,18 +1282,20 @@ function JDPageContent() {
          return;
        }
        let currentStatus = prereqStatus;
-       if (!currentStatus && jd) {
-         try {
-           currentStatus = await fetchKRAKPIStatus(jdId, jd.employee_id);
-           setPrereqStatus(currentStatus);
-         } catch (e) {}
-       }
-        if (currentStatus && !currentStatus.ready && currentStatus.current_step !== "confirmed") {
-          setPrereqMissing(currentStatus.missing || []);
-          setIsPrereqModalOpen(true);
-          return;
+        if (!currentStatus && jd) {
+          try {
+            currentStatus = await fetchKRAKPIStatus(jdId, jd.employee_id);
+            setPrereqStatus(currentStatus);
+          } catch (e) {}
         }
-       setActiveTab("kra-kpi");
+        if (currentStatus && !currentStatus.exists) {     // ← use the local variable
+            setPrereqMissing(currentStatus.missing || []);
+            setIsPrereqModalOpen(true);
+            setActiveTab("structured");
+            router.replace(`/jd/${jdId}`);
+            return;
+        }
+        setActiveTab("kra-kpi");
      }}
      className={`flex items-center gap-1.5 px-5 py-3 text-sm font-medium transition-colors border-b-2 ${
       activeTab === "kra-kpi"
@@ -1306,22 +1312,20 @@ function JDPageContent() {
   {/* KRA/KPI tab content */}
   {activeTab === "kra-kpi" && currentUser && jd && (
    <div className="p-5 sm:p-8">
-    {currentUser.employee_id !== jd.employee_id && 
-     (isManagerRole || isHRUser) && 
-     (!jd.kra_kpi_status || ["draft"].includes(jd.kra_kpi_status)) ? (
-      <div className="bg-surface-50 rounded-[2.5rem] border border-surface-200 p-12 text-center max-w-2xl mx-auto my-8 relative overflow-hidden shadow-sm">
-        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-48 h-48 bg-amber-500/5 rounded-full blur-3xl pointer-events-none" />
-        <div className="w-16 h-16 bg-white rounded-2xl flex items-center justify-center mx-auto mb-6 shadow-sm border border-surface-100 relative z-10">
-          <Clock className="w-8 h-8 text-amber-500 animate-pulse" />
-        </div>
-        <h3 className="text-xl font-bold text-slate-900 mb-3 relative z-10">
-          KRA & KPI Not Initiated Yet
-        </h3>
-        <p className="text-sm text-slate-500 max-w-md mx-auto leading-relaxed relative z-10">
-          The KRA & KPI performance goals for <strong className="text-slate-800 font-semibold">{jd.employee_name || "this employee"}</strong> have not been initiated or generated yet.
-        </p>
-      </div>
-     ) : (
+    {(!jd.kra_kpi_status || ["draft"].includes(jd.kra_kpi_status)) ? (
+  <div className="...">
+    <h3>
+      {currentUser.employee_id === jd.employee_id
+        ? "KRA & KPI Not Yet Created"
+        : "KRA & KPI Not Initiated Yet"}
+    </h3>
+    <p>
+      {currentUser.employee_id === jd.employee_id
+        ? "Your KRA & KPI performance goals haven't been created or approved yet. Please check your KRA/KPI status before accessing Skill Assessment."
+        : `The KRA & KPI performance goals for ${jd.employee_name || "this employee"} have not been initiated or generated yet.`}
+    </p>
+  </div>
+)  : (
              <KRAKPIPanel
        ref={kraKpiRef}
        externalEditActive={isEditing}

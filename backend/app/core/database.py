@@ -34,7 +34,7 @@ _engine_kwargs: dict = dict(
 if _is_postgres:
     _engine_kwargs.update(
         pool_size=5,       # 5 per worker — prevents hitting Aiven max_connections limit
-        max_overflow=2,     # Burst to 7 per worker max
+        max_overflow=10,     # Burst to 7 per worker max
         pool_recycle=180,   # Recycle every 3 min — frees idle Aiven connections quickly
         pool_timeout=15,    # Wait max 15s for a connection
     )

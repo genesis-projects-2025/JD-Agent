@@ -9,7 +9,7 @@ class DashboardService:
         Determines if an employee has direct reports in the organogram.
         """
         query = text("""
-            SELECT 1 FROM organogram WHERE reporting_manager_code = :code LIMIT 1
+            SELECT 1 FROM organogram WHERE LOWER(TRIM(reporting_manager_code)) = LOWER(TRIM(:code)) LIMIT 1
         """)
         result = await db.execute(query, {"code": emp_code})
         return bool(result.fetchone())
@@ -21,10 +21,10 @@ class DashboardService:
         """
         query = text("""
             WITH RECURSIVE reports AS (
-                SELECT code FROM organogram WHERE reporting_manager_code = :mgr_code
+                SELECT code FROM organogram WHERE LOWER(TRIM(reporting_manager_code)) = LOWER(TRIM(:mgr_code))
                 UNION
                 SELECT o.code FROM organogram o
-                INNER JOIN reports r ON o.reporting_manager_code = r.code
+                INNER JOIN reports r ON LOWER(TRIM(o.reporting_manager_code)) = LOWER(TRIM(r.code))
             )
             SELECT code FROM reports
         """)
@@ -37,7 +37,7 @@ class DashboardService:
         Builds a set of all direct report employee codes (immediate reports only).
         """
         query = text("""
-            SELECT code FROM organogram WHERE reporting_manager_code = :mgr_code
+            SELECT code FROM organogram WHERE LOWER(TRIM(reporting_manager_code)) = LOWER(TRIM(:mgr_code))
         """)
         result = await db.execute(query, {"mgr_code": manager_code})
         return {row[0] for row in result.fetchall()}

@@ -21,6 +21,7 @@ interface JDSession extends SessionListItem {
     title: string | null;
     status: string;
     updated_at: string | null;
+    kra_kpi_status: string | null;
 }
 import {
     LayoutDashboard,
@@ -74,6 +75,7 @@ export default function Sidebar() {
     const router = useRouter();
     const { employeeId, isAuthenticated, logout } = useAuth();
     const [showPrereqPopup, setShowPrereqPopup] = useState(false);
+    const [popupReason, setPopupReason] = useState<"no_jd" | "kra_kpi_not_ready">("no_jd");         
 
     const [isFeedbackOpen, setIsFeedbackOpen] = useState(false);
     const [isMounted, setIsMounted] = useState(false);
@@ -93,10 +95,13 @@ export default function Sidebar() {
         if (routeIdParam) {
             if (pathname.startsWith("/dashboard/") || pathname.startsWith("/feedback/")) {
                 const decoded = safeAtob(routeIdParam);
+                console.log("Decoded employeeId from /dashboard/:id or /feedback/:id route:", decoded);
                 if (decoded) return decoded;
             }
             if (pathname.startsWith("/home/")) {
-                return routeIdParam;
+                const decoded = safeAtob(routeIdParam);
+                console.log("Decoded employeeId from /home/:id route:", routeIdParam);
+                if (decoded) return decoded;
             }
             if (pathname.startsWith("/jd/") && currentJd?.employee_id) {
                 return currentJd.employee_id;
@@ -106,8 +111,17 @@ export default function Sidebar() {
     }, [pathname, routeIdParam, employeeId, currentJd]);
 
     // ── React Query — cached, deduplicated ───────────────────────────────────
+    // "My JDs" panel + Dashboard link: scoped to whoever's dashboard is on screen
+    // (yourself, or — for managers/HR/admin — a report you're drilling into).
     const { data: jds = [], isLoading: loadingJds } = useEmployeeJDs(
         isAuthenticated && activeEmployeeId ? activeEmployeeId : null,
+    );
+
+    // "KRA / KPI" and "Skill Assessment" nav links must always resolve to the
+    // logged-in user's OWN JD — never a report's — even while viewing a report's
+    // dashboard. Keyed on `employeeId` (session), not `activeEmployeeId` (route target).
+    const { data: myOwnJds = [], isLoading: loadingMyOwnJds } = useEmployeeJDs(
+        isAuthenticated && employeeId ? employeeId : null,
     );
 
     const { data: unreadFeedback = [] } = useUnreadFeedback(
@@ -119,14 +133,20 @@ export default function Sidebar() {
         ? unreadFeedback.length
         : 0;
 
-    // Determine target JD ID from active route or employee JDs
-    const targetJdId = useMemo(() => {
-        if (pathname.startsWith("/jd/") && routeIdParam) {
-            return routeIdParam;
-        }
-        const approvedJd = jds.find((j: any) => j.status === "approved");
-        return approvedJd?.id || jds[0]?.id;
-    }, [pathname, routeIdParam, jds]);
+    // Determine target JD ID from active route or the session user's OWN JDs.
+    const targetJd = useMemo(() => {
+    if (pathname.startsWith("/jd/") && routeIdParam) {
+        return myOwnJds.find((j: any) => j.id === routeIdParam) ?? { id: routeIdParam };
+    }
+    return myOwnJds.find((j: any) => j.status === "approved");
+}, [pathname, routeIdParam, myOwnJds]);
+
+    const targetJdId = targetJd?.id;
+    const kraKpiReady = Boolean((targetJd as any)?.kra_kpi_status && (targetJd as any).kra_kpi_status !== "draft");
+    // tune this condition to whatever value actually means "created/approved" in your data
+
+    // True only once we're sure targetJdId is genuinely absent, not just "not loaded yet".
+    const targetJdResolved = pathname.startsWith("/jd/") ? true : !loadingMyOwnJds;
 
     // ── Nav links ─────────────────────────────────────────────────────────────
     type NavItem = {
@@ -134,7 +154,13 @@ export default function Sidebar() {
         href: string;
         icon: React.ElementType;
         description: string;
+        // True only when this link's href genuinely depends on the session user's
+        // own JD (targetJdId). Used to scope the "no JD yet" popup guard so it
+        // doesn't fire on links (e.g. a manager's Skill Assessment) that don't need one.
+        dependsOnOwnJd?: boolean;
     };
+
+    const isElevatedRole = role === "manager" || role === "head" || role === "hr" || role === "admin";
 
     const links: NavItem[] = [
         {
@@ -154,17 +180,20 @@ export default function Sidebar() {
             href: targetJdId ? `/jd/${targetJdId}?tab=kra-kpi` : "#",
             icon: Target,
             description: "My performance goals",
+            dependsOnOwnJd: true,
         },
         {
-            name: "Skill Assessment",
-            href: (role === "manager" || role === "head" || role === "hr" || role === "admin")
-                ? (activeEmployeeId ? `/dashboard/${safeBtoa(activeEmployeeId)}?view=skill_assessment` : "#")
-                : (targetJdId ? `/jd/${targetJdId}?tab=kra-kpi&section=skill-assessment` : "#"),
-            icon: Award,
-            description: (role === "manager" || role === "head" || role === "hr" || role === "admin")
-                ? "Manage team skill gap profiles"
-                : "My skill gap & ratings",
-        },
+    name: "Skill Assessment",
+    href: isElevatedRole
+        ? (activeEmployeeId ? `/dashboard/${safeBtoa(activeEmployeeId)}?view=skill_assessment` : "#")
+        : (targetJdId ? `/jd/${targetJdId}?tab=skill-assessment` : "#"),
+    icon: Award,
+    description: isElevatedRole
+        ? "Manage team skill gap profiles"
+        : "My skill gap & ratings",
+    // Always enforce the popup check for regular employees when targetJdId is missing or incomplete
+    dependsOnOwnJd: !isElevatedRole,
+},
     ];
 
     if (role === "manager" || role === "head") {
@@ -335,9 +364,19 @@ export default function Sidebar() {
                             <Link
                                 key={link.name}
                                 href={link.href}
+                               // Change the popup condition inside sidebar.tsx:
                                 onClick={(e) => {
-                                    if (["KRA / KPI", "Skill Assessment"].includes(link.name) && !targetJdId) {
+                                    if (!link.dependsOnOwnJd) return;
+                                    if (!targetJdResolved) { e.preventDefault(); return; }
+
+                                    if (!targetJd) {
                                         e.preventDefault();
+                                        setPopupReason("no_jd");
+                                        setShowPrereqPopup(true);
+                                    } else if (link.name === "Skill Assessment" && !kraKpiReady) {
+                                        // Intercept Skill Assessment click if KRA/KPI isn't generated/approved yet
+                                        e.preventDefault();
+                                        setPopupReason("kra_kpi_not_ready");
                                         setShowPrereqPopup(true);
                                     }
                                 }}

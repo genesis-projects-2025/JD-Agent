@@ -100,12 +100,19 @@ const STATUS_CONFIG: Record<
   },
 };
 
+// ── NOTE ─────────────────────────────────────────────────────────────────────
+// This file lives at app/dashboard/page.tsx (the ROOT dashboard route, no [id]).
+// Any authenticated user gets redirected to /dashboard/[id] a moment after mount
+// (see the redirect effect below), so almost nobody actually sees the JSX in this
+// file — it only renders for a brief flash, or for a user with no employee_id yet.
+// The real, persistent dashboard UI lives in app/dashboard/[id]/page.tsx.
+// Keeping this file's identity resolution consistent with that file (and with the
+// sidebar) matters ONLY to avoid a flash of wrong/stale data during that redirect.
 export default function DashboardPage() {
   const router = useRouter();
   const [jds, setJds] = useState<JDListItem[]>([]);
   const [pendingJDs, setPendingJDs] = useState<JDListItem[]>([]);
 
-  // Type for department stats (same as used in HR view)
   interface DepartmentStat {
     department: string;
     completed_jds: number;
@@ -160,13 +167,29 @@ export default function DashboardPage() {
   const isManager = isMounted ? apiIsManager(user) : false;
   const isHR = isMounted ? apiIsHR(user) : false;
 
-  // Auto-redirect to dynamic dashboard if we have a user
+  // FIX: resolve the employee id ONCE per mount and reuse it everywhere below,
+  // instead of calling getOrCreateEmployeeId() again inside loadData/confirmDelete.
+  // Calling it repeatedly is harmless if it's a pure read, but if it can ever
+  // create/rotate an id as a side effect, multiple call sites can silently drift
+  // apart (this is the same class of bug as the sidebar reading identity from a
+  // different source than the main content). Resolving once and passing it down
+  // keeps this page internally consistent with itself.
+  const [resolvedEmployeeId, setResolvedEmployeeId] = useState<string | null>(null);
   useEffect(() => {
-    if (isMounted && user?.employee_id) {
-      const encodedId = safeBtoa(user.employee_id);
+    if (!isMounted) return;
+    setResolvedEmployeeId(getOrCreateEmployeeId());
+  }, [isMounted]);
+
+  // Auto-redirect to dynamic dashboard as soon as we know who the user is.
+  // FIX: redirect using the SAME resolved id used for data fetching below,
+  // not a second independent read of user.employee_id, so the id encoded into
+  // the URL can never disagree with the id this page (or the sidebar) fetched with.
+  useEffect(() => {
+    if (isMounted && resolvedEmployeeId) {
+      const encodedId = safeBtoa(resolvedEmployeeId);
       router.replace(`/dashboard/${encodedId}`);
     }
-  }, [isMounted, user, router]);
+  }, [isMounted, resolvedEmployeeId, router]);
 
   // Load team employees for manager dashboard
   const loadTeamEmployees = useCallback(async (empId: string) => {
@@ -183,9 +206,10 @@ export default function DashboardPage() {
   }, []);
 
   const loadData = useCallback(async () => {
+    if (!resolvedEmployeeId) return;
     try {
       setLoading(true);
-      const id = getOrCreateEmployeeId();
+      const id = resolvedEmployeeId;
 
       // Parallelize data fetching
       const promises: Promise<unknown>[] = [fetchEmployeeJDs(id)];
@@ -224,12 +248,12 @@ export default function DashboardPage() {
     } finally {
       setLoading(false);
     }
-  }, [isManager, isHead, isHR, loadTeamEmployees]); // fetch functions are stable
+  }, [resolvedEmployeeId, isManager, isHead, isHR, loadTeamEmployees]);
 
   useEffect(() => {
-    if (!isMounted) return;
+    if (!isMounted || !resolvedEmployeeId) return;
     loadData();
-  }, [role, isMounted, isHead, isManager, isHR, loadData]);
+  }, [role, isMounted, isHead, isManager, isHR, resolvedEmployeeId, loadData]);
 
   // Debug: read state to satisfy lint (these are for future team features)
   useEffect(() => {
@@ -253,12 +277,11 @@ export default function DashboardPage() {
   };
 
   const confirmDelete = async () => {
-    if (!jdToDelete) return;
+    if (!jdToDelete || !resolvedEmployeeId) return;
 
     try {
       setIsDeleting(true);
-      const id = getOrCreateEmployeeId();
-      await deleteJD(jdToDelete, id);
+      await deleteJD(jdToDelete, resolvedEmployeeId);
 
       // Reload Data
       await loadData();

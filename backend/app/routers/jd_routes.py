@@ -80,7 +80,6 @@ def _session_to_cache_dict(memory: SessionMemory) -> dict:
         "working_memory": memory.to_dict(),  # Include everything (questions_asked, etc)
     }
 
-
 def _session_from_cache_dict(data: dict) -> SessionMemory:
     """Restore a SessionMemory from a cached dict."""
     memory = SessionMemory()
@@ -214,12 +213,13 @@ async def hydrate_session_from_db(session_id: str, db: AsyncSession) -> SessionM
 async def init_jd(
     request: InitJDRequest,
     template_session_id: Optional[str] = Query(None),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
 ):
     from sqlalchemy.future import select
     from app.models.user_model import Employee
     from app.models.jd_session_model import JDSession
 
+    # 1. Ensure Employee exists
     emp_result = await db.execute(
         select(Employee).filter(Employee.id == request.employee_id)
     )
@@ -230,6 +230,24 @@ async def init_jd(
         )
         db.add(emp)
         await db.commit()
+
+    # 2. Prevent duplicate sessions: Check if employee already has a session
+    existing_res = await db.execute(
+        select(JDSession)
+        .where(JDSession.employee_id == request.employee_id)
+        .order_by(JDSession.updated_at.desc())
+    )
+    existing_session = existing_res.scalars().first()
+
+    # If employee has an existing active or approved session, return it directly!
+    if existing_session and not template_session_id:
+        # If approved or already submitted, do not let them re-interview
+        if existing_session.status in ("approved", "sent_to_manager", "sent_to_hr"):
+            return {
+                "id": str(existing_session.id),
+                "status": existing_session.status,
+                "employee_id": existing_session.employee_id,
+            }
 
     if template_session_id:
         try:
@@ -280,7 +298,6 @@ async def init_jd(
                 }
         except Exception as e:
             logger.error(f"Failed to copy template session {template_session_id}: {e}")
-
 
     new_id = str(uuid.uuid4())
     memory = SessionMemory()
@@ -731,8 +748,9 @@ async def get_employee_role_template(
     """
     from app.models.user_model import Employee
     from app.models.jd_session_model import JDSession
+    from app.models.reference_jd_model import ReferenceJD
     from sqlalchemy.future import select
-    from sqlalchemy import text
+    from sqlalchemy import text, func
 
     # 1. Fetch employee record
     emp_result = await db.execute(select(Employee).filter(Employee.id == employee_id))
@@ -740,7 +758,7 @@ async def get_employee_role_template(
     if not emp:
         return {"exists": False, "message": "Employee not found"}
 
-    # 2. Get department and designation from organogram first
+    # 2. Extract department and designation from Organogram (Primary Source)
     org_query = text("""
         SELECT designation, department
         FROM organogram
@@ -749,38 +767,51 @@ async def get_employee_role_template(
     org_res = await db.execute(org_query, {"code": employee_id})
     org_row = org_res.mappings().first()
 
-    designation = None
-    department = None
+    raw_designation = None
+    raw_department = None
 
     if org_row:
-        designation = org_row.get("designation")
-        department = org_row.get("department")
+        raw_designation = org_row.get("designation")
+        raw_department = org_row.get("department")
 
-    if not designation:
-        designation = emp.role
-    if not department:
-        department = emp.department
+    # Fallback to Employee model attributes (evaluating properties to str if needed)
+    if not raw_designation:
+        emp_role = getattr(emp, "role", None)
+        raw_designation = emp_role() if callable(emp_role) else emp_role
 
-    if not department or not designation:
+    if not raw_department:
+        emp_dept = getattr(emp, "department", None)
+        raw_department = emp_dept() if callable(emp_dept) else emp_dept
+
+    # Safeguard: Ensure both are converted strictly to plain string primitive types!
+    if isinstance(raw_designation, property):
+        raw_designation = None
+    if isinstance(raw_department, property):
+        raw_department = None
+
+    if not raw_department or not raw_designation:
         return {
             "exists": False,
             "message": "Employee lacks department or designation details",
         }
 
-    # 3. Multi-stage lookup for approved JD
-    from app.models.reference_jd_model import ReferenceJD
+    # Cleaned plain string variables
+    dept_str = str(raw_department).strip().lower()
+    desig_str = str(raw_designation).strip().lower()
 
-    # Step A: Check if this specific employee has an approved JDSession
+    # 3. Step A: Check if THIS specific employee has an approved JDSession with content
     emp_session_query = (
         select(JDSession)
         .where(
             JDSession.employee_id == employee_id,
             JDSession.status == "approved",
+            (JDSession.jd_text.isnot(None)) | (JDSession.jd_structured.isnot(None)),
         )
         .order_by(JDSession.updated_at.desc())
     )
     res_emp = await db.execute(emp_session_query)
     emp_approved = res_emp.scalars().first()
+
     if emp_approved:
         return {
             "exists": True,
@@ -790,10 +821,12 @@ async def get_employee_role_template(
             "jd_text": emp_approved.jd_text,
             "jd_structured": emp_approved.jd_structured,
             "version": emp_approved.version,
-            "updated_at": emp_approved.updated_at.isoformat() if emp_approved.updated_at else None,
+            "updated_at": (
+                emp_approved.updated_at.isoformat() if emp_approved.updated_at else None
+            ),
         }
 
-    # Step B: Check if ReferenceJD exists for this specific employee_id (Admin Uploaded)
+    # Step B: Check ReferenceJD for this specific employee_id (Admin Uploaded)
     ref_emp_query = select(ReferenceJD).where(ReferenceJD.employee_id == employee_id)
     res_ref_emp = await db.execute(ref_emp_query)
     ref_emp = res_ref_emp.scalars().first()
@@ -803,54 +836,68 @@ async def get_employee_role_template(
             "exists": True,
             "id": str(ref_emp.id),
             "title": ref_emp.role_title or "Approved Role JD",
-            "department": ref_emp.department or department,
-            "jd_text": struct_data.get("purpose", "") or struct_data.get("role_summary", ""),
+            "department": ref_emp.department or str(raw_department),
+            "jd_text": struct_data.get("purpose", "")
+            or struct_data.get("role_summary", ""),
             "jd_structured": struct_data,
             "version": 1,
-            "updated_at": ref_emp.uploaded_at.isoformat() if ref_emp.uploaded_at else None,
+            "updated_at": (
+                ref_emp.uploaded_at.isoformat() if ref_emp.uploaded_at else None
+            ),
         }
 
-    # Step C: Fallback to department & role template matching
-    if department:
-        # Check approved JDSession by department
-        dept_session_query = (
-            select(JDSession)
-            .where(
-                JDSession.department == department,
-                JDSession.status == "approved",
-            )
-            .order_by(JDSession.updated_at.desc())
+    # Step C: Fallback to SAME DEPARTMENT + SAME ROLE matching (e.g. Pavan -> Mahesh)
+    dept_session_query = (
+        select(JDSession)
+        .where(
+            func.trim(func.lower(JDSession.department)) == dept_str,
+            func.trim(func.lower(JDSession.title)) == desig_str,
+            JDSession.status == "approved",
+            (JDSession.jd_text.isnot(None)) | (JDSession.jd_structured.isnot(None)),
         )
-        res_dept = await db.execute(dept_session_query)
-        dept_approved = res_dept.scalars().first()
-        if dept_approved:
-            return {
-                "exists": True,
-                "id": str(dept_approved.id),
-                "title": dept_approved.title,
-                "department": dept_approved.department,
-                "jd_text": dept_approved.jd_text,
-                "jd_structured": dept_approved.jd_structured,
-                "version": dept_approved.version,
-                "updated_at": dept_approved.updated_at.isoformat() if dept_approved.updated_at else None,
-            }
+        .order_by(JDSession.updated_at.desc())
+    )
+    res_dept = await db.execute(dept_session_query)
+    dept_approved = res_dept.scalars().first()
 
-        # Check ReferenceJD by department
-        ref_dept_query = select(ReferenceJD).where(ReferenceJD.department == department)
-        res_ref_dept = await db.execute(ref_dept_query)
-        ref_dept = res_ref_dept.scalars().first()
-        if ref_dept:
-            struct_data = dict(ref_dept.structured_data or {})
-            return {
-                "exists": True,
-                "id": str(ref_dept.id),
-                "title": ref_dept.role_title or "Approved Role JD",
-                "department": ref_dept.department,
-                "jd_text": struct_data.get("purpose", "") or struct_data.get("role_summary", ""),
-                "jd_structured": struct_data,
-                "version": 1,
-                "updated_at": ref_dept.uploaded_at.isoformat() if ref_dept.uploaded_at else None,
-            }
+    if dept_approved:
+        return {
+            "exists": True,
+            "id": str(dept_approved.id),
+            "title": dept_approved.title,
+            "department": dept_approved.department,
+            "jd_text": dept_approved.jd_text,
+            "jd_structured": dept_approved.jd_structured,
+            "version": dept_approved.version,
+            "updated_at": (
+                dept_approved.updated_at.isoformat()
+                if dept_approved.updated_at
+                else None
+            ),
+        }
+
+    # Check ReferenceJD by department and title
+    ref_dept_query = select(ReferenceJD).where(
+        func.trim(func.lower(ReferenceJD.department)) == dept_str,
+        func.trim(func.lower(ReferenceJD.role_title)) == desig_str,
+    )
+    res_ref_dept = await db.execute(ref_dept_query)
+    ref_dept = res_ref_dept.scalars().first()
+    if ref_dept:
+        struct_data = dict(ref_dept.structured_data or {})
+        return {
+            "exists": True,
+            "id": str(ref_dept.id),
+            "title": ref_dept.role_title or "Approved Role JD",
+            "department": ref_dept.department,
+            "jd_text": struct_data.get("purpose", "")
+            or struct_data.get("role_summary", ""),
+            "jd_structured": struct_data,
+            "version": 1,
+            "updated_at": (
+                ref_dept.uploaded_at.isoformat() if ref_dept.uploaded_at else None
+            ),
+        }
 
     return {
         "exists": False,

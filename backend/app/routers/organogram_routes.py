@@ -179,7 +179,7 @@ async def get_my_profile(emp_code: str, db: AsyncSession = Depends(get_db)):
     org_query = text("""
         SELECT designation, department, reporting_manager, reporting_manager_code
         FROM organogram
-        WHERE code = :emp_code
+        WHERE LOWER(TRIM(code)) = LOWER(TRIM(:emp_code))
     """)
     org_res = await db.execute(org_query, {"emp_code": emp_code})
     org_row = org_res.mappings().first()
@@ -187,9 +187,17 @@ async def get_my_profile(emp_code: str, db: AsyncSession = Depends(get_db)):
     has_reports = await DashboardService.has_direct_reports(db, emp_code)
     designation = org_row.get("designation") if org_row else None
 
+    # Check designation for manager role keywords
+    desig_lower = (designation or "").lower()
+    manager_keywords = [
+        "manager", "head", "director", "vp", "vice president", "avp", "agm", "dgm",
+        "lead", "chief", "president", "supervisor", "officer"
+    ]
+    is_mgr_designation = any(kw in desig_lower for kw in manager_keywords)
+
     # Auto-heal role if user has direct reports or manager designation but role in DB is 'employee'
     is_manager_role = emp.role in ["manager", "head", "hr", "admin"]
-    if has_reports and not is_manager_role:
+    if (has_reports or is_mgr_designation) and not is_manager_role:
         emp.role = "manager"
         await db.commit()
         await db.refresh(emp)
@@ -204,7 +212,7 @@ async def get_my_profile(emp_code: str, db: AsyncSession = Depends(get_db)):
         "reporting_manager": emp.reporting_manager,
         "reporting_manager_code": emp.reporting_manager_code,
         "role": emp.role,
-        "is_manager": has_reports or is_manager_role,
+        "is_manager": has_reports or is_mgr_designation or is_manager_role,
         "has_reports": has_reports,
         "phone_mobile": emp.phone_mobile,
     }

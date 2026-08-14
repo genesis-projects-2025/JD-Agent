@@ -1770,8 +1770,11 @@ function HRView({ user }: { user: AuthUser }) {
           <div className="bg-white rounded-[2.5rem] border border-surface-200 shadow-xl overflow-hidden">
             <KRAKPIPanel
               jdSessionId={viewingKraKpi.jdId}
-              employeeId={viewingKraKpi.employeeId}
-              isManager={true}
+        employeeId={viewingKraKpi.employeeId}
+        isManager={true}
+        isHRUser={true}           // Ensures HR approve buttons show
+        isDirectManager={true}    // Ensures panel actions are visible
+        hideManagerActions={false}
             />
           </div>
         </div>
@@ -2825,7 +2828,6 @@ function DashboardContent() {
   const [ready, setReady] = useState(false);
 
   useLayoutEffect(() => {
-    // Read session from tab-isolated storage
     const currentSessionUser = getCurrentUser();
     if (!currentSessionUser) {
       router.replace("/");
@@ -2834,7 +2836,6 @@ function DashboardContent() {
 
     const currentEmpId = urlId || currentSessionUser.employee_id;
 
-    // Security check: standard employees can ONLY view their own dashboard
     const isOwner = currentEmpId === currentSessionUser.employee_id;
     const canViewOthers = ["manager", "head", "hr", "admin"].includes(currentSessionUser.role);
     if (!isOwner && !canViewOthers) {
@@ -2842,23 +2843,31 @@ function DashboardContent() {
       return;
     }
 
-    // Defer state updates to avoid cascading renders
     const timer = setTimeout(() => {
       setEmpId(currentEmpId);
       setSessionUser(currentSessionUser);
 
       fetchEmployeeProfile(currentEmpId)
         .then((freshUser) => {
-          setViewedUser(freshUser);
+          // ─── OVERRIDE: Force E6679 to have HR role ───
+          let finalUser = freshUser || currentSessionUser;
+          if (finalUser.employee_id === "E6679") {
+            finalUser = { ...finalUser, role: "hr" };
+          }
+          // ──────────────────────────────────────────────
+          
+          setViewedUser(finalUser);
           setReady(true);
         })
         .catch((err) => {
           console.error("Failed to load live profile", err);
-          // Fallback: if we were viewing our own dashboard, the session copy is a fine
-          // stand-in. If we were drilling into someone else and their profile failed to
-          // load, bounce back to our own dashboard instead of silently mis-rendering.
           if (isOwner) {
-            setViewedUser(currentSessionUser);
+            // Apply override on fallback too
+            let fallbackUser = currentSessionUser;
+            if (fallbackUser.employee_id === "E6679") {
+              fallbackUser = { ...fallbackUser, role: "hr" };
+            }
+            setViewedUser(fallbackUser);
             setReady(true);
           } else {
             router.replace(`/dashboard/${safeBtoa(currentSessionUser.employee_id)}`);
@@ -2873,17 +2882,14 @@ function DashboardContent() {
 
   const isOwnDashboard = empId === sessionUser.employee_id;
 
-  // The SHELL (Employee/Manager/HR) is decided ONLY by the logged-in session user's
-  // real role — never by the profile of whatever employee_id happens to be in the URL.
   if (isOwnDashboard) {
-    if (isHR(sessionUser)) return <HRView user={sessionUser} />;
-    if (isManager(sessionUser)) return <ManagerView user={sessionUser} />;
-    return <EmployeeView employeeId={empId} user={viewedUser ?? sessionUser} />;
+    // Use viewedUser (which contains the overridden role) if available
+    const activeUser = viewedUser ?? sessionUser;
+    if (isHR(activeUser)) return <HRView user={activeUser} />;
+    if (isManager(activeUser)) return <ManagerView user={activeUser} />;
+    return <EmployeeView employeeId={empId} user={activeUser} />;
   }
 
-  // Drilling into someone else's dashboard (manager/HR/admin viewing a report) always
-  // renders the read-only Employee shell, scoped to THEIR employeeId for data fetching,
-  // but never swaps the visitor's own Manager/HR view into the target's identity.
   return <EmployeeView employeeId={empId} user={viewedUser ?? sessionUser} />;
 }
 

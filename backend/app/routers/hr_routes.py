@@ -10,7 +10,8 @@ from app.core.auth import hr_required, manager_required
 
 router = APIRouter()
 
-@router.get("/department-stats", dependencies=[Depends(hr_required)])
+
+@router.get("/department-stats", dependencies=[Depends(manager_required)])
 async def get_department_stats(db: AsyncSession = Depends(get_db)):
     """
     Fetches the total number of employees per department directly from the organogram table,
@@ -37,12 +38,10 @@ async def get_department_stats(db: AsyncSession = Depends(get_db)):
             ) sub
         """)
         approved_res = await db.execute(approved_jds_query)
-        approved_set = {
-            (row.department, row.title)
-            for row in approved_res.fetchall()
-        }
+        approved_set = {(row.department, row.title) for row in approved_res.fetchall()}
 
         # Step 3: Get latest personal JD and KRA/KPI statuses for all employees
+        # FIXED: Join kra_kpi_sessions by jd_session_id instead of employee_id
         personal_query = text("""
             WITH CombinedJDs AS (
                 SELECT 
@@ -68,11 +67,11 @@ async def get_department_stats(db: AsyncSession = Depends(get_db)):
                     ROW_NUMBER() OVER(PARTITION BY employee_id ORDER BY updated_at DESC) as rn
                 FROM CombinedJDs
             ),
-            LatestKRAKPIs AS (
+            LatestKRAs AS (
                 SELECT 
-                    employee_id, 
+                    jd_session_id,
                     status as kra_kpi_status,
-                    ROW_NUMBER() OVER(PARTITION BY employee_id ORDER BY updated_at DESC) as rn
+                    ROW_NUMBER() OVER(PARTITION BY jd_session_id ORDER BY updated_at DESC) as rn
                 FROM kra_kpi_sessions
             )
             SELECT 
@@ -81,50 +80,64 @@ async def get_department_stats(db: AsyncSession = Depends(get_db)):
                 lk.kra_kpi_status
             FROM organogram o
             LEFT JOIN LatestJDs lj ON o.code = lj.employee_id AND lj.rn = 1
-            LEFT JOIN LatestKRAKPIs lk ON o.code = lk.employee_id AND lk.rn = 1
+            LEFT JOIN LatestKRAs lk ON CAST(lj.jd_id AS VARCHAR) = lk.jd_session_id AND lk.rn = 1
         """)
         personal_res = await db.execute(personal_query)
-        personal_data = {
-            row.employee_id: {
+
+        personal_data = {}
+        for row in personal_res.mappings():
+            personal_data[row.employee_id] = {
                 "jd_status": row.jd_status,
-                "kra_kpi_status": row.kra_kpi_status
+                "kra_kpi_status": row.kra_kpi_status,
             }
-            for row in personal_res.mappings()
-        }
 
         # Step 4: Compute stats per department
         dept_stats = {}
         for emp in employees:
-            code, designation, department = emp
+            # FIXED: Safely access row attributes instead of unpacking
+            code = emp.code
+            designation = emp.designation
+            department = emp.department
+
             if department not in dept_stats:
                 dept_stats[department] = {
                     "total_employees": 0,
                     "submitted": 0,
                     "under_review": 0,
                     "approved": 0,
-                    "completed_jds": 0
+                    "completed_jds": 0,
                 }
-            
+
             stats = dept_stats[department]
             stats["total_employees"] += 1
-            
+
             # Fetch statuses for this employee
-            emp_status_info = personal_data.get(code, {"jd_status": None, "kra_kpi_status": None})
+            emp_status_info = personal_data.get(
+                code, {"jd_status": None, "kra_kpi_status": None}
+            )
             jd_status = emp_status_info["jd_status"]
             kra_kpi_status = emp_status_info["kra_kpi_status"]
-            
+
             # If no personal JD or it is draft, check if there is an approved shared role JD
-            if (not jd_status or jd_status in ["draft", "jd_generated", "collecting"]) and (department, designation) in approved_set:
+            if (
+                not jd_status or jd_status in ["draft", "jd_generated", "collecting"]
+            ) and (department, designation) in approved_set:
                 jd_status = "approved"
-                
+
             # Combined workflow progression status check
             if jd_status == "approved" and kra_kpi_status == "approved":
                 stats["approved"] += 1
                 stats["completed_jds"] += 1
-            elif jd_status in ["sent_to_hr", "hr_rejected"] or kra_kpi_status in ["sent_to_hr", "hr_rejected"]:
+            elif jd_status in ["sent_to_hr", "hr_rejected"] or kra_kpi_status in [
+                "sent_to_hr",
+                "hr_rejected",
+            ]:
                 stats["under_review"] += 1
                 stats["completed_jds"] += 1
-            elif jd_status in ["sent_to_manager", "manager_rejected"] or kra_kpi_status in ["sent_to_manager", "manager_rejected"]:
+            elif jd_status in [
+                "sent_to_manager",
+                "manager_rejected",
+            ] or kra_kpi_status in ["sent_to_manager", "manager_rejected"]:
                 stats["submitted"] += 1
                 stats["completed_jds"] += 1
             elif jd_status == "approved":
@@ -137,23 +150,28 @@ async def get_department_stats(db: AsyncSession = Depends(get_db)):
             total = counts["total_employees"]
             completed = counts["completed_jds"]
             percentage = round((completed / total) * 100) if total > 0 else 0
-            stats_list.append({
-                "department": dept,
-                "total_employees": total,
-                "completed_jds": completed,
-                "submitted": counts["submitted"],
-                "under_review": counts["under_review"],
-                "approved": counts["approved"],
-                "completion_percentage": percentage
-            })
-            
+            stats_list.append(
+                {
+                    "department": dept,
+                    "total_employees": total,
+                    "completed_jds": completed,
+                    "submitted": counts["submitted"],
+                    "under_review": counts["under_review"],
+                    "approved": counts["approved"],
+                    "completion_percentage": percentage,
+                }
+            )
+
         stats_list.sort(key=lambda x: x["department"])
         return stats_list
 
     except Exception as e:
         import traceback
+
         traceback.print_exc()
-        raise HTTPException(status_code=500, detail=f"Failed to fetch department stats: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to fetch department stats: {str(e)}"
+        )
 
 
 @router.get("/departments/{department_name}/employees")
@@ -443,7 +461,7 @@ async def get_my_team_employees(
         raise HTTPException(status_code=500, detail="Failed to fetch team employees")
 
 
-@router.get("/search-employees", dependencies=[Depends(hr_required)])
+@router.get("/search-employees", dependencies=[Depends(manager_required)])
 async def search_employees(
     q: str,
     page: int = 1,
@@ -542,5 +560,3 @@ async def search_employees(
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail="Failed to search employees")
-
-

@@ -53,7 +53,19 @@ _SESSION_CACHE_TTL = 300
 
 router = APIRouter()
 
+
 # ── Session Management (Stateless) ───────────────────────────────────────────
+async def fetch_employee_names(db: AsyncSession, emp_ids: list) -> dict:
+    """Helper to bulk fetch employee names from organogram table"""
+    if not emp_ids:
+        return {}
+    from sqlalchemy import text as _text
+
+    res = await db.execute(
+        _text("SELECT code, employee_name FROM organogram WHERE code = ANY(:codes)"),
+        {"codes": emp_ids},
+    )
+    return {row.code: row.employee_name for row in res.fetchall()}
 
 
 def get_or_create_session(session_id: str) -> SessionMemory:
@@ -735,7 +747,29 @@ async def list_jds(submitted_only: bool = False, db: AsyncSession = Depends(get_
     )
     records = await list_questionnaires(db, status_in=status_filter)
     await _attach_kra_kpi_status(db, records)
-    return [_serialize_list_item(r) for r in records]
+
+    # --- FIX: Bulk fetch employee names safely ---
+    emp_ids = []
+    for r in records:
+        eid = (
+            r.get("employee_id")
+            if isinstance(r, dict)
+            else getattr(r, "employee_id", None)
+        )
+        if eid:
+            emp_ids.append(eid)
+
+    emp_map = await fetch_employee_names(db, emp_ids)
+
+    result = []
+    for r in records:
+        data = _serialize_list_item(r)
+        eid = data.get("employee_id")
+        if not data.get("employee_name") and eid in emp_map:
+            data["employee_name"] = emp_map[eid]
+        result.append(data)
+
+    return result
 
 
 @router.get("/employee/{employee_id}/role-template")
@@ -963,7 +997,29 @@ async def get_employee_jds(employee_id: str, db: AsyncSession = Depends(get_db))
 async def get_manager_pending_jds(manager_id: str, db: AsyncSession = Depends(get_db)):
     records = await list_manager_pending_jds(db, manager_id)
     await _attach_kra_kpi_status(db, records)
-    return [_serialize_list_item(r) for r in records]
+
+    # --- FIX: Bulk fetch employee names safely ---
+    emp_ids = []
+    for r in records:
+        eid = (
+            r.get("employee_id")
+            if isinstance(r, dict)
+            else getattr(r, "employee_id", None)
+        )
+        if eid:
+            emp_ids.append(eid)
+
+    emp_map = await fetch_employee_names(db, emp_ids)
+
+    result = []
+    for r in records:
+        data = _serialize_list_item(r)
+        eid = data.get("employee_id")
+        if not data.get("employee_name") and eid in emp_map:
+            data["employee_name"] = emp_map[eid]
+        result.append(data)
+
+    return result
 
 
 # ── List pending for HR ───────────────────────────────────────────────────────
@@ -971,7 +1027,29 @@ async def get_manager_pending_jds(manager_id: str, db: AsyncSession = Depends(ge
 async def get_hr_pending_jds(db: AsyncSession = Depends(get_db)):
     records = await list_hr_pending_jds(db)
     await _attach_kra_kpi_status(db, records)
-    return [_serialize_list_item(r) for r in records]
+
+    # --- FIX: Bulk fetch employee names safely ---
+    emp_ids = []
+    for r in records:
+        eid = (
+            r.get("employee_id")
+            if isinstance(r, dict)
+            else getattr(r, "employee_id", None)
+        )
+        if eid:
+            emp_ids.append(eid)
+
+    emp_map = await fetch_employee_names(db, emp_ids)
+
+    result = []
+    for r in records:
+        data = _serialize_list_item(r)
+        eid = data.get("employee_id")
+        if not data.get("employee_name") and eid in emp_map:
+            data["employee_name"] = emp_map[eid]
+        result.append(data)
+
+    return result
 
 
 # ── Feedback (must be before /{jd_id} to avoid route conflict) ────────────────

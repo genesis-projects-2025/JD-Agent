@@ -190,9 +190,24 @@ async def get_my_profile(emp_code: str, db: AsyncSession = Depends(get_db)):
     # Check designation for manager role keywords
     desig_lower = (designation or "").lower()
     manager_keywords = [
-        "manager", "head", "director", "vp", "vice president", "avp", "agm", "dgm",
-        "lead", "chief", "president", "supervisor", "officer"
+        "manager",
+        "head",
+        "director",
+        "vp",
+        "vice president",
+        "avp",
+        "agm",
+        "dgm",
+        "lead",
+        "chief",
+        "president",
+        "supervisor",
+        "officer",
+        "general manager",
+        "dep manager",
+        "sr manager",  # Add any others you need
     ]
+    desig_lower = (designation or "").lower()
     is_mgr_designation = any(kw in desig_lower for kw in manager_keywords)
 
     # Auto-heal role if user has direct reports or manager designation but role in DB is 'employee'

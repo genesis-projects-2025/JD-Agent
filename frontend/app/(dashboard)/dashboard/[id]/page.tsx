@@ -246,13 +246,11 @@ function JDGrid({
               icon: Clock,
             };
           }
-          const isOwnJD = !showEmployee;
-          const href = (isOwnJD && [
-            "collecting",
-            "jd_session_init",
-          ].includes(jd.status))
-            ? `/questionnaire/${jd.id}`
-            : `/jd/${jd.id}`;
+          const href = jd.kra_kpi_status === "sent_to_manager" || jd.kra_kpi_status === "sent_to_hr"
+  ? `/jd/${jd.id}?tab=kra-kpi` // Route to KRA/KPI tab if it's pending review
+  : (isOwnJD && ["collecting", "jd_session_init"].includes(jd.status))
+    ? `/questionnaire/${jd.id}`
+    : `/jd/${jd.id}`;
 
           return (
             <Link
@@ -393,7 +391,9 @@ function EmployeeView({
   const [improvementPlan, setImprovementPlan] = useState<any>(cachedEmp.data?.improvementPlan || null);
 
   const handleStartInterview = (e: React.MouseEvent) => {
-    if (roleTemplate && roleTemplate.exists && allJds.length === 0) {
+    // Check if they already have an approved JD in their list, OR if a template exists
+    const hasApprovedJd = allJds.some((j) => j.status === "approved");
+    if (hasApprovedJd || (roleTemplate && roleTemplate.exists)) {
       e.preventDefault();
       setShowConfirmModal(true);
     }
@@ -900,7 +900,6 @@ function ManagerView({ user }: { user: AuthUser }) {
   // Derived JDs based on filter
   const jds = useMemo(() => {
     if (filter === "my_jds") return myJds;
-    if (filter === "all") return allJds;
     if (filter === "pending") {
       return allJds.filter(
         (j) =>
@@ -1017,10 +1016,13 @@ function ManagerView({ user }: { user: AuthUser }) {
           {/* KRA/KPI Panel container */}
           <div className="bg-white rounded-[2.5rem] border border-surface-200 shadow-xl overflow-hidden">
             <KRAKPIPanel
-              jdSessionId={viewingKraKpi.jdId}
-              employeeId={viewingKraKpi.employeeId}
-              isManager={true}
-            />
+            jdSessionId={viewingKraKpi.jdId}
+            employeeId={viewingKraKpi.employeeId}
+            isManager={true}
+            isDirectManager={true}   // <-- ADD THIS to show panel buttons
+            isHRUser={false}
+            hideManagerActions={false} // <-- ADD THIS to ensure buttons aren't hidden
+          />
           </div>
         </div>
       </div>
@@ -1112,13 +1114,6 @@ function ManagerView({ user }: { user: AuthUser }) {
               count: approved,
               color: "emerald",
               icon: CheckCircle2,
-            },
-            {
-              key: "all",
-              label: "All JDs",
-              count: allJds.length,
-              color: "blue",
-              icon: Briefcase,
             },
             {
               key: "my_jds",
@@ -2412,8 +2407,8 @@ function HRView({ user }: { user: AuthUser }) {
               items={jds}
               type={filter === "pending" ? "manager" : "hr"}
               onViewKraKpi={(jdId, employeeId, employeeName) => {
-                setViewingKraKpi({ jdId, employeeId, employeeName });
-              }}
+              router.push(`/jd/${jdId}?tab=kra-kpi`);
+             }}
               router={router}
             />
           </div>

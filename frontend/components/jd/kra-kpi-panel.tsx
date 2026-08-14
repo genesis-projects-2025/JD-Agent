@@ -1729,6 +1729,8 @@ const ConfirmedView = forwardRef<any, {
   isHRUser?: boolean;
   onSave?: (kras: FinalKRA[], confirm: boolean) => Promise<void>;
   jdData?: any;
+  hideManagerActions?: boolean;
+  externalEditActive?: boolean;
 }>(function ConfirmedView({
   record,
   onRegenerate,
@@ -1738,6 +1740,8 @@ const ConfirmedView = forwardRef<any, {
   isHRUser = false,
   onSave,
   jdData = null,
+  hideManagerActions=false,
+  externalEditActive=false
 }, ref) {
   const kras = record.kras?.kras ?? [];
   const status = record.status || "confirmed";
@@ -1754,7 +1758,18 @@ const ConfirmedView = forwardRef<any, {
   const [showLockErrorModal, setShowLockErrorModal] = useState(false);
   const [showDarwinboxDropdown, setShowDarwinboxDropdown] = useState(false);
   const [exporting, setExporting] = useState(false);
-
+  useEffect(() => {
+    if (externalEditActive !== undefined) {
+      setIsEditing(externalEditActive);
+      if (!externalEditActive) {
+        // If cancelled, reset the editable KRAs to the original saved ones
+        setEditableKras(kras);
+      } else {
+        // If editing started, deep clone the KRAs so we can tweak them
+        setEditableKras(JSON.parse(JSON.stringify(kras)));
+      }
+    }
+  }, [externalEditActive, kras]);
   const handleExport = async (type: 'zip' | 'goals' | 'subgoals') => {
     setExporting(true);
     try {
@@ -1776,15 +1791,18 @@ const ConfirmedView = forwardRef<any, {
   };
 
   useImperativeHandle(ref, () => ({
-    save: async () => {
-      await handleSaveEditedFramework();
-      return true;
-    },
-    cancel: () => {
-      setIsEditing(false);
-      setEditableKras(kras);
-    }
-  }));
+  save: async () => {
+    await handleSaveEditedFramework();
+    return true;
+  },
+  cancel: () => {
+    setIsEditing(false);
+    setEditableKras(kras);
+  },
+  getSkills: () => { // <-- ADD THIS
+    return skills;
+  }
+}));
 
   // Skills & improvement states
   const [skills, setSkills] = useState<Array<{ name: string; description: string; rating: number | "N/A" | null }>>([]);
@@ -2178,10 +2196,10 @@ const ConfirmedView = forwardRef<any, {
 
   const handleSaveEditedFramework = async () => {
     if (!onSave) return;
-    if (lockedIds.size < editableKras.length) {
-      setShowLockErrorModal(true);
-      return;
-    }
+    if (!isManager && lockedIds.size < editableKras.length) {
+    setShowLockErrorModal(true);
+    return;
+  }
     // Validate weights sum to 100
     const totalW = editableKras.reduce((s, k) => s + (k.weight ?? 0), 0);
     if (Math.abs(totalW - 100) > 1) {
@@ -2284,7 +2302,7 @@ const ConfirmedView = forwardRef<any, {
             )}
           </div>
 
-          {!isEditing ? (
+          {!hideManagerActions && (!isEditing ? (
             <div className="flex flex-col sm:flex-row gap-3">
               <button
                 onClick={() => {
@@ -2317,30 +2335,31 @@ const ConfirmedView = forwardRef<any, {
                 Approve Goals
               </button>
             </div>
-          ) : (
-            <div className="flex flex-col sm:flex-row items-center justify-between gap-3 p-1">
-              <div>
-                <p className="text-xs font-bold text-slate-800">Review & Override Mode</p>
-                <p className="text-[11px] text-slate-500 mt-0.5">Edit KRAs, KPIs, weights, and thresholds directly. Unsaved changes are lost upon canceling.</p>
+            ) : (
+              <div className="flex flex-col sm:flex-row items-center justify-between gap-3 p-1">
+                <div>
+                  <p className="text-xs font-bold text-slate-800">Review & Override Mode</p>
+                  <p className="text-[11px] text-slate-500 mt-0.5">Edit KRAs, KPIs, weights, and thresholds directly. Unsaved changes are lost upon canceling.</p>
+                </div>
+                <div className="flex gap-2 w-full sm:w-auto">
+                  <button
+                    onClick={() => setIsEditing(false)}
+                    disabled={sending}
+                    className="flex-1 sm:flex-none px-3.5 py-1.5 text-xs font-semibold text-slate-650 border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleSaveEditedFramework}
+                    disabled={sending}
+                    className="flex-1 sm:flex-none px-4 py-1.5 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg shadow-sm transition-colors flex items-center justify-center gap-1"
+                  >
+                    {sending ? <Loader2 className="w-3 h-3 animate-spin" /> : null}
+                    Save Framework
+                  </button>
+                </div>
               </div>
-              <div className="flex gap-2 w-full sm:w-auto">
-                <button
-                  onClick={() => setIsEditing(false)}
-                  disabled={sending}
-                  className="flex-1 sm:flex-none px-3.5 py-1.5 text-xs font-semibold text-slate-650 border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={handleSaveEditedFramework}
-                  disabled={sending}
-                  className="flex-1 sm:flex-none px-4 py-1.5 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg shadow-sm transition-colors flex items-center justify-center gap-1"
-                >
-                  {sending ? <Loader2 className="w-3 h-3 animate-spin" /> : null}
-                  Save Framework
-                </button>
-              </div>
-            </div>
+              )
           )}
 
           {reviewError && (
@@ -2876,7 +2895,7 @@ const ConfirmedView = forwardRef<any, {
         </div>
       )}
 
-      {isManager && status === "sent_to_manager" && !isEditing && (
+      { isManager && status === "sent_to_manager" && !isEditing && (
         <div className="bg-white border-2 border-primary-200 rounded-2xl p-6 shadow-md space-y-6 mt-8 animate-in fade-in duration-300">
           <div>
             <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
@@ -2992,10 +3011,11 @@ interface KRAKPIPanelProps {
   isHRUser?: boolean;
   externalEditActive?: boolean;
   jdData?: any;
+  hideManagerActions?: boolean;
 }
 
 export const KRAKPIPanel = forwardRef<any, KRAKPIPanelProps>(
-  function KRAKPIPanel({ jdSessionId, employeeId, isManager = false, isDirectManager = false, isHRUser = false, externalEditActive = false, jdData = null }, ref) {
+  function KRAKPIPanel({ jdSessionId, employeeId, isManager = false, isDirectManager = false, isHRUser = false, externalEditActive = false, jdData = null,hideManagerActions = false }, ref) {
   const [record, setRecord] = useState<KRAKPIRecord | null>(null);
   const [prereqStatus, setPrereqStatus] = useState<PrerequisiteStatus | null>(null);
   const [loading, setLoading] = useState(true);
@@ -3008,19 +3028,25 @@ export const KRAKPIPanel = forwardRef<any, KRAKPIPanelProps>(
 
   const confirmedViewRef = useRef<any>(null);
 
-  useImperativeHandle(ref, () => ({
-    save: async () => {
-      if (confirmedViewRef.current?.save) {
-        return await confirmedViewRef.current.save();
-      }
-      return false;
-    },
-    cancel: () => {
-      if (confirmedViewRef.current?.cancel) {
-        confirmedViewRef.current.cancel();
-      }
+ useImperativeHandle(ref, () => ({
+  save: async () => {
+    if (confirmedViewRef.current?.save) {
+      return await confirmedViewRef.current.save();
     }
-  }));
+    return false;
+  },
+  cancel: () => {
+    if (confirmedViewRef.current?.cancel) {
+      confirmedViewRef.current.cancel();
+    }
+  },
+  getSkills: () => { // <-- ADD THIS
+    if (confirmedViewRef.current?.getSkills) {
+      return confirmedViewRef.current.getSkills();
+    }
+    return [];
+  }
+}));
 
   // Scroll to skill-assessment section if query param is set
   useEffect(() => {
@@ -3264,6 +3290,23 @@ export const KRAKPIPanel = forwardRef<any, KRAKPIPanelProps>(
           ) : (
             <div className="space-y-4">
               <MissingBanner status={prereqStatus} />
+              {hasOnlyManagerMissing && (
+                <div className="p-6 bg-white border border-amber-200 rounded-2xl shadow-sm text-center">
+                  <h4 className="text-sm font-semibold text-surface-900 mb-1">
+                    Your Approved JD is Ready!
+                  </h4>
+                  <p className="text-xs text-surface-600 mb-4 max-w-md mx-auto leading-relaxed">
+                    Your manager's setup is currently pending, but you can generate your KRA & KPI performance goals right now using your approved Job Description.
+                  </p>
+                  <button
+                    onClick={() => handleGenerate(true)}
+                    className="px-6 py-3 bg-primary-600 hover:bg-primary-700 text-white text-xs font-semibold rounded-xl transition-all shadow-md shadow-primary-600/20 active:scale-[0.98] inline-flex items-center gap-2 cursor-pointer"
+                  >
+                    <Sparkles className="w-4 h-4" />
+                    Generate KRAs Using My Approved JD
+                  </button>
+                </div>
+              )}
             </div>
           )}
         </>
@@ -3354,17 +3397,20 @@ export const KRAKPIPanel = forwardRef<any, KRAKPIPanelProps>(
             )}
 
             {step === "confirmed" && (
-              <ConfirmedView
-                ref={confirmedViewRef}
-                record={record}
-                onRegenerate={handleRegenerate}
-                onSendForApproval={handleSendForApproval}
-                jdData={localJd}
-                isManager={isManager}
-                isDirectManager={isDirectManager}
-                isHRUser={isHRUser}
-              />
-            )}
+            <ConfirmedView
+              ref={confirmedViewRef}
+              record={record}
+              onRegenerate={handleRegenerate}
+              onSendForApproval={handleSendForApproval}
+              onSave={handleSaveWeights}    // <--- THIS WAS MISSING!
+              jdData={localJd}
+              isManager={isManager}
+              isDirectManager={isDirectManager}
+              isHRUser={isHRUser}
+              hideManagerActions={hideManagerActions}
+              externalEditActive={externalEditActive}
+            />
+          )}
             {step === "uploaded" && (
               <UploadedView record={record} jdData={localJd} />
             )}

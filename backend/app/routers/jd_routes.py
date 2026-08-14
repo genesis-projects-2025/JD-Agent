@@ -861,17 +861,38 @@ async def get_employee_role_template(
     dept_approved = res_dept.scalars().first()
 
     if dept_approved:
+        # Auto-instantiate a real JDSession row for this employee in PostgreSQL
+        import uuid
+        new_session_id = uuid.uuid4()
+        cloned_session = JDSession(
+            id=new_session_id,
+            employee_id=employee_id,
+            title=dept_approved.title or str(raw_designation),
+            department=dept_approved.department or str(raw_department),
+            jd_text=dept_approved.jd_text,
+            jd_structured=dept_approved.jd_structured,
+            status="approved",
+            version=1,
+            conversation_state={"template_copied_from": str(dept_approved.id)},
+        )
+        db.add(cloned_session)
+        await db.commit()
+        await db.refresh(cloned_session)
+
+        from app.core.redis_client import invalidate_pattern
+        await invalidate_pattern(f"jds:employee:{employee_id}")
+
         return {
             "exists": True,
-            "id": str(dept_approved.id),
-            "title": dept_approved.title,
-            "department": dept_approved.department,
-            "jd_text": dept_approved.jd_text,
-            "jd_structured": dept_approved.jd_structured,
-            "version": dept_approved.version,
+            "id": str(cloned_session.id),
+            "title": cloned_session.title,
+            "department": cloned_session.department,
+            "jd_text": cloned_session.jd_text,
+            "jd_structured": cloned_session.jd_structured,
+            "version": cloned_session.version,
             "updated_at": (
-                dept_approved.updated_at.isoformat()
-                if dept_approved.updated_at
+                cloned_session.updated_at.isoformat()
+                if cloned_session.updated_at
                 else None
             ),
         }
@@ -885,17 +906,39 @@ async def get_employee_role_template(
     ref_dept = res_ref_dept.scalars().first()
     if ref_dept:
         struct_data = dict(ref_dept.structured_data or {})
+        import uuid
+        new_session_id = uuid.uuid4()
+        cloned_session = JDSession(
+            id=new_session_id,
+            employee_id=employee_id,
+            title=ref_dept.role_title or str(raw_designation),
+            department=ref_dept.department or str(raw_department),
+            jd_text=struct_data.get("purpose", "")
+            or struct_data.get("role_summary", ""),
+            jd_structured=struct_data,
+            status="approved",
+            version=1,
+            conversation_state={"template_copied_from_ref": str(ref_dept.id)},
+        )
+        db.add(cloned_session)
+        await db.commit()
+        await db.refresh(cloned_session)
+
+        from app.core.redis_client import invalidate_pattern
+        await invalidate_pattern(f"jds:employee:{employee_id}")
+
         return {
             "exists": True,
-            "id": str(ref_dept.id),
-            "title": ref_dept.role_title or "Approved Role JD",
-            "department": ref_dept.department,
-            "jd_text": struct_data.get("purpose", "")
-            or struct_data.get("role_summary", ""),
-            "jd_structured": struct_data,
+            "id": str(cloned_session.id),
+            "title": cloned_session.title,
+            "department": cloned_session.department,
+            "jd_text": cloned_session.jd_text,
+            "jd_structured": cloned_session.jd_structured,
             "version": 1,
             "updated_at": (
-                ref_dept.uploaded_at.isoformat() if ref_dept.uploaded_at else None
+                cloned_session.updated_at.isoformat()
+                if cloned_session.updated_at
+                else None
             ),
         }
 

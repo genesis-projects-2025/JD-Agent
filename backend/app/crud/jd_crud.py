@@ -882,6 +882,25 @@ async def list_questionnaires_by_employee(
         except Exception as e:
             logger.warning(f"Error fetching reference_jds for employee {employee_id}: {e}")
 
+    # Fallback: Auto-instantiate department role template if employee still has no JDs in list
+    if not serialised:
+        try:
+            from app.routers.jd_routes import get_employee_role_template
+            role_tmpl = await get_employee_role_template(employee_id, db)
+            if role_tmpl and role_tmpl.get("exists") and role_tmpl.get("id"):
+                serialised.append({
+                    "id": str(role_tmpl["id"]),
+                    "employee_id": employee_id,
+                    "title": role_tmpl.get("title") or "Approved Role JD",
+                    "status": "approved",
+                    "kra_kpi_status": None,
+                    "version": role_tmpl.get("version") or 1,
+                    "created_at": role_tmpl.get("updated_at"),
+                    "updated_at": role_tmpl.get("updated_at"),
+                })
+        except Exception as e:
+            logger.warning(f"Error auto-instantiating role template for employee {employee_id}: {e}")
+
     await set_cache(cache_key, serialised, ttl=60)
     return serialised
 

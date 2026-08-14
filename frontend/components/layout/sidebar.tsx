@@ -135,15 +135,18 @@ export default function Sidebar() {
 
     // Determine target JD ID from active route or the session user's OWN JDs.
     const targetJd = useMemo(() => {
-    if (pathname.startsWith("/jd/") && routeIdParam) {
-        return myOwnJds.find((j: any) => j.id === routeIdParam) ?? { id: routeIdParam };
-    }
-    return myOwnJds.find((j: any) => j.status === "approved");
-}, [pathname, routeIdParam, myOwnJds]);
+        // Look for the specific JD in the user's own list if they are on a JD page
+        if (pathname.startsWith("/jd/") && routeIdParam) {
+            return myOwnJds.find((j: any) => j.id === routeIdParam);
+        }
+        // Otherwise, find their primary approved JD
+        return myOwnJds.find((j: any) => j.status === "approved");
+    }, [pathname, routeIdParam, myOwnJds]);
 
     const targetJdId = targetJd?.id;
-    const kraKpiReady = Boolean((targetJd as any)?.kra_kpi_status && (targetJd as any).kra_kpi_status !== "draft");
-    // tune this condition to whatever value actually means "created/approved" in your data
+    // TypeScript now knows targetJd is either a full JD object or undefined.
+    // No more "{ id: string }" error!
+    const kraKpiReady = targetJd?.kra_kpi_status === "approved"; 
 
     // True only once we're sure targetJdId is genuinely absent, not just "not loaded yet".
     const targetJdResolved = pathname.startsWith("/jd/") ? true : !loadingMyOwnJds;
@@ -540,10 +543,12 @@ export default function Sidebar() {
                                 <AlertTriangle className="w-6 h-6 text-amber-500" />
                             </div>
                             <h3 className="text-xl font-bold text-neutral-900 mb-3 tracking-tight">
-                                Job Description Required
+                                {popupReason === "no_jd" ? "Job Description Required" : "KRA & KPI Framework Required"}
                             </h3>
                             <p className="text-neutral-500 text-sm leading-relaxed mb-6">
-                                You must first complete and approve your Job Description (JD) before you can view your KRA & KPI framework.
+                                {popupReason === "no_jd"
+                                    ? "You must first complete and approve your Job Description (JD) before you can view your KRA & KPI framework or Skill Assessment."
+                                    : "You must first generate and submit your KRA & KPI performance goals before accessing your Skill Assessment."}
                             </p>
                             <div className="flex gap-3">
                                 <button
@@ -555,11 +560,15 @@ export default function Sidebar() {
                                 <button
                                     onClick={() => {
                                         setShowPrereqPopup(false);
-                                        router.push("/questionnaire");
+                                        if (popupReason === "no_jd") {
+                                            router.push("/questionnaire");
+                                        } else if (targetJdId) {
+                                            router.push(`/jd/${targetJdId}?tab=kra-kpi`);
+                                        }
                                     }}
                                     className="flex-1 py-3 px-4 bg-primary-600 hover:bg-primary-700 active:scale-[0.98] text-white rounded-xl text-sm font-semibold transition-all shadow-md shadow-primary-600/20 text-center cursor-pointer"
                                 >
-                                    Okay
+                                    {popupReason === "no_jd" ? "Create JD" : "Go to KRA/KPI"}
                                 </button>
                             </div>
                         </div>

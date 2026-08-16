@@ -46,6 +46,12 @@ IF ITEM_TYPE == "skills":
   - Return format: Array of strings (expertise areas/competencies)
   - Examples: ["Backend Development", "API Design and Development", "Database Management", "Cloud & DevOps"]
 
+IF ITEM_TYPE in ["tasks", "priority_tasks"]:
+  - Return complete, polished professional responsibility sentences or key action phrases appropriate for '{role_title}' in '{department}'.
+  - Do NOT split or fragment single tasks into partial words or mini phrases. Keep each task complete and coherent.
+  - Strictly filter out tasks from completely unrelated departments (e.g., remove HR, Sales, QA, or Finance tasks if role is in Technical/Engineering).
+  - Return format: Array of complete task strings.
+
 Input List ({item_type}):
 {raw_list}
 

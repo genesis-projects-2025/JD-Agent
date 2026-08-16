@@ -867,15 +867,18 @@ class InterviewEngine:
             "\n".join(workflow_texts[:5]) + "\n\nRAG CONTEXT:\n" + "\n".join(rag_context[:2])
         )
 
-        target_role = (insights.get("identity_context") or {}).get("title", "this role")
-        prompt = f"""Extract a concise list of the most relevant {field} for the role of '{target_role}' from the context below.
+        id_ctx = insights.get("identity_context") or {}
+        target_role = id_ctx.get("title") or insights.get("purpose") or "this role"
+        target_dept = id_ctx.get("department") or insights.get("department") or ""
+
+        prompt = f"""Extract a concise list of the most relevant {field} for the role of '{target_role}' in the department of '{target_dept}' from the context below.
         
         CONTEXT:
         {context_text}
         
         CRITERIA:
-        1. Only include {field} that are GENUINELY part of the day-to-day toolkit for a {target_role}.
-        2. Remove incidental items or items from unrelated roles (like management tools if the role is technical).
+        1. Only include {field} that are GENUINELY part of the day-to-day toolkit for a '{target_role}' in '{target_dept}'.
+        2. Strictly EXCLUDE items belonging to unrelated departments or roles (e.g., do NOT include HR, Sales, QA, or Finance items unless this is specifically an HR/Sales/QA/Finance role).
         3. Add core platforms that are standard for this industry/role if they are missing but implied (e.g., if it's a dev role and Git is missing, add it).
         4. Focus on high-impact, performance-driving {field}.
         

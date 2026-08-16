@@ -609,9 +609,10 @@ async def query_advanced_context(
             # Department matching logic: boost same department, suppress different ones
             if department and candidate_department:
                 if _is_matching_department(department, candidate_department):
-                    score += 0.04
+                    score += 0.05
                 else:
-                    score -= 0.20
+                    # Heavily penalize cross-department leak (e.g., HR/Sales/QA for Tech/Dev roles)
+                    score -= 0.50
             
             # Experience level matching logic
             if experience_level and candidate_experience and experience_level.lower() != candidate_experience.lower():

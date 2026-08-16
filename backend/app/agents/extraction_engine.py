@@ -167,7 +167,7 @@ FREQUENCY_MAP = {
 
 
 def extract_tasks(text: str) -> list:
-    """Extract tasks from text using patterns and heuristics."""
+    """Extract tasks from text using patterns and heuristics without fragmenting sentences."""
     tasks = []
     text_lower = text.lower()
 
@@ -175,10 +175,10 @@ def extract_tasks(text: str) -> list:
         matches = pattern.finditer(text_lower)
         for match in matches:
             task_text = match.group(1).strip()
-            # Split by common delimiters
-            potential_tasks = re.split(r"[,;]|\b(?:and|or)\b", task_text)
+            # Split ONLY by newlines or semicolons, NOT by commas or 'and/or' to preserve detailed sentences
+            potential_tasks = re.split(r"[\n;]", task_text)
             for task in potential_tasks:
-                task = task.strip()
+                task = task.strip().rstrip(".")
                 if len(task) > 10:  # Minimum task length
                     # Determine frequency
                     frequency = "daily"  # default
@@ -195,13 +195,11 @@ def extract_tasks(text: str) -> list:
                         }
                     )
 
-    # Also look for bullet-pointed tasks
-    bullet_tasks = re.findall(r"(?:^|\n)\s*[-•*]\s+(.+)", text)
+    # Also look for bullet-pointed or numbered tasks
+    bullet_tasks = re.findall(r"(?:^|\n)\s*[-•*\d+.]\s+(.+)", text)
     for task in bullet_tasks:
         task = task.strip()
-        if len(task) > 10 and not any(
-            kw in task.lower() for kw in ["i ", "my ", "the ", "a "]
-        ):
+        if len(task) > 10:
             tasks.append(
                 {
                     "description": task,

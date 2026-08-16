@@ -869,25 +869,31 @@ async def get_employee_role_template(
             ),
         }
 
-    # Step B: Check ReferenceJD for this specific employee_id (Admin Uploaded)
-    ref_emp_query = select(ReferenceJD).where(ReferenceJD.employee_id == employee_id)
+    # Step B: Check ReferenceJD for this specific employee_id (Admin Uploaded or Approved)
+    ref_emp_query = select(ReferenceJD).where(
+        ReferenceJD.employee_id == employee_id,
+        ReferenceJD.is_active == True,
+        ReferenceJD.processing_status == "published",
+    ).order_by(ReferenceJD.uploaded_at.desc())
     res_ref_emp = await db.execute(ref_emp_query)
     ref_emp = res_ref_emp.scalars().first()
     if ref_emp:
         struct_data = dict(ref_emp.structured_data or {})
-        return {
-            "exists": True,
-            "id": str(ref_emp.id),
-            "title": ref_emp.role_title or "Approved Role JD",
-            "department": ref_emp.department or str(raw_department),
-            "jd_text": struct_data.get("purpose", "")
-            or struct_data.get("role_summary", ""),
-            "jd_structured": struct_data,
-            "version": 1,
-            "updated_at": (
-                ref_emp.uploaded_at.isoformat() if ref_emp.uploaded_at else None
-            ),
-        }
+        has_struct = bool(struct_data and len(struct_data.keys()) > 0)
+        if has_struct and ref_emp.role_title != "Approved Role JD":
+            return {
+                "exists": True,
+                "id": str(ref_emp.id),
+                "title": ref_emp.role_title or str(raw_designation),
+                "department": ref_emp.department or str(raw_department),
+                "jd_text": struct_data.get("purpose", "")
+                or struct_data.get("role_summary", ""),
+                "jd_structured": struct_data,
+                "version": 1,
+                "updated_at": (
+                    ref_emp.uploaded_at.isoformat() if ref_emp.uploaded_at else None
+                ),
+            }
 
     # Step C: Fallback to SAME DEPARTMENT + SAME ROLE matching
     dept_session_query = (

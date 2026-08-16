@@ -184,53 +184,56 @@ async def init_db():
                     END IF;
 
                     -- function & trigger: bi-directional sync (jd_sessions -> reference_jds)
-                    IF NOT EXISTS (SELECT 1 FROM pg_proc WHERE proname = 'sync_jd_session_to_reference') THEN
-                        CREATE FUNCTION sync_jd_session_to_reference()
-                        RETURNS TRIGGER AS $inner$
-                        DECLARE
-                            v_emp_name VARCHAR(100);
-                            v_level VARCHAR(50);
-                            v_ref_id VARCHAR(36);
-                        BEGIN
-                            IF pg_trigger_depth() > 1 THEN RETURN NEW; END IF;
-                            IF NEW.employee_id IS NULL OR NEW.jd_structured IS NULL OR NEW.jd_structured = '{}'::jsonb THEN RETURN NEW; END IF;
+                    CREATE OR REPLACE FUNCTION sync_jd_session_to_reference()
+                    RETURNS TRIGGER AS $inner$
+                    DECLARE
+                        v_emp_name VARCHAR(100);
+                        v_dept VARCHAR(100);
+                        v_desig VARCHAR(100);
+                        v_level VARCHAR(50);
+                        v_ref_id VARCHAR(36);
+                    BEGIN
+                        IF pg_trigger_depth() > 1 THEN RETURN NEW; END IF;
+                        -- STRICT CHECK: Only sync sessions that are actually APPROVED
+                        IF NEW.status <> 'approved' OR NEW.employee_id IS NULL OR NEW.jd_structured IS NULL OR NEW.jd_structured = '{}'::jsonb THEN 
+                            RETURN NEW; 
+                        END IF;
 
-                            SELECT employee_name INTO v_emp_name FROM organogram WHERE code = NEW.employee_id LIMIT 1;
-                            IF v_emp_name IS NULL THEN v_emp_name := 'Employee'; END IF;
+                        SELECT employee_name, department, designation INTO v_emp_name, v_dept, v_desig FROM organogram WHERE code = NEW.employee_id LIMIT 1;
+                        IF v_emp_name IS NULL THEN v_emp_name := 'Employee'; END IF;
 
-                            v_level := COALESCE(NEW.jd_structured->>'job_level', NEW.jd_structured->>'level', NEW.jd_structured->>'joblevel', 'Level 1');
+                        v_level := COALESCE(NEW.jd_structured->>'job_level', NEW.jd_structured->>'level', NEW.jd_structured->>'joblevel', 'Level 1');
 
-                            SELECT id INTO v_ref_id FROM reference_jds WHERE employee_id = NEW.employee_id ORDER BY uploaded_at DESC LIMIT 1;
+                        SELECT id INTO v_ref_id FROM reference_jds WHERE employee_id = NEW.employee_id ORDER BY uploaded_at DESC LIMIT 1;
 
-                            IF v_ref_id IS NOT NULL THEN
-                                UPDATE reference_jds
-                                SET structured_data = NEW.jd_structured,
-                                    role_title = COALESCE(NEW.title, role_title),
-                                    department = COALESCE(NEW.department, department),
-                                    employee_name = COALESCE(v_emp_name, employee_name),
-                                    level = COALESCE(v_level, level),
-                                    uploaded_at = NOW()
-                                WHERE id = v_ref_id;
-                                
-                                IF NOT EXISTS (SELECT 1 FROM jd_sessions WHERE source_reference_jd_id = v_ref_id AND id <> NEW.id) THEN
-                                    NEW.source_reference_jd_id := v_ref_id;
-                                END IF;
-                            ELSE
-                                v_ref_id := gen_random_uuid()::text;
-                                INSERT INTO reference_jds (
-                                    id, employee_id, employee_name, department, role_title, level,
-                                    structured_data, processing_status, uploaded_at, is_active, version
-                                ) VALUES (
-                                    v_ref_id, NEW.employee_id, v_emp_name, COALESCE(NEW.department, 'General'),
-                                    COALESCE(NEW.title, 'Approved Role JD'), v_level,
-                                    NEW.jd_structured, 'published', NOW(), true, 1
-                                );
+                        IF v_ref_id IS NOT NULL THEN
+                            UPDATE reference_jds
+                            SET structured_data = NEW.jd_structured,
+                                role_title = COALESCE(NEW.title, v_desig, role_title),
+                                department = COALESCE(NEW.department, v_dept, department),
+                                employee_name = COALESCE(v_emp_name, employee_name),
+                                level = COALESCE(v_level, level),
+                                uploaded_at = NOW()
+                            WHERE id = v_ref_id;
+                            
+                            IF NOT EXISTS (SELECT 1 FROM jd_sessions WHERE source_reference_jd_id = v_ref_id AND id <> NEW.id) THEN
                                 NEW.source_reference_jd_id := v_ref_id;
                             END IF;
-                            RETURN NEW;
-                        END;
-                        $inner$ LANGUAGE plpgsql;
-                    END IF;
+                        ELSE
+                            v_ref_id := gen_random_uuid()::text;
+                            INSERT INTO reference_jds (
+                                id, employee_id, employee_name, department, role_title, level,
+                                structured_data, processing_status, uploaded_at, is_active, version
+                            ) VALUES (
+                                v_ref_id, NEW.employee_id, v_emp_name, COALESCE(NEW.department, v_dept, 'General'),
+                                COALESCE(NEW.title, v_desig, 'Approved Role JD'), v_level,
+                                NEW.jd_structured, 'published', NOW(), true, 1
+                            );
+                            NEW.source_reference_jd_id := v_ref_id;
+                        END IF;
+                        RETURN NEW;
+                    END;
+                    $inner$ LANGUAGE plpgsql;
 
                     IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'trg_sync_jd_session_to_ref') THEN
                         CREATE TRIGGER trg_sync_jd_session_to_ref

@@ -117,7 +117,7 @@ RULES:
 3. FLAT DELTA ONLY: Output ONLY the newest changes in a flat format.
 4. ENTITY LINKING: If a tool is mentioned (e.g., "VS Code"), automatically infer and link it to a skill field (e.g., "Software Development").
 5. CONFLICT DETECTION: If the user provides data that contradicts their role level (e.g., Senior tasks for a Junior title), output an object conflicts: [{ "description": "The user is entry-level but described handling architecture design." }]. Do not ask the user; silently record it.
-6. PROFESSIONALIZATION: Translate all user inputs into formal, enterprise-grade business terminology. Fix typos and grammar. (e.g., "doing payroll" -> "Payroll Processing & Management")
+6. PROFESSIONALIZATION (FOR STORAGE ONLY): When saving tasks or workflows to the JSON output, translate simple user inputs into clean, standard business terms (e.g., "doing payroll" -> "Payroll Processing"). BUT, remember that the user is a beginner—do not use these big terms when asking them questions later.
 7. STRICT SKILL FILTERING: For skills, absolutely prohibit extracting soft skills. DO NOT extract "communication", "leadership", "hardworking", "mentorship", etc. ONLY extract formal, hard, technical/domain specific skills.
 8. SEMANTIC FOLDING & DEDUPLICATION: Group highly similar skills/tools into a single, professional "Expertise Pillar" if they share >70% semantic intent. Example: ["Data Validation", "Data Verification", "Data Reconciliation"] -> "Data Integrity & Reconciliation".
 9. ANTI-LEAK RULE: Absolutely DO NOT extract agent questions, system instructions, or conversational filler from the message history as if they were user data. (e.g. If the history shows an agent asking 'What are your tasks?', do NOT extract 'What are your tasks?' as a new task).
@@ -503,4 +503,3 @@ OUTPUT FORMATTING RULES:
 - Do NOT expose tool names, XML tags, or internal mechanics to the user.
 - Every sentence in your response should convey data or insight. No padding, no filler.
 """
-

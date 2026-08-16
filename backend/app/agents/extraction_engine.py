@@ -559,20 +559,28 @@ async def extract_information(
             extracted["cadence_probed"] = True
             logger.debug("[Extraction] cadence_probed=True set by Python-layer detection")
 
-    # ── AGENT-SCOPED EXTRACTION FILTER ──────────────────────────────────────
+        # ── AGENT-SCOPED EXTRACTION FILTER ──────────────────────────────────────
 
-    # Prevent cross-agent data pollution by limiting which fields each agent
-    # can extract. This stops BasicInfoAgent from accidentally extracting skills,
-    # and keeps DeepDive focused on workflows.
+        # Prevent cross-agent data pollution by limiting which fields each agent
+        # can extract. This stops BasicInfoAgent from accidentally extracting skills,
+        # and keeps DeepDive focused on workflows.
     AGENT_ALLOWED_FIELDS = {
-        "BasicInfoAgent": {"role", "department", "reports_to", "purpose", "tasks", "user_wants_to_proceed", "cadence_probed"},
-        "WorkflowIdentifierAgent": {"priority_tasks", "tasks", "user_wants_to_proceed"},
+        "BasicInfoAgent": {
+            "role",
+            "department",
+            "reports_to",
+            "purpose",
+            "tasks",
+            "user_wants_to_proceed",
+            "cadence_probed",
+        },
+        # REMOVE 'priority_tasks' from here:
+        "WorkflowIdentifierAgent": {"tasks", "user_wants_to_proceed"},
         "DeepDiveAgent": {"workflows", "tools", "tasks", "purpose"},
         "ToolsAgent": {"tools", "technologies", "tools_confirmed"},
         "SkillsAgent": {"skills", "skills_confirmed"},
         "QualificationAgent": {"qualifications"},
     }
-
     allowed = AGENT_ALLOWED_FIELDS.get(current_agent)
     if allowed:
         filtered = {}

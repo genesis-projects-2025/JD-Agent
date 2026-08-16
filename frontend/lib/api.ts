@@ -426,9 +426,15 @@ export async function updateJDStatus(
   jdId: string,
   data: { status: string; employee_id: string },
 ) {
+  const currentUser = getCurrentUser();
+  const empId = currentUser?.employee_id || getCookie(cookieKeys.EMPLOYEE_ID);
+
   const res = await fetch(`${API_URL}/jd/${jdId}/status`, {
     method: "PATCH",
-    headers: { "Content-Type": "application/json" },
+    headers: { 
+      "Content-Type": "application/json",
+      "X-Employee-ID": empId || "" // <--- ADD THIS HEADER
+    },
     body: JSON.stringify({
       status: data.status,
       employee_id: data.employee_id,

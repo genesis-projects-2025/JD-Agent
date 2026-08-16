@@ -1,4 +1,3 @@
-
 # backend/app/agents/interview.py
 """
 Interview Engine — The core interview logic.
@@ -272,7 +271,7 @@ def _is_question_repeated(
             overlap = len(new_keywords & prev_keywords)
             max_possible = max(1, min(len(new_keywords), len(prev_keywords)))
             # Require >= 70% overlap of specific content keywords to flag as duplicate
-            if (overlap / max_possible) >= 0.70:
+            if (overlap / max_possible) >= 0.90:
                 logger.debug(
                     f"  [DEDUP] ⚠ Semantic overlap detected ({overlap}/{max_possible} keywords)"
                 )
@@ -490,13 +489,17 @@ def _normalize_agent_response(
 # ── LLM Instances ─────────────────────────────────────────────────────────────
 
 # Primary interview LLM — handles conversational question generation and streaming.
+from app.agents.tools import INTERVIEW_TOOLS, merge_tool_call_into_insights
+
+# Primary interview LLM — handles conversational question generation and streaming.
 _interview_llm = ChatGoogleGenerativeAI(
     google_api_key=settings.GEMINI_API_KEY,
     model="gemini-2.5-flash",
     temperature=0.4,
     max_output_tokens=350,
-)
-
+).bind_tools(
+    INTERVIEW_TOOLS
+)  # CRITICAL: Bind the tools directly to the conversational LLM
 # Dedup retry LLM — used only when a question is detected as repeated.
 _response_llm = ChatGoogleGenerativeAI(
     google_api_key=settings.GEMINI_API_KEY,
@@ -639,7 +642,7 @@ def _apply_context_filter(insights: dict, agent_name: str) -> dict:
     
     return result
 
-#this function is used to build the identity block for the prompt, which provides pre-filled employee information that the agent can use without asking the user again. It extracts relevant fields from the insights and formats them into a clear block of text.
+# this function is used to build the identity block for the prompt, which provides pre-filled employee information that the agent can use without asking the user again. It extracts relevant fields from the insights and formats them into a clear block of text.
 def _build_identity_block(insights: dict) -> str:
     """Build pre-filled identity context block."""
     identity = insights.get("identity_context") or {}
@@ -920,9 +923,8 @@ class InterviewEngine:
         STRICT 2+1 TURN PROTOCOL:
         - Turn 1 (compulsory): How the task begins — triggers and inputs.
         - Turn 2 (compulsory): Challenges, quality standards, and expert-level outcomes.
-        - Turn 3 (conditional): Only if extraction is incomplete (missing trigger/steps/output).
-        - After turn 3 OR if data is complete at turn 2: mark visited, advance.
-        - Once visited, a task is NEVER revisited.
+        - Turn 3 (conditional): Only if extraction is incomplete.
+        - EXCEPTION: If user provides trigger+steps+output in Turn 1, advance immediately.
         """
         if agent_name != "DeepDiveAgent":
             return insights
@@ -943,8 +945,14 @@ class InterviewEngine:
             return bool(wf.get("trigger") and wf.get("steps") and wf.get("output"))
 
         if active_task:
+            # CRITICAL FIX: If it's turn 1 but the user already gave us everything, don't force turn 2.
+            if turn_count == 1 and _is_task_complete(active_task):
+                _mark_visited(active_task)
+                insights["_completed_task"] = active_task
+                active_task = None
+                turn_count = 0
             # Hard ceiling: ALWAYS mark visited after >= 3 turns
-            if turn_count >= 3:
+            elif turn_count >= 3:
                 _mark_visited(active_task)
                 insights["_completed_task"] = active_task
                 active_task = None
@@ -1150,18 +1158,36 @@ Keep it professional and brief."""
 
     async def _generate_final_jd_payload(self, insights: dict) -> dict:
         """Call the core JD generation prompt to produce the final asset."""
+
         from app.agents.extraction_engine import serialize_insights
 
+        # Use a dedicated LLM with high token limit for JD generation
+        jd_llm = ChatGoogleGenerativeAI(
+            google_api_key=settings.GEMINI_API_KEY,
+            model="gemini-2.5-flash",
+            temperature=0.4,
+            max_output_tokens=8192,  # CRITICAL FIX: 350 tokens was truncating the JD JSON
+            response_mime_type="application/json",  # Enforce JSON output
+        )
+
         response = await _invoke_with_retry(
-            _interview_llm,
+            jd_llm,
             [
-                SystemMessage(content=get_compiled_prompt("jd-generation-prompt", JD_GENERATION_PROMPT)),
+                SystemMessage(
+                    content=get_compiled_prompt(
+                        "jd-generation-prompt", JD_GENERATION_PROMPT
+                    )
+                ),
                 HumanMessage(
                     content=f"Generate the Job Description from this data:\n{serialize_insights(insights)}"
                 ),
             ],
+            agent_name="JDGeneratorAgent",
+            call_type="jd_generation",
         )
-        raw_content = _extract_text_content(response.content if response else None).strip()
+        raw_content = _extract_text_content(
+            response.content if response else None
+        ).strip()
 
         # Strip potential markdown code blocks
         if raw_content.startswith("```"):
@@ -1173,6 +1199,7 @@ Keep it professional and brief."""
             return json.loads(raw_content)
         except Exception as e:
             logger.error(f"Failed to parse JD JSON: {e}")
+            # Fallback to raw text if parsing still fails
             return {"jd_structured_data": {}, "jd_text_format": raw_content}
 
     async def run_turn(
@@ -1381,167 +1408,45 @@ Keep it professional and brief."""
         session_id: str | None = None,
         employee_id: str | None = None,
     ) -> AsyncIterator[dict]:
-        """Execute one interview turn with streaming.
-
-        Yields: {"type": "extraction", "data": {...}}
-                {"type": "chunk", "content": "..."}
-                {"type": "done", "extracted": {...}, "full_text": "...", "questions_asked": [...]}
-        """
+        """Execute one interview turn with streaming using a single LLM call."""
         questions_asked = questions_asked or []
         previous_questions_text = previous_questions_text or []
         is_opening_turn = not recent_messages
 
-        # ✅ CRITICAL: Yield an immediate heartbeat chunk to prevent frontend timeouts
         yield {"type": "chunk", "content": ""}
 
-        # Increment phase turn count for the incoming agent
+        # Increment phase turn count
         agent_turns = insights.get("agent_turn_counts") or {}
         agent_turns[agent_name] = agent_turns.get(agent_name, 0) + 1
         insights["agent_turn_counts"] = agent_turns
 
-        # Step 0a: Parallel Extraction & RAG Pipeline
-        from app.agents.extraction_engine import extract_information
-
-        # Performance Tracking
         start_time = time.perf_counter()
 
-        # Run Extraction and RAG Retrieval in parallel to save ~3-5s
-        yield {"type": "status", "content": "Analyzing your input..."}
-        extraction_task = extract_information(
-            user_message, insights, agent_name, recent_messages
-        )
-        rag_task = self._get_rag_context(insights, agent_name)
+        # 1. RAG Retrieval (ONLY for Silent Agents to save 2-3 seconds on conversational turns)
+        retrieved_context = []
+        if agent_name in SILENT_AGENTS:
+            yield {"type": "status", "content": "Finding relevant standards..."}
+            retrieved_context = await self._get_rag_context(insights, agent_name)
 
-        extracted, retrieved_context = await asyncio.gather(extraction_task, rag_task)
+        # 2. Auto-populate Inventory (Tools/Skills) if transitioning
+        if agent_name in ["ToolsAgent", "SkillsAgent"]:
+            yield {"type": "status", "content": f"Detecting relevant {agent_name.replace('Agent', '').lower()}..."}
+            insights = await self._auto_populate_inventory(insights, agent_name, retrieved_context)
 
-        parallel_time = time.perf_counter() - start_time
-        logger.info(f"[Perf] Extraction + RAG took {parallel_time:.2f}s")
-
-        if extracted:
-            # PHASE ADVANCEMENT: If user explicitly wants to proceed, mark phase complete
-            if (
-                extracted.get("user_wants_to_proceed")
-                and agent_name == "BasicInfoAgent"
-                and agent_turns[agent_name] >= 2
-            ):
-                completed = insights.get("completed_phases", [])
-                if agent_name not in completed:
-                    completed.append(agent_name)
-                    insights["completed_phases"] = completed
-                logger.info(
-                    "[Interview Stream] User requested early transition to Priority Selection."
-                )
-
-            insights = self._merge_extracted_to_insights(extracted, insights)
-            logger.info(
-                f"[Interview Stream] Data Extracted & Merged: {list(extracted.keys())}"
-            )
-
-        # Step 0b: Pre-process iteration state BEFORE routing
-        # (This avoids a redundant Critic Engine LLM call, shifting synthesis to Extraction Engine)
+        # 3. Pre-process iteration state (for Deep Dive)
         insights = self._pre_process_iteration_state(insights, agent_name)
 
-        # Step 0c: Mid-Turn Routing
-        from app.agents.router import compute_current_agent, get_transition_message
+        # 4. Update conversation summary (zero-latency)
+        insights["conversation_summary"] = self._build_conversation_summary(insights, agent_name)
 
-        new_agent = compute_current_agent(insights, agent_name)
-        if new_agent != agent_name:
-            logger.info(
-                f"[Interview Stream] Mid-Turn Transition: {agent_name} -> {new_agent}"
-            )
-
-            # STICKY COMPLETION: Mark current agent as complete
-            completed = insights.get("completed_phases", [])
-            if agent_name not in completed:
-                completed.append(agent_name)
-                insights["completed_phases"] = completed
-
-            transition_context = get_transition_message(agent_name, new_agent)
-
-            from app.agents.semantic_cleaner import deduplicate_and_professionalize
-
-            cleaning_tasks = []
-
-            target_role = (insights.get("identity_context") or {}).get("title", "General Role")
-            dept_name = (insights.get("identity_context") or {}).get("department") or insights.get("department") or ""
-            if new_agent == "WorkflowIdentifierAgent":
-                yield {
-                    "type": "status",
-                    "content": "Professionalizing your task list...",
-                }
-                cleaning_tasks.append(
-                    deduplicate_and_professionalize(
-                        insights.get("tasks") or [], "tasks", role_title=target_role, department=dept_name
-                    )
-                )
-            elif new_agent == "DeepDiveAgent":
-                yield {"type": "status", "content": "Analyzing priority tasks..."}
-                cleaning_tasks.append(
-                    deduplicate_and_professionalize(
-                        insights.get("priority_tasks", []), "priority_tasks", role_title=target_role, department=dept_name
-                    )
-                )
-            elif new_agent == "ToolsAgent":
-                yield {"type": "status", "content": "Refining technical toolset..."}
-                cleaning_tasks.append(
-                    deduplicate_and_professionalize(
-                        insights.get("tools", []), "tools", role_title=target_role, department=dept_name
-                    )
-                )
-            elif new_agent == "SkillsAgent":
-                yield {"type": "status", "content": "Validating technical skills..."}
-                cleaning_tasks.append(
-                    deduplicate_and_professionalize(
-                        insights.get("skills", []), "skills", role_title=target_role, department=dept_name
-                    )
-                )
-
-            if cleaning_tasks:
-                cleaning_results = await asyncio.gather(*cleaning_tasks)
-                # Map results back to insights
-                if new_agent == "WorkflowIdentifierAgent":
-                    insights["tasks"] = cleaning_results[0]
-                elif new_agent == "DeepDiveAgent":
-                    insights["priority_tasks"] = cleaning_results[0]
-                elif new_agent == "ToolsAgent":
-                    insights["tools"] = cleaning_results[0]
-                elif new_agent == "SkillsAgent":
-                    insights["skills"] = cleaning_results[0]
-
-            agent_name = new_agent
-            insights = self._pre_process_iteration_state(insights, agent_name)
-
-        # Step 0b: Advanced RAG Retrieval (Already done in Parallel Pipeline Step 0a)
-
-        # Step 0c: Auto-populate Inventory (Tools/Skills) if transitioning
-        if agent_name in ["ToolsAgent", "SkillsAgent"]:
-            yield {
-                "type": "status",
-                "content": f"Detecting relevant {agent_name.replace('Agent', '').lower()}...",
-            }
-            insights = await self._auto_populate_inventory(
-                insights, agent_name, retrieved_context
-            )
-
-        # Step 0c: Update conversation summary (every turn)
-        insights["conversation_summary"] = self._build_conversation_summary(
-            insights, agent_name
-        )
-
-        # Inject deep-dive turn number into insights for prompt context
         if agent_name == "DeepDiveAgent":
-            turn_count = insights.get("deep_dive_turn_count") or 1
-            insights["_deep_dive_turn_number"] = turn_count
+            insights["_deep_dive_turn_number"] = insights.get("deep_dive_turn_count") or 1
 
-        # Apply context filtering (with empty values stripped) and memory compression
+        # 5. Apply context filtering and memory compression
         filtered_insights = _apply_context_filter(_compact_insights(insights), agent_name)
         compressed_recent = self._compress_memory(recent_messages, len(recent_messages))
 
-        logger.info(
-            f"[Interview Stream] Agent: {agent_name} | User Message: {repr(user_message)}"
-        )
-
-        # Step 1: Call Conversational LLM for purely "Zero-Filler Questions"
+        # 6. Build messages
         messages = build_interview_messages(
             agent_name,
             filtered_insights,
@@ -1553,24 +1458,19 @@ Keep it professional and brief."""
         )
 
         response_text = ""
+        extracted = {}
 
+        # 7. Execute LLM Call
         if agent_name in SILENT_AGENTS:
-            logger.info(
-                f"[Interview Stream] Bypassing LLM for Silent Agent: {agent_name}"
-            )
             response_text = _get_silent_agent_response(agent_name, insights)
         else:
             response_chunks = []
             is_first_chunk = True
             llm_start_time = time.perf_counter()
 
-            # Signal to frontend that the agent is actively formulating
-            # This covers the TTFB gap while the LLM is generating
             yield {"type": "status", "content": "Formulating next question..."}
 
             from app.core.langfuse_client import get_langfuse_callback_handler
-            
-            # Setup Langfuse CallbackHandler for interview turn
             handler = get_langfuse_callback_handler(
                 trace_name=f"jd-interview-{agent_name.lower()}",
                 session_id=session_id,
@@ -1579,103 +1479,74 @@ Keep it professional and brief."""
             callbacks = [handler] if handler else []
             config = {"callbacks": callbacks} if callbacks else None
 
+            full_ai_message = None
             try:
-                async for chunk in throttled_astream(_interview_llm, messages, config=config):
-                    if chunk.content:
-                        if is_first_chunk:
-                            ttfb = time.perf_counter() - llm_start_time
-                            logger.info(f"[Perf] LLM Time to First Byte: {ttfb:.2f}s")
-                            is_first_chunk = False
-                        response_chunks.append(chunk.content)
-                        current_text = "".join(response_chunks)
-                        yield {"type": "chunk", "content": current_text}
-                response_text = "".join(response_chunks)
+                # Using ainvoke instead of astream to reliably capture tool_calls 
+                # Gemini Flash is so fast (1-2s) that streaming isn't missed, 
+                # and this guarantees we catch the tool call + text together.
+                full_ai_message = await _invoke_with_retry(
+                    _interview_llm,
+                    messages,
+                    session_id=session_id,
+                    agent_name=agent_name,
+                    call_type="question_and_extract",
+                )
+                
+                if full_ai_message:
+                    # Extract tool calls and merge into insights!
+                    if hasattr(full_ai_message, "tool_calls") and full_ai_message.tool_calls:
+                        for tc in full_ai_message.tool_calls:
+                            tool_name = tc.get("name")
+                            tool_args = tc.get("args", {})
+                            if tool_name:
+                                insights = merge_tool_call_into_insights(tool_name, tool_args, insights)
+                                extracted[tool_name] = tool_args
+                                logger.info(f"[One-LLM] Extracted via tool: {tool_name}")
+
+                    # Extract text content
+                    response_text = _extract_text_content(full_ai_message.content).strip()
+                    yield {"type": "chunk", "content": response_text}
 
             except Exception as e:
-                logger.error(f"[Interview] Streaming failed: {e}")
-                err_str = str(e).lower()
-                friendly_msg = "Could you describe your main daily activities in more detail?"
-                if "429" in err_str or "quota" in err_str or "exhausted" in err_str:
-                    yield {
-                        "type": "chunk",
-                        "content": f"The AI model quota is temporarily exhausted. Let's focus on: {friendly_msg}",
-                    }
-                else:
-                    yield {
-                        "type": "chunk",
-                        "content": f"I had a brief connection issue. Could you tell me more about: {friendly_msg}",
-                    }
+                logger.error(f"[Interview] Single-LLM call failed: {e}")
+                yield {"type": "chunk", "content": "I'm sorry, could you repeat that? I lost my train of thought."}
                 return
 
-        # Step 2: Loop control — check for agent stall
+        # 8. Check for agent stall (force advance if stuck)
         is_stalled = self._check_agent_stall(agent_name, extracted, insights)
         if is_stalled:
             insights["_force_advance"] = True
-            completed = insights.get("completed_phases", [])
+            completed = insights.get("completed_phases") or []
             if agent_name not in completed:
                 completed.append(agent_name)
                 insights["completed_phases"] = completed
-            # CRITICAL: Merge extracted data INTO insights immediately for streaming persistence
-            insights = self._merge_extracted_to_insights(extracted, insights)
 
         full_text = response_text.strip()
 
-        logger.debug(
-            f"====== RAW SET RESPONSE (BEFORE PROCESSING) ======\n{repr(full_text)}"
-        )
-
-        # --- APPLY STRICT VALIDATION PIPELINE ---
+        # 9. Apply validation pipeline
         if agent_name not in SILENT_AGENTS:
-            full_text = _normalize_agent_response(
-                full_text,
-                agent_name,
-                insights,
-                is_opening_turn=is_opening_turn,
-            )
+            full_text = _normalize_agent_response(full_text, agent_name, insights, is_opening_turn=is_opening_turn)
         full_text = full_text.strip()
 
-        # Snapshot generation removed — it was polluting the chat response with
-        # internal analysis blocks that leak into the user-facing conversation.
-
-        # --- FINAL JD GENERATION BRIDGE ---
+        # 10. Final JD Generation Bridge
         if agent_name == "JDGeneratorAgent":
-            logger.info("[JD Fix] Executing final high-fidelity JD generation...")
-            yield {
-                "type": "status",
-                "content": "Architecting your high-fidelity Job Description...",
-            }
+            yield {"type": "status", "content": "Architecting your high-fidelity Job Description..."}
             jd_payload = await self._generate_final_jd_payload(insights)
             insights["final_jd"] = jd_payload
             full_text = "Your high-fidelity Job Description is architected. Review the preview pane to your right."
 
-        # --- SEMANTIC QUESTION DEDUPLICATION STATUS ---
-        # Disabled post-streaming deduplication.
-        # Overwriting text after it has already streamed to the frontend causes a UI glitch.
-
-        # Record the question hash + text
+        # 11. Record question for deduplication
         insights["last_question_asked"] = full_text
-        insights["conversation_summary"] = self._build_conversation_summary(
-            insights, agent_name
-        )
+        insights["conversation_summary"] = self._build_conversation_summary(insights, agent_name)
         q_hash = _compute_question_hash(full_text)
         if q_hash not in questions_asked:
             questions_asked.append(q_hash)
         previous_questions_text.append(full_text)
 
-        # Debug state logging (kept as debug level for development troubleshooting)
-        logger.debug(f">> [USER MESSAGE]: {user_message}")
-        logger.debug(f">> [EXTRACTED DATA]: {list(extracted.keys())}")
-        logger.debug(f">> [AGENT RESPONSE]: {full_text}")
-
-        # Clean up temporary keys before persisting
         insights.pop("_deep_dive_turn_number", None)
         insights.pop("_force_advance", None)
-
-        # Signal the actual agent to the graph layer so it doesn't double-route.
-        # This is a transient key that graph.py reads and then removes.
         insights["_engine_current_agent"] = agent_name
 
-        # Yield to ensure validated/final text is sent before 'done'
         yield {"type": "chunk", "content": full_text}
 
         yield {

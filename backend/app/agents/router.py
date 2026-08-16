@@ -29,35 +29,23 @@ AGENT_ORDER = [
 
 AGENT_CRITERIA = {
     "BasicInfoAgent": lambda ins: (
-        # IDEAL PATH: Purpose captured + (either cadence & 3 turns OR already got 4+ tasks)
+        # SMART EARLY EXIT: If the user typed a detailed answer and we got at least 1 task, advance immediately.
+        # We don't need to hold the user hostage for 3 tasks anymore.
         (
-            len(ins.get("purpose") or "") >= 10
-            and (
-                (
-                    ins.get("cadence_probed", False)
-                    and (ins.get("agent_turn_counts") or {}).get("BasicInfoAgent", 0)
-                    >= 3
-                )
-                or len(ins.get("tasks") or []) >= 4
-            )
+            len(ins.get("purpose") or "") >= 15
+            and len(ins.get("tasks") or []) >= 1
+            and (ins.get("agent_turn_counts") or {}).get("BasicInfoAgent", 0) >= 1
         )
-        # EARLY EXIT: User explicitly says done — but ONLY if cadence was probed first
-        or (
-            ins.get("user_wants_to_proceed", False)
-            and ins.get("cadence_probed", False)
-            and (ins.get("agent_turn_counts") or {}).get("BasicInfoAgent", 0) >= 2
-        )
-        # HARD STOP: 5 turns maximum no matter what
-        or (ins.get("agent_turn_counts") or {}).get("BasicInfoAgent", 0) >= 5
+        # Fallback: If they give us a purpose and say "done", move on.
+        or ins.get("user_wants_to_proceed", False)
+        # Hard stop: Max 2 turns.
+        or (ins.get("agent_turn_counts") or {}).get("BasicInfoAgent", 0) >= 2
     ),
     "WorkflowIdentifierAgent": lambda ins: (
-        # Ideal: At least 1 priority task selected (no minimum restriction)
         len(ins.get("priority_tasks") or []) >= 1
-        # GUARDRAIL: Hard stop after 4 turns if user doesn't select any
         or (ins.get("agent_turn_counts") or {}).get("WorkflowIdentifierAgent", 0) >= 4
     ),
     "DeepDiveAgent": lambda ins: (
-        # GUARDRAIL: Phase is complete if 5+ tasks visited OR turn count >= 10 OR top 5 priority tasks visited
         len(ins.get("visited_tasks") or []) >= 5
         or (ins.get("agent_turn_counts") or {}).get("DeepDiveAgent", 0) >= 10
         or (
@@ -79,19 +67,18 @@ AGENT_CRITERIA = {
         or (ins.get("agent_turn_counts") or {}).get("SkillsAgent", 0) >= 3
     ),
     "QualificationAgent": lambda ins: (
-        # REQUIRE at least 2 turns to capture education + certifications
+        # REQUIRE at least 1 turn to capture education
         (
-            (ins.get("agent_turn_counts") or {}).get("QualificationAgent", 0) >= 2
+            (ins.get("agent_turn_counts") or {}).get("QualificationAgent", 0) >= 1
             and (
                 (ins.get("qualifications") or {}).get("education")
                 and len(str((ins.get("qualifications") or {}).get("education"))) > 5
             )
         )
-        # GUARDRAIL: Hard stop after 3 turns — questions are now more targeted
-        or (ins.get("agent_turn_counts") or {}).get("QualificationAgent", 0) >= 3
+        # HARD STOP: 2 turns maximum (was 3)
+        or (ins.get("agent_turn_counts") or {}).get("QualificationAgent", 0) >= 2
     ),
 }
-
 # ── Transition Messages ──────────────────────────────────────────────────────
 
 TRANSITION_MESSAGES = {

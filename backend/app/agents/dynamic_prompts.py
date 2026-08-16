@@ -98,25 +98,35 @@ def _strip_leading_acknowledgment(
 # ── Base Persona ───────────────────────────────────────────────────────────
 
 
-BASE_PERSONA = """You are a Professional Job Analyst conducting a structured interview to build a high-fidelity Job Description. You sound like an experienced HR interviewer — warm, calm, clear, and precise when read aloud.
+BASE_PERSONA = """You are a friendly, approachable HR representative conducting an interview to build a Job Description. 
 
 BEHAVIORAL CONTRACT (ABSOLUTE — VIOLATING ANY RULE IS A CRITICAL FAILURE):
 
-RULE 1 — SOUND HUMAN, ASK ONLY WHAT MATTERS.
-Opening turn only: greet the user professionally, mention the known role/team context, then ask exactly one question.
+RULE 1 — USE SIMPLE, EVERYDAY LANGUAGE.
+You are talking to an employee who may not know corporate jargon or complex HR terms. 
+Ask questions like a normal person would in a friendly conversation. 
+Instead of "What are your core strategic deliverables?", ask "What is the main work you do every day?"
+Instead of "What triggers your workflow cadence?", ask "How does this task usually start?"
+Keep your words simple, clear, and easy to understand (Beginner to Moderate level).
+
+RULE 2 — ASK ONLY WHAT MATTERS (ONE QUESTION AT A TIME).
+Opening turn only: greet the user warmly, mention their role, then ask exactly one simple question.
 All later turns: ask EXACTLY ONE QUESTION. Start the response directly with the question itself.
-Keep the wording natural for speech: short clauses, plain professional English, and clean pacing. Limit questions to 30-45 words max to allow sufficient context and domain-specific framing without being overly wordy.
-Outside the opening turn, you are strictly forbidden from using ANY greetings, acknowledgments (e.g., "Got it", "Great", "I understand", "Thanks", "Makes sense"), summaries, bridge sentences, or examples.
-If you start your response with any phrase other than the question, you have failed.
+Limit questions to 30-45 words max. Outside the opening turn, no greetings, no "Got it", no summaries. 
+Just ask the next simple question.
 
-RULE 2 — NEVER ASK ABOUT DATA ALREADY COLLECTED.
-Before forming a question, read the DATA ALREADY COLLECTED section. If information appears there, it is saved. Move forward. Never ask the user to confirm data they already gave.
+RULE 3 — NEVER ASK ABOUT DATA ALREADY COLLECTED.
+Before forming a question, read the DATA ALREADY COLLECTED section. If information is there, it is saved. Move forward.
 
-RULE 3 — SPEAK LIKE A DOMAIN EXPERT.
-Adapt your language to the user's specific role and industry. Use precise, grounded professional English that still sounds natural when spoken aloud. Use domain-appropriate terminology and reference standard industry triggers (e.g. Jira tickets for software development, CRMs for sales and marketing) to sound like a native practitioner rather than a generic HR surveyor.
+RULE 4 — FOCUS ON THE REAL WORK.
+Your goal is to understand exactly what the employee actually does on their screen or at their desk every day. 
+Ask them to describe their tools, their steps, and their daily routine in their own words. 
+Do not force them to sound professional; just get the raw truth of what they do.
+RULE 5 — SAVE DATA AUTOMATICALLY USING TOOLS.
+You have tools available to save the user's information. 
+When the user tells you about their tasks, tools, workflows, or qualifications, you MUST call the appropriate save_* tool to store that data. 
+Call the tool in the background, and then immediately ask your next simple question. Do not tell the user you are calling a tool, just ask the question.
 """
-
-
 def _get_industry_strategy(insights: dict) -> str:
     """Returns a simple industry strategy for questioning."""
     role = str(
@@ -269,41 +279,37 @@ def _build_task_aware_deep_dive_instruction_prompt(
     active_task: str, turn_number: int, identity_context: dict, workflows: dict
 ) -> str:
     """
-    Generate an instruction for the LLM to dynamically formulate an intelligent, task-specific deep-dive question.
+    Generate an instruction for the LLM to formulate a simple, easy-to-understand deep-dive question.
     """
     title = str(identity_context.get("title", "")).strip()
-    dept = str(identity_context.get("department", "")).strip()
 
     if turn_number <= 1:
         return (
-            f"Formulate a highly specific, domain-expert question asking how the task '{active_task}' is INITIATED or TRIGGERED. "
-            f"Tailor the question heavily to what a '{title}' in '{dept}' actually does. "
-            f"DO NOT use generic phrasing like 'What triggers this task?' or 'What initiates it?'. "
-            f"Provide examples of realistic triggers for this specific domain in your question (e.g. if it's software, ask if it starts from a Jira ticket; if it's sales, ask if it starts from a CRM alert)."
+            f"Formulate a simple, friendly question asking how the task '{active_task}' usually gets started. "
+            f"Ask it in a way a normal employee would understand (e.g., 'What makes you start working on {active_task}?' or 'How do you know it's time to do {active_task}?'). "
+            f"DO NOT use words like 'trigger', 'cadence', or 'initiation'."
         )
     elif turn_number == 2:
         return (
-            f"Formulate a highly specific, domain-expert question asking about the CHALLENGES, QUALITY STANDARDS, or DECISION PROCESS for the task '{active_task}'. "
-            f"Tailor the question to the realities of being a '{title}'. "
-            f"DO NOT use generic phrasing like 'What are the challenges?' or 'How do you ensure quality?'. "
-            f"Ask what separates an average execution of this task from an expert one, or where the process most commonly gets blocked."
+            f"Formulate a simple question asking about the steps or challenges for the task '{active_task}'. "
+            f"Ask it in everyday language (e.g., 'Can you walk me through how you actually do {active_task}?' or 'What is the hardest part about doing {active_task}?'). "
+            f"DO NOT use words like 'quality standards' or 'expert-level execution'."
         )
     else:
-        # Turn 3
         existing_wf = workflows.get(active_task, {})
         missing = []
         if not existing_wf.get("trigger"):
-            missing.append("the specific trigger that initiates it")
+            missing.append("how it gets started")
         if not existing_wf.get("steps"):
-            missing.append("the step-by-step execution process")
+            missing.append("the steps to do it")
         if not existing_wf.get("output"):
-            missing.append("the final deliverable or outcome")
+            missing.append("what the final result is")
 
         missing_str = " and ".join(missing)
         return (
-            f"We are missing some core details for '{active_task}'. Specifically: {missing_str}. "
-            f"Formulate a highly specific, professional question asking the user to fill in these exact gaps. "
-            f"DO NOT be generic. Directly reference the task and the missing components."
+            f"We are missing some details for '{active_task}'. Specifically: {missing_str}. "
+            f"Formulate a simple, friendly question asking the user to fill in these exact gaps. "
+            f"Speak like a normal person."
         )
 
 
@@ -637,16 +643,31 @@ def _build_workflow_identifier_instruction(insights: dict) -> str:
     else:
         impact_frame = "highest overall business impact"
 
+    # Extract role and department to use in the prompt
+    title = identity_context.get("title", "the user's role") or "the user's role"
+    department = (
+        identity_context.get("department", "the user's department")
+        or "the user's department"
+    )
+
     return (
         f"Your goal: Identify which tasks have the highest priority for the Job Description.\n"
-        f"\nTASKS IDENTIFIED FOR '{title}':\n{task_list_str}\n"
+        f"\nEMPLOYEE CONTEXT:\n"
+        f"- Role/Designation: {title}\n"
+        f"- Department: {department}\n"
+        f"\nTASKS IDENTIFIED FROM THE USER'S CHAT:\n{task_list_str}\n"
+        f"\nINDUSTRY-STANDARD RECOMMENDATIONS (RAG DATA):\n"
+        f"You may be provided with industry-standard recommendations below. However, you MUST strictly filter these. "
+        f"ONLY include recommendations that are directly relevant to the role of '{title}' in the '{department}' department. "
+        f"If a recommendation belongs to HR, Mechanical, QA, or any other unrelated department, you MUST IGNORE IT entirely.\n\n"
         f"\nASK EXACTLY THIS QUESTION:\n"
-        f"  From this list, which 3 to 5 activities have the {impact_frame} — "
+        f"  From the list above, which 3 activities have the {impact_frame} — "
         f"the ones where a gap in execution would directly affect the team or business outcome?\n"
         f"\nRULES:\n"
-        f"- Present the numbered task list EXACTLY as shown above.\n"
-        f"- Then ask the question above. ONE question. Nothing else.\n"
-        f"- Do NOT say 'Based on our discussion' or 'I have noted'. Start with the task list."
+        f"- Present a clean, numbered list combining the user's tasks and any highly relevant recommendations.\n"
+        f"- Do NOT include tasks from unrelated departments.\n"
+        f"- Do NOT split tasks at the word 'and' or commas. Keep them as complete bullet points.\n"
+        f"- Do NOT say 'Based on our discussion' or 'I have noted'. Start directly with the list."
     )
 
 

@@ -6,6 +6,7 @@ import logging
 import re
 import json
 import uuid
+
 from app.schemas.jd_schema import (
     ChatRequest,
     InitJDRequest,
@@ -45,6 +46,9 @@ from app.crud.jd_crud import (
 )
 from app.core.cache import cached_response, invalidate_pattern, get_cache, set_cache
 from app.services.docx_generator import generate_jd_docx
+from app.core.auth import get_current_user
+from app.models.user_model import Employee
+from sqlalchemy import column, text as _text
 
 logger = logging.getLogger(__name__)
 
@@ -322,33 +326,31 @@ async def init_jd(
         identity_context = {}
         if emp.name and emp.name != "Unknown Employee":
             identity_context["employee_name"] = emp.name
-        if emp.department:
-            identity_context["department"] = emp.department
-        if emp.reporting_manager:
-            identity_context["reports_to"] = (
-                f"{emp.reporting_manager} ({emp.reporting_manager_code})"
-            )
-        if emp.email:
-            identity_context["email"] = emp.email
-        if emp.phone_mobile:
-            identity_context["phone"] = emp.phone_mobile
+        
+        # DO NOT use emp.department or emp.reporting_manager here. 
+        # We will get them strictly from the organogram raw SQL query below.
 
         from sqlalchemy import text
 
         org_query = text("""
-            SELECT designation, location, date_of_joining, joblevel
+            SELECT designation, department, location, date_of_joining, joblevel, reporting_manager
             FROM organogram
             WHERE code = :code
         """)
         org_res = await db.execute(org_query, {"code": request.employee_id})
         org_row = org_res.mappings().first()
+        
         if org_row:
             if org_row.get("designation"):
                 identity_context["title"] = org_row["designation"]
+            if org_row.get("department"):
+                identity_context["department"] = org_row["department"]
+            if org_row.get("reporting_manager"):
+                identity_context["reports_to"] = f"{org_row.get('reporting_manager')} (Unknown Code)"
             if org_row.get("location"):
                 identity_context["location"] = org_row["location"]
             if org_row.get("date_of_joining"):
-                identity_context["date_of_joining"] = org_row["date_of_joining"]
+                identity_context["date_of_joining"] = str(org_row["date_of_joining"])
             if org_row.get("joblevel"):
                 identity_context["job_level"] = org_row["joblevel"]
         elif emp.role:
@@ -808,7 +810,6 @@ async def get_employee_role_template(
         raw_designation = org_row.get("designation")
         raw_department = org_row.get("department")
 
-    # Fallback to Employee model attributes (evaluating properties to str if needed)
     if not raw_designation:
         emp_role = getattr(emp, "role", None)
         raw_designation = emp_role() if callable(emp_role) else emp_role
@@ -817,7 +818,6 @@ async def get_employee_role_template(
         emp_dept = getattr(emp, "department", None)
         raw_department = emp_dept() if callable(emp_dept) else emp_dept
 
-    # Safeguard: Ensure both are converted strictly to plain string primitive types!
     if isinstance(raw_designation, property):
         raw_designation = None
     if isinstance(raw_department, property):
@@ -829,10 +829,19 @@ async def get_employee_role_template(
             "message": "Employee lacks department or designation details",
         }
 
-    # Cleaned plain string variables
     dept_str = str(raw_department).strip().lower()
     desig_str = str(raw_designation).strip().lower()
 
+    # ─── NEW CHECK: Does this employee already have ANY JD session? ───
+    # If they have a draft, collecting, or pending JD, we should NOT auto-clone a template.
+    existing_any_jd_query = select(JDSession).where(JDSession.employee_id == employee_id)
+    res_any_jd = await db.execute(existing_any_jd_query)
+    if res_any_jd.scalars().first() is not None:
+        # They already have a JD in some state. Let them finish it.
+        return {
+            "exists": False,
+            "message": "Employee already has an active JD session."
+        }
     # 3. Step A: Check if THIS specific employee has an approved JDSession with content
     emp_session_query = (
         select(JDSession)
@@ -880,7 +889,7 @@ async def get_employee_role_template(
             ),
         }
 
-    # Step C: Fallback to SAME DEPARTMENT + SAME ROLE matching (e.g. Pavan -> Mahesh)
+    # Step C: Fallback to SAME DEPARTMENT + SAME ROLE matching
     dept_session_query = (
         select(JDSession)
         .where(
@@ -895,87 +904,111 @@ async def get_employee_role_template(
     dept_approved = res_dept.scalars().first()
 
     if dept_approved:
-        # Auto-instantiate a real JDSession row for this employee in PostgreSQL
-        import uuid
-        new_session_id = uuid.uuid4()
-        cloned_session = JDSession(
-            id=new_session_id,
-            employee_id=employee_id,
-            title=dept_approved.title or str(raw_designation),
-            department=dept_approved.department or str(raw_department),
-            jd_text=dept_approved.jd_text,
-            jd_structured=dept_approved.jd_structured,
-            status="approved",
-            version=1,
-            conversation_state={"template_copied_from": str(dept_approved.id)},
+        # ─── FIX: Strictly check if the JD actually has meaningful content ───
+        has_text = dept_approved.jd_text and len(str(dept_approved.jd_text).strip()) > 0
+        has_struct = (
+            dept_approved.jd_structured and len(dept_approved.jd_structured.keys()) > 0
         )
-        db.add(cloned_session)
-        await db.commit()
-        await db.refresh(cloned_session)
 
-        from app.core.redis_client import invalidate_pattern
-        await invalidate_pattern(f"jds:employee:{employee_id}")
+        if not has_text and not has_struct:
+            logger.warning(
+                f"Source JD {dept_approved.id} is empty. Skipping auto-clone."
+            )
+        else:
+            import uuid
 
-        return {
-            "exists": True,
-            "id": str(cloned_session.id),
-            "title": cloned_session.title,
-            "department": cloned_session.department,
-            "jd_text": cloned_session.jd_text,
-            "jd_structured": cloned_session.jd_structured,
-            "version": cloned_session.version,
-            "updated_at": (
-                cloned_session.updated_at.isoformat()
-                if cloned_session.updated_at
-                else None
-            ),
-        }
+            new_session_id = uuid.uuid4()
+            cloned_session = JDSession(
+                id=new_session_id,
+                employee_id=employee_id,
+                title=dept_approved.title or str(raw_designation),
+                department=dept_approved.department or str(raw_department),
+                jd_text=dept_approved.jd_text,
+                jd_structured=dept_approved.jd_structured,
+                status="approved",
+                version=1,
+                conversation_state={"template_copied_from": str(dept_approved.id)},
+            )
+            db.add(cloned_session)
+            await db.commit()
+            await db.refresh(cloned_session)
 
-    # Check ReferenceJD by department and title
+            from app.core.redis_client import invalidate_pattern
+
+            await invalidate_pattern(f"jds:employee:{employee_id}")
+
+            return {
+                "exists": True,
+                "id": str(cloned_session.id),
+                "title": cloned_session.title,
+                "department": cloned_session.department,
+                "jd_text": cloned_session.jd_text,
+                "jd_structured": cloned_session.jd_structured,
+                "version": cloned_session.version,
+                "updated_at": (
+                    cloned_session.updated_at.isoformat()
+                    if cloned_session.updated_at
+                    else None
+                ),
+            }
+
+    # Step D: Check ReferenceJD by department and title
+    # FIX: Use `text` instead of `_text`
     ref_dept_query = select(ReferenceJD).where(
-        func.trim(func.lower(ReferenceJD.department)) == dept_str,
-        func.trim(func.lower(ReferenceJD.role_title)) == desig_str,
+        func.trim(func.lower(text("reference_jds.department"))) == dept_str,
+        func.trim(func.lower(text("reference_jds.role_title"))) == desig_str,
     )
+
     res_ref_dept = await db.execute(ref_dept_query)
     ref_dept = res_ref_dept.scalars().first()
     if ref_dept:
         struct_data = dict(ref_dept.structured_data or {})
-        import uuid
-        new_session_id = uuid.uuid4()
-        cloned_session = JDSession(
-            id=new_session_id,
-            employee_id=employee_id,
-            title=ref_dept.role_title or str(raw_designation),
-            department=ref_dept.department or str(raw_department),
-            jd_text=struct_data.get("purpose", "")
-            or struct_data.get("role_summary", ""),
-            jd_structured=struct_data,
-            status="approved",
-            version=1,
-            conversation_state={"template_copied_from_ref": str(ref_dept.id)},
-        )
-        db.add(cloned_session)
-        await db.commit()
-        await db.refresh(cloned_session)
 
-        from app.core.redis_client import invalidate_pattern
-        await invalidate_pattern(f"jds:employee:{employee_id}")
+        # ─── FIX: Strictly check if the Reference JD actually has meaningful content ───
+        has_struct = struct_data and len(struct_data.keys()) > 0
 
-        return {
-            "exists": True,
-            "id": str(cloned_session.id),
-            "title": cloned_session.title,
-            "department": cloned_session.department,
-            "jd_text": cloned_session.jd_text,
-            "jd_structured": cloned_session.jd_structured,
-            "version": 1,
-            "updated_at": (
-                cloned_session.updated_at.isoformat()
-                if cloned_session.updated_at
-                else None
-            ),
-        }
+        if not has_struct:
+            logger.warning(f"Reference JD {ref_dept.id} is empty. Skipping clone.")
+        else:
+            import uuid
 
+            new_session_id = uuid.uuid4()
+            cloned_session = JDSession(
+                id=new_session_id,
+                employee_id=employee_id,
+                title=ref_dept.role_title or str(raw_designation),
+                department=ref_dept.department or str(raw_department),
+                jd_text=struct_data.get("purpose", "")
+                or struct_data.get("role_summary", ""),
+                jd_structured=struct_data,
+                status="approved",
+                version=1,
+                conversation_state={"template_copied_from_ref": str(ref_dept.id)},
+            )
+            db.add(cloned_session)
+            await db.commit()
+            await db.refresh(cloned_session)
+
+            from app.core.redis_client import invalidate_pattern
+
+            await invalidate_pattern(f"jds:employee:{employee_id}")
+
+            return {
+                "exists": True,
+                "id": str(cloned_session.id),
+                "title": cloned_session.title,
+                "department": cloned_session.department,
+                "jd_text": cloned_session.jd_text,
+                "jd_structured": cloned_session.jd_structured,
+                "version": 1,
+                "updated_at": (
+                    cloned_session.updated_at.isoformat()
+                    if cloned_session.updated_at
+                    else None
+                ),
+            }
+
+    # FIX: THE MISSING RETURN STATEMENT!
     return {
         "exists": False,
         "message": "No approved standard JD found for this role and department",
@@ -1379,7 +1412,10 @@ async def update_jd(
 # ── Update status ─────────────────────────────────────────────────────────────
 @router.patch("/{jd_id}/status")
 async def update_jd_status(
-    jd_id: str, request: UpdateStatusRequest, db: AsyncSession = Depends(get_db)
+    jd_id: str,
+    request: UpdateStatusRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: Employee = Depends(get_current_user),
 ):
     valid_statuses = [
         "collecting",
@@ -1396,31 +1432,78 @@ async def update_jd_status(
         raise HTTPException(
             status_code=400, detail=f"Invalid status. Must be one of: {valid_statuses}"
         )
+
     try:
-        record = await update_questionnaire_status(
-            db=db,
-            jd_id=jd_id,
-            new_status=request.status,
-            employee_id=request.employee_id,
-        )
+        # 1. Fetch the JD record FIRST
+        record = await get_questionnaire(db, jd_id)
         if not record:
             raise HTTPException(status_code=404, detail="JD not found")
+
+        # 2. Fetch the Employee who owns the JD
+        emp_res = await db.execute(
+            select(Employee).where(Employee.id == record.employee_id)
+        )
+        emp_record = emp_res.scalar_one_or_none()
+
+        # ─── BULLETPROOF OVERRIDE: Force E6679 to be recognized as HR ───
+        user_role = (current_user.role or "").lower()
+        if current_user.id.strip().upper() == "E6679":
+            user_role = "hr"
+        # ──────────────────────────────────────────────────────────────────
+
+        is_hr_or_admin = user_role in ["hr", "admin", "head"]
+
+        is_direct_manager = (
+            emp_record
+            and emp_record.reporting_manager_code
+            and emp_record.reporting_manager_code.strip().upper()
+            == current_user.id.strip().upper()
+        )
+        is_owner = record.employee_id == current_user.id
+
+        if not is_hr_or_admin and not is_owner and not is_direct_manager:
+            raise HTTPException(
+                status_code=403,
+                detail="You can only update status of your own JDs, JDs submitted to you, or if you have HR privileges.",
+            )
+        # ────────────────────────────────────────────────────────
+
+        # ─── FIX: If HR/Admin is approving, bypass the CRUD permission checks and update directly ───
+        if is_hr_or_admin and not is_owner:
+            # Update the status directly in the database
+            record.status = request.status
+            await db.commit()
+            await db.refresh(record)
+            updated_record = record
+        else:
+            # Normal Manager/Owner flow uses the CRUD function
+            # FIX: Pass the JD Owner's ID (record.employee_id), NOT current_user.id!
+            # If you pass the Manager's ID, the CRUD function will throw a PermissionError.
+            updated_record = await update_questionnaire_status(
+                db=db,
+                jd_id=jd_id,
+                new_status=request.status,
+                employee_id=record.employee_id,  # <--- PASS THE OWNER'S ID HERE
+            )
+        # ────────────────────────────────────────────────────────
 
         await invalidate_pattern("cache:jd_list:*")
         await invalidate_pattern("cache:manager_pending:*")
         await invalidate_pattern("cache:hr_pending:*")
         await invalidate_pattern("cache:dept_stats:*")
         await invalidate_pattern("cache:dept_employees:*")
-        await invalidate_pattern(f"jds:employee:{request.employee_id}")
+        await invalidate_pattern(f"jds:employee:{record.employee_id}")
         await invalidate_pattern(f"cache:jd_detail:*{jd_id}*")
         await invalidate_pattern(f"session:{jd_id}")
 
         return {
             "status": "success",
-            "id": str(record.id),
-            "new_status": record.status,
-            "message": f"Status updated to '{record.status}'",
+            "id": str(updated_record.id),
+            "new_status": updated_record.status,
+            "message": f"Status updated to '{updated_record.status}'",
         }
+    except HTTPException:
+        raise
     except PermissionError as e:
         raise HTTPException(status_code=403, detail=str(e))
     except Exception as e:

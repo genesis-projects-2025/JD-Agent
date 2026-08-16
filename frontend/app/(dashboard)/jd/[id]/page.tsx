@@ -481,54 +481,57 @@ const handleRejectWithModal = async (
     setShowRejectModal(true);
   };
 
-  const handleManagerSendToHR = async () => {
+    const handleManagerSendToHR = async () => {
     setSendingToManager(true);
     setIsApproving(true);
     router.refresh();
     try {
+      // 1. KRA/KPI is pending Manager review
       if (jd?.kra_kpi_status === "sent_to_manager") {
-        // 1. Get skills from the KRA/KPI panel via ref
-      const skills = kraKpiRef.current?.getSkills() || [];
-      
-      // 2. Validate that all skills are rated
-      const unrated = skills.some(s => s.rating === null || s.rating === undefined);
-      if (unrated) {
-        alert("Please rate all consolidated unique skills (1-10 or N/A) before approving.");
-        document.getElementById('skill-assessment')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        return; // Stop execution
+        const skills = kraKpiRef.current?.getSkills() || [];
+        
+        const unrated = skills.some(s => s.rating === null || s.rating === undefined);
+        if (unrated) {
+          alert("Please rate all consolidated unique skills (1-10 or N/A) before approving.");
+          document.getElementById('skill-assessment')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          return; 
+        }
+        
+        await submitKRAKPIReview(jd.id, {
+          action: "approved",
+          skill_ratings: skills,
+          reviewer_id: currentUser?.employee_id || "manager",
+        });
+      } 
+      // 2. KRA/KPI is pending HR review (THIS WAS MISSING!)
+      else if (jd?.kra_kpi_status === "sent_to_hr") {
+        // HR needs to approve the KRA/KPI using the KRA/KPI review endpoint!
+        await submitKRAKPIReview(jd.id, {
+          action: "approved",
+          reviewer_id: currentUser?.employee_id || "hr",
+        });
+      } 
+      // 3. JD is pending HR review
+      else if (jd?.status === "sent_to_hr") {
+        // Normal JD HR Sign-off
+        await approveJD(jd.id, currentUser?.employee_id || "admin");
+      } 
+      // 4. JD is pending Manager review
+      else {
+        await sendToHR(jd.id, currentUser?.employee_id || "admin");
       }
-      
-      // 3. Submit KRA/KPI approval with skills
-      await submitKRAKPIReview(jd.id, {
-        action: "approved",
-        skill_ratings: skills,
-        reviewer_id: currentUser?.employee_id || "manager",
-      });
-      } else {
-      // Normal JD Approval Flow
-      const isHeadOrHR =
-        (isHR(currentUser) ||
-          role === "head" ||
-          role === "hr" ||
-          role === "admin") &&
-        (jd?.status === "sent_to_hr" || jd?.kra_kpi_status === "sent_to_hr");
-      if (isHeadOrHR) {
-        await approveJD(jd.id, jd.employee_id);
-      } else {
-        await sendToHR(jd.id, jd.employee_id);
-      }
+
+      const updated = await fetchJD(jd.id);
+      setJd(updated);
+      setShowFeedbackPrompt(true);
+      router.refresh();
+    } catch (e) {
+      alert(e.message || "Failed to process approval.");
+    } finally {
+      setSendingToManager(false);
+      setIsApproving(false);
     }
-    const updated = await fetchJD(jd.id);
-    setJd(updated);
-    setShowFeedbackPrompt(true);
-    router.refresh();
-  } catch (e) {
-    alert(e.message || "Failed to process approval.");
-  } finally {
-    setSendingToManager(false);
-    setIsApproving(false);
-  }
-};
+  };
 
   const handleHRReject = () => {
     setRejectingAs("hr");
@@ -1045,15 +1048,18 @@ const handleRejectWithModal = async (
           }
         }
 
-        // 2. JD Pending Review
+         // 2. JD Pending Review
         if (isJdPending) {
           const canApprove = (isManagerRole && jd.status === "sent_to_manager") || (isHRUser && jd.status === "sent_to_hr");
           if (canApprove) {
+            // Dynamically change button text based on who is viewing
+            const approveBtnLabel = isHRUser ? "Approve & Sign Off" : "Approve & Forward to HR";
+            
             return (
               <div className="flex flex-col sm:flex-row flex-wrap gap-3 w-full">
                 <button onClick={handleManagerSendToHR} disabled={sendingToManager || isEditing || isApproving} className="flex-1 px-5 py-3.5 bg-emerald-600 text-white rounded-md font-medium flex items-center justify-center gap-2 shadow-sm hover:shadow-md hover:-translate-y-0.5 hover:bg-emerald-700 text-[14px] transition-all disabled:opacity-50 whitespace-nowrap">
                   {isApproving ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
-                  Approve & Forward to HR
+                  {approveBtnLabel}
                 </button>
                 <button onClick={handleEditToggle} disabled={isSavingEdit || sendingToManager} className="flex-1 px-5 py-3.5 bg-white text-primary-700 border border-primary-200 rounded-md font-medium hover:bg-primary-50 transition-all shadow-sm active:scale-[0.98] flex items-center justify-center gap-2 text-[14px] disabled:opacity-50 whitespace-nowrap">
                   <Edit className="w-4 h-4" /> Edit JD

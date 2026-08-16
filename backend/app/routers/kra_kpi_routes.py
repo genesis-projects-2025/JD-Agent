@@ -816,6 +816,11 @@ async def review_kra_kpi(
     reviewer = reviewer_res.scalar_one_or_none()
     reviewer_role = (reviewer.role or "").lower() if reviewer else "manager"
 
+    # ─── BULLETPROOF OVERRIDE: Force E6679 to be recognized as HR ───
+    if request.reviewer_id.strip().upper() == "E6679":
+        reviewer_role = "hr"
+    # ──────────────────────────────────────────────────────────────────
+
     emp_res = await db.execute(
         select(Employee).where(Employee.id == record.employee_id)
     )

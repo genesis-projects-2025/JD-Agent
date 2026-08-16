@@ -153,7 +153,6 @@ def save_qualifications(
 INTERVIEW_TOOLS = [
     save_basic_info,
     save_tasks,
-    save_priority_tasks,
     save_workflow,
     save_tools_tech,
     save_skills,

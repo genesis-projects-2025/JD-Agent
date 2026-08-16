@@ -246,11 +246,11 @@ function JDGrid({
               icon: Clock,
             };
           }
-          const href = jd.kra_kpi_status === "sent_to_manager" || jd.kra_kpi_status === "sent_to_hr"
-  ? `/jd/${jd.id}?tab=kra-kpi` // Route to KRA/KPI tab if it's pending review
-  : (isOwnJD && ["collecting", "jd_session_init"].includes(jd.status))
-    ? `/questionnaire/${jd.id}`
-    : `/jd/${jd.id}`;
+                    const href = jd.kra_kpi_status === "sent_to_manager" || jd.kra_kpi_status === "sent_to_hr"
+            ? `/jd/${jd.id}?tab=kra-kpi`
+            : (!showEmployee && ["collecting", "jd_session_init"].includes(jd.status))
+              ? `/questionnaire/${jd.id}`
+              : `/jd/${jd.id}`;
 
           return (
             <Link
@@ -444,19 +444,21 @@ function EmployeeView({
       fetchEmployeeRoleTemplate(employeeId).catch(() => ({ exists: false })),
       fetchMyImprovements(employeeId).catch(() => null),
     ])
-      .then(([jdsData, templateData, improvementsData]) => {
+            .then(([jdsData, templateData, improvementsData]) => {
         const newJds = jdsData || [];
         setAllJds(newJds);
-        if (templateData && templateData.exists) {
-          setRoleTemplate(templateData);
-        }
-        if (improvementsData && improvementsData.has_improvement_plan) {
-          setImprovementPlan(improvementsData);
-        }
+        
+        // ─── FIX: Always overwrite the state. If template doesn't exist, set to null ───
+        const validTemplate = templateData && templateData.exists ? templateData : null;
+        setRoleTemplate(validTemplate);
+        
+        const validImprovements = improvementsData && improvementsData.has_improvement_plan ? improvementsData : null;
+        setImprovementPlan(validImprovements);
+        
         setAdminCache("emp_dashboard_" + employeeId, {
           jds: newJds,
-          roleTemplate: templateData,
-          improvementPlan: improvementsData,
+          roleTemplate: validTemplate,
+          improvementPlan: validImprovements,
         });
       })
       .catch(console.error)

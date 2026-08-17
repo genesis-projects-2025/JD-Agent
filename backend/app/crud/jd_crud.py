@@ -639,6 +639,9 @@ async def update_questionnaire_jd(
     return record
 
 
+# backend/app/crud/jd_crud.py
+
+
 async def update_questionnaire_status(
     db: AsyncSession,
     jd_id: str,
@@ -652,41 +655,56 @@ async def update_questionnaire_status(
         return None
 
     from app.models.user_model import Employee
+    from sqlalchemy import text
 
-    editor_res = await db.execute(
-        select(Employee).where(Employee.id == employee_id)
-    )
+    editor_res = await db.execute(select(Employee).where(Employee.id == employee_id))
     editor = editor_res.scalar_one_or_none()
-    creator_res = await db.execute(
-        select(Employee).where(Employee.id == record.employee_id)
-    )
-    creator = creator_res.scalar_one_or_none()
 
     is_owner = record.employee_id == employee_id
-    is_hr = (editor and editor.role in ["hr", "admin"]) or (
-        currentUserRole := (editor.role if editor else "")
-    ) in ["hr", "admin"]
-    is_manager = (
-        editor
-        and creator
-        and (
-            editor.role in ["manager", "head"]
-            or (editor.has_reports if hasattr(editor, "has_reports") else False)
-        )
-        and (creator.reporting_manager_code or "").strip().upper() == (editor.id or "").strip().upper()
-    )
 
-    # Check indirect recursive reports if role is manager/head
-    if not is_manager and editor and creator:
+    # ── DYNAMIC ROLE RESOLUTION VIA ORGANOGRAM ──
+    # 1. Check if user is HR (E6679 hardcoded or HR role in employees table)
+    is_hr = (employee_id == "E6679") or (editor and editor.role in ["hr", "admin"])
+
+    is_manager = False
+
+    # 2. Direct check in organogram: Is the editor the reporting manager of the creator?
+    org_creator_res = await db.execute(
+        text(
+            "SELECT reporting_manager_code FROM organogram WHERE LOWER(TRIM(code)) = LOWER(TRIM(:code))"
+        ),
+        {"code": record.employee_id},
+    )
+    org_creator_row = org_creator_res.mappings().first()
+
+    if org_creator_row and org_creator_row.get("reporting_manager_code"):
+        mgr_code = str(org_creator_row["reporting_manager_code"]).strip().upper()
+        editor_code = str(employee_id).strip().upper()
+        if mgr_code == editor_code:
+            is_manager = True
+
+    # 3. Recursive check in organogram (Indirect reports like Managers of Managers)
+    if not is_manager:
         from app.services.dashboard_service import DashboardService
-        recursive_reports = await DashboardService.get_recursive_reports(db, editor.id)
-        if creator.id in recursive_reports:
+
+        recursive_reports = await DashboardService.get_recursive_reports(
+            db, employee_id
+        )
+        if record.employee_id in recursive_reports:
+            is_manager = True
+
+    # 4. Fallback: If they manage ANYONE in the organogram, treat them as a manager
+    if not is_manager:
+        has_reports = await DashboardService.has_direct_reports(db, employee_id)
+        if has_reports:
             is_manager = True
 
     # Security Guard: Employees cannot self-approve or reject their own JDs
     if is_owner and not is_hr and not is_manager:
         if new_status in ["approved", "manager_rejected", "hr_rejected"]:
-            raise PermissionError(f"Employees cannot perform '{new_status}' status transition on their own JD.")
+            raise PermissionError(
+                f"Employees cannot perform '{new_status}' status transition on their own JD."
+            )
 
     if not is_owner and not is_manager and not is_hr:
         raise PermissionError(
@@ -705,6 +723,7 @@ async def update_questionnaire_status(
 
     # Also sync status to KRAKPISession if it exists
     from app.models.kra_kpi_model import KRAKPISession
+
     kra_res = await db.execute(
         select(KRAKPISession).where(KRAKPISession.jd_session_id == str(record.id))
     )

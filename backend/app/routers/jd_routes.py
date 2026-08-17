@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Response, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import text,select
 from typing import Optional
 import logging
 import re
@@ -48,7 +49,7 @@ from app.core.cache import cached_response, invalidate_pattern, get_cache, set_c
 from app.services.docx_generator import generate_jd_docx
 from app.core.auth import get_current_user
 from app.models.user_model import Employee
-from sqlalchemy import column, text as _text
+from sqlalchemy import column, text
 
 logger = logging.getLogger(__name__)
 
@@ -56,20 +57,6 @@ logger = logging.getLogger(__name__)
 _SESSION_CACHE_TTL = 300
 
 router = APIRouter()
-
-
-# ── Session Management (Stateless) ───────────────────────────────────────────
-async def fetch_employee_names(db: AsyncSession, emp_ids: list) -> dict:
-    """Helper to bulk fetch employee names from organogram table"""
-    if not emp_ids:
-        return {}
-    from sqlalchemy import text as _text
-
-    res = await db.execute(
-        _text("SELECT code, employee_name FROM organogram WHERE code = ANY(:codes)"),
-        {"codes": emp_ids},
-    )
-    return {row.code: row.employee_name for row in res.fetchall()}
 
 
 def get_or_create_session(session_id: str) -> SessionMemory:
@@ -740,6 +727,30 @@ async def _attach_kra_kpi_status(db: AsyncSession, records: list) -> None:
 
 
 # ── List all (admin) ──────────────────────────────────────────────────────────
+# backend/app/routers/jd_routes.py
+
+
+async def fetch_employee_names(db: AsyncSession, emp_ids: list) -> dict:
+    """Helper to bulk-fetch employee names from the organogram table."""
+    if not emp_ids:
+        return {}
+
+    # Sanitize IDs for SQL query
+    clean_ids = [str(eid).replace("'", "''") for eid in emp_ids if eid]
+    if not clean_ids:
+        return {}
+
+    formatted_ids = "','".join(clean_ids)
+    query = text(
+        f"SELECT code, employee_name FROM organogram WHERE code IN ('{formatted_ids}')"
+    )
+
+    result = await db.execute(query)
+    # Return as a dictionary: { 'E10696': 'Mahesh Kumar', ... }
+    return {row[0]: row[1] for row in result.fetchall()}
+
+
+# ── YOUR EXACT CODE GOES HERE ──
 @router.get("/list")
 async def list_jds(submitted_only: bool = False, db: AsyncSession = Depends(get_db)):
     status_filter = (

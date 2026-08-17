@@ -995,134 +995,134 @@ const handleRejectWithModal = async (
             {/* Header Action Buttons Container */}
             <div className="flex flex-col gap-3 min-w-[240px] w-full lg:w-auto mt-2 lg:mt-0 order-last lg:order-none">
               {isEditing ? (
-  <div className="flex flex-col sm:flex-row gap-3 w-full">
-    <button
-      onClick={handleCancelEdits}
-      disabled={isSavingEdit}
-      className="flex-1 px-5 py-3 bg-white text-surface-650 border border-surface-200 rounded-md font-medium hover:bg-surface-50 transition-all shadow-sm active:scale-[0.98] flex items-center justify-center gap-2 text-[13px] disabled:opacity-50 whitespace-nowrap"
-    >
-      Cancel
-    </button>
-    <button
-      onClick={handleSaveEdits}
-      disabled={isSavingEdit}
-      className="flex-1 px-5 py-3 bg-primary-600 text-white rounded-md font-medium hover:bg-primary-700 transition-all shadow-md active:scale-[0.98] flex items-center justify-center gap-2 text-[13px] disabled:opacity-50 whitespace-nowrap"
-    >
-      {isSavingEdit ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-      Save {activeTab === "kra-kpi" ? "KRA/KPI" : "JD"}
-    </button>
-  </div>
-) : (
-  <>
-    {(() => {
-      // Reviewer / Approver view
-      if (isInspector && (isManagerRole || isHRUser)) {
-        const isJdPending = jd?.status === "sent_to_manager" || jd?.status === "sent_to_hr";
-        const isKraPending = jd?.kra_kpi_status === "sent_to_manager" || jd?.kra_kpi_status === "sent_to_hr";
-        const editLabel = activeTab === "kra-kpi" ? "Edit KRA/KPI" : "Edit JD";
+                <div className="flex flex-col sm:flex-row gap-3 w-full">
+                  <button
+                    onClick={handleCancelEdits}
+                    disabled={isSavingEdit}
+                    className="flex-1 px-5 py-3 bg-white text-surface-650 border border-surface-200 rounded-md font-medium hover:bg-surface-50 transition-all shadow-sm active:scale-[0.98] flex items-center justify-center gap-2 text-[13px] disabled:opacity-50 whitespace-nowrap"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleSaveEdits}
+                    disabled={isSavingEdit}
+                    className="flex-1 px-5 py-3 bg-primary-600 text-white rounded-md font-medium hover:bg-primary-700 transition-all shadow-md active:scale-[0.98] flex items-center justify-center gap-2 text-[13px] disabled:opacity-50 whitespace-nowrap"
+                  >
+                    {isSavingEdit ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                    Save {activeTab === "kra-kpi" ? "KRA/KPI" : "JD"}
+                  </button>
+                </div>
+              ) : (
+                <>
+                  {(() => {
+                    // Reviewer / Approver view
+                    if (isInspector && (isManagerRole || isHRUser)) {
+                      const isJdPending = jd?.status === "sent_to_manager" || jd?.status === "sent_to_hr";
+                      const isKraPending = jd?.kra_kpi_status === "sent_to_manager" || jd?.kra_kpi_status === "sent_to_hr";
+                      const editLabel = activeTab === "kra-kpi" ? "Edit KRA/KPI" : "Edit JD";
 
-        // 1. KRA/KPI Pending Review (Takes Precedence)
-        if (isKraPending) {
-          const canApprove = (isManagerRole && jd.kra_kpi_status === "sent_to_manager") || (isHRUser && jd.kra_kpi_status === "sent_to_hr");
-          if (canApprove) {
-            return (
-              <div className="flex flex-col sm:flex-row flex-wrap gap-3 w-full">
-                <button onClick={handleManagerSendToHR} disabled={sendingToManager || isEditing || isApproving} className="flex-1 px-5 py-3.5 bg-emerald-600 text-white rounded-md font-medium flex items-center justify-center gap-2 shadow-sm hover:shadow-md hover:-translate-y-0.5 hover:bg-emerald-700 text-[14px] transition-all disabled:opacity-50 whitespace-nowrap">
-                  {isApproving ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
-                  Approve KRA / KPI
-                </button>
-                <button onClick={handleEditToggle} disabled={isSavingEdit || sendingToManager} className="flex-1 px-5 py-3.5 bg-white text-primary-700 border border-primary-200 rounded-md font-medium hover:bg-primary-50 transition-all shadow-sm active:scale-[0.98] flex items-center justify-center gap-2 text-[14px] disabled:opacity-50 whitespace-nowrap">
-                  <Edit className="w-4 h-4" /> {editLabel}
-                </button>
-                <button onClick={handleManagerReject} disabled={sendingToManager || isEditing} className="flex-1 px-5 py-3.5 bg-red-50 text-red-600 border border-red-100 rounded-md font-medium flex items-center justify-center gap-2 shadow-sm hover:bg-red-100 text-[14px] transition-all disabled:opacity-50 whitespace-nowrap">
-                  <XCircle className="w-4 h-4" /> Reject
-                </button>
-              </div>
-            );
-          } else {
-            return (
-              <button disabled className="w-full px-6 py-3.5 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-md font-medium flex items-center justify-center gap-2 text-[14px] cursor-not-allowed shadow-sm">
-                <CheckCircle2 className="w-4 h-4" /> Awaiting {jd.kra_kpi_status === "sent_to_hr" ? "HR" : "Manager"} Sign-Off
-              </button>
-            );
-          }
-        }
+                      // 1. KRA/KPI Pending Review (Takes Precedence)
+                      if (isKraPending) {
+                        const canApprove = (isManagerRole && jd.kra_kpi_status === "sent_to_manager") || (isHRUser && jd.kra_kpi_status === "sent_to_hr");
+                        if (canApprove) {
+                          return (
+                            <div className="flex flex-col sm:flex-row flex-wrap gap-3 w-full">
+                              <button onClick={handleManagerSendToHR} disabled={sendingToManager || isEditing || isApproving} className="flex-1 px-5 py-3.5 bg-emerald-600 text-white rounded-md font-medium flex items-center justify-center gap-2 shadow-sm hover:shadow-md hover:-translate-y-0.5 hover:bg-emerald-700 text-[14px] transition-all disabled:opacity-50 whitespace-nowrap">
+                                {isApproving ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
+                                Approve KRA / KPI
+                              </button>
+                              <button onClick={handleEditToggle} disabled={isSavingEdit || sendingToManager} className="flex-1 px-5 py-3.5 bg-white text-primary-700 border border-primary-200 rounded-md font-medium hover:bg-primary-50 transition-all shadow-sm active:scale-[0.98] flex items-center justify-center gap-2 text-[14px] disabled:opacity-50 whitespace-nowrap">
+                                <Edit className="w-4 h-4" /> {editLabel}
+                              </button>
+                              <button onClick={handleManagerReject} disabled={sendingToManager || isEditing} className="flex-1 px-5 py-3.5 bg-red-50 text-red-600 border border-red-100 rounded-md font-medium flex items-center justify-center gap-2 shadow-sm hover:bg-red-100 text-[14px] transition-all disabled:opacity-50 whitespace-nowrap">
+                                <XCircle className="w-4 h-4" /> Reject
+                              </button>
+                            </div>
+                          );
+                        } else {
+                          return (
+                            <button disabled className="w-full px-6 py-3.5 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-md font-medium flex items-center justify-center gap-2 text-[14px] cursor-not-allowed shadow-sm">
+                              <CheckCircle2 className="w-4 h-4" /> Awaiting {jd.kra_kpi_status === "sent_to_hr" ? "HR" : "Manager"} Sign-Off
+                            </button>
+                          );
+                        }
+                      }
 
-         // 2. JD Pending Review
-        if (isJdPending) {
-          const canApprove = (isManagerRole && jd.status === "sent_to_manager") || (isHRUser && jd.status === "sent_to_hr");
-          if (canApprove) {
-            // Dynamically change button text based on who is viewing
-            const approveBtnLabel = isHRUser ? "Approve & Sign Off" : "Approve & Forward to HR";
-            
-            return (
-              <div className="flex flex-col sm:flex-row flex-wrap gap-3 w-full">
-                <button onClick={handleManagerSendToHR} disabled={sendingToManager || isEditing || isApproving} className="flex-1 px-5 py-3.5 bg-emerald-600 text-white rounded-md font-medium flex items-center justify-center gap-2 shadow-sm hover:shadow-md hover:-translate-y-0.5 hover:bg-emerald-700 text-[14px] transition-all disabled:opacity-50 whitespace-nowrap">
-                  {isApproving ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
-                  {approveBtnLabel}
-                </button>
-                <button onClick={handleEditToggle} disabled={isSavingEdit || sendingToManager} className="flex-1 px-5 py-3.5 bg-white text-primary-700 border border-primary-200 rounded-md font-medium hover:bg-primary-50 transition-all shadow-sm active:scale-[0.98] flex items-center justify-center gap-2 text-[14px] disabled:opacity-50 whitespace-nowrap">
-                  <Edit className="w-4 h-4" /> Edit JD
-                </button>
-                <button onClick={handleManagerReject} disabled={sendingToManager || isEditing} className="flex-1 px-5 py-3.5 bg-red-50 text-red-600 border border-red-100 rounded-md font-medium flex items-center justify-center gap-2 shadow-sm hover:bg-red-100 text-[14px] transition-all disabled:opacity-50 whitespace-nowrap">
-                  <XCircle className="w-4 h-4" /> Reject
-                </button>
-              </div>
-            );
-          } else {
-            return (
-              <button disabled className="w-full px-6 py-3.5 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-md font-medium flex items-center justify-center gap-2 text-[14px] cursor-not-allowed shadow-sm">
-                <CheckCircle2 className="w-4 h-4" /> Awaiting {jd.status === "sent_to_hr" ? "HR" : "Manager"} Sign-Off
-              </button>
-            );
-          }
-        }
+                      // 2. JD Pending Review
+                      if (isJdPending) {
+                        const canApprove = (isManagerRole && jd.status === "sent_to_manager") || (isHRUser && jd.status === "sent_to_hr");
+                        if (canApprove) {
+                          // Dynamically change button text based on who is viewing
+                          const approveBtnLabel = isHRUser ? "Approve & Sign Off" : "Approve & Forward to HR";
+                          
+                          return (
+                            <div className="flex flex-col sm:flex-row flex-wrap gap-3 w-full">
+                              <button onClick={handleManagerSendToHR} disabled={sendingToManager || isEditing || isApproving} className="flex-1 px-5 py-3.5 bg-emerald-600 text-white rounded-md font-medium flex items-center justify-center gap-2 shadow-sm hover:shadow-md hover:-translate-y-0.5 hover:bg-emerald-700 text-[14px] transition-all disabled:opacity-50 whitespace-nowrap">
+                                {isApproving ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
+                                {approveBtnLabel}
+                              </button>
+                              <button onClick={handleEditToggle} disabled={isSavingEdit || sendingToManager} className="flex-1 px-5 py-3.5 bg-white text-primary-700 border border-primary-200 rounded-md font-medium hover:bg-primary-50 transition-all shadow-sm active:scale-[0.98] flex items-center justify-center gap-2 text-[14px] disabled:opacity-50 whitespace-nowrap">
+                                <Edit className="w-4 h-4" /> {editLabel}
+                              </button>
+                              <button onClick={handleManagerReject} disabled={sendingToManager || isEditing} className="flex-1 px-5 py-3.5 bg-red-50 text-red-600 border border-red-100 rounded-md font-medium flex items-center justify-center gap-2 shadow-sm hover:bg-red-100 text-[14px] transition-all disabled:opacity-50 whitespace-nowrap">
+                                <XCircle className="w-4 h-4" /> Reject
+                              </button>
+                            </div>
+                          );
+                        } else {
+                          return (
+                            <button disabled className="w-full px-6 py-3.5 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-md font-medium flex items-center justify-center gap-2 text-[14px] cursor-not-allowed shadow-sm">
+                              <CheckCircle2 className="w-4 h-4" /> Awaiting {jd.status === "sent_to_hr" ? "HR" : "Manager"} Sign-Off
+                            </button>
+                          );
+                        }
+                      }
 
-        // 3. Fully Approved (Manager wants to edit post-approval)
-        if (jd?.status === "approved" && (!jd?.kra_kpi_status || jd?.kra_kpi_status === "approved")) {
-          return (
-            <div className="flex flex-col sm:flex-row flex-wrap gap-3 w-full">
-              <button onClick={handleEditToggle} disabled={isSavingEdit} className="flex-1 px-5 py-3.5 bg-white text-primary-700 border border-primary-200 rounded-md font-medium hover:bg-primary-50 transition-all shadow-sm active:scale-[0.98] flex items-center justify-center gap-2 text-[14px] disabled:opacity-50 whitespace-nowrap">
-                <Edit className="w-4 h-4" /> {editLabel}
-              </button>
-              <button disabled className="flex-1 px-6 py-3.5 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-md font-medium flex items-center justify-center gap-2 text-[14px] cursor-not-allowed shadow-sm">
-                <CheckCircle2 className="w-4 h-4" /> Approved & Active
-              </button>
-            </div>
-          );
-        }
-      }
+                      // 3. Fully Approved (Manager wants to edit post-approval)
+                      if (jd?.status === "approved" && (!jd?.kra_kpi_status || jd?.kra_kpi_status === "approved")) {
+                        return (
+                          <div className="flex flex-col sm:flex-row flex-wrap gap-3 w-full">
+                            <button onClick={handleEditToggle} disabled={isSavingEdit} className="flex-1 px-5 py-3.5 bg-white text-primary-700 border border-primary-200 rounded-md font-medium hover:bg-primary-50 transition-all shadow-sm active:scale-[0.98] flex items-center justify-center gap-2 text-[14px] disabled:opacity-50 whitespace-nowrap">
+                              <Edit className="w-4 h-4" /> {editLabel}
+                            </button>
+                            <button disabled className="flex-1 px-6 py-3.5 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-md font-medium flex items-center justify-center gap-2 text-[14px] cursor-not-allowed shadow-sm">
+                              <CheckCircle2 className="w-4 h-4" /> Approved & Active
+                            </button>
+                          </div>
+                        );
+                      }
+                    }
 
-      // Owner / Employee viewing their OWN JD
-      const isEditableState = ["draft", "jd_generated", "manager_rejected", "hr_rejected"].includes(jd?.status);
-      if (isEditableState) {
-        return (
-          <div className="flex flex-col sm:flex-row flex-wrap gap-3 w-full">
-            <button onClick={() => router.push(`/questionnaire/${jdId}`)} className="flex-1 px-5 py-3.5 bg-white text-surface-700 border border-surface-200 rounded-md font-medium hover:bg-surface-50 hover:shadow-md transition-all shadow-sm active:scale-[0.98] flex items-center justify-center gap-2 text-[14px]">
-              <Edit3 className="w-4 h-4" /> Refine in Chat
-            </button>
-            <button onClick={handleEditToggle} disabled={isSavingEdit} className="flex-1 px-5 py-3.5 bg-white text-primary-700 border border-primary-200 rounded-md font-medium hover:bg-primary-50 transition-all shadow-sm active:scale-[0.98] flex items-center justify-center gap-2 text-[14px] disabled:opacity-50">
-              {isSavingEdit ? <Loader2 className="w-4 h-4 animate-spin" /> : <Edit className="w-4 h-4" />}
-              Edit Document
-            </button>
-            <button onClick={handleSendToManager} disabled={sendingToManager || isEditing} className="flex-1 px-5 py-3.5 bg-primary-600 text-white rounded-md font-medium hover:bg-primary-700 transition-all shadow-md active:scale-[0.98] flex items-center justify-center gap-2 text-[14px] disabled:opacity-50 whitespace-nowrap">
-              {sendingToManager ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
-              {jd?.status === "hr_rejected" ? "Resubmit to HR" : jd?.status === "manager_rejected" ? "Resubmit to Manager" : "Submit for Approval"}
-            </button>
-          </div>
-        );
-      }
+                    // Owner / Employee viewing their OWN JD
+                    const isEditableState = ["draft", "jd_generated", "manager_rejected", "hr_rejected"].includes(jd?.status);
+                    if (isEditableState) {
+                      return (
+                        <div className="flex flex-col sm:flex-row flex-wrap gap-3 w-full">
+                          <button onClick={() => router.push(`/questionnaire/${jdId}`)} className="flex-1 px-5 py-3.5 bg-white text-surface-700 border border-surface-200 rounded-md font-medium hover:bg-surface-50 hover:shadow-md transition-all shadow-sm active:scale-[0.98] flex items-center justify-center gap-2 text-[14px]">
+                            <Edit3 className="w-4 h-4" /> Refine in Chat
+                          </button>
+                          <button onClick={handleEditToggle} disabled={isSavingEdit} className="flex-1 px-5 py-3.5 bg-white text-primary-700 border border-primary-200 rounded-md font-medium hover:bg-primary-50 transition-all shadow-sm active:scale-[0.98] flex items-center justify-center gap-2 text-[14px] disabled:opacity-50">
+                            {isSavingEdit ? <Loader2 className="w-4 h-4 animate-spin" /> : <Edit className="w-4 h-4" />}
+                            Edit Document
+                          </button>
+                          <button onClick={handleSendToManager} disabled={sendingToManager || isEditing} className="flex-1 px-5 py-3.5 bg-primary-600 text-white rounded-md font-medium hover:bg-primary-700 transition-all shadow-md active:scale-[0.98] flex items-center justify-center gap-2 text-[14px] disabled:opacity-50 whitespace-nowrap">
+                            {sendingToManager ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+                            {jd?.status === "hr_rejected" ? "Resubmit to HR" : jd?.status === "manager_rejected" ? "Resubmit to Manager" : "Submit for Approval"}
+                          </button>
+                        </div>
+                      );
+                    }
 
-      // Fallback
-      return (
-        <button disabled className="w-full px-6 py-3.5 bg-surface-50 text-surface-400 border border-surface-200 rounded-md font-medium flex items-center justify-center gap-2 text-[14px] cursor-not-allowed">
-          <CheckCircle2 className="w-5 h-5" />
-          {jd?.status === "approved" ? "Finalized" : "Asset Submitted"}
-        </button>
-      );
-    })()}
-  </>
-)}
+                    // Fallback
+                    return (
+                      <button disabled className="w-full px-6 py-3.5 bg-surface-50 text-surface-400 border border-surface-200 rounded-md font-medium flex items-center justify-center gap-2 text-[14px] cursor-not-allowed">
+                        <CheckCircle2 className="w-5 h-5" />
+                        {jd?.status === "approved" ? "Finalized" : "Asset Submitted"}
+                      </button>
+                    );
+                  })()}
+                </>
+              )}
             </div>
           </div>
         </div>

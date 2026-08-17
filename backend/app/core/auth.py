@@ -7,7 +7,9 @@ from typing import Optional
 
 from app.core.database import get_db
 from app.models.user_model import Employee
+import logging
 
+logger = logging.getLogger(__name__)
 
 async def get_current_user(
     x_employee_id: Optional[str] = Header(None, alias="X-Employee-ID"),
@@ -115,22 +117,29 @@ async def hr_required(
 # backend/app/core/auth.py
 
 
+# backend/app/core/auth.py
+
+import logging
+
+logger = logging.getLogger(__name__)
+
+
 async def manager_required(
     user: Employee = Depends(get_current_user), db: AsyncSession = Depends(get_db)
 ):
     """Ensures the user has Managerial privileges."""
-    print(
-        f"\n--- [AUTH DEBUG] Checking manager permissions for user_id: '{user.id}', initial_role: '{user.role}' ---"
+    logger.info(
+        f"--- [AUTH DEBUG] Checking manager permissions for user_id: '{user.id}', initial_role: '{user.role}' ---"
     )
 
     # 1. If the role is already correct in the DB, let them in instantly
     if user.role in ["manager", "head", "hr", "admin"]:
-        print(f"[AUTH DEBUG] PASSED: User already has role '{user.role}' in DB.")
+        logger.info(f"[AUTH DEBUG] PASSED: User already has role '{user.role}' in DB.")
         return user
 
     # 2. Hardcoded override for E6679
     if user.id == "E6679":
-        print("[AUTH DEBUG] PASSED: User is E6679 (Hardcoded HR).")
+        logger.info("[AUTH DEBUG] PASSED: User is E6679 (Hardcoded HR).")
         user.role = "hr"
         await db.commit()
         await db.refresh(user)
@@ -140,9 +149,9 @@ async def manager_required(
     from app.services.dashboard_service import DashboardService
 
     has_reports = await DashboardService.has_direct_reports(db, user.id)
-    print(f"[AUTH DEBUG] Step 3 (has_direct_reports): {has_reports}")
+    logger.info(f"[AUTH DEBUG] Step 3 (has_direct_reports): {has_reports}")
     if has_reports:
-        print("[AUTH DEBUG] PASSED: User has direct reports.")
+        logger.info("[AUTH DEBUG] PASSED: User has direct reports.")
         if user.role not in ["manager", "head", "hr", "admin"]:
             user.role = "manager"
             await db.commit()
@@ -151,11 +160,11 @@ async def manager_required(
 
     # 4. Check recursive reports
     recursive_reports = await DashboardService.get_recursive_reports(db, user.id)
-    print(
+    logger.info(
         f"[AUTH DEBUG] Step 4 (recursive_reports count): {len(recursive_reports)} | Reports: {recursive_reports}"
     )
     if recursive_reports:
-        print("[AUTH DEBUG] PASSED: User has recursive reports.")
+        logger.info("[AUTH DEBUG] PASSED: User has recursive reports.")
         if user.role not in ["manager", "head", "hr", "admin"]:
             user.role = "manager"
             await db.commit()
@@ -172,11 +181,11 @@ async def manager_required(
         {"code": user.id},
     )
     mgr_exists = mgr_check.fetchone()
-    print(
+    logger.info(
         f"[AUTH DEBUG] Step 5 (Direct SQL reporting_manager_code match): {'Found' if mgr_exists else 'Not Found'}"
     )
     if mgr_exists:
-        print(
+        logger.info(
             "[AUTH DEBUG] PASSED: User found as reporting_manager_code in organogram."
         )
         if user.role not in ["manager", "head", "hr", "admin"]:
@@ -208,18 +217,18 @@ async def manager_required(
     org_res = await db.execute(org_query, {"emp_code": user.id})
     org_row = org_res.mappings().first()
 
-    print(f"[AUTH DEBUG] Step 6 (Organogram Designation Lookup): {org_row}")
+    logger.info(f"[AUTH DEBUG] Step 6 (Organogram Designation Lookup): {org_row}")
     if org_row:
         desig_lower = (org_row.get("designation") or "").lower()
-        print(f"[AUTH DEBUG] Step 6 (Designation lowered): '{desig_lower}'")
+        logger.info(f"[AUTH DEBUG] Step 6 (Designation lowered): '{desig_lower}'")
         if any(kw in desig_lower for kw in manager_keywords):
-            print("[AUTH DEBUG] PASSED: Designation contains manager keyword.")
+            logger.info("[AUTH DEBUG] PASSED: Designation contains manager keyword.")
             user.role = "manager"
             await db.commit()
             await db.refresh(user)
             return user
 
-    print(
-        f"[AUTH DEBUG] FAILED: User '{user.id}' denied manager access. All checks failed.\n"
+    logger.error(
+        f"[AUTH DEBUG] FAILED: User '{user.id}' denied manager access. All checks failed."
     )
     raise HTTPException(status_code=403, detail="Manager permissions required")

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 from typing import Tuple
+import re
 
 logger = logging.getLogger(__name__)
 
@@ -203,372 +204,95 @@ def is_ready_for_jd(insights: dict) -> bool:
 
 def is_tool(item: str, role_title: str = "") -> bool:
     """
-    Check if an item is a TOOL (software, platform, hardware, service).
+    Check if an item is a TOOL (software, platform, hardware, service, specific software package).
 
     ROLE-AGNOSTIC: Works for all departments.
-
-    Tools are CONCRETE, TANGIBLE systems/software/platforms:
-    - Software: Jira, Slack, VS Code, Salesforce, SAP, Excel
-    - Platforms: AWS, Azure, Tableau, Looker
-    - Hardware: Laptop, Monitor, Phone
-    - Systems: CRM, ERP, HRIS, Accounting Software
-
-    NOT tools (skills instead):
-    - "Project Management" → SKILL
-    - "Data Analysis" → SKILL
-    - "Financial Reporting" → SKILL
-    - "Customer Relationship Management" → SKILL (the skill, not the tool)
+    Strictly excludes verb phrases, sentences, soft skills, and abstract competencies.
     """
-    item_lower = str(item).lower().strip()
+    if not item or not isinstance(item, str):
+        return False
 
-    # ── UNIVERSAL TOOL INDICATORS (All roles) ────────────────────────────────
+    item_clean = item.strip()
+    item_lower = item_clean.lower()
+
+    # ── EXCLUSIONS: Sentences, verb phrases, soft skills, and qualities are NEVER tools ──
+    
+    # 1. Verb/gerund starters (tasks, duties, responsibilities)
+    if re.match(r"^(?:conducting|fostering|monitoring|reviewing|managing|developing|communicating|leading|reconciling|overseeing|analyzing|preparing|maintaining|providing|coordinating|executing|evaluating|building|implementing|supporting|ensuring|improving|handling|optimizing)\b", item_lower):
+        return False
+
+    # 2. Quality / Soft skill / Ability starters
+    if re.match(r"^(?:aptitude|familiarity|commitment|ability|ease|proficiency|strong|in-depth|deep|thorough|comprehensive|understanding|knowledge|experience|passion|demonstrated|proven|track record)\b", item_lower):
+        return False
+
+    # 3. Long sentences or multi-word phrases (> 5 words) are NEVER tools
+    word_count = len(item_clean.split())
+    if word_count > 5:
+        return False
+
+    # 4. Contains sentence punctuation or prefix markers
+    if any(m in item_lower for m in ["responsibility:", "responsibilities:", "duties:", "tasks:", "and providing", "and forecasting", "and reporting"]):
+        return False
+
+    # ── UNIVERSAL TOOL MATCHING ──────────────────────────────────────────────
     universal_tools = [
-        # Cloud & Infrastructure
-        "aws",
-        "azure",
-        "gcp",
-        "google cloud",
-        "digitalocean",
-        "heroku",
-        # Containers & Orchestration
-        "docker",
-        "kubernetes",
-        "k8s",
-        "helm",
-        "swarm",
-        # Version Control
-        "git",
-        "github",
-        "gitlab",
-        "bitbucket",
-        "svn",
-        "perforce",
-        # CI/CD & Deployment
-        "jenkins",
-        "gitlab ci",
-        "github actions",
-        "circleci",
-        "travis",
-        "terraform",
-        "ansible",
-        "puppet",
-        "chef",
-        # Communication & Collaboration
-        "slack",
-        "teams",
-        "microsoft teams",
-        "discord",
-        "zoom",
-        "webex",
-        "confluence",
-        "notion",
-        "asana",
-        "monday.com",
-        # Project Management (actual tools)
-        "jira",
-        "trello",
-        "linear",
-        "clickup",
-        "smartsheet",
-        # IDE & Editors
-        "vscode",
-        "vs code",
-        "intellij",
-        "pycharm",
-        "eclipse",
-        "xcode",
-        "sublime",
-        "atom",
-        "vim",
-        "neovim",
-        # Databases
-        "mysql",
-        "postgresql",
-        "mongodb",
-        "oracle",
-        "sql server",
-        "redis",
-        "elasticsearch",
-        "cassandra",
-        "dynamodb",
-        "firestore",
-        "bigquery",
-        "snowflake",
-        "redshift",
-        # Data & Analytics Platforms
-        "tableau",
-        "looker",
-        "power bi",
-        "qlik",
-        "sisense",
-        "datadog",
-        "splunk",
-        "new relic",
-        "grafana",
-        # Office & Productivity
-        "microsoft office",
-        "office 365",
-        "google workspace",
-        "excel",
-        "powerpoint",
-        "word",
-        "sheets",
-        "docs",
-        "outlook",
-        # CRM & Business Systems
-        "salesforce",
-        "hubspot",
-        "pipedrive",
-        "zoho",
-        "sap",
-        "oracle",
-        "dynamics",
-        "netsuite",
-        # HR & People Systems
-        "workday",
-        "bamboohr",
-        "guidepoint",
-        "adp",
-        "paychex",
-        "greenhouse",
-        "lever",
-        "taleo",
-        # Accounting & Finance
-        "quickbooks",
-        "xero",
-        "wave",
-        "freshbooks",
-        "sap",
-        "oracle financials",
-        "netsuiteerpenterprise",
-        # Marketing & Communication
-        "hubspot",
-        "mailchimp",
-        "marketo",
-        "pardot",
-        "hootsuite",
-        "buffer",
-        "sprout social",
-        # Development Frameworks & Languages (as tools, not skills)
-        "react",
-        "vue",
-        "angular",
-        "svelte",
-        "next.js",
-        "nuxt",
-        "django",
-        "flask",
-        "fastapi",
-        "spring",
-        "express",
-        "node",
-        "nodejs",
-        "python",
-        "java",
-        "csharp",
-        "c#",
-        "go",
-        "rust",
-        "php",
-        "ruby",
-        "scala",
-        "kotlin",
-        # Mobile Development
-        "xcode",
-        "android studio",
-        "flutter",
-        "react native",
-        # API & Backend
-        "postman",
-        "insomnia",
-        "graphql",
-        "swagger",
-        "openapi",
-        # Testing & QA
-        "selenium",
-        "cypress",
-        "playwright",
-        "jest",
-        "pytest",
-        "junit",
-        "testng",
-        "mocha",
-        # Logging & Monitoring
-        "sentry",
-        "loggly",
-        "stackdriver",
-        "cloudwatch",
-        "prometheus",
-        # Operating Systems
-        "linux",
-        "ubuntu",
-        "centos",
-        "debian",
-        "macos",
-        "windows",
-        # Command Line / Shell
-        "bash",
-        "shell",
-        "zsh",
-        "powershell",
-        "cmd",
-        # Document Management
-        "sharepoint",
-        "onedrive",
-        "box",
-        "dropbox",
-        "gdrive",
-        # Video Conferencing
-        "zoom",
-        "webex",
-        "google meet",
-        "skype",
-        # Design Tools
-        "figma",
-        "adobe xd",
-        "sketch",
-        "invision",
-        "framer",
-        "photoshop",
-        "illustrator",
-        "canva",
-        # Statistical & Math Tools
-        "r",
-        "spss",
-        "stata",
-        "sas",
-        "minitab",
-        "matlab",
-        # Legal & Compliance
-        "contract management",
-        "docusign",
-        "evernote",
-        # R&D / Scientific Lab Tools
-        "hplc",
-        "gc-ms",
-        "lc-ms",
-        "ftir",
-        "nmr",
-        "pcr",
-        "elisa",
-        "spectrophotometer",
-        "autoclave",
-        "centrifuge",
-        "microscope",
-        "pyrx",
-        "autodock",
-        "blast",
-        "chemdraw",
-        "graphpad prism",
-        "imagej",
+        "aws", "azure", "gcp", "google cloud", "digitalocean", "heroku",
+        "docker", "kubernetes", "k8s", "helm", "swarm",
+        "git", "github", "gitlab", "bitbucket", "svn", "perforce",
+        "jenkins", "gitlab ci", "github actions", "circleci", "travis", "terraform", "ansible",
+        "slack", "teams", "microsoft teams", "discord", "zoom", "webex", "confluence", "notion", "asana", "monday.com",
+        "jira", "trello", "linear", "clickup", "smartsheet",
+        "vscode", "vs code", "intellij", "pycharm", "eclipse", "xcode", "sublime", "atom", "vim",
+        "mysql", "postgresql", "mongodb", "oracle", "sql server", "redis", "elasticsearch", "cassandra", "dynamodb", "firestore", "bigquery", "snowflake", "redshift",
+        "tableau", "looker", "power bi", "qlik", "sisense", "datadog", "splunk", "new relic", "grafana",
+        "microsoft office", "office 365", "google workspace", "excel", "powerpoint", "word", "sheets", "docs", "outlook",
+        "salesforce", "hubspot", "pipedrive", "zoho", "sap", "netsuite", "highradius", "chaser", "tally", "quickbooks", "xero", "wave", "freshbooks",
+        "workday", "bamboohr", "adp", "paychex", "greenhouse", "lever", "taleo",
+        "mailchimp", "marketo", "pardot", "hootsuite", "buffer", "sprout social",
+        "react", "vue", "angular", "svelte", "next.js", "django", "flask", "fastapi", "spring", "express", "node", "nodejs", "python", "java", "csharp", "c#", "go", "rust", "php", "ruby", "kotlin",
+        "xcode", "android studio", "flutter", "react native", "postman", "insomnia", "graphql", "swagger",
+        "selenium", "cypress", "playwright", "jest", "pytest", "junit",
+        "sentry", "cloudwatch", "prometheus",
+        "linux", "ubuntu", "macos", "windows", "bash", "shell", "zsh", "powershell",
+        "sharepoint", "onedrive", "box", "dropbox",
+        "figma", "adobe xd", "sketch", "photoshop", "illustrator", "canva",
+        "r", "spss", "stata", "sas", "minitab", "matlab",
+        "docusign", "evernote",
+        "hplc", "gc-ms", "lc-ms", "ftir", "nmr", "pcr", "elisa", "spectrophotometer", "autoclave", "centrifuge", "microscope", "pyrx", "autodock", "blast", "chemdraw", "graphpad prism", "imagej"
     ]
 
-    # ── SKILL PATTERN EXCLUSIONS (ALL roles) ─────────────────────────────────
-    # If item contains these words, it's likely a SKILL, not a tool
-    skill_indicators = [
-        # Generic competencies
-        "management",
-        "planning",
-        "strategy",
-        "analysis",
-        "development",
-        "design",
-        "architecture",
-        "implementation",
-        "optimization",
-        "testing",
-        "debugging",
-        "integration",
-        "deployment",
-        # R&D & Scientific competencies
-        "research",
-        "validation",
-        "synthesis",
-        "formulation",
-        "spectroscopy",
-        "chromatography",
-        "characterization",
-        "assay",
-        "culturing",
-        "cloning",
-        "blotting",
-        "experimentation",
-        "investigation",
-        "extraction",
-        "purification",
-        # Soft skills (explicitly excluded but listed for clarity)
-        "communication",
-        "leadership",
-        "teamwork",
-        "collaboration",
-        "problem solving",
-        "critical thinking",
-        "decision making",
-        # Domain competencies
-        "financial",
-        "accounting",
-        "sales",
-        "marketing",
-        "operations",
-        "supply chain",
-        "procurement",
-        "logistics",
-        "manufacturing",
-        "quality assurance",
-        "compliance",
-        "governance",
-        "risk",
-        "data science",
-        "machine learning",
-        "statistical modeling",
-        "process improvement",
-        "continuous improvement",
-        # HR/People competencies
-        "recruitment",
-        "talent",
-        "employee relations",
-        "compensation",
-        "benefits",
-        "succession planning",
-        "organization development",
-        # Technical soft skills (approaches, not tools)
-        "agile",
-        "scrum",
-        "kanban",
-        "waterfall",
-        "devops",
-        "full stack",
-        "microservices",
-        "api design",
-        # Role-specific competencies
-        "customer relations",
-        "client management",
-        "account management",
-        "project delivery",
-        "stakeholder management",
-        "vendor management",
-    ]
-
-    # ── LOGIC ────────────────────────────────────────────────────────────────
-
-    # 1. If it matches a universal tool, it's a tool
     if any(tool in item_lower for tool in universal_tools):
         return True
 
-    # 2. If it contains skill indicators, it's probably a skill
+    # ── TOOL SUFFIX / KEYWORD INDICATORS ────────────────────────────────────
+    tool_keywords = [
+        "software", "erp", "crm", "platform", "system", "suite", "tool", "tools",
+        "app", "application", "database", "dashboard", "package", "packages",
+        "portal", "terminal", "sdk", "api", "ide", "framework", "workbench"
+    ]
+    if any(kw in item_lower for kw in tool_keywords):
+        return True
+
+    # ── SKILL INDICATOR EXCLUSIONS ──────────────────────────────────────────
+    skill_indicators = [
+        "management", "planning", "strategy", "analysis", "development", "design", "architecture",
+        "implementation", "optimization", "testing", "debugging", "integration", "deployment",
+        "research", "validation", "synthesis", "formulation", "communication", "leadership", "teamwork",
+        "collaboration", "problem solving", "critical thinking", "decision making",
+        "financial", "accounting", "sales", "marketing", "operations", "supply chain", "procurement",
+        "logistics", "manufacturing", "quality assurance", "compliance", "governance", "risk",
+        "recruitment", "talent", "employee relations", "compensation", "benefits",
+        "agile", "scrum", "devops", "full stack", "microservices", "api design"
+    ]
     if any(indicator in item_lower for indicator in skill_indicators):
         return False
 
-    # 3. Heuristic: If it's a proper noun or branded name, likely a tool
-    if item[0].isupper():
-        return True
+    # ── STRICT HEURISTIC FOR UNLISTED PROPER NOUN TOOLS ───────────────────────
+    # Short capitalized noun or acronym (1-3 words) with NO verbs/clauses
+    if word_count <= 3 and not re.search(r"\b(?:and|or|in|with|for|to|of|on|by|at|from)\b", item_lower):
+        if item_clean[0].isupper() or item_clean.isupper():
+            return True
 
-    # 4. If it's very short (1-2 words) and simple, likely a tool
-    word_count = len(item.split())
-    if word_count <= 2:
-        return True
-
-    # 5. Default: Multi-word phrases are usually skills
     return False
 
 

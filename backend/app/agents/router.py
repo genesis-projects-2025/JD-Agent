@@ -30,14 +30,16 @@ AGENT_ORDER = [
 AGENT_CRITERIA = {
     "BasicInfoAgent": lambda ins: (
         # SMART EARLY EXIT: If the user typed a detailed answer and we got at least 1 task, advance immediately.
-        # We don't need to hold the user hostage for 3 tasks anymore.
         (
             len(ins.get("purpose") or "") >= 15
             and len(ins.get("tasks") or []) >= 1
             and (ins.get("agent_turn_counts") or {}).get("BasicInfoAgent", 0) >= 1
         )
-        # Fallback: If they give us a purpose and say "done", move on.
-        or ins.get("user_wants_to_proceed", False)
+        # Fallback: If they give us a purpose and say "done", move on (ONLY IF THEY'VE HAD AT LEAST 2 TURNS)
+        or (
+            ins.get("user_wants_to_proceed", False)
+            and (ins.get("agent_turn_counts") or {}).get("BasicInfoAgent", 0) >= 2
+        )
         # Hard stop: Max 2 turns.
         or (ins.get("agent_turn_counts") or {}).get("BasicInfoAgent", 0) >= 2
     ),

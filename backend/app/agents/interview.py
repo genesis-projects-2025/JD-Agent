@@ -43,7 +43,7 @@ logger = logging.getLogger(__name__)
 
 
 def _extract_text_content(content) -> str:
-    """Extract plain text from Gemini's response content.
+    """Extract plain text from Gemini's response content and strip tool leaks.
 
     With bind_tools(), Gemini returns content as a LIST of dicts:
       [{'type': 'text', 'text': 'actual response...', 'extras': {...}}]
@@ -52,7 +52,7 @@ def _extract_text_content(content) -> str:
     if content is None:
         return ""
     if isinstance(content, str):
-        return content
+        return _strip_tool_code_leaks(content)
     if isinstance(content, list):
         text_parts = []
         for part in content:
@@ -60,8 +60,8 @@ def _extract_text_content(content) -> str:
                 text_parts.append(part.get("text", ""))
             elif isinstance(part, str):
                 text_parts.append(part)
-        return " ".join(text_parts).strip()
-    return str(content)
+        return _strip_tool_code_leaks(" ".join(text_parts))
+    return _strip_tool_code_leaks(str(content))
 
 
 # ── Question Deduplication (Semantic + Hash) ──────────────────────────────────
@@ -361,14 +361,52 @@ def _get_workflow_fallback_question(insights: dict) -> str:
 
 
 def _strip_tool_code_leaks(text: str) -> str:
-    """Remove occasional LLM hallucinations where it leaks JSON tool calls or tab escape artifacts into the response text."""
+    """Remove occasional LLM hallucinations where it leaks code blocks, python tool calls, internal thoughts, or tab escape artifacts into response text."""
     if not text:
-        return text
+        return ""
 
     # Strip literal tab escape sequences, escaped tabs, or /t/t/t/ artifacts
     text = re.sub(r"(?:/[tT]|\\t|\t)+/?", " ", text)
 
-    # Aggressive stripping for {"tool_code"...} or {"name": "save...}
+    # 1. Strip LLM internal chain-of-thought / reasoning leaks (<thought>...</thought> or thought\nThe user has provided...)
+    text = re.sub(r"<thought>[\s\S]*?</thought>", "", text, flags=re.IGNORECASE)
+    text = re.sub(
+        r"^\s*(?:thought|thinking)\b[\s\S]*?(?=\b(?:When|How|What|Since|Can|Could|Please|Would|In|To|For|As|Tell|Share|Describe|Details|Based|Now|Let|So|First)\b|\Z)",
+        "",
+        text,
+        flags=re.IGNORECASE
+    )
+    text = re.sub(r"^\s*(?:thought|thinking):\s*.*$", "", text, flags=re.IGNORECASE | re.MULTILINE)
+
+    # 2. Strip tool execution meta-text explanations (e.g. "save these tasks using the save_tasks tool. The save_tasks tool requires...")
+    text = re.sub(
+        r"(?:save|using)\s+these\s+[a-z_]+\s+using\s+the\s+`?save_[a-z_]+`?\s+tool[\s\S]*?(?=\b(?:When|How|What|Since|Can|Could|Please|Would|In|To|For|As|Tell|Share|Describe|Details|Based|Now|Let|So|First)\b|\Z)",
+        "",
+        text,
+        flags=re.IGNORECASE
+    )
+    text = re.sub(
+        r"The\s+`?save_[a-z_]+`?\s+tool\s+requires[\s\S]*?(?=\b(?:When|How|What|Since|Can|Could|Please|Would|In|To|For|As|Tell|Share|Describe|Details|Based|Now|Let|So|First)\b|\Z)",
+        "",
+        text,
+        flags=re.IGNORECASE
+    )
+    text = re.sub(
+        r"The\s+provided\s+(?:priority\s+)?tasks\s+are:\s*(?:-\s*[\w\s\(\)&-/\.]+:?\s*)?(?=\b(?:When|How|What|Since|Can|Could|Please|Would|In|To|For|As|Tell|Share|Describe|Details|Based|Now|Let|So|First)\b|\Z)",
+        "",
+        text,
+        flags=re.IGNORECASE
+    )
+
+    # 3. Strip python / pseudo-code tool execution: tool_code print(default_api.save_workflow(...))
+    text = re.sub(
+        r"(?:tool_code\s*)?(?:print\s*\(\s*)?default_api\.[a-zA-Z0-9_]+\s*\([\s\S]*?\)(?:\s*\))?",
+        "",
+        text,
+        flags=re.IGNORECASE
+    )
+
+    # 4. Aggressive stripping for {"tool_code"...} or {"name": "save...}
     text = re.sub(
         r'\{[^{]*?"tool_code"[^{]*?\}', "", text, flags=re.IGNORECASE | re.DOTALL
     )
@@ -376,13 +414,33 @@ def _strip_tool_code_leaks(text: str) -> str:
         r'\{[^{]*?"name":\s*"save_[^{]*?\}', "", text, flags=re.IGNORECASE | re.DOTALL
     )
 
-    # Also strip backticks containing json
+    # 5. Strip any code blocks (python, json, generic)
     text = re.sub(
-        r"```(?:json)?\s*[\{\[].*?[\}\]]\s*```",
+        r"```(?:python|json)?\s*[\s\S]*?```",
         "",
         text,
         flags=re.IGNORECASE | re.DOTALL,
     )
+
+    # 6. Strip leftover tool call tokens
+    text = re.sub(r"\btool_code\b", "", text, flags=re.IGNORECASE)
+    text = re.sub(r"\btools_used\b", "", text, flags=re.IGNORECASE)
+    text = re.sub(r"\bsave_tasks\b", "", text, flags=re.IGNORECASE)
+    text = re.sub(r"\bsave_workflow\b", "", text, flags=re.IGNORECASE)
+    text = re.sub(r"\bsave_basic_info\b", "", text, flags=re.IGNORECASE)
+
+    # 7. Extract the last clean question if preceded by broken task fragments
+    # e.g., "- Financial Planning & Analysis (FP&A): What makes you start working on 'Reconcile. Could you walk me through..."
+    if re.search(r"\b(?:Could|How|What|When|Can|Please|Would)\b", text):
+        match = re.search(r"((?:Could|How|What|When|Can|Please|Would)\s+(?:you|does|is|are|do|we)\b[\s\S]+)", text)
+        if match:
+            text = match.group(1)
+
+    # 8. Clean up duplicate question prefixes when a transition occurs
+    if "Since we have everything for" in text:
+        match = re.search(r"(Since we have everything for [\s\S]+)", text, flags=re.IGNORECASE)
+        if match:
+            text = match.group(1)
 
     # Clean up excessive whitespace — preserve newlines for readable formatting
     text = re.sub(r"[^\S\n]+", " ", text)  # Collapse horizontal spaces/tabs only, NOT newlines
@@ -506,6 +564,15 @@ _response_llm = ChatGoogleGenerativeAI(
     model="gemini-2.5-flash",
     temperature=0.2,
     max_output_tokens=350,
+)
+
+# Add this near your other LLM instances (e.g., below _response_llm)
+_json_llm = ChatGoogleGenerativeAI(
+    google_api_key=settings.GEMINI_API_KEY,
+    model="gemini-2.5-flash",
+    temperature=0.2,
+    max_output_tokens=800,
+    response_mime_type="application/json",  # Forces strict JSON
 )
 
 
@@ -786,7 +853,6 @@ class InterviewEngine:
         """Surgically retrieve relevant JD snippets from Pinecone based on current agent phase."""
         from app.services.vector_service import query_advanced_context
 
-        # 1. Map agent to specific RAG category
         block_types = {
             "BasicInfoAgent": "role_summary",
             "WorkflowIdentifierAgent": "responsibilities",
@@ -796,18 +862,16 @@ class InterviewEngine:
                 "performance_metrics",
                 "projects",
             ],
-            "ToolsAgent": ["tools", "workflow"],  # Tools often appear in workflows
+            "ToolsAgent": ["tools", "workflow"],
             "SkillsAgent": "skills",
             "QualificationAgent": "qualification",
         }
         b_type = block_types.get(agent_name, "role_summary")
 
-        # 2. Extract metadata filters from memory
         id_ctx = insights.get("identity_context") or {}
         role_title = id_ctx.get("title", "") or insights.get("purpose", "")
         dept = id_ctx.get("department")
 
-        # Guess experience level for sharper filtering
         exp_level = "Mid"
         title_lower = str(role_title).lower()
         if any(
@@ -822,7 +886,6 @@ class InterviewEngine:
         elif any(k in title_lower for k in ["manager", "head", "director", "vp"]):
             exp_level = "Expert"
 
-        # 3. Perform surgical retrieval
         return await query_advanced_context(
             role_query=role_title,
             block_type=b_type,
@@ -831,74 +894,184 @@ class InterviewEngine:
             top_k=5,
         )
 
+    async def _auto_populate_priority_tasks(self, insights: dict, rag_context: list[str], user_message: str) -> dict:
+        """Dynamically synthesize priority tasks directly from the user's raw message + RAG."""
+        # If user already confirmed priority tasks, don't touch them
+        if len(insights.get("priority_tasks", [])) >= 3:
+            return insights
+
+        target_role = (insights.get("identity_context") or {}).get("title", "this role")
+        dept_name = (insights.get("identity_context") or {}).get("department", "")
+        purpose = insights.get("purpose", "")
+        
+        # 1. Check if the Extraction Engine already gave us tasks
+        existing_tasks = []
+        for t in insights.get("tasks", []):
+            if isinstance(t, dict):
+                desc = t.get("description", "").strip()
+                if desc:
+                    existing_tasks.append(desc)
+            elif isinstance(t, str) and t.strip():
+                existing_tasks.append(t.strip())
+
+        # 2. If we already have >= 5 tasks from the user, format them and return immediately. NO LLM NEEDED.
+        if len(existing_tasks) >= 5:
+            logger.info(f"[Auto-Populate Tasks] Using {len(existing_tasks)} existing tasks from extraction engine.")
+            insights["tasks"] = [{"description": t, "is_suggestion": False} for t in existing_tasks[:10]] # Cap at 10 for UI
+            insights["suggested_tasks"] = insights["tasks"]
+            return insights
+
+        # 3. If we have fewer than 5 tasks, call LLM to synthesize more from RAG and Purpose
+        message_to_parse = user_message if user_message and len(user_message) > 10 else purpose
+
+        prompt = f"""You are an expert HR Architect. Generate a clean list of exactly 5 to 7 priority tasks for the role of '{target_role}'.
+        
+        ROLE PURPOSE:
+        {purpose}
+
+        USER'S RAW CHAT MESSAGE:
+        "{message_to_parse}"
+
+        EXISTING TASKS:
+        {json.dumps(existing_tasks)}
+
+        INDUSTRY RAG CONTEXT:
+        {json.dumps(rag_context[:2])}
+
+        INSTRUCTIONS:
+        1. Read the USER'S RAW CHAT MESSAGE carefully. The user might have written long paragraphs about risks, outcomes, or daily work.
+        2. Your job is to DECOMPOSE whatever they wrote into 5-7 concrete, actionable professional tasks.
+        3. For example, if they wrote "Cash Flow Paralysis: Collections would slow down", generate a task like "Monitor accounts receivable and manage collections to optimize cash flow".
+        4. Merge these with any EXISTING TASKS.
+        5. STRICTLY EXCLUDE any tasks from other departments.
+        
+        Return ONLY a valid JSON array of strings. Do not include any other text.
+        Example: ["Task 1", "Task 2", "Task 3"]
+        """
+
+        try:
+            # Use _response_llm to avoid any NameError if _json_llm wasn't defined
+            llm_to_use = _response_llm
+            response = await _invoke_with_retry(
+                llm_to_use, [HumanMessage(content=prompt)],
+                session_id=insights.get("session_id"), agent_name="WorkflowIdentifierAgent", call_type="auto_populate_tasks"
+            )
+            
+            content = str(response.content).strip()
+            logger.info(f"[Auto-Populate Tasks] RAW LLM RESPONSE: {content}")
+            
+            # Aggressively clean the response to ensure it's a valid JSON array
+            if "```json" in content:
+                content = content.split("```json")[1].split("```")[0].strip()
+            elif "```" in content:
+                content = content.split("```")[1].split("```")[0].strip()
+            
+            # If the LLM returned an object instead of an array, extract the array
+            if content.startswith("{"):
+                data = json.loads(content)
+                if isinstance(data, dict):
+                    # Look for the first list value in the dict
+                    for v in data.values():
+                        if isinstance(v, list):
+                            content = json.dumps(v)
+                            break
+            
+            new_tasks = json.loads(content)
+            
+            if isinstance(new_tasks, list) and len(new_tasks) > 0:
+                insights["tasks"] = [{"description": t, "is_suggestion": False} for t in new_tasks]
+                insights["suggested_tasks"] = insights["tasks"]
+                logger.info(f"[Auto-Populate Tasks] Successfully generated {len(new_tasks)} tasks.")
+            else:
+                # Fallback to existing tasks, DO NOT overwrite with default if we have any data
+                if existing_tasks:
+                    insights["tasks"] = [{"description": t, "is_suggestion": False} for t in existing_tasks]
+                else:
+                    insights["tasks"] = [{"description": f"Manage core {target_role} responsibilities", "is_suggestion": False}]
+                insights["suggested_tasks"] = insights["tasks"]
+        except Exception as e:
+            logger.error(f"[Auto-Populate Tasks] Failed: {e}")
+            # CRITICAL FIX: If LLM fails, fallback to existing tasks instead of overwriting with default
+            if existing_tasks:
+                insights["tasks"] = [{"description": t, "is_suggestion": False} for t in existing_tasks]
+            else:
+                insights["tasks"] = [{"description": f"Manage core {target_role} responsibilities", "is_suggestion": False}]
+            insights["suggested_tasks"] = insights["tasks"]
+
+        return insights
     async def _auto_populate_inventory(
         self, insights: dict, agent_name: str, rag_context: list[str]
     ) -> dict:
-        """Automatically populate tools/skills from RAG and collected context if they are empty."""
+        """Automatically populate tools/skills using ALL context (Purpose, Tasks, Workflows, RAG)."""
         if agent_name not in ["ToolsAgent", "SkillsAgent"]:
             return insights
 
         field = "tools" if agent_name == "ToolsAgent" else "skills"
         existing = insights.get(field) or []
 
-        # Only auto-populate if we have very little data (less than 3 items)
         if len(existing) >= 8:
             return insights
 
-        logger.info(
-            f"[Auto-Populate] Generating {field} from RAG and collected context..."
-        )
+        logger.info(f"[Auto-Populate] Generating {field} from ALL context...")
 
-        # Build a concise prompt to extract items from RAG and collected workflows (capped for token efficiency)
+        # Gather all available context
+        purpose = insights.get("purpose", "")
+        raw_tasks = [
+            t.get("description", str(t)) if isinstance(t, dict) else str(t)
+            for t in insights.get("tasks", [])
+        ]
         workflows = insights.get("workflows") or {}
+
         workflow_texts = []
         for task, wf in workflows.items():
             wf_tools = wf.get("tools") or ""
             wf_steps = wf.get("steps") or ""
             if isinstance(wf_steps, list):
                 wf_steps = ", ".join([str(s) for s in wf_steps[:3]])
-            elif isinstance(wf_steps, str) and len(wf_steps) > 100:
-                wf_steps = wf_steps[:100] + "..."
             workflow_texts.append(
                 f"Task: {task} | Tools: {wf_tools} | Steps: {wf_steps}"
             )
 
         context_text = (
-            "\n".join(workflow_texts[:5]) + "\n\nRAG CONTEXT:\n" + "\n".join(rag_context[:2])
+            f"PURPOSE: {purpose}\n"
+            f"TASKS: {', '.join(raw_tasks)}\n\n"
+            f"WORKFLOWS:\n" + "\n".join(workflow_texts[:5]) + "\n\n"
+            f"RAG CONTEXT:\n" + "\n".join(rag_context[:2])
         )
 
-        id_ctx = insights.get("identity_context") or {}
-        target_role = id_ctx.get("title") or insights.get("purpose") or "this role"
-        target_dept = id_ctx.get("department") or insights.get("department") or ""
+        target_role = (insights.get("identity_context") or {}).get("title", "this role")
+        dept_name = (insights.get("identity_context") or {}).get("department", "")
 
-        prompt = f"""Extract a concise list of the most relevant {field} for the role of '{target_role}' in the department of '{target_dept}' from the context below.
+        if field == "tools":
+            criteria_text = """CRITICAL CRITERIA FOR 'TOOLS':
+        1. ONLY include actual software, platforms, hardware, or specific technical instruments.
+        2. STRICTLY EXCLUDE soft skills, concepts, or frameworks."""
+        else:
+            criteria_text = """CRITICAL CRITERIA FOR 'SKILLS':
+        1. ONLY include technical competencies, hard domain skills, and specialized functional expertise.
+        2. STRICTLY EXCLUDE soft skills and pure software/tool names.
+        3. CLEAN UP BAD DATA: The RAG context may contain poorly formatted strings split by "and" (e.g., "Budgeting, And forecasting"). You MUST merge these into a single, clean, professional string (e.g., "Budgeting & Forecasting"). Do not include the word "And" as a separate item."""
+
+        prompt = f"""Extract a concise list of the most relevant {field} for the role of '{target_role}' from the context below.
         
         CONTEXT:
         {context_text}
         
-        CRITERIA:
-        1. Only include {field} that are GENUINELY part of the day-to-day toolkit for a '{target_role}' in '{target_dept}'.
-        2. Strictly EXCLUDE items belonging to unrelated departments or roles (e.g., do NOT include HR, Sales, QA, or Finance items unless this is specifically an HR/Sales/QA/Finance role).
-        3. Add core platforms that are standard for this industry/role if they are missing but implied (e.g., if it's a dev role and Git is missing, add it).
-        4. Focus on high-impact, performance-driving {field}.
+        {criteria_text}
         
         Respond with ONLY a JSON list of strings, e.g. ["Item 1", "Item 2"]. 
-        Focus on technical/professional items. Do NOT include generic soft skills for 'tools'.
+        If no specific {field} are mentioned or implied, return an empty list [].
         """
 
         try:
-            from langchain_core.messages import HumanMessage
-            sess_id = insights.get("session_id")
-
             response = await _invoke_with_retry(
                 _interview_llm,
                 [HumanMessage(content=prompt)],
-                session_id=sess_id,
+                session_id=insights.get("session_id"),
                 agent_name=agent_name,
                 call_type="auto_populate",
             )
             content = str(response.content).strip()
-            # Clean possible markdown wrap
             if "```" in content:
                 content = content.split("```")[1]
                 if content.startswith("json"):
@@ -906,15 +1079,113 @@ class InterviewEngine:
 
             new_items = json.loads(content)
             if isinstance(new_items, list):
-                # Professionalize and merge
                 from app.agents.semantic_cleaner import deduplicate_and_professionalize
+                from app.agents.validators import separate_tools_and_skills, is_tool
 
-                merged = list(set(existing) | set(new_items))
-                dept_name = (insights.get("identity_context") or {}).get("department") or insights.get("department") or ""
-                insights[field] = await deduplicate_and_professionalize(
-                    merged, field, role_title=target_role, department=dept_name
-                )
-                logger.info(f"[Auto-Populate] Added {len(new_items)} items to {field}.")
+                if field == "tools":
+                    raw_merged = list(set(existing) | set(new_items))
+                    filtered_tools, _ = separate_tools_and_skills(
+                        raw_merged, role_title=target_role
+                    )
+                    valid_tools = [t for t in filtered_tools if is_tool(t, target_role)]
+
+                    # Fallback domain defaults if fewer than 4 tools
+                    if len(valid_tools) < 4:
+                        role_title_lower = target_role.lower()
+                        dept_lower = (dept_name or "").lower()
+                        if any(
+                            k in role_title_lower or k in dept_lower
+                            for k in [
+                                "account",
+                                "finance",
+                                "billing",
+                                "audit",
+                                "treasury",
+                                "tax",
+                            ]
+                        ):
+                            defaults = [
+                                "SAP",
+                                "NetSuite",
+                                "QuickBooks",
+                                "Microsoft Excel",
+                                "Power BI",
+                                "HighRadius",
+                                "Microsoft Teams",
+                            ]
+                        elif any(
+                            k in role_title_lower or k in dept_lower
+                            for k in [
+                                "software",
+                                "developer",
+                                "engineer",
+                                "tech",
+                                "devops",
+                                "qa",
+                            ]
+                        ):
+                            defaults = [
+                                "VS Code",
+                                "Git",
+                                "GitHub",
+                                "Docker",
+                                "Jira",
+                                "Postman",
+                                "AWS",
+                                "Slack",
+                            ]
+                        elif any(
+                            k in role_title_lower or k in dept_lower
+                            for k in ["hr", "talent", "recruit", "people"]
+                        ):
+                            defaults = [
+                                "Workday",
+                                "BambooHR",
+                                "Greenhouse",
+                                "ADP",
+                                "LinkedIn Recruiter",
+                                "Microsoft Teams",
+                            ]
+                        elif any(
+                            k in role_title_lower or k in dept_lower
+                            for k in [
+                                "sales",
+                                "market",
+                                "commercial",
+                                "business development",
+                            ]
+                        ):
+                            defaults = [
+                                "Salesforce",
+                                "HubSpot",
+                                "LinkedIn Sales Navigator",
+                                "ZoomInfo",
+                                "Outreach",
+                                "Microsoft Excel",
+                            ]
+                        else:
+                            defaults = [
+                                "Microsoft Excel",
+                                "Microsoft Teams",
+                                "Jira",
+                                "SAP",
+                                "Slack",
+                                "Power BI",
+                            ]
+
+                        valid_tools = list(set(valid_tools) | set(defaults))
+
+                    insights["tools"] = await deduplicate_and_professionalize(
+                        valid_tools,
+                        "tools",
+                        role_title=target_role,
+                        department=dept_name,
+                    )
+                else:
+                    merged = list(set(existing) | set(new_items))
+                    insights[field] = await deduplicate_and_professionalize(
+                        merged, field, role_title=target_role, department=dept_name
+                    )
         except Exception as e:
             logger.error(f"[Auto-Populate] Failed: {e}")
 
@@ -943,9 +1214,15 @@ class InterviewEngine:
                 insights["visited_tasks"] = list(visited_tasks)
 
         def _is_task_complete(task: str) -> bool:
-            """A task is complete if trigger, steps AND output are captured."""
+            """A task is complete if steps AND (trigger OR output) are captured. 
+               We relax this so it doesn't loop endlessly if the user gives steps but forgets to mention an output."""
             wf = (insights.get("workflows") or {}).get(task, {})
-            return bool(wf.get("trigger") and wf.get("steps") and wf.get("output"))
+            has_steps = bool(wf.get("steps"))
+            has_trigger = bool(wf.get("trigger"))
+            has_output = bool(wf.get("output"))
+            
+            # If they gave steps, and at least one other piece of info, we can advance.
+            return has_steps and (has_trigger or has_output)
 
         if active_task:
             # CRITICAL FIX: If it's turn 1 but the user already gave us everything, don't force turn 2.
@@ -1425,31 +1702,114 @@ Keep it professional and brief."""
 
         start_time = time.perf_counter()
 
-        # 1. RAG Retrieval (ONLY for Silent Agents to save 2-3 seconds on conversational turns)
+        # 1. CRITICAL FIX: Run Extraction BEFORE routing/generation so state is updated
+        from app.agents.extraction_engine import extract_information
+
+        extracted = await extract_information(
+            user_message, insights, agent_name, recent_messages
+        )
+        if extracted:
+            insights = self._merge_extracted_to_insights(extracted, insights)
+            logger.info(f"[Stream] Data Extracted & Merged: {list(extracted.keys())}")
+
+        # 2. Pre-process iteration state (Deep Dive tracking)
+        insights = self._pre_process_iteration_state(insights, agent_name)
+
+        # 3. CRITICAL FIX: Mid-Turn Routing (Check if we need to advance phase based on new data)
+        from app.agents.router import compute_current_agent, get_transition_message
+
+        new_agent = compute_current_agent(insights, agent_name)
+        if new_agent != agent_name:
+            logger.info(f"[Stream] Mid-Turn Transition: {agent_name} -> {new_agent}")
+            transition_context = get_transition_message(agent_name, new_agent)
+
+            from app.agents.semantic_cleaner import deduplicate_and_professionalize
+
+            target_role = (insights.get("identity_context") or {}).get(
+                "title", "General Role"
+            )
+            dept_name = (
+                (insights.get("identity_context") or {}).get("department")
+                or insights.get("department")
+                or ""
+            )
+
+            if new_agent == "WorkflowIdentifierAgent":
+                insights["tasks"] = await deduplicate_and_professionalize(
+                    insights.get("tasks") or [],
+                    "tasks",
+                    role_title=target_role,
+                    department=dept_name,
+                )
+            elif new_agent == "DeepDiveAgent":
+                insights["priority_tasks"] = await deduplicate_and_professionalize(
+                    insights.get("priority_tasks") or [],
+                    "priority_tasks",
+                    role_title=target_role,
+                    department=dept_name,
+                )
+            elif new_agent == "ToolsAgent":
+                insights["tools"] = await deduplicate_and_professionalize(
+                    insights.get("tools") or [],
+                    "tools",
+                    role_title=target_role,
+                    department=dept_name,
+                )
+            elif new_agent == "SkillsAgent":
+                insights["skills"] = await deduplicate_and_professionalize(
+                    insights.get("skills") or [],
+                    "skills",
+                    role_title=target_role,
+                    department=dept_name,
+                )
+
+            agent_name = new_agent
+            insights = self._pre_process_iteration_state(insights, agent_name)
+
+        # 4. RAG Retrieval (Fetch for Silent Agents and WorkflowIdentifier)
         retrieved_context = []
-        if agent_name in SILENT_AGENTS:
+        if agent_name in SILENT_AGENTS or agent_name == "WorkflowIdentifierAgent":
             yield {"type": "status", "content": "Finding relevant standards..."}
             retrieved_context = await self._get_rag_context(insights, agent_name)
 
-        # 2. Auto-populate Inventory (Tools/Skills) if transitioning
-        if agent_name in ["ToolsAgent", "SkillsAgent"]:
-            yield {"type": "status", "content": f"Detecting relevant {agent_name.replace('Agent', '').lower()}..."}
-            insights = await self._auto_populate_inventory(insights, agent_name, retrieved_context)
+        # 5. Auto-populate Inventory (Tools/Skills/Tasks)
+        # 5. Auto-populate Inventory (Tools/Skills/Tasks)
+        if agent_name == "WorkflowIdentifierAgent":
+            yield {"type": "status", "content": "Synthesizing priority tasks..."}
+            # Pass user_message directly to the function!
+            insights = await self._auto_populate_priority_tasks(
+                insights, retrieved_context, user_message
+            )
+            # CRITICAL: Ensure suggested_tasks is populated for the frontend UI checklist
+            insights["suggested_tasks"] = insights.get("tasks", [])
 
-        # 3. Pre-process iteration state (for Deep Dive)
-        insights = self._pre_process_iteration_state(insights, agent_name)
+            # CRITICAL: Ensure suggested_tasks is populated for the frontend UI checklist
+        elif agent_name in ["ToolsAgent", "SkillsAgent"]:
+            yield {
+                "type": "status",
+                "content": f"Detecting relevant {agent_name.replace('Agent', '').lower()}...",
+            }
+            insights = await self._auto_populate_inventory(
+                insights, agent_name, retrieved_context
+            )
 
-        # 4. Update conversation summary (zero-latency)
-        insights["conversation_summary"] = self._build_conversation_summary(insights, agent_name)
+        # 6. Update conversation summary (zero-latency)
+        insights["conversation_summary"] = self._build_conversation_summary(
+            insights, agent_name
+        )
 
         if agent_name == "DeepDiveAgent":
-            insights["_deep_dive_turn_number"] = insights.get("deep_dive_turn_count") or 1
+            insights["_deep_dive_turn_number"] = (
+                insights.get("deep_dive_turn_count") or 1
+            )
 
-        # 5. Apply context filtering and memory compression
-        filtered_insights = _apply_context_filter(_compact_insights(insights), agent_name)
+        # 7. Apply context filtering and memory compression
+        filtered_insights = _apply_context_filter(
+            _compact_insights(insights), agent_name
+        )
         compressed_recent = self._compress_memory(recent_messages, len(recent_messages))
 
-        # 6. Build messages
+        # 8. Build messages
         messages = build_interview_messages(
             agent_name,
             filtered_insights,
@@ -1461,32 +1821,26 @@ Keep it professional and brief."""
         )
 
         response_text = ""
-        extracted = {}
 
-        # 7. Execute LLM Call
+        # 9. Execute LLM Call
         if agent_name in SILENT_AGENTS:
             response_text = _get_silent_agent_response(agent_name, insights)
+            yield {"type": "chunk", "content": response_text}
         else:
-            response_chunks = []
-            is_first_chunk = True
-            llm_start_time = time.perf_counter()
-
             yield {"type": "status", "content": "Formulating next question..."}
 
             from app.core.langfuse_client import get_langfuse_callback_handler
+
             handler = get_langfuse_callback_handler(
                 trace_name=f"jd-interview-{agent_name.lower()}",
                 session_id=session_id,
-                user_id=employee_id
+                user_id=employee_id,
             )
             callbacks = [handler] if handler else []
             config = {"callbacks": callbacks} if callbacks else None
 
             full_ai_message = None
             try:
-                # Using ainvoke instead of astream to reliably capture tool_calls 
-                # Gemini Flash is so fast (1-2s) that streaming isn't missed, 
-                # and this guarantees we catch the tool call + text together.
                 full_ai_message = await _invoke_with_retry(
                     _interview_llm,
                     messages,
@@ -1494,28 +1848,36 @@ Keep it professional and brief."""
                     agent_name=agent_name,
                     call_type="question_and_extract",
                 )
-                
+
                 if full_ai_message:
-                    # Extract tool calls and merge into insights!
-                    if hasattr(full_ai_message, "tool_calls") and full_ai_message.tool_calls:
+                    # Merge tool calls if LLM used them (supplements the extraction engine)
+                    if (
+                        hasattr(full_ai_message, "tool_calls")
+                        and full_ai_message.tool_calls
+                    ):
                         for tc in full_ai_message.tool_calls:
                             tool_name = tc.get("name")
                             tool_args = tc.get("args", {})
                             if tool_name:
-                                insights = merge_tool_call_into_insights(tool_name, tool_args, insights)
+                                insights = merge_tool_call_into_insights(
+                                    tool_name, tool_args, insights
+                                )
                                 extracted[tool_name] = tool_args
-                                logger.info(f"[One-LLM] Extracted via tool: {tool_name}")
 
-                    # Extract text content
-                    response_text = _extract_text_content(full_ai_message.content).strip()
+                    response_text = _extract_text_content(
+                        full_ai_message.content
+                    ).strip()
                     yield {"type": "chunk", "content": response_text}
 
             except Exception as e:
                 logger.error(f"[Interview] Single-LLM call failed: {e}")
-                yield {"type": "chunk", "content": "I'm sorry, could you repeat that? I lost my train of thought."}
+                yield {
+                    "type": "chunk",
+                    "content": "I'm sorry, could you repeat that? I lost my train of thought.",
+                }
                 return
 
-        # 8. Check for agent stall (force advance if stuck)
+        # 10. Check for agent stall (force advance if stuck)
         is_stalled = self._check_agent_stall(agent_name, extracted, insights)
         if is_stalled:
             insights["_force_advance"] = True
@@ -1526,21 +1888,28 @@ Keep it professional and brief."""
 
         full_text = response_text.strip()
 
-        # 9. Apply validation pipeline
+        # 11. Apply validation pipeline
         if agent_name not in SILENT_AGENTS:
-            full_text = _normalize_agent_response(full_text, agent_name, insights, is_opening_turn=is_opening_turn)
+            full_text = _normalize_agent_response(
+                full_text, agent_name, insights, is_opening_turn=is_opening_turn
+            )
         full_text = full_text.strip()
 
-        # 10. Final JD Generation Bridge
+        # 12. Final JD Generation Bridge
         if agent_name == "JDGeneratorAgent":
-            yield {"type": "status", "content": "Architecting your high-fidelity Job Description..."}
+            yield {
+                "type": "status",
+                "content": "Architecting your high-fidelity Job Description...",
+            }
             jd_payload = await self._generate_final_jd_payload(insights)
             insights["final_jd"] = jd_payload
             full_text = "Your high-fidelity Job Description is architected. Review the preview pane to your right."
 
-        # 11. Record question for deduplication
+        # 13. Record question for deduplication
         insights["last_question_asked"] = full_text
-        insights["conversation_summary"] = self._build_conversation_summary(insights, agent_name)
+        insights["conversation_summary"] = self._build_conversation_summary(
+            insights, agent_name
+        )
         q_hash = _compute_question_hash(full_text)
         if q_hash not in questions_asked:
             questions_asked.append(q_hash)
@@ -1558,6 +1927,11 @@ Keep it professional and brief."""
             "insights": insights,
             "full_text": full_text,
             "questions_asked": questions_asked,
+            # ADD THESE LINES: Ensure root level has the data for the frontend
+            "suggested_tasks": insights.get("suggested_tasks", []),
+            "suggested_tools": insights.get("suggested_tools", []),
+            "suggested_skills": insights.get("suggested_skills", []),
+            "task_list": insights.get("tasks", []),
         }
 
 
@@ -1619,6 +1993,8 @@ async def _generic_agent_node(state: AgentState, agent_name: str) -> dict:
             HumanMessage(content=user_message),
             AIMessage(content=response_text),
         ],
+        # ADD THIS LINE: Ensure suggested_tasks is at the root for the frontend
+        "suggested_tasks": updated_insights.get("suggested_tasks", []),
     }
 
 

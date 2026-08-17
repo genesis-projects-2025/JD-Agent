@@ -36,32 +36,49 @@ def clean_rag_items(text: str, prefix_marker: str) -> list[str]:
     """Cleans RAG document texts by removing metadata prefixes and splitting elements.
 
     Filters out any sub-segments that contain metadata markers such as 'Role:', 'Tools:', 'Skills:', or 'Responsibilities:'.
+    Does NOT split task sentences on commas.
     """
     if not text:
         return []
 
-    content = text
-    lower_text = text.lower()
-    lower_marker = prefix_marker.lower()
+    # 1. Strip metadata header prefixes like "Role: Accounts Responsibility:", "Accounts Responsibility:", "Responsibilities:", etc.
+    content = re.sub(
+        r"^(?:Role:\s*[\w\s&\-\/]+?[\.\s]*)?(?:Responsibilities|Responsibility|Tasks|Task|Duties|Duty|Tools|Skills|Summary|Metric|Project|Category|Department):\s*",
+        "",
+        text,
+        flags=re.IGNORECASE
+    ).strip()
 
-    if lower_marker in lower_text:
-        idx = lower_text.find(lower_marker)
-        content = text[idx + len(prefix_marker):]
+    # Clean leftover leading prefix patterns
+    content = re.sub(r"^(?:[\w\s&\-\/]+?\s+)?(?:Responsibilities|Responsibility|Tasks|Task|Duties|Duty|Tools|Skills):\s*", "", content, flags=re.IGNORECASE).strip()
 
-    normalized = content.replace("\n", ",").replace(";", ",").replace("- ", ",").replace("* ", ",")
+    if not content:
+        return []
+
+    # For tools/skills, splitting by comma is appropriate.
+    # For tasks/responsibilities, NEVER split by comma to avoid breaking task sentences.
+    is_task_type = any(kw in prefix_marker.lower() or kw in content.lower()[:30] for kw in ["task", "responsibility", "duty", "responsibilities"])
+
+    if is_task_type:
+        normalized = content.replace("\n", ";").replace("- ", ";").replace("* ", ";")
+        delimiter = ";"
+    else:
+        normalized = content.replace("\n", ",").replace(";", ",").replace("- ", ",").replace("* ", ",")
+        delimiter = ","
 
     raw_splits = []
-    for part in normalized.split(","):
+    for part in normalized.split(delimiter):
         part_clean = part.strip()
         if not part_clean:
             continue
 
-        part_lower = part_clean.lower()
-        if any(marker in part_lower for marker in ["role:", "tools:", "skills:", "responsibilities:", "category:", "department:"]):
-            continue
+        # Strip metadata inline if present
+        part_clean = re.sub(r"^(?:Role:\s*[\w\s&\-\/]+?[\.\s]*)?(?:Responsibilities|Responsibility|Tasks|Task|Duties|Duty):\s*", "", part_clean, flags=re.IGNORECASE).strip()
+        part_clean = part_clean.strip('"`\'-* \t.')
 
-        part_clean = part_clean.strip('"`\'-* \t')
-        if part_clean:
+        if len(part_clean) > 3:
+            # Capitalize first letter properly
+            part_clean = part_clean[0].upper() + part_clean[1:]
             raw_splits.append(part_clean)
 
     return raw_splits

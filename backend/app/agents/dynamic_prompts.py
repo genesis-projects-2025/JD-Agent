@@ -126,6 +126,9 @@ RULE 5 — SAVE DATA AUTOMATICALLY USING TOOLS.
 You have tools available to save the user's information. 
 When the user tells you about their tasks, tools, workflows, or qualifications, you MUST call the appropriate save_* tool to store that data. 
 Call the tool in the background, and then immediately ask your next simple question. Do not tell the user you are calling a tool, just ask the question.
+
+RULE 6 — NO META TEXT OR TOOL EXPLANATIONS.
+NEVER output text explaining tool mechanics or tool requirements (e.g. NEVER write "save these tasks using the save_tasks tool", "The save_tasks tool requires...", "provided priority tasks are:", "tool_code"). Output ONLY the exact conversational question for the user.
 """
 def _get_industry_strategy(insights: dict) -> str:
     """Returns a simple industry strategy for questioning."""
@@ -287,13 +290,13 @@ def _build_task_aware_deep_dive_instruction_prompt(
         return (
             f"Formulate a simple, friendly question asking how the task '{active_task}' usually gets started. "
             f"Ask it in a way a normal employee would understand (e.g., 'What makes you start working on {active_task}?' or 'How do you know it's time to do {active_task}?'). "
-            f"DO NOT use words like 'trigger', 'cadence', or 'initiation'."
+            f"DO NOT use words like 'trigger', 'cadence', or 'initiation'. DO NOT ask about tools yet."
         )
     elif turn_number == 2:
         return (
             f"Formulate a simple question asking about the steps or challenges for the task '{active_task}'. "
-            f"Ask it in everyday language (e.g., 'Can you walk me through how you actually do {active_task}?' or 'What is the hardest part about doing {active_task}?'). "
-            f"DO NOT use words like 'quality standards' or 'expert-level execution'."
+            f"Ask it in everyday language (e.g., 'Can you walk me through how you actually do {active_task}?' or 'What is the hardest part about doing {active_task}?' or 'What is the final result of this task?'). "
+            f"DO NOT use words like 'quality standards' or 'expert-level execution'. DO NOT ask about tools or software, we will cover that later."
         )
     else:
         existing_wf = workflows.get(active_task, {})
@@ -309,7 +312,7 @@ def _build_task_aware_deep_dive_instruction_prompt(
         return (
             f"We are missing some details for '{active_task}'. Specifically: {missing_str}. "
             f"Formulate a simple, friendly question asking the user to fill in these exact gaps. "
-            f"Speak like a normal person."
+            f"Speak like a normal person. DO NOT ask about tools."
         )
 
 
@@ -715,8 +718,8 @@ def _get_structured_phase_message(agent_name: str, insights: dict) -> str:
             or "this role"
         )
         return (
-            f"Review the tools surfaced for {role} and confirm which ones are genuinely part of the day-to-day toolkit. "
-            "Remove anything incidental and add any core platform that is missing."
+            f"Workflow deep-dives completed! Based on your responses and industry standards, we have compiled the key tools and software for {role}. "
+            "Please review and select the appropriate tools for your role below:"
         )
 
     if agent_name == "SkillsAgent":
@@ -726,8 +729,8 @@ def _get_structured_phase_message(agent_name: str, insights: dict) -> str:
             or "this role"
         )
         return (
-            f"Review the technical skills suggested for {role} and keep the ones that truly drive performance in the job. "
-            "Add any missing hard skills or domain expertise before continuing."
+            f"Tools confirmed! Next, review the core technical skills and competencies required for {role}. "
+            "Select the ones that truly drive high performance in your job below:"
         )
 
     if agent_name == "JDGeneratorAgent":

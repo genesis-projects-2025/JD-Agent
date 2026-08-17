@@ -26,7 +26,7 @@ Your job is to take a raw list of {item_type} and perform Enterprise Semantic De
 1. SEMANTIC DEDUPLICATION & MERGING: Group together any items that mean the exact same thing or heavily overlap (e.g. merge 'SAP', 'Ariba', and 'ERP systems' into a single professional item like 'SAP Ariba' or 'ERP Systems (SAP)').
 2. PROFESSIONALIZATION: Correct typos. Rewrite the grouped item into a polished, formal business tone (concise noun phrases only).
 3. NOISE EXCLUSION: Completely remove explanatory notes, descriptive clauses, parenthetical side notes, or complete sentences (e.g. 'Depending on industry...').
-4. DEPARTMENT & ROLE RELEVANCE FILTER: Strictly filter out tools or skills that are irrelevant to the '{department}' department or the role of '{role_title}'. The tools/skills must be standard, specific, and appropriate to '{department}' (e.g., scientific/experimental tools/skills for R&D/Quality, manufacturing/operations/machinery tools/skills for Plant, financial/billing tools/skills for Finance, and IT/software tools/skills for Tech).
+4. DEPARTMENT & ROLE RELEVANCE FILTER: Filter out tools or skills that are clearly irrelevant to '{department}' or '{role_title}'. BUT DO NOT OVER-FILTER: If role_title is general (e.g., 'Manager', 'Executive', 'Lead'), keep standard office, productivity, ERP, CRM, and management tools/skills. Never return an empty list if valid items were provided in raw_list.
 5. SIZE CAP & SORT: Select and return AT MOST 20 of the most critical and relevant items, sorted by importance (most crucial items first).
 
 CRITICAL RULES FOR ITEM TYPE '{item_type}':

@@ -30,7 +30,7 @@ extraction_llm = ChatGoogleGenerativeAI(
     google_api_key=settings.GEMINI_API_KEY,
     model="gemini-2.5-flash",
     temperature=0.1,  # Low temperature for consistent extraction
-    max_output_tokens=750,
+    max_output_tokens=2000,
 )
 
 
@@ -141,11 +141,13 @@ def extract_role_info(text: str) -> dict:
 
 
 # Task indicator patterns
+
 TASK_INDICATORS = [
     re.compile(
         r"(?:my\s+)?(?:daily|weekly|monthly|regular|typical)\s+(?:tasks?|responsibilities?|duties?)\s*(?:include|are|consist of|involve)\s*[:\-]?\s*(.+)"
     ),
-    re.compile(r"(?:I\s+)?(?:am\s+)?(?:responsible\s+)?for\s+(.+)"),
+    # Removed the "I am responsible for" regex here to prevent it from chopping long paragraphs.
+    # The LLM is smart enough to handle this now.
     re.compile(
         r"(?:I\s+)?(?:handle|manage|oversee|lead|work\s+on|do|perform|execute)\s+(.+)"
     ),
@@ -562,6 +564,7 @@ async def extract_information(
         # Prevent cross-agent data pollution by limiting which fields each agent
         # can extract. This stops BasicInfoAgent from accidentally extracting skills,
         # and keeps DeepDive focused on workflows.
+        # ── AGENT-SCOPED EXTRACTION FILTER ──────────────────────────────────────
     AGENT_ALLOWED_FIELDS = {
         "BasicInfoAgent": {
             "role",
@@ -572,8 +575,12 @@ async def extract_information(
             "user_wants_to_proceed",
             "cadence_probed",
         },
-        # REMOVE 'priority_tasks' from here:
-        "WorkflowIdentifierAgent": {"tasks", "user_wants_to_proceed"},
+        # ADD 'priority_tasks' HERE:
+        "WorkflowIdentifierAgent": {
+            "tasks",
+            "priority_tasks",
+            "user_wants_to_proceed",
+        },
         "DeepDiveAgent": {"workflows", "tools", "tasks", "purpose"},
         "ToolsAgent": {"tools", "technologies", "tools_confirmed"},
         "SkillsAgent": {"skills", "skills_confirmed"},
@@ -633,17 +640,21 @@ def _deep_merge_dict(d1: dict, d2: dict) -> dict:
 def merge_extracted(current_state: dict, extracted: dict) -> dict:
     """
     Merge extracted data into current state with STRICT non-destructive guardrails.
-
-    Rules:
-    - Never overwrite existing value with None/Empty
-    - Deep merge workflows and qualifications
-    - Unique-append for lists (tasks, tools, skills)
     """
     import json
 
     merged = dict(current_state)
 
+    # PROTECT IDENTITY: If identity_context already has a title/department,
+    # delete any garbage role/department extracted from user messages.
+    identity = merged.get("identity_context") or {}
+    if identity.get("title"):
+        extracted.pop("role", None)
+    if identity.get("department"):
+        extracted.pop("department", None)
+
     for key, value in extracted.items():
+        # ... rest of the function remains the same
         # GUARDRAIL 1: Never overwrite meaningful data with empty values
         if value in (None, "", [], {}):
             continue

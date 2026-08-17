@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from typing import AsyncIterator
 
 from langgraph.graph import StateGraph, END, START
@@ -37,6 +38,7 @@ from app.agents.interview import (
     engine as interview_engine,
 )
 from app.agents.gap_detector import gap_detector_node
+import re
 
 
 logger = logging.getLogger(__name__)
@@ -442,6 +444,15 @@ def _build_frontend_response(result: dict, session_memory) -> dict:
             if not desc.strip():
                 continue
 
+            # Strip metadata header prefixes if present (e.g., "Role: Accounts Responsibility:", "Accounts Responsibility:")
+            desc = re.sub(
+                r"^(?:Role:\s*[\w\s&\-\/]+?[\.\s]*)?(?:Responsibilities|Responsibility|Tasks|Task|Duties|Duty|Tools|Skills|Summary|Metric|Project|Category|Department):\s*",
+                "",
+                desc,
+                flags=re.IGNORECASE
+            ).strip()
+            desc = re.sub(r"^(?:[\w\s&\-\/]+?\s+)?(?:Responsibilities|Responsibility|Tasks|Task|Duties|Duty):\s*", "", desc, flags=re.IGNORECASE).strip()
+
             desc_lower = desc.lower().strip()
             is_conversational = (
                 desc_lower.startswith(
@@ -489,8 +500,16 @@ def _build_frontend_response(result: dict, session_memory) -> dict:
 
         existing_descs = {t["description"].lower().strip() for t in task_list}
         for task_desc in suggested_tasks:
-            cleaned_desc = task_desc.strip()
-            if cleaned_desc.lower().strip() not in existing_descs:
+            cleaned_desc = str(task_desc).strip()
+            cleaned_desc = re.sub(
+                r"^(?:Role:\s*[\w\s&\-\/]+?[\.\s]*)?(?:Responsibilities|Responsibility|Tasks|Task|Duties|Duty|Tools|Skills|Summary|Metric|Project|Category|Department):\s*",
+                "",
+                cleaned_desc,
+                flags=re.IGNORECASE
+            ).strip()
+            cleaned_desc = re.sub(r"^(?:[\w\s&\-\/]+?\s+)?(?:Responsibilities|Responsibility|Tasks|Task|Duties|Duty):\s*", "", cleaned_desc, flags=re.IGNORECASE).strip()
+
+            if cleaned_desc and cleaned_desc.lower().strip() not in existing_descs:
                 task_list.append(
                     {
                         "description": cleaned_desc,
@@ -510,10 +529,61 @@ def _build_frontend_response(result: dict, session_memory) -> dict:
 
     # ✅ ONLY populate for their respective agents
     if current_agent == "ToolsAgent":
-        suggested_tools = result.get("suggested_tools", [])
+        raw_tools = result.get("suggested_tools", [])
+        if not raw_tools and isinstance(insights.get("tools"), list):
+            raw_tools = insights.get("tools", [])
+        from app.agents.validators import is_tool
+        suggested_tools = [t for t in raw_tools if is_tool(t)]
+
+        # FAILSAFE: If suggested_tools is empty or < 3, inject universal role/domain tools so it is NEVER empty
+        if len(suggested_tools) < 3:
+            role_title = insights.get("role") or (insights.get("identity_context") or {}).get("title") or "Manager"
+            dept_name = (insights.get("identity_context") or {}).get("department") or insights.get("department") or ""
+            role_title_lower = str(role_title).lower()
+            dept_lower = str(dept_name).lower()
+
+            if any(k in role_title_lower or k in dept_lower for k in ["account", "finance", "billing", "audit", "treasury", "tax"]):
+                failsafe = ["SAP", "NetSuite", "QuickBooks", "Microsoft Excel", "Power BI", "HighRadius", "Microsoft Teams"]
+            elif any(k in role_title_lower or k in dept_lower for k in ["software", "developer", "engineer", "tech", "devops", "qa"]):
+                failsafe = ["VS Code", "Git", "GitHub", "Docker", "Jira", "Postman", "AWS", "Slack"]
+            elif any(k in role_title_lower or k in dept_lower for k in ["hr", "talent", "recruit", "people"]):
+                failsafe = ["Workday", "BambooHR", "Greenhouse", "ADP", "LinkedIn Recruiter", "Microsoft Teams"]
+            elif any(k in role_title_lower or k in dept_lower for k in ["sales", "market", "commercial", "business development"]):
+                failsafe = ["Salesforce", "HubSpot", "LinkedIn Sales Navigator", "ZoomInfo", "Outreach", "Microsoft Excel"]
+            else:
+                failsafe = ["Microsoft Excel", "Microsoft Teams", "Jira", "SAP", "Slack", "Power BI", "Asana"]
+
+            suggested_tools = list(dict.fromkeys(suggested_tools + failsafe))
+            insights["tools"] = suggested_tools
+
         logger.info(f"[Graph] ToolsAgent: Showing {len(suggested_tools)} tools")
+
     elif current_agent == "SkillsAgent":
         suggested_skills = result.get("suggested_skills", [])
+        if not suggested_skills and isinstance(insights.get("skills"), list):
+            suggested_skills = insights.get("skills", [])
+
+        # FAILSAFE: If suggested_skills is empty or < 3, inject universal role/domain skills
+        if len(suggested_skills) < 3:
+            role_title = insights.get("role") or (insights.get("identity_context") or {}).get("title") or "Manager"
+            dept_name = (insights.get("identity_context") or {}).get("department") or insights.get("department") or ""
+            role_title_lower = str(role_title).lower()
+            dept_lower = str(dept_name).lower()
+
+            if any(k in role_title_lower or k in dept_lower for k in ["account", "finance", "billing", "audit", "treasury", "tax"]):
+                failsafe_s = ["Financial Analysis & Reporting", "Account Reconciliation", "Tax Compliance & GAAP", "Budgeting & Forecasting", "Internal Controls & Risk"]
+            elif any(k in role_title_lower or k in dept_lower for k in ["software", "developer", "engineer", "tech", "devops", "qa"]):
+                failsafe_s = ["Software Architecture", "API Development & Integration", "Database Design & Optimization", "Cloud Computing & DevOps", "Automated Testing & QA"]
+            elif any(k in role_title_lower or k in dept_lower for k in ["hr", "talent", "recruit", "people"]):
+                failsafe_s = ["Talent Acquisition & Sourcing", "Employee Relations", "Performance Management", "Compensation & Benefits", "HR Policy & Compliance"]
+            elif any(k in role_title_lower or k in dept_lower for k in ["sales", "market", "commercial", "business development"]):
+                failsafe_s = ["B2B Sales & Account Management", "Lead Generation & Prospecting", "Pipeline & Revenue Forecasting", "Contract Negotiation", "Market Analysis"]
+            else:
+                failsafe_s = ["Team Leadership & Performance Management", "Operational Strategy & Execution", "Budget & Resource Allocation", "Process Optimization", "Stakeholder Management"]
+
+            suggested_skills = list(dict.fromkeys(suggested_skills + failsafe_s))
+            insights["skills"] = suggested_skills
+
         logger.info(f"[Graph] SkillsAgent: Showing {len(suggested_skills)} skills")
     # For all other agents, they remain empty []
 

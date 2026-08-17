@@ -426,7 +426,7 @@ async def index_approved_jd(
             importance = "high" if index < 3 else "medium"
             add_chunk(
                 "responsibilities",
-                f"Role: {jd_title} Responsibility: {task}",
+                task,
                 {"importance": importance},
             )
 

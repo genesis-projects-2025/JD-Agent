@@ -82,10 +82,7 @@ export default function MessageBubble({
     const { suggested } = splitTasks(message.tasks);
     return suggested;
   });
-  const [selectedTasks, setSelectedTasks] = useState<string[]>(() => {
-    const { core } = splitTasks(message.tasks);
-    return core;
-  });
+    const [selectedTasks, setSelectedTasks] = useState<string[]>([]); // Start with nothing selected
   const [newTask, setNewTask] = useState("");
   const [isTasksConfirmed, setIsTasksConfirmed] = useState(false);
   const [isTasksConfirming, setIsTasksConfirming] = useState(false);

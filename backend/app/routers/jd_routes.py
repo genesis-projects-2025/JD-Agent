@@ -1427,6 +1427,9 @@ async def update_jd(
 
 
 # ── Update status ─────────────────────────────────────────────────────────────
+# backend/app/routers/jd_routes.py
+
+
 @router.patch("/{jd_id}/status")
 async def update_jd_status(
     jd_id: str,
@@ -1451,59 +1454,86 @@ async def update_jd_status(
         )
 
     try:
+        from sqlalchemy import text as sql_text
+
         # 1. Fetch the JD record FIRST
         record = await get_questionnaire(db, jd_id)
         if not record:
             raise HTTPException(status_code=404, detail="JD not found")
 
-        # 2. Fetch the Employee who owns the JD
-        emp_res = await db.execute(
-            select(Employee).where(Employee.id == record.employee_id)
+        # 2. Check organogram directly for who manages the owner of this JD
+        is_manager = False
+        org_res = await db.execute(
+            sql_text(
+                "SELECT reporting_manager_code FROM organogram WHERE LOWER(TRIM(code)) = LOWER(TRIM(:code))"
+            ),
+            {"code": record.employee_id},
         )
-        emp_record = emp_res.scalar_one_or_none()
+        org_row = org_res.mappings().first()
 
-        # ─── BULLETPROOF OVERRIDE: Force E6679 to be recognized as HR ───
+        if org_row and org_row.get("reporting_manager_code"):
+            if (
+                str(org_row["reporting_manager_code"]).strip().upper()
+                == str(current_user.id).strip().upper()
+            ):
+                is_manager = True
+
+        # 3. Check recursive reports in organogram (Indirect managers)
+        if not is_manager:
+            from app.services.dashboard_service import DashboardService
+
+            recursive_reports = await DashboardService.get_recursive_reports(
+                db, current_user.id
+            )
+            if record.employee_id in recursive_reports:
+                is_manager = True
+
+        # 4. Check HR privileges (Hardcoded E6679, DB role, or Organogram designation)
         user_role = (current_user.role or "").lower()
         if current_user.id.strip().upper() == "E6679":
             user_role = "hr"
-        # ──────────────────────────────────────────────────────────────────
 
-        is_hr_or_admin = user_role in ["hr", "admin", "head"]
+        if user_role not in ["hr", "admin"]:
+            org_emp_res = await db.execute(
+                sql_text(
+                    "SELECT designation FROM organogram WHERE LOWER(TRIM(code)) = LOWER(TRIM(:code))"
+                ),
+                {"code": current_user.id},
+            )
+            org_emp_row = org_emp_res.mappings().first()
+            if org_emp_row:
+                desig = (org_emp_row.get("designation") or "").lower()
+                if any(kw in desig for kw in ["hr", "human resource", "admin"]):
+                    user_role = "hr"
 
-        is_direct_manager = (
-            emp_record
-            and emp_record.reporting_manager_code
-            and emp_record.reporting_manager_code.strip().upper()
-            == current_user.id.strip().upper()
-        )
+        is_hr = user_role in ["hr", "admin"]
         is_owner = record.employee_id == current_user.id
 
-        if not is_hr_or_admin and not is_owner and not is_direct_manager:
+        # 5. Final Permission Check
+        if not is_hr and not is_owner and not is_manager:
             raise HTTPException(
                 status_code=403,
-                detail="You can only update status of your own JDs, JDs submitted to you, or if you have HR privileges.",
+                detail="You can only update status of your own JDs, or JDs submitted to you.",
             )
-        # ────────────────────────────────────────────────────────
 
-        # ─── FIX: If HR/Admin is approving, bypass the CRUD permission checks and update directly ───
-        if is_hr_or_admin and not is_owner:
-            # Update the status directly in the database
-            record.status = request.status
-            await db.commit()
-            await db.refresh(record)
-            updated_record = record
-        else:
-            # Normal Manager/Owner flow uses the CRUD function
-            # FIX: Pass the JD Owner's ID (record.employee_id), NOT current_user.id!
-            # If you pass the Manager's ID, the CRUD function will throw a PermissionError.
-            updated_record = await update_questionnaire_status(
-                db=db,
-                jd_id=jd_id,
-                new_status=request.status,
-                employee_id=record.employee_id,  # <--- PASS THE OWNER'S ID HERE
-            )
-        # ────────────────────────────────────────────────────────
+        # 6. DIRECTLY UPDATE THE DATABASE (Bypassing the buggy CRUD function)
+        record.status = request.status
 
+        # Sync status to KRAKPISession if it exists
+        from app.models.kra_kpi_model import KRAKPISession
+
+        kra_res = await db.execute(
+            select(KRAKPISession).where(KRAKPISession.jd_session_id == str(record.id))
+        )
+        kra_session = kra_res.scalars().first()
+        if kra_session:
+            kra_session.status = request.status
+
+        await db.commit()
+        await db.refresh(record)
+        updated_record = record
+
+        # Invalidate caches
         await invalidate_pattern("cache:jd_list:*")
         await invalidate_pattern("cache:manager_pending:*")
         await invalidate_pattern("cache:hr_pending:*")
@@ -1521,8 +1551,6 @@ async def update_jd_status(
         }
     except HTTPException:
         raise
-    except PermissionError as e:
-        raise HTTPException(status_code=403, detail=str(e))
     except Exception as e:
         raise HTTPException(
             status_code=500, detail=f"Failed to update status: {str(e)}"

@@ -111,16 +111,26 @@ async def hr_required(
 # backend/app/core/auth.py
 
 
+# backend/app/core/auth.py
+# backend/app/core/auth.py
+
+
 async def manager_required(
     user: Employee = Depends(get_current_user), db: AsyncSession = Depends(get_db)
 ):
     """Ensures the user has Managerial privileges."""
+    print(
+        f"\n--- [AUTH DEBUG] Checking manager permissions for user_id: '{user.id}', initial_role: '{user.role}' ---"
+    )
+
     # 1. If the role is already correct in the DB, let them in instantly
     if user.role in ["manager", "head", "hr", "admin"]:
+        print(f"[AUTH DEBUG] PASSED: User already has role '{user.role}' in DB.")
         return user
 
     # 2. Hardcoded override for E6679
     if user.id == "E6679":
+        print("[AUTH DEBUG] PASSED: User is E6679 (Hardcoded HR).")
         user.role = "hr"
         await db.commit()
         await db.refresh(user)
@@ -130,14 +140,52 @@ async def manager_required(
     from app.services.dashboard_service import DashboardService
 
     has_reports = await DashboardService.has_direct_reports(db, user.id)
+    print(f"[AUTH DEBUG] Step 3 (has_direct_reports): {has_reports}")
     if has_reports:
+        print("[AUTH DEBUG] PASSED: User has direct reports.")
         if user.role not in ["manager", "head", "hr", "admin"]:
             user.role = "manager"
             await db.commit()
             await db.refresh(user)
         return user
 
-    # 4. Fallback: Check designation in organogram (AGM, DGM, Manager, etc.)
+    # 4. Check recursive reports
+    recursive_reports = await DashboardService.get_recursive_reports(db, user.id)
+    print(
+        f"[AUTH DEBUG] Step 4 (recursive_reports count): {len(recursive_reports)} | Reports: {recursive_reports}"
+    )
+    if recursive_reports:
+        print("[AUTH DEBUG] PASSED: User has recursive reports.")
+        if user.role not in ["manager", "head", "hr", "admin"]:
+            user.role = "manager"
+            await db.commit()
+            await db.refresh(user)
+        return user
+
+    # 5. Direct SQL check on reporting_manager_code
+    from sqlalchemy import text as sql_text
+
+    mgr_check = await db.execute(
+        sql_text(
+            "SELECT 1 FROM organogram WHERE LOWER(TRIM(reporting_manager_code)) = LOWER(TRIM(:code)) LIMIT 1"
+        ),
+        {"code": user.id},
+    )
+    mgr_exists = mgr_check.fetchone()
+    print(
+        f"[AUTH DEBUG] Step 5 (Direct SQL reporting_manager_code match): {'Found' if mgr_exists else 'Not Found'}"
+    )
+    if mgr_exists:
+        print(
+            "[AUTH DEBUG] PASSED: User found as reporting_manager_code in organogram."
+        )
+        if user.role not in ["manager", "head", "hr", "admin"]:
+            user.role = "manager"
+            await db.commit()
+            await db.refresh(user)
+        return user
+
+    # 6. Fallback: Check designation in organogram
     manager_keywords = [
         "manager",
         "head",
@@ -154,18 +202,24 @@ async def manager_required(
         "supervisor",
     ]
 
-    org_query = text(
+    org_query = sql_text(
         "SELECT designation FROM organogram WHERE LOWER(TRIM(code)) = LOWER(TRIM(:emp_code))"
     )
     org_res = await db.execute(org_query, {"emp_code": user.id})
     org_row = org_res.mappings().first()
 
+    print(f"[AUTH DEBUG] Step 6 (Organogram Designation Lookup): {org_row}")
     if org_row:
         desig_lower = (org_row.get("designation") or "").lower()
+        print(f"[AUTH DEBUG] Step 6 (Designation lowered): '{desig_lower}'")
         if any(kw in desig_lower for kw in manager_keywords):
+            print("[AUTH DEBUG] PASSED: Designation contains manager keyword.")
             user.role = "manager"
             await db.commit()
             await db.refresh(user)
             return user
 
+    print(
+        f"[AUTH DEBUG] FAILED: User '{user.id}' denied manager access. All checks failed.\n"
+    )
     raise HTTPException(status_code=403, detail="Manager permissions required")

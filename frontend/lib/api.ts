@@ -920,77 +920,65 @@ export async function fetchKRAKPI(jdSessionId: string, employeeId?: string): Pro
   return res.json();
 }
 
-export async function selectKRAs(
-  jdSessionId: string,
-  selectedKraIds: string[],
-  employeeId?: string,
-): Promise<{ status: string; generation_step: GenerationStep; kpi_suggestions: KRAKPIRecord["kpi_suggestions"] }> {
-  const query = employeeId ? `?employee_id=${encodeURIComponent(employeeId)}` : "";
-  const res = await fetch(`${API_URL}/kra-kpi/${jdSessionId}/select-kras${query}`, {
+// lib/api.ts
+
+export async function selectKRAs(jdSessionId: string, selectedKraIds: string[], employeeId: string) {
+  const res = await fetch(`${API_URL}/kra-kpi/${jdSessionId}/select-kras?employee_id=${employeeId}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ selected_kra_ids: selectedKraIds }),
   });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ detail: "Selection failed" }));
-    throw new Error(err.detail || "KRA selection failed");
-  }
+  if (!res.ok) throw new Error("Failed to select KRAs");
   return res.json();
 }
 
-export async function selectKPIs(
-  jdSessionId: string,
-  selectedKpiIds: Record<string, string[]>,
-  employeeId?: string,
-): Promise<{ status: string; generation_step: GenerationStep; kras: KRAKPIRecord["kras"] }> {
-  const query = employeeId ? `?employee_id=${encodeURIComponent(employeeId)}` : "";
-  const res = await fetch(`${API_URL}/kra-kpi/${jdSessionId}/select-kpis${query}`, {
+export async function selectKPIs(jdSessionId: string, selectedKpiIds: Record<string, string[]>, employeeId: string) {
+  const res = await fetch(`${API_URL}/kra-kpi/${jdSessionId}/select-kpis?employee_id=${employeeId}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ selected_kpi_ids: selectedKpiIds }),
   });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ detail: "Selection failed" }));
-    throw new Error(err.detail || "KPI selection failed");
-  }
+  if (!res.ok) throw new Error("Failed to select KPIs");
   return res.json();
 }
 
-export async function saveKRAWeights(
-  jdSessionId: string,
-  kras: FinalKRA[],
-  confirm = false,
-  employeeId?: string,
-): Promise<{ status: string; generation_step: GenerationStep; kras: KRAKPIRecord["kras"] }> {
-  const query = employeeId ? `?employee_id=${encodeURIComponent(employeeId)}` : "";
-  const res = await fetch(`${API_URL}/kra-kpi/${jdSessionId}/weights${query}`, {
+export async function saveKRAWeights(jdSessionId: string, kras: any[], confirm: boolean, employeeId: string) {
+  const res = await fetch(`${API_URL}/kra-kpi/${jdSessionId}/weights?employee_id=${employeeId}`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ kras, confirm }),
   });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ detail: "Save failed" }));
-    throw new Error(err.detail || "Failed to save weights");
-  }
+  if (!res.ok) throw new Error("Failed to save weights");
   return res.json();
 }
 
-export async function sendKRAKPIForApproval(
-  jdSessionId: string,
-  employeeId?: string,
-): Promise<{ status: string; message: string; kra_kpi_status: string }> {
-  const query = employeeId ? `?employee_id=${encodeURIComponent(employeeId)}` : "";
-  const res = await fetch(`${API_URL}/kra-kpi/${jdSessionId}/send-for-approval${query}`, {
+export async function sendKRAKPIForApproval(jdSessionId: string, employeeId: string) {
+  const res = await fetch(`${API_URL}/kra-kpi/${jdSessionId}/send-for-approval?employee_id=${employeeId}`, {
+    method: "POST",
+  });
+  if (!res.ok) throw new Error("Failed to send for approval");
+  return res.json();
+}
+
+export async function addCustomKRA(jdSessionId: string, title: string, description: string, selectedIds: string[] | undefined, employeeId: string) {
+  const res = await fetch(`${API_URL}/kra-kpi/${jdSessionId}/custom-kra?employee_id=${employeeId}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ title, description, selected_ids: selectedIds }),
   });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ detail: "Failed to send for approval" }));
-    throw new Error(err.detail || "Failed to send KRA/KPI for approval");
-  }
+  if (!res.ok) throw new Error("Failed to add custom KRA");
   return res.json();
 }
 
+export async function addCustomKPI(jdSessionId: string, kraId: string, metric: string, target: string, measurementMethod: string, frequency: string, selectedIds: Record<string, string[]> | undefined, employeeId: string) {
+  const res = await fetch(`${API_URL}/kra-kpi/${jdSessionId}/custom-kpi?employee_id=${employeeId}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ kra_id: kraId, metric, target, measurement_method: measurementMethod, frequency, selected_ids: selectedIds }),
+  });
+  if (!res.ok) throw new Error("Failed to add custom KPI");
+  return res.json();
+}
 export async function fetchKRAKPIReviewSkills(
   jdSessionId: string,
 ): Promise<{ skills: Array<{ name: string; description: string; rating: number | "N/A" | null }> }> {
@@ -1020,66 +1008,6 @@ export async function submitKRAKPIReview(
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: "Failed to submit review" }));
     throw new Error(err.detail || "Failed to submit KRA/KPI review");
-  }
-  return res.json();
-}
-
-export async function addCustomKRA(
-  jdSessionId: string,
-  title: string,
-  description: string,
-  selectedIds?: string[],
-  employeeId?: string,
-): Promise<{
-  status: string;
-  kra: KRASuggestion;
-  selected_kra_ids: string[];
-  kra_suggestions: any;
-}> {
-  const query = employeeId ? `?employee_id=${encodeURIComponent(employeeId)}` : "";
-  const res = await fetch(`${API_URL}/kra-kpi/${jdSessionId}/custom-kra${query}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ title, description, selected_ids: selectedIds }),
-  });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ detail: "Failed to add custom KRA" }));
-    throw new Error(err.detail || "Failed to add custom KRA");
-  }
-  return res.json();
-}
-
-export async function addCustomKPI(
-  jdSessionId: string,
-  kraId: string,
-  metric: string,
-  target: string,
-  measurementMethod: string,
-  frequency: string,
-  selectedIds?: Record<string, string[]>,
-  employeeId?: string,
-): Promise<{
-  status: string;
-  kpi: KPISuggestion;
-  selected_kpi_ids: Record<string, string[]>;
-  kpi_suggestions: any;
-}> {
-  const query = employeeId ? `?employee_id=${encodeURIComponent(employeeId)}` : "";
-  const res = await fetch(`${API_URL}/kra-kpi/${jdSessionId}/custom-kpi${query}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      kra_id: kraId,
-      metric,
-      target,
-      measurement_method: measurementMethod,
-      frequency,
-      selected_ids: selectedIds,
-    }),
-  });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ detail: "Failed to add custom KPI" }));
-    throw new Error(err.detail || "Failed to add custom KPI");
   }
   return res.json();
 }

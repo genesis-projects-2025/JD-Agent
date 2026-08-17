@@ -30,6 +30,30 @@ from app.services.kra_kpi_service import (
     select_kpis_and_build_final,
     select_kras_and_generate_kpis,
 )
+from sqlalchemy import select
+from app.models.jd_session_model import JDSession
+import uuid
+
+
+async def _verify_jd_ownership(db: AsyncSession, jd_session_id: str, employee_id: str):
+    """Ensures the employee_id making the request actually owns the jd_session_id."""
+    try:
+        jd_uuid = uuid.UUID(jd_session_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid JD Session ID format")
+
+    result = await db.execute(select(JDSession).where(JDSession.id == jd_uuid))
+    jd_session = result.scalars().first()
+
+    if not jd_session:
+        raise HTTPException(status_code=404, detail="JD Session not found")
+
+    if jd_session.employee_id != employee_id:
+        raise HTTPException(
+            status_code=403,
+            detail="Authorization Failed: You do not own this Job Description session.",
+        )
+
 
 router = APIRouter(prefix="/kra-kpi", tags=["KRA/KPI"])
 logger = logging.getLogger(__name__)
@@ -119,7 +143,7 @@ async def get_status(
     """Check prerequisites and return current step."""
     from sqlalchemy import select
     from app.models.kra_kpi_model import UploadedKRAKPI
-
+    await _verify_jd_ownership(db, jd_session_id, employee_id)
     # Check if there is an admin-uploaded KRA/KPI first
     uploaded_res = await db.execute(
         select(UploadedKRAKPI).where(UploadedKRAKPI.employee_id == employee_id)
@@ -175,6 +199,7 @@ async def generate_kra_suggestions_endpoint(
     db: AsyncSession = Depends(get_db),
 ):
     """Step 1: Generate 6–7 KRA suggestions (employee JD as primary source)."""
+    await _verify_jd_ownership(db, jd_session_id, employee_id)
     try:
         record = await generate_kra_suggestions_for_employee(
             db, jd_session_id, employee_id, bypass_manager=bypass_manager, force_restart=force_restart
@@ -217,7 +242,7 @@ async def get_kra_kpi(
             pass
 
     if employee_id:
-        # Check if there is an admin-uploaded KRA/KPI for this employee
+        await _verify_jd_ownership(db, jd_session_id, employee_id)
         uploaded_res = await db.execute(
             select(UploadedKRAKPI).where(UploadedKRAKPI.employee_id == employee_id)
         )
@@ -261,6 +286,7 @@ async def select_kras_endpoint(
     Step 2: Employee selects 3–5 KRAs.
     Triggers parallel KPI suggestion generation for each selected KRA.
     """
+    await _verify_jd_ownership(db, jd_session_id, employee_id)
     try:
         record = await select_kras_and_generate_kpis(
             db=db,
@@ -292,6 +318,7 @@ async def select_kpis_endpoint(
     Step 3a: Employee selects 3–5 KPIs per KRA.
     Builds the final KRA/KPI payload with initial equal weights for drag-and-drop.
     """
+    await _verify_jd_ownership(db, jd_session_id, employee_id)
     try:
         record = await select_kpis_and_build_final(
             db=db,
@@ -459,6 +486,7 @@ async def save_weights_endpoint(
     Step 3b: Save drag-and-drop weight adjustments.
     Set confirm=true to lock the KRA/KPI as confirmed.
     """
+    await _verify_jd_ownership(db, jd_session_id, employee_id)
     try:
         record = await save_weights_and_confirm(
             db=db,

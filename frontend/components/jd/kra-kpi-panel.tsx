@@ -3118,7 +3118,7 @@ export const KRAKPIPanel = forwardRef<any, KRAKPIPanelProps>(
     setError(null);
     setLoading(true);
     try {
-      await selectKRAs(jdSessionId, ids);
+      await selectKRAs(jdSessionId, ids, employeeId);
       await reload();
     } catch (e: any) {
       setError(e.message || "KRA selection failed");
@@ -3129,7 +3129,7 @@ export const KRAKPIPanel = forwardRef<any, KRAKPIPanelProps>(
   const handleAddCustomKra = async (title: string, description: string, selectedIds?: string[]) => {
     setError(null);
     try {
-      const res = await addCustomKRA(jdSessionId, title, description, selectedIds);
+      const res = await addCustomKRA(jdSessionId, title, description, selectedIds, employeeId);
       setRecord((prev) => {
         if (!prev) return prev;
         return {
@@ -3162,7 +3162,8 @@ export const KRAKPIPanel = forwardRef<any, KRAKPIPanelProps>(
         target,
         measurementMethod,
         frequency,
-        selectedIds
+        selectedIds,
+        employeeId
       );
       setRecord((prev) => {
         if (!prev) return prev;
@@ -3183,7 +3184,7 @@ export const KRAKPIPanel = forwardRef<any, KRAKPIPanelProps>(
     setError(null);
     setLoading(true);
     try {
-      await selectKPIs(jdSessionId, selected);
+      await selectKPIs(jdSessionId, selected, employeeId);
       await reload();
     } catch (e: any) {
       setError(e.message || "KPI selection failed");
@@ -3195,7 +3196,7 @@ export const KRAKPIPanel = forwardRef<any, KRAKPIPanelProps>(
     setError(null);
     setLoading(true);
     try {
-      await saveKRAWeights(jdSessionId, kras, confirm);
+      await saveKRAWeights(jdSessionId, kras, confirm, employeeId);
       await reload();
     } catch (e: any) {
       setError(e.message || "Failed to save weights");
@@ -3215,7 +3216,7 @@ export const KRAKPIPanel = forwardRef<any, KRAKPIPanelProps>(
     setError(null);
     setLoading(true);
     try {
-      await sendKRAKPIForApproval(jdSessionId);
+      await sendKRAKPIForApproval(jdSessionId, employeeId);
       await reload();
     } catch (e: any) {
       setError(e.message || "Failed to send for approval");

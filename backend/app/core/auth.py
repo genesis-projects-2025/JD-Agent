@@ -124,22 +124,32 @@ import logging
 logger = logging.getLogger(__name__)
 
 
+# backend/app/core/auth.py
+
+import sys
+
+
 async def manager_required(
     user: Employee = Depends(get_current_user), db: AsyncSession = Depends(get_db)
 ):
     """Ensures the user has Managerial privileges."""
-    logger.info(
-        f"--- [AUTH DEBUG] Checking manager permissions for user_id: '{user.id}', initial_role: '{user.role}' ---"
+    sys.stderr.write(
+        f"\n--- [AUTH DEBUG] Checking manager permissions for user_id: '{user.id}', initial_role: '{user.role}' ---\n"
     )
+    sys.stderr.flush()
 
     # 1. If the role is already correct in the DB, let them in instantly
     if user.role in ["manager", "head", "hr", "admin"]:
-        logger.info(f"[AUTH DEBUG] PASSED: User already has role '{user.role}' in DB.")
+        sys.stderr.write(
+            f"[AUTH DEBUG] PASSED: User already has role '{user.role}' in DB.\n"
+        )
+        sys.stderr.flush()
         return user
 
     # 2. Hardcoded override for E6679
     if user.id == "E6679":
-        logger.info("[AUTH DEBUG] PASSED: User is E6679 (Hardcoded HR).")
+        sys.stderr.write("[AUTH DEBUG] PASSED: User is E6679 (Hardcoded HR).\n")
+        sys.stderr.flush()
         user.role = "hr"
         await db.commit()
         await db.refresh(user)
@@ -149,9 +159,11 @@ async def manager_required(
     from app.services.dashboard_service import DashboardService
 
     has_reports = await DashboardService.has_direct_reports(db, user.id)
-    logger.info(f"[AUTH DEBUG] Step 3 (has_direct_reports): {has_reports}")
+    sys.stderr.write(f"[AUTH DEBUG] Step 3 (has_direct_reports): {has_reports}\n")
+    sys.stderr.flush()
     if has_reports:
-        logger.info("[AUTH DEBUG] PASSED: User has direct reports.")
+        sys.stderr.write("[AUTH DEBUG] PASSED: User has direct reports.\n")
+        sys.stderr.flush()
         if user.role not in ["manager", "head", "hr", "admin"]:
             user.role = "manager"
             await db.commit()
@@ -160,11 +172,13 @@ async def manager_required(
 
     # 4. Check recursive reports
     recursive_reports = await DashboardService.get_recursive_reports(db, user.id)
-    logger.info(
-        f"[AUTH DEBUG] Step 4 (recursive_reports count): {len(recursive_reports)} | Reports: {recursive_reports}"
+    sys.stderr.write(
+        f"[AUTH DEBUG] Step 4 (recursive_reports count): {len(recursive_reports)} | Reports: {recursive_reports}\n"
     )
+    sys.stderr.flush()
     if recursive_reports:
-        logger.info("[AUTH DEBUG] PASSED: User has recursive reports.")
+        sys.stderr.write("[AUTH DEBUG] PASSED: User has recursive reports.\n")
+        sys.stderr.flush()
         if user.role not in ["manager", "head", "hr", "admin"]:
             user.role = "manager"
             await db.commit()
@@ -181,13 +195,15 @@ async def manager_required(
         {"code": user.id},
     )
     mgr_exists = mgr_check.fetchone()
-    logger.info(
-        f"[AUTH DEBUG] Step 5 (Direct SQL reporting_manager_code match): {'Found' if mgr_exists else 'Not Found'}"
+    sys.stderr.write(
+        f"[AUTH DEBUG] Step 5 (Direct SQL reporting_manager_code match): {'Found' if mgr_exists else 'Not Found'}\n"
     )
+    sys.stderr.flush()
     if mgr_exists:
-        logger.info(
-            "[AUTH DEBUG] PASSED: User found as reporting_manager_code in organogram."
+        sys.stderr.write(
+            "[AUTH DEBUG] PASSED: User found as reporting_manager_code in organogram.\n"
         )
+        sys.stderr.flush()
         if user.role not in ["manager", "head", "hr", "admin"]:
             user.role = "manager"
             await db.commit()
@@ -217,18 +233,28 @@ async def manager_required(
     org_res = await db.execute(org_query, {"emp_code": user.id})
     org_row = org_res.mappings().first()
 
-    logger.info(f"[AUTH DEBUG] Step 6 (Organogram Designation Lookup): {org_row}")
+    sys.stderr.write(
+        f"[AUTH DEBUG] Step 6 (Organogram Designation Lookup): {org_row}\n"
+    )
+    sys.stderr.flush()
     if org_row:
         desig_lower = (org_row.get("designation") or "").lower()
-        logger.info(f"[AUTH DEBUG] Step 6 (Designation lowered): '{desig_lower}'")
+        sys.stderr.write(
+            f"[AUTH DEBUG] Step 6 (Designation lowered): '{desig_lower}'\n"
+        )
+        sys.stderr.flush()
         if any(kw in desig_lower for kw in manager_keywords):
-            logger.info("[AUTH DEBUG] PASSED: Designation contains manager keyword.")
+            sys.stderr.write(
+                "[AUTH DEBUG] PASSED: Designation contains manager keyword.\n"
+            )
+            sys.stderr.flush()
             user.role = "manager"
             await db.commit()
             await db.refresh(user)
             return user
 
-    logger.error(
-        f"[AUTH DEBUG] FAILED: User '{user.id}' denied manager access. All checks failed."
+    sys.stderr.write(
+        f"[AUTH DEBUG] FAILED: User '{user.id}' denied manager access. All checks failed.\n\n"
     )
+    sys.stderr.flush()
     raise HTTPException(status_code=403, detail="Manager permissions required")

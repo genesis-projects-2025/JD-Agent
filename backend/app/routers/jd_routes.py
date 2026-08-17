@@ -7,7 +7,7 @@ import logging
 import re
 import json
 import uuid
-
+import sys
 from app.schemas.jd_schema import (
     ChatRequest,
     InitJDRequest,
@@ -1461,6 +1461,8 @@ async def update_jd_status(
         if not record:
             raise HTTPException(status_code=404, detail="JD not found")
 
+        # backend/app/routers/jd_routes.py
+
         # 2. Check organogram directly for who manages the owner of this JD
         is_manager = False
         org_res = await db.execute(
@@ -1470,12 +1472,18 @@ async def update_jd_status(
             {"code": record.employee_id},
         )
         org_row = org_res.mappings().first()
+        
+        sys.stderr.write(f"\n--- [JD STATUS DEBUG] Checking permissions for JD owner: '{record.employee_id}', current_user: '{current_user.id}' ---\n")
+        sys.stderr.write(f"[JD STATUS DEBUG] Organogram row for owner: {org_row}\n")
+        sys.stderr.flush()
 
         if org_row and org_row.get("reporting_manager_code"):
             if (
                 str(org_row["reporting_manager_code"]).strip().upper()
                 == str(current_user.id).strip().upper()
             ):
+                sys.stderr.write("[JD STATUS DEBUG] PASSED: Current user is the direct reporting manager.\n")
+                sys.stderr.flush()
                 is_manager = True
 
         # 3. Check recursive reports in organogram (Indirect managers)
@@ -1485,7 +1493,11 @@ async def update_jd_status(
             recursive_reports = await DashboardService.get_recursive_reports(
                 db, current_user.id
             )
+            sys.stderr.write(f"[JD STATUS DEBUG] Recursive reports for {current_user.id}: {recursive_reports}\n")
+            sys.stderr.flush()
             if record.employee_id in recursive_reports:
+                sys.stderr.write("[JD STATUS DEBUG] PASSED: Owner is in current user's recursive reports.\n")
+                sys.stderr.flush()
                 is_manager = True
 
         # 4. Check HR privileges (Hardcoded E6679, DB role, or Organogram designation)
@@ -1501,6 +1513,8 @@ async def update_jd_status(
                 {"code": current_user.id},
             )
             org_emp_row = org_emp_res.mappings().first()
+            sys.stderr.write(f"[JD STATUS DEBUG] Organogram designation for {current_user.id}: {org_emp_row}\n")
+            sys.stderr.flush()
             if org_emp_row:
                 desig = (org_emp_row.get("designation") or "").lower()
                 if any(kw in desig for kw in ["hr", "human resource", "admin"]):
@@ -1508,9 +1522,14 @@ async def update_jd_status(
 
         is_hr = user_role in ["hr", "admin"]
         is_owner = record.employee_id == current_user.id
+        
+        sys.stderr.write(f"[JD STATUS DEBUG] Final Checks -> is_manager: {is_manager}, is_hr: {is_hr}, is_owner: {is_owner}\n")
+        sys.stderr.flush()
 
         # 5. Final Permission Check
         if not is_hr and not is_owner and not is_manager:
+            sys.stderr.write(f"[JD STATUS DEBUG] FAILED: Permission denied for user {current_user.id}.\n\n")
+            sys.stderr.flush()
             raise HTTPException(
                 status_code=403,
                 detail="You can only update status of your own JDs, or JDs submitted to you.",

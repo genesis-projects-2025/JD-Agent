@@ -2478,18 +2478,26 @@ const ConfirmedView = forwardRef<any, {
 
             {/* Darwinbox Export Dropdown — visible only for approved/confirmed/sent_to_hr */}
             {(status === "approved" || status === "confirmed" || status === "sent_to_hr") && (
-              <div className="relative inline-block text-left">
+              <div className="relative inline-flex text-left shadow-md rounded-xl">
                 <button
-                  onClick={() => setShowDarwinboxDropdown(!showDarwinboxDropdown)}
+                  onClick={() => handleExport('goals')}
                   disabled={exporting}
-                  className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-5 py-2.5 bg-gradient-to-r from-amber-500 to-orange-600 text-white rounded-xl text-xs font-bold shadow-md hover:shadow-lg hover:-translate-y-0.5 transition-all group disabled:opacity-60 disabled:cursor-not-allowed"
+                  className="inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-gradient-to-r from-amber-500 to-orange-600 text-white rounded-l-xl text-xs font-bold hover:shadow-lg transition-all group disabled:opacity-60 disabled:cursor-not-allowed"
+                  title="Download Darwinbox Goals CSV"
                 >
                   {exporting ? (
                     <Loader2 className="w-3.5 h-3.5 animate-spin" />
                   ) : (
                     <Download className="w-3.5 h-3.5 group-hover:scale-110 transition-transform" />
                   )}
-                  Export for Darwinbox
+                  Darwinbox Export (CSV)
+                </button>
+                <button
+                  onClick={() => setShowDarwinboxDropdown(!showDarwinboxDropdown)}
+                  disabled={exporting}
+                  className="px-2.5 py-2.5 bg-orange-600 text-white rounded-r-xl text-xs font-bold border-l border-amber-400/40 hover:bg-orange-700 transition-all disabled:opacity-60 disabled:cursor-not-allowed"
+                  title="More Darwinbox Export Options"
+                >
                   <ChevronDown className={`w-3.5 h-3.5 transition-transform duration-200 ${showDarwinboxDropdown ? 'rotate-180' : ''}`} />
                 </button>
 
@@ -2499,31 +2507,31 @@ const ConfirmedView = forwardRef<any, {
                       className="fixed inset-0 z-40"
                       onClick={() => setShowDarwinboxDropdown(false)}
                     />
-                    <div className="absolute right-0 mt-2 w-72 bg-white border border-surface-200 rounded-2xl shadow-xl z-50 overflow-hidden animate-in fade-in slide-in-from-top-2 duration-200">
-                      <button
-                        onClick={(e) => { e.stopPropagation(); handleExport('zip'); }}
-                        disabled={exporting}
-                        className="w-full flex items-center gap-3.5 px-4 py-3.5 text-xs font-semibold text-surface-700 hover:bg-amber-50 hover:text-amber-700 transition-colors text-left disabled:opacity-50"
-                      >
-                        <div className="w-8 h-8 rounded-lg bg-amber-50 flex items-center justify-center shrink-0">
-                          <Download className="w-4 h-4 text-amber-600" />
-                        </div>
-                        <div>
-                          <span className="block font-bold">Download ZIP Bundle</span>
-                          <span className="text-[10px] text-surface-400 font-normal">Goals + Sub Goals CSVs together</span>
-                        </div>
-                      </button>
+                    <div className="absolute right-0 mt-12 w-72 bg-white border border-surface-200 rounded-2xl shadow-xl z-50 overflow-hidden animate-in fade-in slide-in-from-top-2 duration-200">
                       <button
                         onClick={(e) => { e.stopPropagation(); handleExport('goals'); }}
                         disabled={exporting}
-                        className="w-full flex items-center gap-3.5 px-4 py-3.5 text-xs font-semibold text-surface-700 hover:bg-amber-50 hover:text-amber-700 transition-colors text-left border-t border-surface-100 disabled:opacity-50"
+                        className="w-full flex items-center gap-3.5 px-4 py-3.5 text-xs font-semibold text-surface-700 hover:bg-amber-50 hover:text-amber-700 transition-colors text-left disabled:opacity-50"
                       >
                         <div className="w-8 h-8 rounded-lg bg-blue-50 flex items-center justify-center shrink-0">
                           <FileText className="w-4 h-4 text-blue-600" />
                         </div>
                         <div>
-                          <span className="block font-bold">Bulk Goals CSV Only</span>
-                          <span className="text-[10px] text-surface-400 font-normal">Parent KRA goals for Darwinbox</span>
+                          <span className="block font-bold">Darwinbox Goals CSV</span>
+                          <span className="text-[10px] text-surface-400 font-normal">KRA Goals CSV (33 Darwinbox columns)</span>
+                        </div>
+                      </button>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); handleExport('zip'); }}
+                        disabled={exporting}
+                        className="w-full flex items-center gap-3.5 px-4 py-3.5 text-xs font-semibold text-surface-700 hover:bg-amber-50 hover:text-amber-700 transition-colors text-left border-t border-surface-100 disabled:opacity-50"
+                      >
+                        <div className="w-8 h-8 rounded-lg bg-amber-50 flex items-center justify-center shrink-0">
+                          <Download className="w-4 h-4 text-amber-600" />
+                        </div>
+                        <div>
+                          <span className="block font-bold">ZIP Bundle (Goals + Sub-Goals)</span>
+                          <span className="text-[10px] text-surface-400 font-normal">Includes Goals & Sub-Goals CSV files</span>
                         </div>
                       </button>
                       <button
@@ -2535,7 +2543,7 @@ const ConfirmedView = forwardRef<any, {
                           <FileText className="w-4 h-4 text-purple-600" />
                         </div>
                         <div>
-                          <span className="block font-bold">Bulk Sub Goals CSV Only</span>
+                          <span className="block font-bold">Sub-Goals CSV Only</span>
                           <span className="text-[10px] text-surface-400 font-normal">Child KPI sub-goals for Darwinbox</span>
                         </div>
                       </button>

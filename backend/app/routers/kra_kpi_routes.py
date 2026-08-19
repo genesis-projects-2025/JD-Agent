@@ -926,9 +926,10 @@ async def review_kra_kpi(
 @router.get("/{jd_session_id}/darwinbox-export")
 async def export_darwinbox_employee(
     jd_session_id: str,
-    type: str = "zip",
+    type: str = "goals",
     cycle_start: str = "01-04-2025",
-    cycle_end: str = "31-03-2026",
+    cycle_end: str = "30-07-2026",
+    goal_plan_id: str = "Test_01",
     db: AsyncSession = Depends(get_db),
 ):
     """Export Darwinbox-compatible Goals/Sub-Goals CSVs for an individual employee."""
@@ -950,7 +951,7 @@ async def export_darwinbox_employee(
 
     try:
         if type == "goals":
-            csv_content, filename = await export_goals_csv(db, employee_id=employee_id, cycle_start=cycle_start, cycle_end=cycle_end)
+            csv_content, filename = await export_goals_csv(db, employee_id=employee_id, cycle_start=cycle_start, cycle_end=cycle_end, goal_plan_id=goal_plan_id)
             return Response(
                 content=csv_content.encode("utf-8"),
                 media_type="text/csv",
@@ -964,7 +965,7 @@ async def export_darwinbox_employee(
                 headers={"Content-Disposition": f'attachment; filename="{filename}"'}
             )
         else:
-            zip_content, filename = await export_zip_bundle(db, employee_id=employee_id, cycle_start=cycle_start, cycle_end=cycle_end)
+            zip_content, filename = await export_zip_bundle(db, employee_id=employee_id, cycle_start=cycle_start, cycle_end=cycle_end, goal_plan_id=goal_plan_id)
             return Response(
                 content=zip_content,
                 media_type="application/zip",

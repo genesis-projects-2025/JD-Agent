@@ -35,57 +35,15 @@ logger = logging.getLogger(__name__)
 # ═══════════════════════════════════════════════════════════════════════════════
 
 BULK_GOALS_HEADERS: list[str] = [
-    "Goals / Key Result Areas Code*",
-    "Methodology",
-    "Enable Sub Goal",
-    "Allow to add or remove Sub Goal",
+    "EmployeeID*",
     "Goals / Key Result Areas Name",
-    "Tagged To",
-    "Assigned To",
-    "Mandatory",
-    "Achievement %",
     "Goals / Key Result Areas Description",
-    "Is Goals / Key Result Areas Description Editable?",
-    "Timelines Start Date",
-    "Timelines End Date",
-    "Is Timelines editable?",
-    "Goals / Key Result Areas Status",
-    "Weightage",
-    "Is Weightage editable?",
-    "Target",
-    "Target type",
-    "Is Target editable?",
-    "Metric",
-    "Is Metric editable?",
-    "Achieved",
-    "Scorecard Pillar",
-    "Is Scorecard Pillar editable?",
-    "Tags Option",
-    "Is Tags Option editable?",
-    "Achievement Mapping",
-    "Is Achievement Mapping editable?",
-    "Goals / Key Result Areas Score Formula",
-    "Is Goals / Key Result Areas Score Formula editable?",
-    "Custom Field 1 ID",
-    "Custom Field 1 Value",
-    "Is Custom Field 1 editable?",
-    "Custom Field 2 ID",
-    "Custom Field 2 Value",
-    "Is Custom Field 2 editable?",
-    "Custom Field 3 ID",
-    "Custom Field 3 Value",
-    "Is Custom Field 3 editable?",
-    "Custom Field 4 ID",
-    "Custom Field 4 Value",
-    "Is Custom Field 4 editable?",
-    "Custom Field 5 ID",
-    "Custom Field 5 Value",
-    "Is Custom Field 5 editable?",
-    "Custom Field 6 ID",
-    "Custom Field 6 Value",
-    "Is Custom Field 6 editable?",
-    "Actions",
-]  # 50 columns
+    "Goal Status",
+    "Weightage(%)",
+    "TimelinesStart date(dd-mm-yyyy)",
+    "Timelines End date(dd-mm-yyyy)",
+    "New Goal Plan ID*",
+]  # 8 active columns
 
 BULK_SUB_GOALS_HEADERS: list[str] = [
     "Sub Goal ID",
@@ -388,67 +346,34 @@ def build_goal_row(
     employee_id: str,
     kra: NormalisedKRA,
     kra_index: int,
-    cycle_start: str = "01-04-2025",
-    cycle_end: str = "31-03-2026",
-    status: str = "approved",
+    cycle_start: str = "01-04-2026",
+    cycle_end: str = "30-07-2026",
+    status: str = "In Progress",
+    goal_plan_id: str = "Test_01",
 ) -> list[str]:
     """
-    Build a single Bulk Goals.csv row for one KRA.
-    Returns a list of exactly 50 string values matching BULK_GOALS_HEADERS.
+    Build a single Bulk Goals row for one KRA with only active columns (8 columns).
+    Columns:
+      1. EmployeeID*
+      2. Goals / Key Result Areas Name
+      3. Goals / Key Result Areas Description
+      4. Goal Status
+      5. Weightage(%)
+      6. TimelinesStart date(dd-mm-yyyy)
+      7. Timelines End date(dd-mm-yyyy)
+      8. New Goal Plan ID*
     """
-    goal_code = f"{employee_id}_KRA_{kra_index + 1:02d}"
+    formatted_weight = str(int(kra.weight)) if kra.weight == int(kra.weight) else f"{kra.weight:.2f}"
 
     return [
-        goal_code,                                  # Goals / Key Result Areas Code*
-        "Goal Base",                                # Methodology
-        "Yes",                                      # Enable Sub Goal
-        "Yes",                                      # Allow to add or remove Sub Goal
-        kra.title,                                  # Goals / Key Result Areas Name
-        "Individual",                               # Tagged To
-        employee_id,                                # Assigned To
-        "No",                                       # Mandatory
-        "0",                                        # Achievement %
-        kra.description,                            # Goals / Key Result Areas Description
-        "Yes",                                      # Is Description Editable?
-        cycle_start,                                # Timelines Start Date
-        cycle_end,                                  # Timelines End Date
-        "Yes",                                      # Is Timelines editable?
-        _status_label(status),                      # Goals / Key Result Areas Status
-        str(int(kra.weight)) if kra.weight == int(kra.weight) else f"{kra.weight:.2f}",  # Weightage
-        "Yes",                                      # Is Weightage editable?
-        "100",                                      # Target
-        "Percentage",                               # Target type
-        "Yes",                                      # Is Target editable?
-        "%",                                        # Metric
-        "Yes",                                      # Is Metric editable?
-        "",                                         # Achieved
-        "",                                         # Scorecard Pillar
-        "Yes",                                      # Is Scorecard Pillar editable?
-        "",                                         # Tags Option
-        "Yes",                                      # Is Tags Option editable?
-        "",                                         # Achievement Mapping
-        "Yes",                                      # Is Achievement Mapping editable?
-        "",                                         # Goals / Key Result Areas Score Formula
-        "Yes",                                      # Is Score Formula editable?
-        "",                                         # Custom Field 1 ID
-        "",                                         # Custom Field 1 Value
-        "Yes",                                      # Is Custom Field 1 editable?
-        "",                                         # Custom Field 2 ID
-        "",                                         # Custom Field 2 Value
-        "Yes",                                      # Is Custom Field 2 editable?
-        "",                                         # Custom Field 3 ID
-        "",                                         # Custom Field 3 Value
-        "Yes",                                      # Is Custom Field 3 editable?
-        "",                                         # Custom Field 4 ID
-        "",                                         # Custom Field 4 Value
-        "Yes",                                      # Is Custom Field 4 editable?
-        "",                                         # Custom Field 5 ID
-        "",                                         # Custom Field 5 Value
-        "Yes",                                      # Is Custom Field 5 editable?
-        "",                                         # Custom Field 6 ID
-        "",                                         # Custom Field 6 Value
-        "Yes",                                      # Is Custom Field 6 editable?
-        "Add",                                      # Actions
+        employee_id,                                # 1: EmployeeID*
+        kra.title,                                  # 2: Goals / Key Result Areas Name
+        kra.description,                            # 3: Goals / Key Result Areas Description
+        status,                                     # 4: Goal Status ("In Progress")
+        formatted_weight,                           # 5: Weightage(%)
+        cycle_start,                                # 6: TimelinesStart date(dd-mm-yyyy)
+        cycle_end,                                  # 7: Timelines End date(dd-mm-yyyy)
+        goal_plan_id,                               # 8: New Goal Plan ID*
     ]
 
 
@@ -543,8 +468,9 @@ def build_sub_goal_row(
 
 def generate_goals_csv(
     records: list[EmployeeExportRecord],
-    cycle_start: str = "01-04-2025",
-    cycle_end: str = "31-03-2026",
+    cycle_start: str = "01-04-2026",
+    cycle_end: str = "30-07-2026",
+    goal_plan_id: str = "Test_01",
 ) -> str:
     """
     Generate the complete Bulk Goals.csv content string for a list of employees.
@@ -562,7 +488,8 @@ def generate_goals_csv(
                 kra_index=kra_idx,
                 cycle_start=cycle_start,
                 cycle_end=cycle_end,
-                status="approved",
+                status="In Progress",
+                goal_plan_id=goal_plan_id,
             )
             writer.writerow(row)
 
@@ -571,8 +498,8 @@ def generate_goals_csv(
 
 def generate_sub_goals_csv(
     records: list[EmployeeExportRecord],
-    cycle_start: str = "01-04-2025",
-    cycle_end: str = "31-03-2026",
+    cycle_start: str = "01-04-2026",
+    cycle_end: str = "30-07-2026",
 ) -> str:
     """
     Generate the complete Bulk Sub Goals.csv content string for a list of employees.
@@ -602,15 +529,16 @@ def generate_sub_goals_csv(
 def generate_zip_bundle(
     records: list[EmployeeExportRecord],
     filename_prefix: str = "Darwinbox_Export",
-    cycle_start: str = "01-04-2025",
-    cycle_end: str = "31-03-2026",
+    cycle_start: str = "01-04-2026",
+    cycle_end: str = "30-07-2026",
+    goal_plan_id: str = "Test_01",
 ) -> bytes:
     """
     Generate a ZIP file containing both Bulk Goals.csv and Bulk Sub Goals.csv.
     Returns raw bytes ready for HTTP response.
     """
-    goals_csv = generate_goals_csv(records, cycle_start, cycle_end)
-    sub_goals_csv = generate_sub_goals_csv(records, cycle_start, cycle_end)
+    goals_csv = generate_goals_csv(records, cycle_start=cycle_start, cycle_end=cycle_end, goal_plan_id=goal_plan_id)
+    sub_goals_csv = generate_sub_goals_csv(records, cycle_start=cycle_start, cycle_end=cycle_end)
 
     zip_buffer = io.BytesIO()
     with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
@@ -772,8 +700,9 @@ async def export_goals_csv(
     db: AsyncSession,
     employee_id: Optional[str] = None,
     department: Optional[str] = None,
-    cycle_start: str = "01-04-2025",
-    cycle_end: str = "31-03-2026",
+    cycle_start: str = "01-04-2026",
+    cycle_end: str = "30-07-2026",
+    goal_plan_id: str = "Test_01",
 ) -> tuple[str, str]:
     """
     Export Bulk Goals CSV.
@@ -783,14 +712,14 @@ async def export_goals_csv(
     if not records:
         raise ValueError("No approved KRA/KPI records found for the given filters.")
 
-    csv_content = generate_goals_csv(records, cycle_start, cycle_end)
+    csv_content = generate_goals_csv(records, cycle_start=cycle_start, cycle_end=cycle_end, goal_plan_id=goal_plan_id)
 
     if employee_id:
-        filename = f"Bulk_Goals_{employee_id}.csv"
+        filename = f"Darwinbox_Goals_{employee_id}.csv"
     elif department:
-        filename = f"Bulk_Goals_{department.replace(' ', '_')}.csv"
+        filename = f"Darwinbox_Goals_{department.replace(' ', '_')}.csv"
     else:
-        filename = "Bulk_Goals_Company.csv"
+        filename = "Darwinbox_Goals_Company.csv"
 
     return csv_content, filename
 
@@ -799,8 +728,8 @@ async def export_sub_goals_csv(
     db: AsyncSession,
     employee_id: Optional[str] = None,
     department: Optional[str] = None,
-    cycle_start: str = "01-04-2025",
-    cycle_end: str = "31-03-2026",
+    cycle_start: str = "01-04-2026",
+    cycle_end: str = "30-07-2026",
 ) -> tuple[str, str]:
     """
     Export Bulk Sub Goals CSV.
@@ -826,8 +755,9 @@ async def export_zip_bundle(
     db: AsyncSession,
     employee_id: Optional[str] = None,
     department: Optional[str] = None,
-    cycle_start: str = "01-04-2025",
-    cycle_end: str = "31-03-2026",
+    cycle_start: str = "01-04-2026",
+    cycle_end: str = "30-07-2026",
+    goal_plan_id: str = "Test_01",
 ) -> tuple[bytes, str]:
     """
     Export ZIP bundle containing both CSVs.
@@ -848,7 +778,7 @@ async def export_zip_bundle(
         prefix = "Darwinbox_Company"
         filename = "Darwinbox_Goals_Company.zip"
 
-    zip_bytes = generate_zip_bundle(records, filename_prefix=prefix, cycle_start=cycle_start, cycle_end=cycle_end)
+    zip_bytes = generate_zip_bundle(records, filename_prefix=prefix, cycle_start=cycle_start, cycle_end=cycle_end, goal_plan_id=goal_plan_id)
     return zip_bytes, filename
 
 

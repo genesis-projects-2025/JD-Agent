@@ -403,6 +403,16 @@ async def export_admin_report(
         LatestKRAs AS (
             SELECT id, employee_id, status, updated_at
             FROM RankedKRAs WHERE rn = 1
+        ),
+        RankedRefJDs AS (
+            SELECT 
+                id, employee_id, processing_status, uploaded_at,
+                ROW_NUMBER() OVER(PARTITION BY employee_id ORDER BY uploaded_at DESC) as rn
+            FROM reference_jds
+        ),
+        LatestRefJDs AS (
+            SELECT id, employee_id, processing_status, uploaded_at
+            FROM RankedRefJDs WHERE rn = 1
         )
         SELECT 
             o.code as employee_id,
@@ -412,8 +422,15 @@ async def export_admin_report(
             o.designation as role,
             o.reporting_manager as manager_name,
             o.reporting_manager_code as manager_code,
-            COALESCE(js.status, 'No JD') as jd_status,
-            js.updated_at as last_active,
+            COALESCE(
+                js.status, 
+                CASE 
+                    WHEN rj.processing_status IN ('published', 'processed') THEN 'approved' 
+                    ELSE NULL 
+                END, 
+                'No JD'
+            ) as jd_status,
+            COALESCE(js.updated_at, rj.uploaded_at) as last_active,
             CASE 
                 WHEN uk.id IS NOT NULL THEN 'approved'
                 ELSE COALESCE(ks.status, 'Not Started')
@@ -422,6 +439,7 @@ async def export_admin_report(
         LEFT JOIN employees e ON e.id = o.code
         LEFT JOIN LatestJDs js ON js.employee_id = o.code
         LEFT JOIN LatestKRAs ks ON ks.employee_id = o.code
+        LEFT JOIN LatestRefJDs rj ON rj.employee_id = o.code
         LEFT JOIN uploaded_kra_kpis uk ON uk.employee_id = o.code
         WHERE 1=1
     """
@@ -499,7 +517,12 @@ async def export_admin_report(
         return Response(
             content=csv_bytes,
             media_type="text/csv",
-            headers={"Content-Disposition": f'attachment; filename="JD_Status_Report_{dept_label}.csv"'},
+            headers={
+                "Content-Disposition": f'attachment; filename="JD_Status_Report_{dept_label}.csv"',
+                "Cache-Control": "no-cache, no-store, must-revalidate",
+                "Pragma": "no-cache",
+                "Expires": "0",
+            },
         )
 
     # Default to Excel export (.xlsx)
@@ -603,7 +626,12 @@ async def export_admin_report(
         return Response(
             content=output_buf.getvalue(),
             media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            headers={"Content-Disposition": f'attachment; filename="JD_Status_Report_{dept_label}.xlsx"'},
+            headers={
+                "Content-Disposition": f'attachment; filename="JD_Status_Report_{dept_label}.xlsx"',
+                "Cache-Control": "no-cache, no-store, must-revalidate",
+                "Pragma": "no-cache",
+                "Expires": "0",
+            },
         )
     except Exception as e:
         logger.error(f"[EXPORT REPORT] Excel export failed: {e}")
@@ -616,7 +644,12 @@ async def export_admin_report(
         return Response(
             content=csv_bytes,
             media_type="text/csv",
-            headers={"Content-Disposition": f'attachment; filename="JD_Status_Report_{dept_label}.csv"'},
+            headers={
+                "Content-Disposition": f'attachment; filename="JD_Status_Report_{dept_label}.csv"',
+                "Cache-Control": "no-cache, no-store, must-revalidate",
+                "Pragma": "no-cache",
+                "Expires": "0",
+            },
         )
 
 
@@ -624,9 +657,10 @@ async def export_admin_report(
 async def export_darwinbox_admin(
     employee_id: Optional[str] = None,
     department: Optional[str] = None,
-    type: str = "zip",
-    cycle_start: str = "01-04-2025",
-    cycle_end: str = "31-03-2026",
+    type: str = "goals",
+    cycle_start: str = "01-04-2026",
+    cycle_end: str = "30-07-2026",
+    goal_plan_id: str = "Test_01",
     db: AsyncSession = Depends(get_db),
     admin_active: str = Depends(get_current_admin),
 ):
@@ -635,7 +669,7 @@ async def export_darwinbox_admin(
     
     try:
         if type == "goals":
-            csv_content, filename = await export_goals_csv(db, employee_id=employee_id, department=department, cycle_start=cycle_start, cycle_end=cycle_end)
+            csv_content, filename = await export_goals_csv(db, employee_id=employee_id, department=department, cycle_start=cycle_start, cycle_end=cycle_end, goal_plan_id=goal_plan_id)
             return Response(
                 content=csv_content.encode("utf-8"),
                 media_type="text/csv",
@@ -649,7 +683,7 @@ async def export_darwinbox_admin(
                 headers={"Content-Disposition": f'attachment; filename="{filename}"'}
             )
         else:
-            zip_content, filename = await export_zip_bundle(db, employee_id=employee_id, department=department, cycle_start=cycle_start, cycle_end=cycle_end)
+            zip_content, filename = await export_zip_bundle(db, employee_id=employee_id, department=department, cycle_start=cycle_start, cycle_end=cycle_end, goal_plan_id=goal_plan_id)
             return Response(
                 content=zip_content,
                 media_type="application/zip",

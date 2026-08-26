@@ -29,6 +29,7 @@ import {
   Download,
   FileText,
   Edit,
+  Upload,
 } from "lucide-react";
 import {
   fetchKRAKPI,
@@ -1790,6 +1791,43 @@ const ConfirmedView = forwardRef<any, {
     }
   };
 
+  const enrichInputRef = useRef<HTMLInputElement>(null);
+
+  const handleEnrichExport = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setExporting(true);
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+
+      const response = await fetch(`${API_URL}/kra-kpi/${record.jd_session_id}/darwinbox-enrich-subgoals`, {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (!response.ok) {
+        const errData = await response.json().catch(() => ({}));
+        throw new Error(errData.detail || 'Failed to map Sub-Goals from report');
+      }
+
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = response.headers.get('content-disposition')?.split('filename=')[1]?.replace(/"/g, '') || `Enriched_Bulk_Sub_Goals_${record.employee_id}.csv`;
+      a.click();
+      window.URL.revokeObjectURL(url);
+    } catch (err: any) {
+      alert(err.message || 'Export failed');
+    } finally {
+      setExporting(false);
+      setShowDarwinboxDropdown(false);
+      if (e.target) e.target.value = '';
+    }
+  };
+
   useImperativeHandle(ref, () => ({
   save: async () => {
     await handleSaveEditedFramework();
@@ -2543,8 +2581,30 @@ const ConfirmedView = forwardRef<any, {
                           <FileText className="w-4 h-4 text-purple-600" />
                         </div>
                         <div>
-                          <span className="block font-bold">Sub-Goals CSV Only</span>
+                          <span className="block font-bold">Sub-Goals CSV Only (Blank KRA IDs)</span>
                           <span className="text-[10px] text-surface-400 font-normal">Child KPI sub-goals for Darwinbox</span>
+                        </div>
+                      </button>
+
+                      <input
+                        type="file"
+                        ref={enrichInputRef}
+                        accept=".csv"
+                        className="hidden"
+                        onChange={handleEnrichExport}
+                      />
+
+                      <button
+                        onClick={(e) => { e.stopPropagation(); enrichInputRef.current?.click(); }}
+                        disabled={exporting}
+                        className="w-full flex items-center gap-3.5 px-4 py-3.5 text-xs font-semibold text-emerald-800 hover:bg-emerald-50 transition-colors text-left border-t border-emerald-100 disabled:opacity-50 bg-emerald-50/50"
+                      >
+                        <div className="w-8 h-8 rounded-lg bg-emerald-100 flex items-center justify-center shrink-0">
+                          <Upload className="w-4 h-4 text-emerald-700" />
+                        </div>
+                        <div>
+                          <span className="block font-bold text-emerald-900">Upload Goal Report → Sub-Goals</span>
+                          <span className="text-[10px] text-emerald-700 font-medium">Auto-fill Darwinbox KRA IDs from report</span>
                         </div>
                       </button>
                     </div>

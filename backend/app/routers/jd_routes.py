@@ -221,6 +221,7 @@ async def init_jd(
     from sqlalchemy.future import select
     from app.models.user_model import Employee
     from app.models.jd_session_model import JDSession
+    from app.models.reference_jd_model import ReferenceJD
 
     # 1. Ensure Employee exists
     emp_result = await db.execute(
@@ -234,7 +235,7 @@ async def init_jd(
         db.add(emp)
         await db.commit()
 
-    # 2. Prevent duplicate sessions: Check if employee already has a session
+    # 2. Prevent duplicate sessions: Check if employee already has a session in jd_sessions
     existing_res = await db.execute(
         select(JDSession)
         .where(JDSession.employee_id == request.employee_id)
@@ -244,7 +245,6 @@ async def init_jd(
 
     # If employee has an existing active or approved session, return it directly!
     if existing_session and not template_session_id:
-        # If approved or already submitted, do not let them re-interview
         if existing_session.status in ("approved", "sent_to_manager", "sent_to_hr"):
             return {
                 "id": str(existing_session.id),
@@ -255,26 +255,25 @@ async def init_jd(
     if template_session_id:
         try:
             template_uuid = uuid.UUID(template_session_id)
-            template_res = await db.execute(
+            
+            template_session = None
+            ref_template = None
+            
+            # First, try to find it in JDSession
+            jd_template_res = await db.execute(
                 select(JDSession).where(JDSession.id == template_uuid)
             )
-            template_session = template_res.scalar_one_or_none()
-            if template_session:
-                # Check if this employee already has any JD session (approved or not)
-                existing_res = await db.execute(
-                    select(JDSession)
-                    .where(JDSession.employee_id == request.employee_id)
-                    .order_by(JDSession.updated_at.desc())
+            template_session = jd_template_res.scalar_one_or_none()
+            
+            # If not found in JDSession, search ReferenceJD
+            if not template_session:
+                ref_template_res = await db.execute(
+                    select(ReferenceJD).where(ReferenceJD.id == str(template_uuid))
                 )
-                existing_session = existing_res.scalars().first()
-                if existing_session:
-                    return {
-                        "id": str(existing_session.id),
-                        "status": existing_session.status,
-                        "employee_id": existing_session.employee_id
-                    }
-
-                # Otherwise, create a pre-approved copy of the standardized JD session
+                ref_template = ref_template_res.scalar_one_or_none()
+            
+            if template_session:
+                # Found in JDSession! Clone it.
                 new_id = str(uuid.uuid4())
                 new_session = JDSession(
                     id=uuid.UUID(new_id),
@@ -283,7 +282,8 @@ async def init_jd(
                     department=template_session.department,
                     jd_text=template_session.jd_text,
                     jd_structured=template_session.jd_structured,
-                    insights=template_session.insights,
+                    insights=template_session.insights or {},
+                    conversation_state=template_session.conversation_state or {},
                     status="approved",
                     version=1,
                 )
@@ -299,9 +299,84 @@ async def init_jd(
                     "status": "approved",
                     "employee_id": request.employee_id
                 }
+                
+            elif ref_template:
+                # Found in ReferenceJD! Clone it.
+                struct_data = dict(ref_template.structured_data or {})
+                new_id = str(uuid.uuid4())
+                
+                # Safely build insights so we don't violate DB constraints
+                safe_insights = {"identity_context": {"employee_name": request.employee_name or "Employee"}}
+                
+                cloned_session = JDSession(
+                    id=uuid.UUID(new_id),
+                    employee_id=request.employee_id,
+                    title=ref_template.role_title or "Untitled Role",
+                    department=ref_template.department or "Unknown",
+                    jd_text=struct_data.get("purpose", "") or struct_data.get("role_summary", ""),
+                    jd_structured=struct_data,
+                    insights=safe_insights,
+                    conversation_state={}, 
+                    status="approved", 
+                    version=1,
+                    source_reference_jd_id=str(template_uuid)  # <--- THE FIX: Link back to the ReferenceJD
+                )
+                db.add(cloned_session)
+                await db.commit()
+                
+                await invalidate_pattern("cache:jd_list:*")
+                await invalidate_pattern(f"jds:employee:{request.employee_id}")
+                
+                return {"id": new_id, "status": "approved", "employee_id": request.employee_id}
+                
         except Exception as e:
+            # Rollback so the DB connection is clean for the rest of the request
+            await db.rollback()
             logger.error(f"Failed to copy template session {template_session_id}: {e}")
+            raise HTTPException(status_code=500, detail=f"Failed to copy standard JD: {str(e)}")
+    # --- FALLBACK: If no template_session_id passed, check ReferenceJD by employee_id ---
+    if not template_session_id:
+        ref_query = (
+            select(ReferenceJD)
+            .where(
+                ReferenceJD.employee_id == request.employee_id,
+                ReferenceJD.is_active == True,
+            )
+            .order_by(ReferenceJD.uploaded_at.desc())
+        )
 
+        ref_res = await db.execute(ref_query)
+        ref_jd = ref_res.scalars().first()
+
+        if ref_jd:
+            struct_data = dict(ref_jd.structured_data or {})
+            new_id = str(uuid.uuid4())
+            cloned_session = JDSession(
+                id=uuid.UUID(new_id),
+                employee_id=request.employee_id,
+                title=ref_jd.role_title or "Untitled Role",
+                department=ref_jd.department,
+                jd_text=struct_data.get("purpose", "")
+                or struct_data.get("role_summary", ""),
+                jd_structured=struct_data,
+                insights={"identity_context": {"employee_name": request.employee_name}},
+                status="approved",
+                version=1,
+            )
+            db.add(cloned_session)
+            await db.commit()
+
+            await invalidate_pattern("cache:jd_list:*")
+            await invalidate_pattern(f"jds:employee:{request.employee_id}")
+
+            return {
+                "id": new_id,
+                "status": "approved",
+                "employee_id": request.employee_id,
+            }
+    # -----------------------------------------------------------------------------
+
+    # 3. If no existing template or reference JD, start a new interview
     new_id = str(uuid.uuid4())
     memory = SessionMemory()
     memory.id = new_id
@@ -313,9 +388,6 @@ async def init_jd(
         identity_context = {}
         if emp.name and emp.name != "Unknown Employee":
             identity_context["employee_name"] = emp.name
-        
-        # DO NOT use emp.department or emp.reporting_manager here. 
-        # We will get them strictly from the organogram raw SQL query below.
 
         from sqlalchemy import text
 
@@ -326,14 +398,16 @@ async def init_jd(
         """)
         org_res = await db.execute(org_query, {"code": request.employee_id})
         org_row = org_res.mappings().first()
-        
+
         if org_row:
             if org_row.get("designation"):
                 identity_context["title"] = org_row["designation"]
             if org_row.get("department"):
                 identity_context["department"] = org_row["department"]
             if org_row.get("reporting_manager"):
-                identity_context["reports_to"] = f"{org_row.get('reporting_manager')} (Unknown Code)"
+                identity_context["reports_to"] = (
+                    f"{org_row.get('reporting_manager')} (Unknown Code)"
+                )
             if org_row.get("location"):
                 identity_context["location"] = org_row["location"]
             if org_row.get("date_of_joining"):
@@ -893,6 +967,7 @@ async def get_employee_role_template(
         has_struct = bool(struct_data and len(struct_data.keys()) > 0)
         if has_struct and ref_emp.role_title != "Approved Role JD":
             return {
+                "print":"StepB",
                 "exists": True,
                 "id": str(ref_emp.id),
                 "title": ref_emp.role_title or str(raw_designation),
@@ -955,6 +1030,7 @@ async def get_employee_role_template(
             await invalidate_pattern(f"jds:employee:{employee_id}")
 
             return {
+                "print":"StepC",
                 "exists": True,
                 "id": str(cloned_session.id),
                 "title": cloned_session.title,
@@ -1011,6 +1087,7 @@ async def get_employee_role_template(
             await invalidate_pattern(f"jds:employee:{employee_id}")
 
             return {
+                "print":"StepD",
                 "exists": True,
                 "id": str(cloned_session.id),
                 "title": cloned_session.title,

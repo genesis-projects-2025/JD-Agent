@@ -2,7 +2,7 @@
 
 "use client";
 
-import { useEffect, useState, useLayoutEffect, useMemo, Suspense, type ElementType } from "react";
+import { useEffect, useState, useRef, useLayoutEffect, useMemo, Suspense, type ElementType } from "react";
 import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import {
@@ -26,6 +26,7 @@ import {
   Search,
   ChevronDown,
   Download,
+  Upload,
 } from "lucide-react";
 
 import { DeleteModal } from "@/components/ui/delete-modal";
@@ -1547,6 +1548,45 @@ function HRView({ user }: { user: AuthUser }) {
     }
   };
 
+  const bulkEnrichInputRef = useRef<HTMLInputElement>(null);
+
+  const handleBulkEnrichExport = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setBulkExporting(true);
+    try {
+      const token = getCookie(cookieKeys.ADMIN_TOKEN);
+      const formData = new FormData();
+      formData.append('file', file);
+
+      const response = await fetch(`${API_URL}/admin/darwinbox/enrich-subgoals`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+        body: formData,
+      });
+
+      if (!response.ok) {
+        const errJson = await response.json().catch(() => ({}));
+        throw new Error(errJson.detail || 'Failed to map Sub-Goals from report');
+      }
+
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = response.headers.get('content-disposition')?.split('filename=')[1]?.replace(/"/g, '') || 'Enriched_Bulk_Sub_Goals_Company.csv';
+      a.click();
+      window.URL.revokeObjectURL(url);
+    } catch (err: any) {
+      alert(err.message || 'Bulk export failed');
+    } finally {
+      setBulkExporting(false);
+      setShowDarwinboxBulkDropdown(false);
+      if (e.target) e.target.value = '';
+    }
+  };
+
   // Types for HR data
   interface DepartmentStat {
     department: string;
@@ -1921,7 +1961,24 @@ function HRView({ user }: { user: AuthUser }) {
                         className="w-full flex items-center gap-3.5 px-4 py-3.5 text-xs font-semibold hover:bg-primary-50 hover:text-primary-700 transition-colors text-left border-t border-surface-100"
                       >
                         <FileText className="w-4 h-4 text-emerald-600" />
-                        Export Sub Goals Only (CSV)
+                        Export Sub Goals Only (Blank KRA IDs)
+                      </button>
+
+                      <input
+                        type="file"
+                        ref={bulkEnrichInputRef}
+                        accept=".csv"
+                        className="hidden"
+                        onChange={handleBulkEnrichExport}
+                      />
+
+                      <button
+                        onClick={(e) => { e.stopPropagation(); bulkEnrichInputRef.current?.click(); }}
+                        disabled={bulkExporting}
+                        className="w-full flex items-center gap-3.5 px-4 py-3.5 text-xs font-bold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 transition-colors text-left border-t border-emerald-200"
+                      >
+                        <Upload className="w-4 h-4 text-emerald-700" />
+                        Upload Goal Report → Sub-Goals
                       </button>
                     </div>
                   </>

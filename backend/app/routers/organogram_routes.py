@@ -41,10 +41,6 @@ async def get_organogram_employees(db: AsyncSession = Depends(get_db)):
 
 @router.post("/sso-sync")
 async def login_organogram(request: LoginRequest, db: AsyncSession = Depends(get_db)):
-    """
-    Accepts an emp_code, looks it up in organogram, calculates a hierarchical role
-    (employee, manager, or hr) for testing, and upserts into employees table.
-    """
     # 1. Fetch the user's organogram row
     user_query = text("""
         SELECT code as emp_code, employee_name as emp_name, reporting_manager, 
@@ -58,11 +54,6 @@ async def login_organogram(request: LoginRequest, db: AsyncSession = Depends(get
 
     if not row:
         raise HTTPException(status_code=404, detail="Employee not found in organogram")
-
-    # 2. Determine "hierarchy role"
-    #   employee: has a manager, but no one reports to them
-    #   manager: people report to them, and they have a manager
-    #   hr: top of the chain (no reporting manager)
 
     reporting_code = row.get("reporting_manager_code")
     has_manager = bool(reporting_code and str(reporting_code).strip())
@@ -80,19 +71,19 @@ async def login_organogram(request: LoginRequest, db: AsyncSession = Depends(get
 
     is_head = await DashboardService.is_department_head(db, request.emp_code)
 
+    # --- NEW CLEAN LOGIC ---
     if not has_manager:
-        computed_role = "hr"
+        computed_role = "hr"  # Top of chain
     elif is_head and has_reports:
         computed_role = "head"
     elif has_reports:
-        computed_role = "manager"
+        computed_role = "manager"  # The ONLY condition for manager
     else:
         computed_role = "employee"
 
-    # Hardcode override for HR testing request
+    # Hardcode override for HR testing
     if request.emp_code == "E6679":
         computed_role = "hr"
-
 
     # 3. Upsert into employees table
     from sqlalchemy.future import select
@@ -145,8 +136,8 @@ async def login_organogram(request: LoginRequest, db: AsyncSession = Depends(get
             "designation": designation,
             "reporting_manager": emp.reporting_manager,
             "reporting_manager_code": emp.reporting_manager_code,
-            "role": emp.role,
-            "is_manager": has_reports or emp.role in ["manager", "head", "hr", "admin"],
+            "role": computed_role,
+            "is_manager": has_reports or computed_role in ["hr", "head", "admin"],
             "has_reports": has_reports,
             "phone_mobile": emp.phone_mobile,
         },
@@ -155,10 +146,6 @@ async def login_organogram(request: LoginRequest, db: AsyncSession = Depends(get
 
 @router.get("/me/{emp_code}")
 async def get_my_profile(emp_code: str, db: AsyncSession = Depends(get_db)):
-    """
-    Fetches the synced employee profile from the employees table.
-    If the table was recently wiped, it auto-restores their profile from the organogram table seamlessly.
-    """
     from sqlalchemy.future import select
 
     result = await db.execute(select(Employee).where(Employee.id == emp_code))
@@ -187,47 +174,43 @@ async def get_my_profile(emp_code: str, db: AsyncSession = Depends(get_db)):
     has_reports = await DashboardService.has_direct_reports(db, emp_code)
     designation = org_row.get("designation") if org_row else None
 
-    # Check designation for manager role keywords
-    desig_lower = (designation or "").lower()
-    manager_keywords = [
-        "manager",
-        "head",
-        "director",
-        "vp",
-        "vice president",
-        "avp",
-        "agm",
-        "dgm",
-        "lead",
-        "chief",
-        "president",
-        "supervisor",
-        "officer",
-        "general manager",
-        "dep manager",
-        "sr manager",  # Add any others you need
-    ]
-    desig_lower = (designation or "").lower()
-    is_mgr_designation = any(kw in desig_lower for kw in manager_keywords)
+    # --- AUTO-HEAL & SANITIZE ROLE STRICTLY BASED ON REPORTS ---
+    VALID_ROLES = ["employee", "manager", "head", "hr", "admin"]
 
-    # Auto-heal role if user has direct reports or manager designation but role in DB is 'employee'
-    is_manager_role = emp.role in ["manager", "head", "hr", "admin"]
-    if (has_reports or is_mgr_designation) and not is_manager_role:
-        emp.role = "manager"
+    # 1. If role is corrupted (e.g., contains "Scientific Officer" instead of a standard role), reset it
+    if emp.role not in VALID_ROLES:
+        emp.role = "manager" if has_reports else "employee"
         await db.commit()
         await db.refresh(emp)
-        is_manager_role = True
+    else:
+        # 2. If role is valid, but needs upgrading/downgrading based on live hierarchy
+        if has_reports and emp.role == "employee":
+            emp.role = "manager"
+            await db.commit()
+            await db.refresh(emp)
+        elif not has_reports and emp.role == "manager":
+            emp.role = "employee"
+            await db.commit()
+            await db.refresh(emp)
+
+    is_manager_dashboard_user = has_reports or emp.role in [
+        "manager",
+        "head",
+        "hr",
+        "admin",
+    ]
 
     return {
         "employee_id": emp.id,
         "name": emp.name,
         "email": emp.email,
-        "department": emp.department or (org_row.get("department") if org_row else None),
+        "department": emp.department
+        or (org_row.get("department") if org_row else None),
         "designation": designation,
         "reporting_manager": emp.reporting_manager,
         "reporting_manager_code": emp.reporting_manager_code,
-        "role": emp.role,
-        "is_manager": has_reports or is_mgr_designation or is_manager_role,
+        "role": emp.role,  # This will now correctly be "employee"
+        "is_manager": is_manager_dashboard_user,  # This will be false
         "has_reports": has_reports,
         "phone_mobile": emp.phone_mobile,
     }

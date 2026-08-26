@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, File, UploadFile
 from pydantic import BaseModel, field_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -927,9 +927,10 @@ async def review_kra_kpi(
 async def export_darwinbox_employee(
     jd_session_id: str,
     type: str = "goals",
-    cycle_start: str = "01-04-2025",
+    cycle_start: str = "01-04-2026",
     cycle_end: str = "30-07-2026",
-    goal_plan_id: str = "Test_01",
+    goal_plan_name: str = "HRBP_GOAL_PLAN_TESTING",
+    goal_plan_id: str = "HRBP_Test",
     db: AsyncSession = Depends(get_db),
 ):
     """Export Darwinbox-compatible Goals/Sub-Goals CSVs for an individual employee."""
@@ -951,25 +952,94 @@ async def export_darwinbox_employee(
 
     try:
         if type == "goals":
-            csv_content, filename = await export_goals_csv(db, employee_id=employee_id, cycle_start=cycle_start, cycle_end=cycle_end, goal_plan_id=goal_plan_id)
+            csv_content, filename = await export_goals_csv(
+                db,
+                employee_id=employee_id,
+                cycle_start=cycle_start,
+                cycle_end=cycle_end,
+                goal_plan_name=goal_plan_name,
+                goal_plan_id=goal_plan_id,
+            )
             return Response(
                 content=csv_content.encode("utf-8"),
                 media_type="text/csv",
                 headers={"Content-Disposition": f'attachment; filename="{filename}"'}
             )
         elif type == "subgoals":
-            csv_content, filename = await export_sub_goals_csv(db, employee_id=employee_id, cycle_start=cycle_start, cycle_end=cycle_end)
+            csv_content, filename = await export_sub_goals_csv(
+                db,
+                employee_id=employee_id,
+                cycle_start=cycle_start,
+                cycle_end=cycle_end,
+                goal_plan_name=goal_plan_name,
+                goal_plan_id=goal_plan_id,
+            )
             return Response(
                 content=csv_content.encode("utf-8"),
                 media_type="text/csv",
                 headers={"Content-Disposition": f'attachment; filename="{filename}"'}
             )
         else:
-            zip_content, filename = await export_zip_bundle(db, employee_id=employee_id, cycle_start=cycle_start, cycle_end=cycle_end, goal_plan_id=goal_plan_id)
+            zip_content, filename = await export_zip_bundle(
+                db,
+                employee_id=employee_id,
+                cycle_start=cycle_start,
+                cycle_end=cycle_end,
+                goal_plan_name=goal_plan_name,
+                goal_plan_id=goal_plan_id,
+            )
             return Response(
                 content=zip_content,
                 media_type="application/zip",
                 headers={"Content-Disposition": f'attachment; filename="{filename}"'}
             )
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@router.post("/{jd_session_id}/darwinbox-enrich-subgoals")
+async def enrich_darwinbox_subgoals_employee(
+    jd_session_id: str,
+    file: UploadFile = File(...),
+    cycle_start: str = "01-04-2026",
+    cycle_end: str = "30-07-2026",
+    goal_plan_name: str = "HRBP_GOAL_PLAN_TESTING",
+    goal_plan_id: str = "HRBP_Test",
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Upload Darwinbox Goals Report CSV/Excel to automatically map KRA IDs into Sub-Goals CSV for an individual employee.
+    """
+    from fastapi.responses import Response
+    from app.services.darwinbox_exporter_service import export_sub_goals_csv
+
+    record = await get_kra_kpi_by_jd_session(db, jd_session_id)
+    if not record:
+        raise HTTPException(status_code=404, detail="No KRA/KPI session found.")
+
+    if record.status not in ("approved", "confirmed"):
+        raise HTTPException(
+            status_code=400,
+            detail="Cannot export Darwinbox CSV for a KRA/KPI framework that has not been approved."
+        )
+
+    employee_id = record.employee_id
+    report_bytes = await file.read()
+
+    try:
+        csv_content, filename = await export_sub_goals_csv(
+            db,
+            employee_id=employee_id,
+            cycle_start=cycle_start,
+            cycle_end=cycle_end,
+            goal_plan_name=goal_plan_name,
+            goal_plan_id=goal_plan_id,
+            report_csv_content=report_bytes,
+        )
+        return Response(
+            content=csv_content.encode("utf-8"),
+            media_type="text/csv",
+            headers={"Content-Disposition": f'attachment; filename="Enriched_{filename}"'}
+        )
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))

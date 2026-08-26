@@ -246,8 +246,11 @@ async def get_admin_users(
         sql += " AND o.designation ILIKE :role"
         params["role"] = f"%{role}%"
     if department and department.strip() and department.lower() != "all":
-        sql += " AND LOWER(TRIM(o.department)) = LOWER(:department)"
-        params["department"] = department.strip()
+        if department.strip().lower() == "unassigned":
+            sql += " AND (o.department IS NULL OR TRIM(o.department) = '' OR LOWER(TRIM(o.department)) = 'unassigned')"
+        else:
+            sql += " AND LOWER(TRIM(o.department)) = LOWER(:department)"
+            params["department"] = department.strip()
     if status:
         if status.lower() == "no jd":
             sql += " AND js.id IS NULL"
@@ -660,7 +663,8 @@ async def export_darwinbox_admin(
     type: str = "goals",
     cycle_start: str = "01-04-2026",
     cycle_end: str = "30-07-2026",
-    goal_plan_id: str = "Test_01",
+    goal_plan_name: str = "HRBP_GOAL_PLAN_TESTING",
+    goal_plan_id: str = "HRBP_Test",
     db: AsyncSession = Depends(get_db),
     admin_active: str = Depends(get_current_admin),
 ):
@@ -669,26 +673,90 @@ async def export_darwinbox_admin(
     
     try:
         if type == "goals":
-            csv_content, filename = await export_goals_csv(db, employee_id=employee_id, department=department, cycle_start=cycle_start, cycle_end=cycle_end, goal_plan_id=goal_plan_id)
+            csv_content, filename = await export_goals_csv(
+                db,
+                employee_id=employee_id,
+                department=department,
+                cycle_start=cycle_start,
+                cycle_end=cycle_end,
+                goal_plan_name=goal_plan_name,
+                goal_plan_id=goal_plan_id,
+            )
             return Response(
                 content=csv_content.encode("utf-8"),
                 media_type="text/csv",
                 headers={"Content-Disposition": f'attachment; filename="{filename}"'}
             )
         elif type == "subgoals":
-            csv_content, filename = await export_sub_goals_csv(db, employee_id=employee_id, department=department, cycle_start=cycle_start, cycle_end=cycle_end)
+            csv_content, filename = await export_sub_goals_csv(
+                db,
+                employee_id=employee_id,
+                department=department,
+                cycle_start=cycle_start,
+                cycle_end=cycle_end,
+                goal_plan_name=goal_plan_name,
+                goal_plan_id=goal_plan_id,
+            )
             return Response(
                 content=csv_content.encode("utf-8"),
                 media_type="text/csv",
                 headers={"Content-Disposition": f'attachment; filename="{filename}"'}
             )
         else:
-            zip_content, filename = await export_zip_bundle(db, employee_id=employee_id, department=department, cycle_start=cycle_start, cycle_end=cycle_end, goal_plan_id=goal_plan_id)
+            zip_content, filename = await export_zip_bundle(
+                db,
+                employee_id=employee_id,
+                department=department,
+                cycle_start=cycle_start,
+                cycle_end=cycle_end,
+                goal_plan_name=goal_plan_name,
+                goal_plan_id=goal_plan_id,
+            )
             return Response(
                 content=zip_content,
                 media_type="application/zip",
                 headers={"Content-Disposition": f'attachment; filename="{filename}"'}
             )
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@router.post("/admin/darwinbox/enrich-subgoals")
+async def enrich_darwinbox_subgoals_admin(
+    file: UploadFile = File(...),
+    employee_id: Optional[str] = None,
+    department: Optional[str] = None,
+    cycle_start: str = "01-04-2026",
+    cycle_end: str = "30-07-2026",
+    goal_plan_name: str = "HRBP_GOAL_PLAN_TESTING",
+    goal_plan_id: str = "HRBP_Test",
+    db: AsyncSession = Depends(get_db),
+    admin_active: str = Depends(get_current_admin),
+):
+    """
+    Upload Darwinbox Goals Report CSV/Excel (company-wide or department) to automatically map KRA IDs into Sub-Goals CSV.
+    """
+    from fastapi.responses import Response
+    from app.services.darwinbox_exporter_service import export_sub_goals_csv
+
+    report_bytes = await file.read()
+
+    try:
+        csv_content, filename = await export_sub_goals_csv(
+            db,
+            employee_id=employee_id,
+            department=department,
+            cycle_start=cycle_start,
+            cycle_end=cycle_end,
+            goal_plan_name=goal_plan_name,
+            goal_plan_id=goal_plan_id,
+            report_csv_content=report_bytes,
+        )
+        return Response(
+            content=csv_content.encode("utf-8"),
+            media_type="text/csv",
+            headers={"Content-Disposition": f'attachment; filename="Enriched_{filename}"'}
+        )
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
 

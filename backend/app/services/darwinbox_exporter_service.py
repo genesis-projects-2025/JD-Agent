@@ -18,6 +18,7 @@ Data sources (in priority order):
 import csv
 import io
 import logging
+import re
 import zipfile
 from dataclasses import dataclass, field
 from typing import Optional
@@ -43,72 +44,28 @@ BULK_GOALS_HEADERS: list[str] = [
     "TimelinesStart date(dd-mm-yyyy)",
     "Timelines End date(dd-mm-yyyy)",
     "New Goal Plan ID*",
-]  # 8 active columns
+    "Is Goal Approved",
+    "Achievement mapping",
+    "Achievement",
+]  # 11 active columns
 
 BULK_SUB_GOALS_HEADERS: list[str] = [
-    "Sub Goal ID",
-    "Goals / Key Result Areas Code*",
-    "Sub Goal Name",
-    "Achievement %",
-    "Description",
-    "Is Description Editable?",
-    "Timeline Start Date",
-    "Timeline End Date",
-    "Is Timeline editable?",
+    "Employee ID*",
+    "Goals / Key Result Areas ID*",
+    "Sub Goal Name*",
+    "Subgoal description",
+    "Target",
+    "Target Prefix",
     "Sub Goal Status",
     "Weightage",
-    "Is Weightage editable?",
-    "Target",
-    "Is Target editable?",
-    "Target Type",
     "Metric",
-    "Is Metric editable?",
+    "Start Date",
+    "End Date",
+    "Is Goals / Key Result Areas Approved",
+    "My Goal Plan ID",
+    "Achievement",
     "Achieved",
-    "Sub Goal Score Formula",
-    "Is Goal Score Formula editable?",
-    "Custom Field 1 ID",
-    "Custom Field 1 Value",
-    "Is Custom Field 1 editable?",
-    "Custom Field 2 ID",
-    "Custom Field 2 Value",
-    "Is Custom Field 2 editable?",
-    "Custom Field 3 ID",
-    "Custom Field 3 Value",
-    "Is Custom Field 3 editable?",
-    "Custom Field 4 ID",
-    "Custom Field 4 Value",
-    "Is Custom Field 4 editable?",
-    "Custom Field 5 ID",
-    "Custom Field 5 Value",
-    "Is Custom Field 5 editable?",
-    "Custom Field 6 ID",
-    "Custom Field 6 Value",
-    "Is Custom Field 6 editable?",
-    "Actions",
-    "Enable Activities?",
-    "Make Activities Alias Editable?",
-    "Activity Id",
-    "Activity 1 Title",
-    "Activity 1 Status",
-    "Activity 1 Start Date",
-    "Activity 1 Due Date",
-    "Activity 2 Title",
-    "Activity 2 Status",
-    "Activity 2 Start Date",
-    "Activity 2 Due Date",
-    "Activity 3 Title",
-    "Activity 3 Status",
-    "Activity 3 Start Date",
-    "Activity 3 Due Date",
-    "Activity 4 Title",
-    "Activity 4 Status",
-    "Activity 4 Start Date",
-    "Activity 4 Due Date",
-    "Activity 5 Title",
-    "Activity 5 Status",
-    "Activity 5 Start Date",
-    "Activity 5 Due Date",
-]  # 62 columns
+]  # 15 active columns
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -152,6 +109,55 @@ class EmployeeExportRecord:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# Goal Plan ID Formatting Helpers
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def _format_new_goal_plan_id(goal_plan_name: Optional[str] = None, goal_plan_id: Optional[str] = None) -> str:
+    """
+    Format New Goal Plan ID for parent goals CSV (Column 8).
+    Required format: 'Goal Plan Name (Goal Plan ID)' e.g. 'HRBP_GOAL_PLAN_TESTING (HRBP_Test)'
+    """
+    g_name = (goal_plan_name or "").strip()
+    g_id = (goal_plan_id or "").strip()
+
+    if not g_name and not g_id:
+        return "HRBP_GOAL_PLAN_TESTING (HRBP_Test)"
+
+    if "(" in g_name and ")" in g_name:
+        return g_name
+
+    if "(" in g_id and ")" in g_id:
+        return g_id
+
+    if g_name and g_id:
+        if g_name.lower() == g_id.lower():
+            return g_name
+        return f"{g_name} ({g_id})"
+
+    if g_id:
+        return g_id
+
+    return g_name
+
+
+def _format_my_goal_plan_id(goal_plan_id: Optional[str] = None, goal_plan_name: Optional[str] = None) -> str:
+    """
+    Format My Goal Plan ID for sub-goals CSV (Column 13).
+    Required format: just the short ID e.g. 'HRBP_Test'
+    """
+    g_id = (goal_plan_id or "").strip()
+    g_name = (goal_plan_name or "").strip()
+
+    target_str = g_id or g_name or "HRBP_Test"
+
+    match = re.search(r'\(([^)]+)\)', target_str)
+    if match:
+        return match.group(1).strip()
+
+    return target_str
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # Data Normalisation — unify both JSON shapes
 # ═══════════════════════════════════════════════════════════════════════════════
 
@@ -173,7 +179,6 @@ def _parse_numeric_target(raw_target: str | int | float | None) -> str:
         pass
 
     # Extract leading number from strings like "95% of ..." or ">95%"
-    import re
     match = re.search(r"[\d]+\.?[\d]*", s)
     if match:
         return match.group()
@@ -209,6 +214,39 @@ def _infer_target_type(metric: str) -> str:
     if metric_lower in ("%", "percentage"):
         return "Percentage"
     return "Numeric"
+
+
+def _infer_darwinbox_metric_name(metric: str) -> str:
+    """
+    Map KPI metric unit to Darwinbox metric name:
+      - Currency (INR / USD)
+      - Milestone (BOOL)
+      - Number (NUM)
+      - Percentage (PCT)
+      - TimeLine (DAYS)
+    """
+    m = metric.lower().strip()
+    if m in ("%", "percentage", "pct"):
+        return "Percentage"
+    elif m in ("days", "day", "hours", "hrs", "timeline"):
+        return "TimeLine"
+    elif m in ("currency", "inr", "usd", "₹", "$", "rupees"):
+        return "Currency"
+    elif m in ("bool", "boolean", "milestone", "yes/no"):
+        return "Milestone"
+    else:
+        return "Number"
+
+
+def _infer_target_prefix(metric_name: str, title: str = "", description: str = "") -> str:
+    """Infer target prefix constraint string for Darwinbox sub-goals."""
+    combined = f"{title} {description}".lower()
+    if metric_name == "TimeLine" or any(w in combined for w in ["reduction", "tat", "turnaround", "latency", "error", "delay", "defect", "cost reduction"]):
+        return "Is less than or equal to"
+    elif metric_name == "Milestone":
+        return "Is equal to"
+    else:
+        return "Is more than or equal to"
 
 
 def _build_kpi_description(kpi: dict) -> str:
@@ -348,11 +386,12 @@ def build_goal_row(
     kra_index: int,
     cycle_start: str = "01-04-2026",
     cycle_end: str = "30-07-2026",
-    status: str = "In Progress",
-    goal_plan_id: str = "Test_01",
+    status: str = "Completed",
+    goal_plan_name: str = "HRBP_GOAL_PLAN_TESTING",
+    goal_plan_id: str = "HRBP_Test",
 ) -> list[str]:
     """
-    Build a single Bulk Goals row for one KRA with only active columns (8 columns).
+    Build a single Bulk Goals row for one KRA with 11 active columns.
     Columns:
       1. EmployeeID*
       2. Goals / Key Result Areas Name
@@ -362,18 +401,25 @@ def build_goal_row(
       6. TimelinesStart date(dd-mm-yyyy)
       7. Timelines End date(dd-mm-yyyy)
       8. New Goal Plan ID*
+      9. Is Goal Approved
+      10. Achievement mapping
+      11. Achievement
     """
     formatted_weight = str(int(kra.weight)) if kra.weight == int(kra.weight) else f"{kra.weight:.2f}"
+    formatted_goal_plan_col = _format_new_goal_plan_id(goal_plan_name, goal_plan_id)
 
     return [
         employee_id,                                # 1: EmployeeID*
         kra.title,                                  # 2: Goals / Key Result Areas Name
         kra.description,                            # 3: Goals / Key Result Areas Description
-        status,                                     # 4: Goal Status ("In Progress")
+        status,                                     # 4: Goal Status ("Completed")
         formatted_weight,                           # 5: Weightage(%)
         cycle_start,                                # 6: TimelinesStart date(dd-mm-yyyy)
         cycle_end,                                  # 7: Timelines End date(dd-mm-yyyy)
-        goal_plan_id,                               # 8: New Goal Plan ID*
+        formatted_goal_plan_col,                   # 8: New Goal Plan ID* (HRBP_GOAL_PLAN_TESTING (HRBP_Test))
+        "Yes",                                      # 9: Is Goal Approved
+        "Performance Achievement Mapping",         # 10: Achievement mapping
+        "100.00",                                   # 11: Achievement
     ]
 
 
@@ -382,84 +428,151 @@ def build_sub_goal_row(
     kpi: NormalisedKPI,
     kra_index: int,
     kpi_index: int,
-    cycle_start: str = "01-04-2025",
-    cycle_end: str = "31-03-2026",
-    status: str = "approved",
+    cycle_start: str = "01-04-2026",
+    cycle_end: str = "30-07-2026",
+    status: str = "Completed",
+    goal_plan_id: str = "HRBP_Test",
+    goal_plan_name: str = "HRBP_GOAL_PLAN_TESTING",
+    kra_id_override: Optional[str] = None,
 ) -> list[str]:
     """
-    Build a single Bulk Sub Goals.csv row for one KPI.
-    Returns a list of exactly 62 string values matching BULK_SUB_GOALS_HEADERS.
+    Build a single Bulk Sub Goals CSV row for one KPI with 15 active columns.
     """
-    parent_goal_code = f"{employee_id}_KRA_{kra_index + 1:02d}"
-    sub_goal_id = f"{employee_id}_KPI_{kra_index + 1:02d}_{kpi_index + 1:02d}"
-
-    # Build score formula from measurement method if available
-    score_formula = kpi.measurement_method or ""
+    formatted_weight = str(int(kpi.weight)) if kpi.weight == int(kpi.weight) else f"{kpi.weight:.2f}"
+    metric_name = _infer_darwinbox_metric_name(kpi.metric)
+    target_prefix = _infer_target_prefix(metric_name, kpi.title, kpi.description)
+    target_val = kpi.target or "100"
+    formatted_subgoal_plan_id = _format_my_goal_plan_id(goal_plan_id, goal_plan_name)
 
     return [
-        sub_goal_id,                                # Sub Goal ID
-        parent_goal_code,                           # Goals / Key Result Areas Code*  (FK link)
-        kpi.title,                                  # Sub Goal Name
-        "0",                                        # Achievement %
-        kpi.description,                            # Description
-        "Yes",                                      # Is Description Editable?
-        cycle_start,                                # Timeline Start Date
-        cycle_end,                                  # Timeline End Date
-        "Yes",                                      # Is Timeline editable?
-        _status_label(status),                      # Sub Goal Status
-        str(int(kpi.weight)) if kpi.weight == int(kpi.weight) else f"{kpi.weight:.2f}",  # Weightage
-        "Yes",                                      # Is Weightage editable?
-        kpi.target,                                 # Target
-        "Yes",                                      # Is Target editable?
-        kpi.target_type,                            # Target Type
-        kpi.metric,                                 # Metric
-        "Yes",                                      # Is Metric editable?
-        "",                                         # Achieved
-        score_formula,                              # Sub Goal Score Formula
-        "Yes",                                      # Is Goal Score Formula editable?
-        "",                                         # Custom Field 1 ID
-        "",                                         # Custom Field 1 Value
-        "Yes",                                      # Is Custom Field 1 editable?
-        "",                                         # Custom Field 2 ID
-        "",                                         # Custom Field 2 Value
-        "Yes",                                      # Is Custom Field 2 editable?
-        "",                                         # Custom Field 3 ID
-        "",                                         # Custom Field 3 Value
-        "Yes",                                      # Is Custom Field 3 editable?
-        "",                                         # Custom Field 4 ID
-        "",                                         # Custom Field 4 Value
-        "Yes",                                      # Is Custom Field 4 editable?
-        "",                                         # Custom Field 5 ID
-        "",                                         # Custom Field 5 Value
-        "Yes",                                      # Is Custom Field 5 editable?
-        "",                                         # Custom Field 6 ID
-        "",                                         # Custom Field 6 Value
-        "Yes",                                      # Is Custom Field 6 editable?
-        "Add",                                      # Actions
-        "No",                                       # Enable Activities?
-        "Yes",                                      # Make Activities Alias Editable?
-        "",                                         # Activity Id
-        "",                                         # Activity 1 Title
-        "",                                         # Activity 1 Status
-        "",                                         # Activity 1 Start Date
-        "",                                         # Activity 1 Due Date
-        "",                                         # Activity 2 Title
-        "",                                         # Activity 2 Status
-        "",                                         # Activity 2 Start Date
-        "",                                         # Activity 2 Due Date
-        "",                                         # Activity 3 Title
-        "",                                         # Activity 3 Status
-        "",                                         # Activity 3 Start Date
-        "",                                         # Activity 3 Due Date
-        "",                                         # Activity 4 Title
-        "",                                         # Activity 4 Status
-        "",                                         # Activity 4 Start Date
-        "",                                         # Activity 4 Due Date
-        "",                                         # Activity 5 Title
-        "",                                         # Activity 5 Status
-        "",                                         # Activity 5 Start Date
-        "",                                         # Activity 5 Due Date
+        employee_id,                                # 1: Employee ID*
+        kra_id_override or "",                      # 2: Goals / Key Result Areas ID* (Mapped or Blank)
+        kpi.title,                                  # 3: Sub Goal Name*
+        kpi.description,                            # 4: Subgoal description
+        target_val,                                 # 5: Target
+        target_prefix,                              # 6: Target Prefix
+        status,                                     # 7: Sub Goal Status ("Completed")
+        formatted_weight,                           # 8: Weightage
+        metric_name,                                # 9: Metric ("Percentage", "Number", "TimeLine", "Currency", "Milestone")
+        cycle_start,                                # 10: Start Date
+        cycle_end,                                  # 11: End Date
+        "Yes",                                      # 12: Is Goals / Key Result Areas Approved
+        formatted_subgoal_plan_id,                 # 13: My Goal Plan ID ("HRBP_Test")
+        "100.00",                                   # 14: Achievement
+        target_val,                                 # 15: Achieved (Same as Target)
     ]
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Report Parsing & Enriched CSV Generation
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def _clean_key_text(text: str) -> str:
+    """Helper to clean UTF-8 BOM, strip spaces, and normalize to alphanumeric lowercase."""
+    text = str(text).replace('\ufeff', '').strip().lower()
+    return re.sub(r'[^a-z0-9]', '', text)
+
+
+def parse_darwinbox_goals_report(
+    report_content: str | bytes | None
+) -> tuple[dict[tuple[str, str], str], dict[tuple[str, int], str]]:
+    """
+    Parse a Darwinbox Goals Report (CSV string, CSV bytes, or Excel bytes) content and extract mappings:
+    Returns (title_mapping, index_mapping) where:
+      - title_mapping: (employee_id_upper, cleaned_kra_title) -> darwinbox_kra_id
+      - index_mapping: (employee_id_upper, kra_index_order) -> darwinbox_kra_id
+    """
+    if not report_content:
+        return {}, {}
+
+    rows: list[list[str]] = []
+
+    if isinstance(report_content, bytes):
+        if report_content.startswith(b'PK\x03\x04'):
+            try:
+                import pandas as pd
+                df = pd.read_excel(io.BytesIO(report_content))
+                rows = [df.columns.astype(str).tolist()] + df.astype(str).values.tolist()
+            except Exception as e:
+                logger.warning(f"Failed to parse report bytes as Excel: {e}")
+                report_text = report_content.decode("utf-8", errors="replace")
+                reader = csv.reader(io.StringIO(report_text.lstrip('\ufeff')))
+                rows = list(reader)
+        else:
+            report_text = report_content.decode("utf-8", errors="replace")
+            reader = csv.reader(io.StringIO(report_text.lstrip('\ufeff')))
+            rows = list(reader)
+    else:
+        report_text = str(report_content).lstrip('\ufeff')
+        reader = csv.reader(io.StringIO(report_text))
+        rows = list(reader)
+
+    if not rows:
+        return {}, {}
+
+    title_mapping: dict[tuple[str, str], str] = {}
+    index_mapping: dict[tuple[str, int], str] = {}
+    seen_kras_per_emp: dict[str, list[str]] = {}
+
+    emp_col_idx = None
+    kra_title_col_idx = None
+    kra_id_col_idx = None
+    header_found = False
+
+    emp_keywords = ['employeeid', 'empid', 'employeecode', 'empcode', 'assignedto', 'employeenumber', 'employeeno', 'userid']
+    kra_id_keywords = ['keyresultareasid', 'keyresultareaid', 'kraid', 'goalid', 'goalcode', 'kracode', 'goaluniqueid', 'krauniqueid', 'uniqueid', 'goalskeyresultareasid', 'goalskeyresultareaid']
+    kra_title_keywords = ['keyresultareasname', 'keyresultareaname', 'keyresultareas', 'keyresultarea', 'kratitle', 'kraname', 'goalname', 'goaltitle', 'goalskeyresultareasname', 'goalskeyresultareaname']
+
+    for row in rows:
+        if not row:
+            continue
+
+        clean_row = [_clean_key_text(c) for c in row]
+
+        if not header_found:
+            for idx, cell in enumerate(clean_row):
+                if any(kw in cell for kw in emp_keywords) and emp_col_idx is None:
+                    emp_col_idx = idx
+                elif any(kw in cell for kw in kra_id_keywords) and kra_id_col_idx is None:
+                    kra_id_col_idx = idx
+                elif any(kw in cell for kw in kra_title_keywords) and 'id' not in cell and 'code' not in cell and kra_title_col_idx is None:
+                    kra_title_col_idx = idx
+
+            if emp_col_idx is not None and kra_id_col_idx is not None:
+                header_found = True
+                continue
+
+        if header_found and len(row) > max(emp_col_idx, kra_id_col_idx):
+            raw_emp = str(row[emp_col_idx]).strip().upper()
+            kra_id = str(row[kra_id_col_idx]).strip()
+
+            if not raw_emp or not kra_id or kra_id.lower() in ('nan', 'none', 'null', ''):
+                continue
+
+            raw_title = str(row[kra_title_col_idx]).strip() if (kra_title_col_idx is not None and len(row) > kra_title_col_idx) else ""
+            clean_title = _clean_key_text(raw_title)
+
+            emp_variants = [raw_emp, raw_emp.lstrip('0')]
+
+            for emp_var in emp_variants:
+                if not emp_var:
+                    continue
+                if clean_title:
+                    title_mapping[(emp_var, clean_title)] = kra_id
+
+                if emp_var not in seen_kras_per_emp:
+                    seen_kras_per_emp[emp_var] = []
+                if kra_id not in seen_kras_per_emp[emp_var]:
+                    order_idx = len(seen_kras_per_emp[emp_var])
+                    seen_kras_per_emp[emp_var].append(kra_id)
+                    index_mapping[(emp_var, order_idx)] = kra_id
+
+    logger.info(
+        f"[DarwinboxExporter] Parsed status report: {len(title_mapping)} title mappings, "
+        f"{len(index_mapping)} index mappings across {len(seen_kras_per_emp)} employees."
+    )
+
+    return title_mapping, index_mapping
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -470,7 +583,8 @@ def generate_goals_csv(
     records: list[EmployeeExportRecord],
     cycle_start: str = "01-04-2026",
     cycle_end: str = "30-07-2026",
-    goal_plan_id: str = "Test_01",
+    goal_plan_name: str = "HRBP_GOAL_PLAN_TESTING",
+    goal_plan_id: str = "HRBP_Test",
 ) -> str:
     """
     Generate the complete Bulk Goals.csv content string for a list of employees.
@@ -488,7 +602,8 @@ def generate_goals_csv(
                 kra_index=kra_idx,
                 cycle_start=cycle_start,
                 cycle_end=cycle_end,
-                status="In Progress",
+                status="Completed",
+                goal_plan_name=goal_plan_name,
                 goal_plan_id=goal_plan_id,
             )
             writer.writerow(row)
@@ -500,17 +615,37 @@ def generate_sub_goals_csv(
     records: list[EmployeeExportRecord],
     cycle_start: str = "01-04-2026",
     cycle_end: str = "30-07-2026",
+    goal_plan_name: str = "HRBP_GOAL_PLAN_TESTING",
+    goal_plan_id: str = "HRBP_Test",
+    report_csv_content: Optional[str | bytes] = None,
 ) -> str:
     """
     Generate the complete Bulk Sub Goals.csv content string for a list of employees.
-    Each KPI becomes one row, linked to its parent KRA via the goal code.
+    If report_csv_content is provided, maps Darwinbox KRA IDs into column 2.
     """
+    title_mapping, index_mapping = parse_darwinbox_goals_report(report_csv_content) if report_csv_content else ({}, {})
+
     output = io.StringIO()
     writer = csv.writer(output, quoting=csv.QUOTE_ALL)
     writer.writerow(BULK_SUB_GOALS_HEADERS)
 
     for record in records:
+        emp_id = record.employee_id.strip().upper()
+        emp_variants = [emp_id, emp_id.lstrip('0')]
+
         for kra_idx, kra in enumerate(record.kras):
+            clean_kra_title = _clean_key_text(kra.title)
+            darwinbox_kra_id = ""
+
+            for ev in emp_variants:
+                darwinbox_kra_id = (
+                    title_mapping.get((ev, clean_kra_title)) or
+                    index_mapping.get((ev, kra_idx)) or
+                    ""
+                )
+                if darwinbox_kra_id:
+                    break
+
             for kpi_idx, kpi in enumerate(kra.kpis):
                 row = build_sub_goal_row(
                     employee_id=record.employee_id,
@@ -519,7 +654,10 @@ def generate_sub_goals_csv(
                     kpi_index=kpi_idx,
                     cycle_start=cycle_start,
                     cycle_end=cycle_end,
-                    status="approved",
+                    status="Completed",
+                    goal_plan_name=goal_plan_name,
+                    goal_plan_id=goal_plan_id,
+                    kra_id_override=darwinbox_kra_id,
                 )
                 writer.writerow(row)
 
@@ -531,14 +669,19 @@ def generate_zip_bundle(
     filename_prefix: str = "Darwinbox_Export",
     cycle_start: str = "01-04-2026",
     cycle_end: str = "30-07-2026",
-    goal_plan_id: str = "Test_01",
+    goal_plan_name: str = "HRBP_GOAL_PLAN_TESTING",
+    goal_plan_id: str = "HRBP_Test",
 ) -> bytes:
     """
     Generate a ZIP file containing both Bulk Goals.csv and Bulk Sub Goals.csv.
     Returns raw bytes ready for HTTP response.
     """
-    goals_csv = generate_goals_csv(records, cycle_start=cycle_start, cycle_end=cycle_end, goal_plan_id=goal_plan_id)
-    sub_goals_csv = generate_sub_goals_csv(records, cycle_start=cycle_start, cycle_end=cycle_end)
+    goals_csv = generate_goals_csv(
+        records, cycle_start=cycle_start, cycle_end=cycle_end, goal_plan_name=goal_plan_name, goal_plan_id=goal_plan_id
+    )
+    sub_goals_csv = generate_sub_goals_csv(
+        records, cycle_start=cycle_start, cycle_end=cycle_end, goal_plan_name=goal_plan_name, goal_plan_id=goal_plan_id
+    )
 
     zip_buffer = io.BytesIO()
     with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
@@ -673,12 +816,18 @@ async def fetch_employee_export_records(
 
     # ── Step 4: Filter by department if requested ────────────────────────────
     result_list = list(records_map.values())
-    if department:
+    if department and department.strip() and department.strip().lower() != "all":
         dept_lower = department.strip().lower()
-        result_list = [
-            r for r in result_list
-            if r.department and r.department.strip().lower() == dept_lower
-        ]
+        if dept_lower == "unassigned":
+            result_list = [
+                r for r in result_list
+                if not r.department or not r.department.strip() or r.department.strip().lower() == "unassigned"
+            ]
+        else:
+            result_list = [
+                r for r in result_list
+                if r.department and r.department.strip().lower() == dept_lower
+            ]
 
     # Sort by employee_id for consistent output
     result_list.sort(key=lambda r: r.employee_id)
@@ -702,7 +851,8 @@ async def export_goals_csv(
     department: Optional[str] = None,
     cycle_start: str = "01-04-2026",
     cycle_end: str = "30-07-2026",
-    goal_plan_id: str = "Test_01",
+    goal_plan_name: str = "HRBP_GOAL_PLAN_TESTING",
+    goal_plan_id: str = "HRBP_Test",
 ) -> tuple[str, str]:
     """
     Export Bulk Goals CSV.
@@ -712,7 +862,9 @@ async def export_goals_csv(
     if not records:
         raise ValueError("No approved KRA/KPI records found for the given filters.")
 
-    csv_content = generate_goals_csv(records, cycle_start=cycle_start, cycle_end=cycle_end, goal_plan_id=goal_plan_id)
+    csv_content = generate_goals_csv(
+        records, cycle_start=cycle_start, cycle_end=cycle_end, goal_plan_name=goal_plan_name, goal_plan_id=goal_plan_id
+    )
 
     if employee_id:
         filename = f"Darwinbox_Goals_{employee_id}.csv"
@@ -730,16 +882,26 @@ async def export_sub_goals_csv(
     department: Optional[str] = None,
     cycle_start: str = "01-04-2026",
     cycle_end: str = "30-07-2026",
+    goal_plan_name: str = "HRBP_GOAL_PLAN_TESTING",
+    goal_plan_id: str = "HRBP_Test",
+    report_csv_content: Optional[str | bytes] = None,
 ) -> tuple[str, str]:
     """
-    Export Bulk Sub Goals CSV.
+    Export Bulk Sub Goals CSV, optionally mapped with Darwinbox KRA IDs from report_csv_content.
     Returns (csv_string, suggested_filename).
     """
     records = await fetch_employee_export_records(db, employee_id=employee_id, department=department)
     if not records:
         raise ValueError("No approved KRA/KPI records found for the given filters.")
 
-    csv_content = generate_sub_goals_csv(records, cycle_start, cycle_end)
+    csv_content = generate_sub_goals_csv(
+        records,
+        cycle_start=cycle_start,
+        cycle_end=cycle_end,
+        goal_plan_name=goal_plan_name,
+        goal_plan_id=goal_plan_id,
+        report_csv_content=report_csv_content,
+    )
 
     if employee_id:
         filename = f"Bulk_Sub_Goals_{employee_id}.csv"
@@ -757,7 +919,8 @@ async def export_zip_bundle(
     department: Optional[str] = None,
     cycle_start: str = "01-04-2026",
     cycle_end: str = "30-07-2026",
-    goal_plan_id: str = "Test_01",
+    goal_plan_name: str = "HRBP_GOAL_PLAN_TESTING",
+    goal_plan_id: str = "HRBP_Test",
 ) -> tuple[bytes, str]:
     """
     Export ZIP bundle containing both CSVs.
@@ -778,7 +941,9 @@ async def export_zip_bundle(
         prefix = "Darwinbox_Company"
         filename = "Darwinbox_Goals_Company.zip"
 
-    zip_bytes = generate_zip_bundle(records, filename_prefix=prefix, cycle_start=cycle_start, cycle_end=cycle_end, goal_plan_id=goal_plan_id)
+    zip_bytes = generate_zip_bundle(
+        records, filename_prefix=prefix, cycle_start=cycle_start, cycle_end=cycle_end, goal_plan_name=goal_plan_name, goal_plan_id=goal_plan_id
+    )
     return zip_bytes, filename
 
 

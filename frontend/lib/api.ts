@@ -101,14 +101,14 @@ export const isEmployee = (u: AuthUser | null) => !u || u.role === "Employee";
 
 export const isManager = (u: AuthUser | null): boolean => {
   if (!u) return false;
-  if (u.is_manager === true || u.has_reports === true) return true;
+  if ( u.has_reports === true) return true;
   const roleLower = (u.role || "").toLowerCase();
   const designationLower = (u.designation || "").toLowerCase();
   if (["manager", "head", "hr", "admin"].includes(roleLower)) return true;
 
   const managerKeywords = [
     "manager", "head", "director", "vp", "vice president", "avp", "agm", "dgm",
-    "lead", "chief", "president", "officer", "supervisor"
+    "lead", "chief", "president", "supervisor"
   ];
   return managerKeywords.some(
     (kw) => roleLower.includes(kw) || designationLower.includes(kw)

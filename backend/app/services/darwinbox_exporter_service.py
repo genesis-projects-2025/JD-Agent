@@ -115,13 +115,13 @@ class EmployeeExportRecord:
 def _format_new_goal_plan_id(goal_plan_name: Optional[str] = None, goal_plan_id: Optional[str] = None) -> str:
     """
     Format New Goal Plan ID for parent goals CSV (Column 8).
-    Required format: 'Goal Plan Name (Goal Plan ID)' e.g. 'HRBP_GOAL_PLAN_TESTING (HRBP_Test)'
+    Required format: 'Goal Plan Name (Goal Plan ID)' e.g. '2026-2027-Framework (FW-01-2026-2027)'
     """
     g_name = (goal_plan_name or "").strip()
     g_id = (goal_plan_id or "").strip()
 
     if not g_name and not g_id:
-        return "HRBP_GOAL_PLAN_TESTING (HRBP_Test)"
+        return "2026-2027-Framework (FW-01-2026-2027)"
 
     if "(" in g_name and ")" in g_name:
         return g_name
@@ -143,12 +143,13 @@ def _format_new_goal_plan_id(goal_plan_name: Optional[str] = None, goal_plan_id:
 def _format_my_goal_plan_id(goal_plan_id: Optional[str] = None, goal_plan_name: Optional[str] = None) -> str:
     """
     Format My Goal Plan ID for sub-goals CSV (Column 13).
-    Required format: just the short ID e.g. 'HRBP_Test'
+    Required format: just the short ID e.g. 'FW-01-2026-2027'
     """
+
     g_id = (goal_plan_id or "").strip()
     g_name = (goal_plan_name or "").strip()
 
-    target_str = g_id or g_name or "HRBP_Test"
+    target_str = g_id or g_name or "FW-01-2026-2027"
 
     match = re.search(r'\(([^)]+)\)', target_str)
     if match:
@@ -303,12 +304,11 @@ def normalise_kras(
 
         normalised_kra = NormalisedKRA(
             kra_id=kra.get("kra_id", f"kra_{kra_idx + 1:03d}"),
-            title=kra.get("title", f"KRA {kra_idx + 1}"),
+            title=kra.get("title") or kra.get("kra_title") or f"KRA {kra_idx + 1}",   # ✅ handles both schemas
             description=kra.get("description", ""),
             weight=float(kra_weight),
             kpis=[],
         )
-
         raw_kpis = kra.get("kpis", [])
         num_kpis = len(raw_kpis) if raw_kpis else 0
 
@@ -385,10 +385,10 @@ def build_goal_row(
     kra: NormalisedKRA,
     kra_index: int,
     cycle_start: str = "01-04-2026",
-    cycle_end: str = "30-07-2026",
+    cycle_end: str = "31-03-2027",
     status: str = "Completed",
-    goal_plan_name: str = "HRBP_GOAL_PLAN_TESTING",
-    goal_plan_id: str = "HRBP_Test",
+    goal_plan_name: str = "2026-2027-Framework",
+    goal_plan_id: str = "FW-01-2026-2027",
 ) -> list[str]:
     """
     Build a single Bulk Goals row for one KRA with 11 active columns.
@@ -406,20 +406,20 @@ def build_goal_row(
       11. Achievement
     """
     formatted_weight = str(int(kra.weight)) if kra.weight == int(kra.weight) else f"{kra.weight:.2f}"
-    formatted_goal_plan_col = _format_new_goal_plan_id(goal_plan_name, goal_plan_id)
+    # formatted_goal_plan_col = _format_new_goal_plan_id(goal_plan_name, goal_plan_id)
 
     return [
-        employee_id,                                # 1: EmployeeID*
-        kra.title,                                  # 2: Goals / Key Result Areas Name
-        kra.description,                            # 3: Goals / Key Result Areas Description
-        status,                                     # 4: Goal Status ("Completed")
-        formatted_weight,                           # 5: Weightage(%)
-        cycle_start,                                # 6: TimelinesStart date(dd-mm-yyyy)
-        cycle_end,                                  # 7: Timelines End date(dd-mm-yyyy)
-        formatted_goal_plan_col,                   # 8: New Goal Plan ID* (HRBP_GOAL_PLAN_TESTING (HRBP_Test))
-        "Yes",                                      # 9: Is Goal Approved
-        "Performance Achievement Mapping",         # 10: Achievement mapping
-        "100.00",                                   # 11: Achievement
+        employee_id,  # 1: EmployeeID*
+        kra.title,  # 2: Goals / Key Result Areas Name
+        kra.description,  # 3: Goals / Key Result Areas Description
+        status,  # 4: Goal Status ("Completed")
+        formatted_weight,  # 5: Weightage(%)
+        cycle_start,  # 6: TimelinesStart date(dd-mm-yyyy)
+        cycle_end,  # 7: Timelines End date(dd-mm-yyyy)
+        goal_plan_id,  # 8: New Goal Plan ID* (2026-2027-Framework (FW-01-2026-2027))
+        "Yes",  # 9: Is Goal Approved
+        "Performance Achievement Mapping",  # 10: Achievement mapping
+        "0",  # 11: Achievement
     ]
 
 
@@ -429,10 +429,10 @@ def build_sub_goal_row(
     kra_index: int,
     kpi_index: int,
     cycle_start: str = "01-04-2026",
-    cycle_end: str = "30-07-2026",
+    cycle_end: str = "31-03-2027",
     status: str = "Completed",
-    goal_plan_id: str = "HRBP_Test",
-    goal_plan_name: str = "HRBP_GOAL_PLAN_TESTING",
+    goal_plan_id: str = "FW-01-2026-2027",
+    goal_plan_name: str = "2026-2027-Framework",
     kra_id_override: Optional[str] = None,
 ) -> list[str]:
     """
@@ -442,28 +442,28 @@ def build_sub_goal_row(
     metric_name = _infer_darwinbox_metric_name(kpi.metric)
     target_prefix = _infer_target_prefix(metric_name, kpi.title, kpi.description)
     target_val = kpi.target or "100"
-    formatted_subgoal_plan_id = _format_my_goal_plan_id(goal_plan_id, goal_plan_name)
+    formatted_subgoal_plan_id = goal_plan_id
 
     return [
-        employee_id,                                # 1: Employee ID*
-        kra_id_override or "",                      # 2: Goals / Key Result Areas ID* (Mapped or Blank)
-        kpi.title,                                  # 3: Sub Goal Name*
-        kpi.description,                            # 4: Subgoal description
-        target_val,                                 # 5: Target
-        target_prefix,                              # 6: Target Prefix
-        status,                                     # 7: Sub Goal Status ("Completed")
-        formatted_weight,                           # 8: Weightage
-        metric_name,                                # 9: Metric ("Percentage", "Number", "TimeLine", "Currency", "Milestone")
-        cycle_start,                                # 10: Start Date
-        cycle_end,                                  # 11: End Date
-        "Yes",                                      # 12: Is Goals / Key Result Areas Approved
-        formatted_subgoal_plan_id,                 # 13: My Goal Plan ID ("HRBP_Test")
-        "100.00",                                   # 14: Achievement
-        target_val,                                 # 15: Achieved (Same as Target)
+        employee_id,  # 1: Employee ID*
+        kra_id_override or "",  # 2: Goals / Key Result Areas ID* (Mapped or Blank)
+        kpi.title,  # 3: Sub Goal Name*
+        kpi.description,  # 4: Subgoal description
+        target_val,  # 5: Target
+        target_prefix,  # 6: Target Prefix
+        status,  # 7: Sub Goal Status ("Completed")
+        formatted_weight,  # 8: Weightage
+        metric_name,  # 9: Metric ("Percentage", "Number", "TimeLine", "Currency", "Milestone")
+        cycle_start,  # 10: Start Date
+        cycle_end,  # 11: End Date
+        "Yes",  # 12: Is Goals / Key Result Areas Approved
+        goal_plan_id,  # 13: My Goal Plan ID ("FW-01-2026-2027")
+        "0",  # 14: Achievement
+        "0",  # 15: Achieved (Same as Target)
     ]
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
+# ══════════════════════════════════════════════════════════════════════════════
 # Report Parsing & Enriched CSV Generation
 # ═══════════════════════════════════════════════════════════════════════════════
 
@@ -579,12 +579,13 @@ def parse_darwinbox_goals_report(
 # CSV String Generation
 # ═══════════════════════════════════════════════════════════════════════════════
 
+
 def generate_goals_csv(
     records: list[EmployeeExportRecord],
     cycle_start: str = "01-04-2026",
-    cycle_end: str = "30-07-2026",
-    goal_plan_name: str = "HRBP_GOAL_PLAN_TESTING",
-    goal_plan_id: str = "HRBP_Test",
+    cycle_end: str = "31-03-2027",
+    goal_plan_name: str = "2026-2027-Framework",
+    goal_plan_id: str = "FW-01-2026-2027",
 ) -> str:
     """
     Generate the complete Bulk Goals.csv content string for a list of employees.
@@ -614,9 +615,9 @@ def generate_goals_csv(
 def generate_sub_goals_csv(
     records: list[EmployeeExportRecord],
     cycle_start: str = "01-04-2026",
-    cycle_end: str = "30-07-2026",
-    goal_plan_name: str = "HRBP_GOAL_PLAN_TESTING",
-    goal_plan_id: str = "HRBP_Test",
+    cycle_end: str = "31-03-2027",
+    goal_plan_name: str = "2026-2027-Framework",
+    goal_plan_id: str = "FW-01-2026-2027",
     report_csv_content: Optional[str | bytes] = None,
 ) -> str:
     """
@@ -668,9 +669,9 @@ def generate_zip_bundle(
     records: list[EmployeeExportRecord],
     filename_prefix: str = "Darwinbox_Export",
     cycle_start: str = "01-04-2026",
-    cycle_end: str = "30-07-2026",
-    goal_plan_name: str = "HRBP_GOAL_PLAN_TESTING",
-    goal_plan_id: str = "HRBP_Test",
+    cycle_end: str = "31-03-2027",
+    goal_plan_name: str = "2026-2027-Framework",
+    goal_plan_id: str = "FW-01-2026-2027",
 ) -> bytes:
     """
     Generate a ZIP file containing both Bulk Goals.csv and Bulk Sub Goals.csv.
@@ -845,14 +846,15 @@ async def fetch_employee_export_records(
 # High-level convenience functions (called by routes)
 # ═══════════════════════════════════════════════════════════════════════════════
 
+
 async def export_goals_csv(
     db: AsyncSession,
     employee_id: Optional[str] = None,
     department: Optional[str] = None,
     cycle_start: str = "01-04-2026",
-    cycle_end: str = "30-07-2026",
-    goal_plan_name: str = "HRBP_GOAL_PLAN_TESTING",
-    goal_plan_id: str = "HRBP_Test",
+    cycle_end: str = "31-03-2027",
+    goal_plan_name: str = "2026-2027-Framework",
+    goal_plan_id: str = "FW-01-2026-2027",
 ) -> tuple[str, str]:
     """
     Export Bulk Goals CSV.
@@ -881,9 +883,9 @@ async def export_sub_goals_csv(
     employee_id: Optional[str] = None,
     department: Optional[str] = None,
     cycle_start: str = "01-04-2026",
-    cycle_end: str = "30-07-2026",
-    goal_plan_name: str = "HRBP_GOAL_PLAN_TESTING",
-    goal_plan_id: str = "HRBP_Test",
+    cycle_end: str = "31-03-2027",
+    goal_plan_name: str = "2026-2027-Framework",
+    goal_plan_id: str = "FW-01-2026-2027",
     report_csv_content: Optional[str | bytes] = None,
 ) -> tuple[str, str]:
     """
@@ -918,9 +920,9 @@ async def export_zip_bundle(
     employee_id: Optional[str] = None,
     department: Optional[str] = None,
     cycle_start: str = "01-04-2026",
-    cycle_end: str = "30-07-2026",
-    goal_plan_name: str = "HRBP_GOAL_PLAN_TESTING",
-    goal_plan_id: str = "HRBP_Test",
+    cycle_end: str = "31-03-2027",
+    goal_plan_name: str = "2026-2027-Framework",
+    goal_plan_id: str = "FW-01-2026-2027",
 ) -> tuple[bytes, str]:
     """
     Export ZIP bundle containing both CSVs.

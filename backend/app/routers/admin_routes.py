@@ -662,9 +662,9 @@ async def export_darwinbox_admin(
     department: Optional[str] = None,
     type: str = "goals",
     cycle_start: str = "01-04-2026",
-    cycle_end: str = "30-07-2026",
-    goal_plan_name: str = "HRBP_GOAL_PLAN_TESTING",
-    goal_plan_id: str = "HRBP_Test",
+    cycle_end: str = "31-03-2027",
+    goal_plan_name: str = "2026-2027-Framework",
+    goal_plan_id: str = "FW-01-2026-2027",
     db: AsyncSession = Depends(get_db),
     admin_active: str = Depends(get_current_admin),
 ):
@@ -727,9 +727,9 @@ async def enrich_darwinbox_subgoals_admin(
     employee_id: Optional[str] = None,
     department: Optional[str] = None,
     cycle_start: str = "01-04-2026",
-    cycle_end: str = "30-07-2026",
-    goal_plan_name: str = "HRBP_GOAL_PLAN_TESTING",
-    goal_plan_id: str = "HRBP_Test",
+    cycle_end: str = "31-03-2027",
+    goal_plan_name: str = "2026-2027-Framework",
+    goal_plan_id: str = "FW-01-2026-2027",
     db: AsyncSession = Depends(get_db),
     admin_active: str = Depends(get_current_admin),
 ):
@@ -1042,5 +1042,3 @@ async def update_admin_kra_kpi(
             "kras": request.kras
         }
     }
-
-

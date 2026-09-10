@@ -1555,14 +1555,14 @@ function UploadedView({ record, jdData = null }: { record: KRAKPIRecord; jdData?
                       kra_id: k.kra_id || k.title,
                       title: k.title,
                       weight: k.weight || 0,
-                      kpis: (k.kpis || []).map((kp: any) => ({
-                        kpi_id: kp.kpi_id || kp.title,
-                        title: kp.title,
-                        description: kp.description,
-                        weight: kp.weight || 0,
-                        target: kp.target || kp.target_date || "",
-                        threshold: kp.threshold
-                      }))
+                      kpis: (k.kpis || []).map((kpi: any) => ({
+                        kpi_id: kpi.kpi_id,
+                        title: kpi.title ?? kpi.metric ?? kpi.name ?? "",
+                        description: kpi.description ?? "",
+                        weight: kpi.weight,
+                        target: kpi.target,
+                        threshold: kpi.threshold,
+                      })),
                     }));
                     downloadKRAPdfClient(formattedKras, jdData, jdData?.title, jdData?.department);
                   }}

@@ -9,19 +9,32 @@ export interface FinalKRA {
   weight: number;
   kpis: {
     kpi_id: string;
-    title: string;
+    title?: string;     // some records (manually added)
+    metric?: string;    // ← what AI-generated KPIs actually use
+    name?: string;      // safety net
     description?: string;
     weight: number;
     target: string;
     threshold?: {
-      below: string;
-      meets: string;
-      excellent: string;
+      below?: string;
+      meets?: string;
+      excellent?: string;
+      below_expectation?: string;
+      meets_expectation?: string;
     };
   }[];
 }
 
+// ── KPI name/description normalizers ──
+function kpiName(kpi: any): string {
+  return kpi?.title || kpi?.metric || kpi?.kpi_name || kpi?.name || "";
+}
+function kpiDesc(kpi: any): string {
+  return kpi?.description || kpi?.kpi_description || "";
+}
+
 const PULSE_LOGO = "https://company-logo-wtn.s3.ap-southeast-2.amazonaws.com/logo.png";
+
 
 function esc(str: any): string {
   if (str === undefined || str === null) return "";
@@ -31,6 +44,7 @@ function esc(str: any): string {
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;");
 }
+
 
 export function downloadKRAPdfClient(
   kras: FinalKRA[],
@@ -66,12 +80,15 @@ export function downloadKRAPdfClient(
     const kpis = kra.kpis || [];
 
     kpis.forEach((kpi) => {
+      const Name = kpiName(kpi);
+      const desc = kpiDesc(kpi);
       kpiRows += `
         <tr>
-          <td style="padding:10px;border:1px solid #D0D5DD;font-size:10pt;vertical-align:top;width:25%;">
-            <strong>${esc(kpi.title)}</strong>
-            ${kpi.description ? `<p style="font-size:8.5pt;color:#475467;margin-top:4px;">${esc(kpi.description)}</p>` : ""}
-          </td>
+      <td style="padding:10px;border:1px solid #D0D5DD;font-size:10pt;vertical-align:top;width:25%;">
+        ${Name ? `<strong>${esc(Name)}</strong>` : ""}
+        ${desc ? `<p style="font-size:8.5pt;color:#475467;margin-top:4px;">${esc(desc)}</p>` : ""}
+        ${!Name && !desc ? "—" : ""}
+      </td>
           <td style="padding:10px;border:1px solid #D0D5DD;font-size:10pt;text-align:center;vertical-align:top;width:8%;">
             <strong>${esc(kpi.weight)}%</strong>
           </td>
@@ -101,7 +118,7 @@ export function downloadKRAPdfClient(
               </td>
             </tr>
             <tr style="background:#FCFCFD;font-weight:bold;text-align:left;color:#344054;border-bottom:2px solid #D0D5DD;">
-              <td style="padding:10px;border:1px solid #D0D5DD;font-size:9pt;text-transform:uppercase;letter-spacing:0.05em;width:25%;">KPI Description</td>
+              <td style="padding:10px;border:1px solid #D0D5DD;font-size:9pt;text-transform:uppercase;letter-spacing:0.05em;width:25%;">KPI Name / Description</td>
               <td style="padding:10px;border:1px solid #D0D5DD;font-size:9pt;text-transform:uppercase;letter-spacing:0.05em;text-align:center;width:8%;">Weight</td>
               <td style="padding:10px;border:1px solid #D0D5DD;font-size:9pt;text-transform:uppercase;letter-spacing:0.05em;width:22%;">Target</td>
               <td style="padding:10px;border:1px solid #D0D5DD;font-size:9pt;text-transform:uppercase;letter-spacing:0.05em;color:#B42220;width:15%;">Below (Needs Imp.)</td>
@@ -251,6 +268,8 @@ export function downloadKRACSVClient(kras: FinalKRA[], jdData: any): void {
       `;
     } else {
       kpis.forEach((kpi, idx) => {
+        const Name = kpiName(kpi);
+        const desc = kpiDesc(kpi);
         const belowVal = kpi.threshold?.below || (kpi.threshold as any)?.below_expectation || "";
         const meetsVal = kpi.threshold?.meets || (kpi.threshold as any)?.meets_expectation || "";
         const excelVal = kpi.threshold?.excellent || "";
@@ -259,7 +278,11 @@ export function downloadKRACSVClient(kras: FinalKRA[], jdData: any): void {
           <tr>
             ${idx === 0 ? `<td rowspan="${rowSpan}" style="font-weight:bold;background-color:#ffffff;border:1px solid #D0D5DD;vertical-align:middle;font-family:Arial,sans-serif;">${esc(kra.title)}</td>` : ""}
             ${idx === 0 ? `<td rowspan="${rowSpan}" style="text-align:center;font-weight:bold;background-color:#ffffff;border:1px solid #D0D5DD;vertical-align:middle;font-family:Arial,sans-serif;">${esc(kra.weight)}%</td>` : ""}
-            <td style="border:1px solid #D0D5DD;vertical-align:top;font-family:Arial,sans-serif;background-color:#ffffff;"><strong>${esc(kpi.title)}</strong>${kpi.description ? `<br/><span style="font-size:8.5pt;color:#475467;">${esc(kpi.description)}</span>` : ""}</td>
+            <td style="border:1px solid #D0D5DD;vertical-align:top;font-family:Arial,sans-serif;background-color:#ffffff;">
+              ${Name ? `<strong style="display:block;">${esc(Name)}</strong>` : ""}
+              ${desc ? `<span style="display:block;font-size:8.5pt;color:#475467;margin-top:4px;">${esc(desc)}</span>` : ""}
+              ${!Name && !desc ? "—" : ""}
+            </td>
             <td style="text-align:center;border:1px solid #D0D5DD;vertical-align:top;font-family:Arial,sans-serif;background-color:#ffffff;">${esc(kpi.weight)}%</td>
             <td style="border:1px solid #D0D5DD;vertical-align:top;font-family:Arial,sans-serif;background-color:#ffffff;">${esc(kpi.target)}</td>
             <td style="border:1px solid #D0D5DD;vertical-align:top;font-family:Arial,sans-serif;background-color:#ffffff;">${esc(belowVal)}</td>
